@@ -169,7 +169,7 @@ body.compact-mode #subbarExpandContainer {
 
     header, #subbar, #subbarExpandContainer, #toastNotification, #zoomBadge, #selectionMenu,
     #pullPageIndicator, #libraryView, #newNotebookModal, #settingsModal,
-    #undoRedoContainer, #compactExitBtn {
+    #undoRedoContainer {
         display: none !important;
     }
 

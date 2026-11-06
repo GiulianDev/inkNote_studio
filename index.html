@@ -149,8 +149,8 @@
             </div>
         </div>
 
-        <!-- CENTRO: toolbar disegno unificata e compatta -->
-        <div class="flex-1 flex justify-center min-w-0 overflow-hidden">
+        <!-- CENTRO: toolbar disegno + bottone esci compact -->
+        <div class="flex-1 flex justify-center items-center min-w-0 overflow-hidden gap-2">
             <div id="drawingToolbar" class="flex items-center flex-nowrap bg-slate-100 dark:bg-slate-800 p-0.5 rounded-2xl border border-slate-300 dark:border-slate-700 gap-0.5 transition-all">
 
                 <button id="btnTool-pen" onclick="setTool('pen')" class="tool-btn px-2 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm shrink-0" title="Stilografica">🖊️<span class="hidden 2xl:inline ml-1">Stilografica</span></button>
@@ -188,6 +188,15 @@
                     <span id="strokeWidthValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-3 text-center tabular-nums">3</span>
                 </div>
             </div>
+
+            <!-- Bottone esci da compact mode (allineato alla toolbar) -->
+            <button id="compactExitBtn" onclick="toggleCompactMode()" 
+                class="hidden inline-flex items-center justify-center w-10 h-10 shrink-0 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl shadow-lg border-2 border-slate-300 dark:border-slate-600 transition-all active:scale-95" 
+                title="Esci modalità compatta">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 4l-6 6M4 20l6-6M10 4v6h6M14 20v-6H8"/>
+                </svg>
+            </button>
         </div>
 
         <div id="headerRight" class="relative z-10 flex items-center space-x-1 shrink-0">
@@ -202,14 +211,6 @@
             <button onclick="exportToPDF()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-2.5 py-1.5 rounded-xl shadow-md" title="Esporta PDF">📄<span class="hidden lg:inline ml-1">PDF</span></button>
         </div>
     </header>
-
-    <!-- BOTTONE USCITA MODALITÀ COMPATTA -->
-    <button id="compactExitBtn" onclick="toggleCompactMode()" class="hidden fixed top-20 right-4 z-50 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-xl shadow-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold items-center gap-1.5 transition hover:bg-slate-100 dark:hover:bg-slate-700">
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 4l-6 6M4 20l6-6M10 4v6h6M14 20v-6H8"/>
-        </svg>
-        <span class="hidden sm:inline">Esci</span>
-    </button>
 
     <!-- SUBBAR -->
     <div id="subbar" class="bg-slate-50 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 shrink-0 z-20 overflow-hidden transition-all duration-300">
