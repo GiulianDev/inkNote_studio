@@ -34,6 +34,7 @@ Voi avete già lazo e auto-forme, che è una base. I prossimi passi realistici:
 [x] Lasso → cambia colore/spessore a posteriori.
 
 [] Riconoscimento di gesture: scarabocchio = cancella, cerchio = seleziona. Sono euristiche geometriche, non ML, e valgono molto in usabilità.
+    - da testare sul tablet
 
 [] Il reflow del handwriting è molto più complesso: richiede segmentazione in parole/righe e un modello di layout. È un progetto a sé, non un “dettaglio”.
 
