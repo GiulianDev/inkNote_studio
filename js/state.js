@@ -13,6 +13,10 @@ let currentUser = null;
 let currentNotebook = null;
 let selectedCoverColor = '#4f46e5';
 
+// Stato UI toolbar
+let subbarVisible = true;
+let compactMode = false;
+
 const appState = {
     pages: [],
     activePageIndex: 0,

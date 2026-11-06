@@ -126,13 +126,39 @@ body.handed-left #zoomBadge {
     right: 1.5rem;
 }
 
+/* Chevron rotation per subbar toggle */
+#subbarToggleBtn.rotated svg {
+    transform: rotate(180deg);
+}
+
+/* ====== COMPACT MODE ====== */
+body.compact-mode #mainHeader {
+    background: transparent !important;
+    border-bottom-color: transparent !important;
+    box-shadow: none !important;
+    padding: 8px 12px;
+}
+body.compact-mode #headerLeft,
+body.compact-mode #headerRight,
+body.compact-mode #subbar {
+    display: none !important;
+}
+body.compact-mode #drawingToolbar {
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+body.compact-mode #viewport {
+    height: calc(100vh - 56px);
+}
+
 @media print {
     body.print-light { background: white !important; color: black !important; }
     body.print-dark  { background: #0F172A !important; color: #F8FAFC !important; }
 
     header, #subbar, #toastNotification, #zoomBadge, #selectionMenu,
     #pullPageIndicator, #libraryView, #newNotebookModal, #settingsModal,
-    #undoRedoContainer {
+    #undoRedoContainer, #compactExitBtn {
         display: none !important;
     }
 
