@@ -1,32 +1,24 @@
 // ============================================================
-// RENDERING CANVAS CON GESTIONE PRESSIONE
+// RENDERING CANVAS CON GESTIONE PRESSIONE + CURVE LISCE
 // ============================================================
 
 const SCRIBBLE_ERASE_COLOR = 'rgba(220, 38, 38, 0.6)';
 
-// Calcola la larghezza del tratto in base a strumento + pressione.
-// La curva non è lineare: più sensibile ai valori bassi, come una penna reale.
 function computeStrokeWidth(tool, baseSize, pressure) {
-
     const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
 
     if (tool === 'pen') {
-        // Curva non lineare: più sensibile ai valori bassi
         const curved = Math.pow(p, 0.55);
-        // Range 35% - 165% del size (come una stilografica)
         return baseSize * (0.35 + curved * 1.3);
     }
     if (tool === 'pencil') {
-        // Matita: variazione più contenuta (60% - 120%)
         const curved = Math.pow(p, 0.7);
         return baseSize * (0.6 + curved * 0.6);
     }
     if (tool === 'marker') {
-        // Pennarello: variazione minima (uniforme come un vero marker)
         return baseSize * (1.55 + p * 0.35);
     }
     if (tool === 'highlighter') {
-        // Evidenziatore: larghezza completamente uniforme
         return baseSize * 4.0;
     }
     return baseSize;
@@ -76,7 +68,7 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
             drawSelectionHandles(ctx, visualBBox);
         }
     }
-    
+
     // Scarabocchio in corso: disegna i segmenti in rosso semitrasparente
     if (appState.scribbleMode && appState.currentStroke && appState.currentStroke.points.length > 1) {
         const pts = appState.currentStroke.points;
@@ -98,9 +90,10 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
     ctx.restore();
 }
 
-// Prepara stile colore/compositing per lo stroke.
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
     if (appState.scribbleMode) {
         ctx.globalCompositeOperation = 'source-over';
@@ -108,9 +101,6 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
         ctx.fillStyle = SCRIBBLE_ERASE_COLOR;
         return;
     }
-
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
 
     if (stroke.tool === 'highlighter') {
         ctx.globalCompositeOperation = forceTargetDark ? 'screen' : 'multiply';
@@ -130,7 +120,6 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     }
 }
 
-// Disegna un segmento con larghezza variabile tra due punti.
 function drawTaperedSegment(ctx, p0, p1, w0, w1) {
     const dx = p1.x - p0.x;
     const dy = p1.y - p0.y;
@@ -163,22 +152,19 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
     ctx.fill();
 }
 
-function renderSegmentWithInterpolation(ctx, p0, p1, w0, w1, subSteps = 2) {
-    for (let s = 0; s < subSteps; s++) {
-        const t0 = s / subSteps;
-        const t1 = (s + 1) / subSteps;
-        const sp0 = {
-            x: p0.x + (p1.x - p0.x) * t0,
-            y: p0.y + (p1.y - p0.y) * t0
-        };
-        const sp1 = {
-            x: p0.x + (p1.x - p0.x) * t1,
-            y: p0.y + (p1.y - p0.y) * t1
-        };
-        const sw0 = w0 + (w1 - w0) * t0;
-        const sw1 = w0 + (w1 - w0) * t1;
-        drawTaperedSegment(ctx, sp0, sp1, sw0, sw1);
-    }
+// Interpolazione Catmull-Rom: calcola un punto sulla curva
+// che passa per p1 e p2, con p0 e p3 come controllo.
+function catmullRomPoint(p0, p1, p2, p3, t) {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return {
+        x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t +
+                  (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+                  (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t +
+                  (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+                  (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+    };
 }
 
 function renderFullStroke(ctx, stroke, forceTargetDark) {
@@ -192,10 +178,28 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
         widths[i] = computeStrokeWidth(stroke.tool, stroke.size, pts[i].pressure);
     }
 
-    const steps = pts.length > 200 ? 1 : (pts.length > 60 ? 2 : 3);
-
     for (let i = 1; i < pts.length; i++) {
-        renderSegmentWithInterpolation(ctx, pts[i - 1], pts[i], widths[i - 1], widths[i], steps);
+        const p0 = pts[i >= 2 ? i - 2 : 0];
+        const p1 = pts[i - 1];
+        const p2 = pts[i];
+        const p3 = pts[i + 1 < pts.length ? i + 1 : pts.length - 1];
+
+        const w1 = widths[i - 1];
+        const w2 = widths[i];
+
+        // Sub-step proporzionali alla lunghezza del segmento (curve morbide)
+        const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const steps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+
+        for (let s = 0; s < steps; s++) {
+            const t0 = s / steps;
+            const t1 = (s + 1) / steps;
+            const sp0 = catmullRomPoint(p0, p1, p2, p3, t0);
+            const sp1 = catmullRomPoint(p0, p1, p2, p3, t1);
+            const sw0 = w1 + (w2 - w1) * t0;
+            const sw1 = w1 + (w2 - w1) * t1;
+            drawTaperedSegment(ctx, sp0, sp1, sw0, sw1);
+        }
     }
 
     const lastW = Math.max(widths[widths.length - 1], 0.5);
@@ -206,20 +210,40 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
     ctx.restore();
 }
 
+// Disegno incrementale durante il gesto, con Catmull-Rom a lag 1.
+// Ogni segmento viene calcolato sulla curva liscia e disegnato una volta sola.
 function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const pts = stroke.points;
-    if (pts.length < 2) return;
+    const n = pts.length;
+    if (n < 3) return;
+
+    const i1 = n - 3;
+    const i2 = n - 2;
+
+    const p0 = pts[Math.max(0, i1 - 1)];
+    const p1 = pts[i1];
+    const p2 = pts[i2];
+    const p3 = pts[Math.min(n - 1, i2 + 1)];
 
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     setupStrokeStyle(ctx, stroke, appState.isDarkMode);
 
-    const p0 = pts[pts.length - 2];
-    const p1 = pts[pts.length - 1];
-    const w0 = computeStrokeWidth(stroke.tool, stroke.size, p0.pressure);
     const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure);
+    const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure);
 
-    drawTaperedSegment(ctx, p0, p1, w0, w1);
+    const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const steps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+
+    for (let s = 0; s < steps; s++) {
+        const t0 = s / steps;
+        const t1 = (s + 1) / steps;
+        const sp0 = catmullRomPoint(p0, p1, p2, p3, t0);
+        const sp1 = catmullRomPoint(p0, p1, p2, p3, t1);
+        const sw0 = w1 + (w2 - w1) * t0;
+        const sw1 = w1 + (w2 - w1) * t1;
+        drawTaperedSegment(ctx, sp0, sp1, sw0, sw1);
+    }
 
     ctx.restore();
 }
@@ -315,7 +339,6 @@ function drawPaperBackground(ctx, isDark) {
 }
 
 // Disegna solo 2 handle di resize: NW e SE.
-// Dimensioni in pixel schermo / scale: costanti visivamente allo zoom.
 function drawSelectionHandles(ctx, visualBBox) {
     const scale = transformState.scale;
     const handles = getHandlePositions(visualBBox);
@@ -335,16 +358,13 @@ function drawSelectionHandles(ctx, visualBBox) {
         ctx.stroke();
     });
 
-    // Badge live durante il resize: dimensioni e angolo
     if (appState.isResizingSelection) {
         const realBBox = getSelectionBoundingBox(false);
         const deg = Math.round(appState.resizeCurrentAngle * 180 / Math.PI);
         const dimLabel = realBBox
             ? `${Math.round(realBBox.width)} × ${Math.round(realBBox.height)} px`
             : '';
-        const label = deg !== 0
-            ? `${dimLabel}  ·  ${deg}°`
-            : dimLabel;
+        const label = deg !== 0 ? `${dimLabel}  ·  ${deg}°` : dimLabel;
         drawSelectionBadge(ctx, visualBBox, label);
     }
 

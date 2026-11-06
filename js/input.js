@@ -1,5 +1,5 @@
 // ============================================================
-// INPUT CANVAS (POINTER EVENTS + GOMMA + PRESSIONE)
+// INPUT CANVAS (POINTER EVENTS + GOMMA + PRESSIONE + SMOOTHING)
 // ============================================================
 
 function getCanvasCoords(e, canvas) {
@@ -18,16 +18,37 @@ function getCanvasCoords(e, canvas) {
     };
 }
 
+// Smussa la pressione con una media pesata degli ultimi punti.
 function smoothPressure(points, newPressure) {
     if (points.length === 0) return newPressure;
     const recent = points.slice(-3);
-    let sum = newPressure * 0.6;
-    for (const p of recent) sum += (p.pressure || 0.5) * 0.4 / recent.length * recent.length;
     const wNew = 0.6;
     const wOld = 0.4 / Math.max(1, recent.length);
     let acc = newPressure * wNew;
     for (const p of recent) acc += (p.pressure || 0.5) * wOld;
     return Math.max(0.05, Math.min(1, acc));
+}
+
+// Smoothing adattivo della posizione (one-euro semplificato):
+// - quando il tratto è lento → smoothing forte (rimuove il jitter)
+// - quando il tratto è veloce → smoothing leggero (zero lag percepibile)
+function smoothRawPoint(rawPoint, prevSmoothed) {
+    if (!prevSmoothed) {
+        return { x: rawPoint.x, y: rawPoint.y };
+    }
+    const dx = rawPoint.x - prevSmoothed.x;
+    const dy = rawPoint.y - prevSmoothed.y;
+    const speed = Math.hypot(dx, dy);
+
+    // Velocità tipica del tratto: 0-20 px/evento
+    // Lento (< 2): alpha 0.4 → smoothing deciso
+    // Veloce (> 10): alpha 0.85 → quasi nessun lag
+    const alpha = Math.min(0.85, Math.max(0.4, 0.4 + speed * 0.05));
+
+    return {
+        x: prevSmoothed.x + dx * alpha,
+        y: prevSmoothed.y + dy * alpha
+    };
 }
 
 function attachPointerListeners(pageData) {
@@ -47,7 +68,6 @@ function handlePointerDown(e, pageData) {
 
     if (appState.pendingShape) finalizePendingShape();
 
-    // Reset stato scribble ad ogni nuovo pointerdown
     appState.scribbleMode = false;
     appState.scribbleTargets = [];
 
@@ -67,13 +87,11 @@ function handlePointerDown(e, pageData) {
     if (appState.activeTool === 'lasso') {
         const visualBBox = getVisualBoundingBox();
         if (visualBBox) {
-            // 1) Click su un handle (NW o SE) → resize con rotazione
             const handle = hitTestHandle(point, visualBBox);
             if (handle) {
                 startResizeSelection(handle, point);
                 return;
             }
-            // 2) Click dentro il bbox → drag (sposta)
             if (isPointInBBox(point, visualBBox)) {
                 appState.isDraggingSelection = true;
                 appState.dragStartPoint = point;
@@ -83,7 +101,6 @@ function handlePointerDown(e, pageData) {
                 return;
             }
         }
-        // 3) Altrimenti nuovo lazo
         clearSelection();
         appState.isDrawing = true;
         appState.lassoPath = [point];
@@ -112,7 +129,6 @@ function handlePointerMove(e, pageData) {
     if (palmCheck && e.pointerType !== 'pen') return;
     if (isPanning || isPinching) return;
 
-    // Cursore in hover (solo mouse/stylus) quando non stiamo disegnando
     if (!appState.isDrawing && appState.activeTool === 'lasso' && e.pointerType !== 'touch') {
         updateCursorForSelection(e, pageData);
     }
@@ -120,27 +136,27 @@ function handlePointerMove(e, pageData) {
     if (!appState.isDrawing) return;
     if (e.pointerId !== appState.currentPointerId) return;
 
-    const point = getCanvasCoords(e, pageData.canvas);
+    const rawPoint = getCanvasCoords(e, pageData.canvas);
 
     if (appState.pendingShape) {
         const ps = appState.pendingShape;
         if (ps.activeHandle === 'end') {
-            ps.end = { x: point.x, y: point.y, pressure: 0.5 };
+            ps.end = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
         } else {
-            ps.start = { x: point.x, y: point.y, pressure: 0.5 };
+            ps.start = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
         }
         redrawPageCanvas(pageData);
         return;
     }
 
     if (appState.isResizingSelection) {
-        applyResizeSelection(point);
+        applyResizeSelection(rawPoint);
         return;
     }
 
     if (appState.isDraggingSelection && appState.dragStartPoint) {
-        const dx = point.x - appState.dragStartPoint.x;
-        const dy = point.y - appState.dragStartPoint.y;
+        const dx = rawPoint.x - appState.dragStartPoint.x;
+        const dy = rawPoint.y - appState.dragStartPoint.y;
         if (dx !== 0 || dy !== 0) {
             appState.selectionMoved = true;
             appState.selectedStrokes.forEach(stroke => {
@@ -149,39 +165,57 @@ function handlePointerMove(e, pageData) {
             redrawPageCanvas(pageData);
             updateSelectionMenuPosition();
         }
-        appState.dragStartPoint = point;
+        appState.dragStartPoint = rawPoint;
         return;
     }
 
     if (appState.activeTool === 'lasso') {
-        appState.lassoPath.push(point);
+        appState.lassoPath.push(rawPoint);
         redrawPageCanvas(pageData);
         return;
     }
 
     if (appState.activeTool === 'eraser') {
-        performEraserAt(pageData, point);
+        performEraserAt(pageData, rawPoint);
         return;
     }
 
     if (!appState.currentStroke) return;
 
-    if (point.pointerType === 'pen' && appState.currentStroke.points.length > 0) {
-        point.pressure = smoothPressure(appState.currentStroke.points, point.pressure);
+    // === SMOOTHING IN ACQUISIZIONE ===
+    // 1. Posizione: filtro adattivo che rimuove jitter senza lag percepibile
+    const prevSmoothed = appState.currentStroke.points[appState.currentStroke.points.length - 1];
+    const smoothedPos = smoothRawPoint(rawPoint, prevSmoothed);
+
+    // 2. Pressione: smoothing pesato sui punti precedenti
+    let smoothedPressure = rawPoint.pressure;
+    if (rawPoint.pointerType === 'pen' && appState.currentStroke.points.length > 0) {
+        smoothedPressure = smoothPressure(appState.currentStroke.points, rawPoint.pressure);
     }
 
-    appState.currentStroke.points.push(point);
+    // Scarta punti quasi identici al precedente (risparmio memoria + rendering)
+    const minDist = 0.4;
+    if (prevSmoothed && Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) < minDist) {
+        return;
+    }
+
+    const smoothedPoint = {
+        x: smoothedPos.x,
+        y: smoothedPos.y,
+        pressure: smoothedPressure,
+        pointerType: rawPoint.pointerType
+    };
+
+    appState.currentStroke.points.push(smoothedPoint);
     drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
 
-    // Riconoscimento scarabocchio (solo se non già attivo)
     checkForScribble(pageData);
 
-    // Snap a linea: skip se siamo in modalità scarabocchio
     if (!appState.scribbleMode &&
         appState.autoShapeEnabled &&
         SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
         appState.currentStroke.points.length >= 6) {
-        trySnapToLineDuringDraw(pageData, point);
+        trySnapToLineDuringDraw(pageData, rawPoint);
     }
 }
 
@@ -201,7 +235,6 @@ function handlePointerUp(e, pageData) {
 
     try { pageData.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
 
-    // Scribble-to-erase: se attivo, gestisce e scarta lo stroke
     if (appState.scribbleMode) {
         finalizeScribble(pageData);
         appState.isDrawing = false;
@@ -295,10 +328,6 @@ function performEraserAt(pageData, point) {
         pushHistory();
     }
 }
-
-// ------------------------------------------------------------
-// CURSORE CONTESTUALE
-// ------------------------------------------------------------
 
 function updateCursorForSelection(e, pageData) {
     if (appState.activeTool !== 'lasso' || appState.selectedStrokes.length === 0) {
