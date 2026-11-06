@@ -59,26 +59,25 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
     }
 
     if (appState.selectedStrokes.length > 0) {
-        const bbox = getSelectionBoundingBox();
-        if (bbox) {
+        const visualBBox = getVisualBoundingBox();
+        if (visualBBox) {
             const scale = transformState.scale;
             ctx.save();
             ctx.strokeStyle = '#3b82f6';
             ctx.lineWidth = 2 / scale;
             ctx.setLineDash([6 / scale, 6 / scale]);
-            ctx.strokeRect(bbox.minX, bbox.minY, bbox.width, bbox.height);
+            ctx.strokeRect(visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height);
             ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
-            ctx.fillRect(bbox.minX, bbox.minY, bbox.width, bbox.height);
+            ctx.fillRect(visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height);
             ctx.restore();
-            drawSelectionHandles(ctx, bbox);
+            drawSelectionHandles(ctx, visualBBox);
         }
     }
+    
     ctx.restore();
 }
 
 // Prepara stile colore/compositing per lo stroke.
-// NOTA: usa sia strokeStyle che fillStyle, perché il rendering tapered
-// disegna trapezi riempiti (fill) + cerchi ai giunti.
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     ctx.save();
     ctx.lineCap = 'round';
@@ -103,13 +102,11 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
 }
 
 // Disegna un segmento con larghezza variabile tra due punti.
-// Usa fill (trapezio) invece di stroke con lineWidth, per una transizione fluida.
 function drawTaperedSegment(ctx, p0, p1, w0, w1) {
     const dx = p1.x - p0.x;
     const dy = p1.y - p0.y;
     const len = Math.hypot(dx, dy);
 
-    // Punti coincidenti: disegna un cerchio alla media delle larghezze
     if (len < 0.01) {
         const w = Math.max((w0 + w1) / 2, 0.5);
         ctx.beginPath();
@@ -118,14 +115,12 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
         return;
     }
 
-    // Vettore normale al segmento
     const nx = -dy / len;
     const ny = dx / len;
 
     const hw0 = Math.max(w0, 0.5) / 2;
     const hw1 = Math.max(w1, 0.5) / 2;
 
-    // Trapezio: 4 vertici
     ctx.beginPath();
     ctx.moveTo(p0.x + nx * hw0, p0.y + ny * hw0);
     ctx.lineTo(p1.x + nx * hw1, p1.y + ny * hw1);
@@ -134,15 +129,11 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
     ctx.closePath();
     ctx.fill();
 
-    // Cerchio al giunto iniziale: copre il gap tra questo trapezio
-    // e il precedente (dove le larghezze non combaciano perfettamente)
     ctx.beginPath();
     ctx.arc(p0.x, p0.y, hw0, 0, Math.PI * 2);
     ctx.fill();
 }
 
-// Interpola tra due punti per rendere più fluido il cambio di pressione.
-// Genera N sub-punti con pressione interpolata linearmente.
 function renderSegmentWithInterpolation(ctx, p0, p1, w0, w1, subSteps = 2) {
     for (let s = 0; s < subSteps; s++) {
         const t0 = s / subSteps;
@@ -167,20 +158,17 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
 
     setupStrokeStyle(ctx, stroke, forceTargetDark);
 
-    // Pre-calcola le larghezze
     const widths = new Array(pts.length);
     for (let i = 0; i < pts.length; i++) {
         widths[i] = computeStrokeWidth(stroke.tool, stroke.size, pts[i].pressure);
     }
 
-    // Sceglie quanti sub-step di interpolazione usare (più punti = meno necessari)
     const steps = pts.length > 200 ? 1 : (pts.length > 60 ? 2 : 3);
 
     for (let i = 1; i < pts.length; i++) {
         renderSegmentWithInterpolation(ctx, pts[i - 1], pts[i], widths[i - 1], widths[i], steps);
     }
 
-    // Cerchio finale arrotondato
     const lastW = Math.max(widths[widths.length - 1], 0.5);
     ctx.beginPath();
     ctx.arc(pts[pts.length - 1].x, pts[pts.length - 1].y, lastW / 2, 0, Math.PI * 2);
@@ -189,7 +177,6 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
     ctx.restore();
 }
 
-// Disegno incrementale: solo l'ultimo segmento (performance durante il disegno)
 function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const pts = stroke.points;
     if (pts.length < 2) return;
@@ -203,7 +190,6 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const w0 = computeStrokeWidth(stroke.tool, stroke.size, p0.pressure);
     const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure);
 
-    // Durante il disegno niente interpolazione (già fluido perché i punti sono ravvicinati)
     drawTaperedSegment(ctx, p0, p1, w0, w1);
 
     ctx.restore();
@@ -222,7 +208,6 @@ function drawPendingShape(ctx, forceTargetDark) {
     ctx.globalCompositeOperation = 'source-over';
     ctx.strokeStyle = effectiveColor;
 
-    // Forme geometriche: larghezza fissa (pressione 0.5 = medio)
     const lineW = computeStrokeWidth(ps.tool, ps.size, 0.5);
     ctx.lineWidth = lineW;
 
@@ -231,7 +216,6 @@ function drawPendingShape(ctx, forceTargetDark) {
     ctx.lineTo(endPt.x, endPt.y);
     ctx.stroke();
 
-    // Maniglie
     const handleRadius = 8;
     [startPt, endPt].forEach(pt => {
         ctx.beginPath();
@@ -243,7 +227,6 @@ function drawPendingShape(ctx, forceTargetDark) {
         ctx.stroke();
     });
 
-    // Badge lunghezza/angolo
     const midX = (startPt.x + endPt.x) / 2;
     const midY = (startPt.y + endPt.y) / 2;
     const len = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
@@ -302,30 +285,17 @@ function drawPaperBackground(ctx, isDark) {
     ctx.restore();
 }
 
-// Disegna gli handle di resize (quadrati) e rotate (cerchio sopra il bbox).
-// Tutte le dimensioni sono in pixel schermo / scale: costanti visivamente.
-function drawSelectionHandles(ctx, bbox) {
+// Disegna solo 2 handle di resize: NW e SE.
+// Dimensioni in pixel schermo / scale: costanti visivamente allo zoom.
+function drawSelectionHandles(ctx, visualBBox) {
     const scale = transformState.scale;
-    const handleSize = 10 / scale;
+    const handles = getHandlePositions(visualBBox);
+    const handleSize = 12 / scale;
     const halfHandle = handleSize / 2;
-
-    const handles = getHandlePositions(bbox);
-    const topCenter = handles.n;
-    const rotatePos = handles.rotate;
 
     ctx.save();
 
-    // Linea di connessione al rotate handle
-    ctx.strokeStyle = '#3b82f6';
-    ctx.lineWidth = 1.5 / scale;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(topCenter.x, topCenter.y);
-    ctx.lineTo(rotatePos.x, rotatePos.y);
-    ctx.stroke();
-
-    // 8 handle quadrati
-    ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(name => {
+    ['nw', 'se'].forEach(name => {
         const p = handles[name];
         ctx.fillStyle = '#FFFFFF';
         ctx.strokeStyle = '#3b82f6';
@@ -336,32 +306,45 @@ function drawSelectionHandles(ctx, bbox) {
         ctx.stroke();
     });
 
-    // Rotate handle (cerchio con freccia circolare)
-    const r = handleSize * 0.65;
-    ctx.fillStyle = '#FFFFFF';
-    ctx.strokeStyle = '#3b82f6';
-    ctx.lineWidth = 2 / scale;
-    ctx.beginPath();
-    ctx.arc(rotatePos.x, rotatePos.y, r, 0, Math.PI * 2);
+    // Badge live durante il resize: dimensioni e angolo
+    if (appState.isResizingSelection) {
+        const realBBox = getSelectionBoundingBox(false);
+        const deg = Math.round(appState.resizeCurrentAngle * 180 / Math.PI);
+        const dimLabel = realBBox
+            ? `${Math.round(realBBox.width)} × ${Math.round(realBBox.height)} px`
+            : '';
+        const label = deg !== 0
+            ? `${dimLabel}  ·  ${deg}°`
+            : dimLabel;
+        drawSelectionBadge(ctx, visualBBox, label);
+    }
+
+    ctx.restore();
+}
+
+function drawSelectionBadge(ctx, bbox, label) {
+    if (!label) return;
+    const scale = transformState.scale;
+    const midX = bbox.minX + bbox.width / 2;
+    const by = bbox.minY - 34 / scale;
+
+    ctx.save();
+    ctx.font = `600 ${13 / scale}px Inter, sans-serif`;
+    const textW = ctx.measureText(label).width;
+    const padX = 8 / scale;
+    const badgeW = textW + padX * 2;
+    const badgeH = 22 / scale;
+
+    ctx.fillStyle = 'rgba(59, 130, 246, 0.95)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = 1.5 / scale;
+    roundRect(ctx, midX - badgeW / 2, by, badgeW, badgeH, 11 / scale);
     ctx.fill();
     ctx.stroke();
 
-    // Piccola icona di rotazione dentro il cerchio
-    ctx.strokeStyle = '#3b82f6';
-    ctx.lineWidth = 1.5 / scale;
-    ctx.beginPath();
-    ctx.arc(rotatePos.x, rotatePos.y, r * 0.55, Math.PI * 0.15, Math.PI * 1.6);
-    ctx.stroke();
-    // Freccia della rotazione
-    const arrowAngle = Math.PI * 1.6;
-    const ax = rotatePos.x + Math.cos(arrowAngle) * r * 0.55;
-    const ay = rotatePos.y + Math.sin(arrowAngle) * r * 0.55;
-    const arrowSize = 3 / scale;
-    ctx.beginPath();
-    ctx.moveTo(ax - arrowSize, ay - arrowSize * 0.3);
-    ctx.lineTo(ax, ay);
-    ctx.lineTo(ax + arrowSize * 0.3, ay - arrowSize);
-    ctx.stroke();
-
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, midX, by + badgeH / 2 + 0.5 / scale);
     ctx.restore();
 }

@@ -1,5 +1,5 @@
 // ============================================================
-// LAZO, SELEZIONE, RESIZE, ROTATE, COLOR, WIDTH
+// LAZO, SELEZIONE, RESIZE (similarità con pivot), COLOR, WIDTH
 // ============================================================
 
 function selectStrokesInsideLasso(pageData) {
@@ -28,9 +28,10 @@ function isPointInPolygon(point, vs) {
     return inside;
 }
 
-// Bounding box degli stroke selezionati. Il pad (default) è in pixel
-// schermo (12 / scale) così da essere visivamente costante allo zoom.
-// Per i calcoli geometrici di resize passiamo includePad = false.
+// ------------------------------------------------------------
+// BOUNDING BOX (reale + visivo)
+// ------------------------------------------------------------
+
 function getSelectionBoundingBox(includePad = true) {
     if (appState.selectedStrokes.length === 0) return null;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -49,39 +50,55 @@ function getSelectionBoundingBox(includePad = true) {
     };
 }
 
+// BBox visivo: dimensione minima 40px schermo per essere cliccabile.
+// Centrato sul bbox reale.
+function getVisualBoundingBox() {
+    const real = getSelectionBoundingBox(false);
+    if (!real) return null;
+    const minSize = 40 / transformState.scale;
+    const cx = (real.minX + real.maxX) / 2;
+    const cy = (real.minY + real.maxY) / 2;
+    let { minX, maxX, minY, maxY } = real;
+
+    if (real.width < minSize) {
+        minX = cx - minSize / 2;
+        maxX = cx + minSize / 2;
+    }
+    if (real.height < minSize) {
+        minY = cy - minSize / 2;
+        maxY = cy + minSize / 2;
+    }
+    return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+// Solo NW e SE (come Google Slides).
+function getVisibleHandles() {
+    return ['nw', 'se'];
+}
+
 function isPointInsideSelectionBoundingBox(pt) {
     const bbox = getSelectionBoundingBox();
     if (!bbox) return false;
     return pt.x >= bbox.minX && pt.x <= bbox.maxX && pt.y >= bbox.minY && pt.y <= bbox.maxY;
 }
 
-// Posizioni degli handle in coordinate canvas.
-// Le distanze (es. offset rotate) sono in pixel schermo / scale,
-// così restano visivamente costanti indipendentemente dallo zoom.
+function isPointInBBox(pt, bbox) {
+    if (!bbox) return false;
+    return pt.x >= bbox.minX && pt.x <= bbox.maxX && pt.y >= bbox.minY && pt.y <= bbox.maxY;
+}
+
 function getHandlePositions(bbox) {
-    const cx = bbox.minX + bbox.width / 2;
-    const cy = bbox.minY + bbox.height / 2;
-    const rotOffset = 30 / transformState.scale;
     return {
         nw: { x: bbox.minX, y: bbox.minY },
-        n:  { x: cx, y: bbox.minY },
-        ne: { x: bbox.maxX, y: bbox.minY },
-        e:  { x: bbox.maxX, y: cy },
-        se: { x: bbox.maxX, y: bbox.maxY },
-        s:  { x: cx, y: bbox.maxY },
-        sw: { x: bbox.minX, y: bbox.maxY },
-        w:  { x: bbox.minX, y: cy },
-        rotate: { x: cx, y: bbox.minY - rotOffset }
+        se: { x: bbox.maxX, y: bbox.maxY }
     };
 }
 
-// Hit test: restituisce il nome dell'handle sotto il punto, o null.
-// L'area di click è più generosa dell'handle visivo (14px vs 10px).
-function hitTestHandle(point, bbox) {
-    if (!bbox) return null;
-    const hitRadius = 14 / transformState.scale;
-    const handles = getHandlePositions(bbox);
-    for (const name in handles) {
+function hitTestHandle(point, visualBBox) {
+    if (!visualBBox) return null;
+    const handles = getHandlePositions(visualBBox);
+    const hitRadius = 16 / transformState.scale;
+    for (const name of ['nw', 'se']) {
         const h = handles[name];
         if (Math.hypot(point.x - h.x, point.y - h.y) < hitRadius) {
             return name;
@@ -90,20 +107,41 @@ function hitTestHandle(point, bbox) {
     return null;
 }
 
+// Trova il punto del contenuto selezionato più vicino a una coordinata.
+// Per un segmento questo restituisce naturalmente l'endpoint più vicino.
+function findClosestPointInSelection(target) {
+    let closest = null;
+    let minDist = Infinity;
+    appState.selectedStrokes.forEach(stroke => {
+        stroke.points.forEach(p => {
+            const d = Math.hypot(p.x - target.x, p.y - target.y);
+            if (d < minDist) {
+                minDist = d;
+                closest = { x: p.x, y: p.y };
+            }
+        });
+    });
+    return closest;
+}
+
 function clearSelection() {
     appState.selectedStrokes = [];
     appState.isDraggingSelection = false;
     appState.isResizingSelection = false;
-    appState.isRotatingSelection = false;
-    appState.initialBBox = null;
+    appState.resizePivot = null;
+    appState.resizeAnchor = null;
+    appState.resizeOffset = null;
     appState.initialStrokesSnapshot = null;
     hideSelectionMenu();
     const currentPage = appState.pages[appState.activePageIndex];
-    if (currentPage) redrawPageCanvas(currentPage);
+    if (currentPage) {
+        currentPage.canvas.style.cursor = 'crosshair';
+        redrawPageCanvas(currentPage);
+    }
 }
 
 // ------------------------------------------------------------
-// RESIZE
+// RESIZE (similarità: pivot fisso, anchor→target)
 // ------------------------------------------------------------
 
 function snapshotSelectedStrokes() {
@@ -116,101 +154,77 @@ function snapshotSelectedStrokes() {
 }
 
 function startResizeSelection(handle, startPoint) {
-    // BBox senza pad: il calcolo geometrico lavora sui limiti reali degli stroke
-    const bbox = getSelectionBoundingBox(false);
-    if (!bbox) return;
+    const visualBBox = getVisualBoundingBox();
+    if (!visualBBox) return;
+
+    const handles = getHandlePositions(visualBBox);
+    const oppositeHandle = handle === 'nw' ? 'se' : 'nw';
+    const oppositeCorner = handles[oppositeHandle];
+    const draggedCorner = handles[handle];
+
+    // Pivot = punto del contenuto più vicino all'angolo opposto (rimane fisso)
+    const pivot = findClosestPointInSelection(oppositeCorner);
+    // Anchor = punto del contenuto più vicino all'angolo trascinato (segue il puntatore)
+    const anchor = findClosestPointInSelection(draggedCorner);
+    if (!pivot || !anchor) return;
+
+    const baseDist = Math.hypot(anchor.x - pivot.x, anchor.y - pivot.y);
+    if (baseDist < 1 / transformState.scale) {
+        showToast('Selezione troppo piccola per ridimensionare', '⚠️');
+        return;
+    }
+
+    // Offset iniziale: evita che il contenuto "salti" al primo movimento
+    const offset = {
+        x: startPoint.x - anchor.x,
+        y: startPoint.y - anchor.y
+    };
 
     appState.isResizingSelection = true;
     appState.isDrawing = true;
     appState.resizeHandle = handle;
-    appState.dragStartPoint = startPoint;
-    appState.initialBBox = { ...bbox };
+    appState.resizePivot = { x: pivot.x, y: pivot.y };
+    appState.resizeAnchor = { x: anchor.x, y: anchor.y };
+    appState.resizeOffset = offset;
+    appState.resizeBaseDist = baseDist;
+    appState.resizeBaseAngle = Math.atan2(anchor.y - pivot.y, anchor.x - pivot.x);
+    appState.resizeCurrentAngle = 0;
     appState.initialStrokesSnapshot = snapshotSelectedStrokes();
     appState.selectionMoved = false;
+
+    const currentPage = appState.pages[appState.activePageIndex];
+    if (currentPage) currentPage.canvas.style.cursor = 'nwse-resize';
 }
 
 function applyResizeSelection(point) {
-    if (!appState.isResizingSelection || !appState.initialBBox) return;
+    if (!appState.isResizingSelection || !appState.resizePivot) return;
 
-    const bbox0 = appState.initialBBox;
-    const start = appState.dragStartPoint;
-    const dx = point.x - start.x;
-    const dy = point.y - start.y;
-    const handle = appState.resizeHandle;
+    const pivot = appState.resizePivot;
+    const offset = appState.resizeOffset || { x: 0, y: 0 };
+    // Target = puntatore compensato dell'offset iniziale.
+    // Così al primo frame target coincide con anchor → nessun salto.
+    const target = { x: point.x - offset.x, y: point.y - offset.y };
 
-    let newMinX = bbox0.minX;
-    let newMaxX = bbox0.maxX;
-    let newMinY = bbox0.minY;
-    let newMaxY = bbox0.maxY;
+    const dx = target.x - pivot.x;
+    const dy = target.y - pivot.y;
+    const dist = Math.hypot(dx, dy);
 
-    if (handle.includes('w')) newMinX = bbox0.minX + dx;
-    if (handle.includes('e')) newMaxX = bbox0.maxX + dx;
-    if (handle.includes('n')) newMinY = bbox0.minY + dy;
-    if (handle.includes('s')) newMaxY = bbox0.maxY + dy;
+    // Sotto la soglia minima non aggiorniamo (evita collasso a scala 0)
+    if (dist < 2 / transformState.scale) return;
 
-    // Evita bbox collassato o invertito (minimo 20px schermo)
-    const minSize = 20 / transformState.scale;
-    if (newMaxX - newMinX < minSize) {
-        if (handle.includes('w')) newMinX = newMaxX - minSize;
-        else newMaxX = newMinX + minSize;
-    }
-    if (newMaxY - newMinY < minSize) {
-        if (handle.includes('n')) newMinY = newMaxY - minSize;
-        else newMaxY = newMinY + minSize;
-    }
+    const angle = Math.atan2(dy, dx);
+    const scale = dist / appState.resizeBaseDist;
+    const deltaAngle = angle - appState.resizeBaseAngle;
 
-    const scaleX = (newMaxX - newMinX) / bbox0.width;
-    const scaleY = (newMaxY - newMinY) / bbox0.height;
-
-    appState.selectedStrokes.forEach((stroke, i) => {
-        const snap = appState.initialStrokesSnapshot[i];
-        stroke.points = snap.points.map(p => ({
-            x: newMinX + (p.x - bbox0.minX) * scaleX,
-            y: newMinY + (p.y - bbox0.minY) * scaleY,
-            pressure: p.pressure
-        }));
-    });
-
-    appState.selectionMoved = true;
-    const currentPage = appState.pages[appState.activePageIndex];
-    if (currentPage) redrawPageCanvas(currentPage);
-    updateSelectionMenuPosition();
-}
-
-// ------------------------------------------------------------
-// ROTATE
-// ------------------------------------------------------------
-
-function startRotateSelection(startPoint) {
-    const bbox = getSelectionBoundingBox(false);
-    if (!bbox) return;
-
-    const cx = bbox.minX + bbox.width / 2;
-    const cy = bbox.minY + bbox.height / 2;
-
-    appState.isRotatingSelection = true;
-    appState.isDrawing = true;
-    appState.rotateCenter = { x: cx, y: cy };
-    appState.rotateStartAngle = Math.atan2(startPoint.y - cy, startPoint.x - cx);
-    appState.initialStrokesSnapshot = snapshotSelectedStrokes();
-    appState.selectionMoved = false;
-}
-
-function applyRotateSelection(point) {
-    if (!appState.isRotatingSelection || !appState.rotateCenter) return;
-
-    const { x: cx, y: cy } = appState.rotateCenter;
-    const currentAngle = Math.atan2(point.y - cy, point.x - cx);
-    const deltaAngle = currentAngle - appState.rotateStartAngle;
-
-    // Snap morbido a 0°, 45°, 90°, ... entro 3°
-    const snapThreshold = Math.PI / 60;
-    let effectiveAngle = deltaAngle;
-    const quarterTurn = Math.PI / 4;
+    // Snap morbido a 0°, 90°, 180°, 270° (utile per raddrizzare)
+    const snapThreshold = Math.PI / 90;
+    const quarterTurn = Math.PI / 2;
     const nearest = Math.round(deltaAngle / quarterTurn) * quarterTurn;
+    let effectiveAngle = deltaAngle;
     if (Math.abs(deltaAngle - nearest) < snapThreshold) {
         effectiveAngle = nearest;
     }
+    appState.resizeCurrentAngle = effectiveAngle;
 
     const cos = Math.cos(effectiveAngle);
     const sin = Math.sin(effectiveAngle);
@@ -218,11 +232,11 @@ function applyRotateSelection(point) {
     appState.selectedStrokes.forEach((stroke, i) => {
         const snap = appState.initialStrokesSnapshot[i];
         stroke.points = snap.points.map(p => {
-            const px = p.x - cx;
-            const py = p.y - cy;
+            const px = p.x - pivot.x;
+            const py = p.y - pivot.y;
             return {
-                x: cx + px * cos - py * sin,
-                y: cy + px * sin + py * cos,
+                x: pivot.x + (px * cos - py * sin) * scale,
+                y: pivot.y + (px * sin + py * cos) * scale,
                 pressure: p.pressure
             };
         });
@@ -235,7 +249,7 @@ function applyRotateSelection(point) {
 }
 
 // ------------------------------------------------------------
-// COLOR / WIDTH (modifica bulk)
+// COLOR / WIDTH
 // ------------------------------------------------------------
 
 function changeSelectionColor(newColor) {
@@ -305,14 +319,13 @@ function hideSelectionMenu() {
 function updateSelectionMenuPosition() {
     const menu = document.getElementById('selectionMenu');
     if (menu.classList.contains('hidden')) return;
-    const bbox = getSelectionBoundingBox();
+    const bbox = getVisualBoundingBox();
     const currentPage = appState.pages[appState.activePageIndex];
     if (!bbox || !currentPage) return;
     const rect = currentPage.canvas.getBoundingClientRect();
     const scaleRatio = rect.width / PAGE_WIDTH;
     const screenX = rect.left + (bbox.minX + bbox.width / 2) * scaleRatio;
     const screenY = rect.top + bbox.minY * scaleRatio - 60;
-    // Menu più largo: clampa per non uscire dal viewport
     const menuWidth = menu.offsetWidth || 320;
     menu.style.left = `${Math.max(20, Math.min(window.innerWidth - menuWidth - 20, screenX - menuWidth / 2))}px`;
     menu.style.top = `${Math.max(60, screenY)}px`;

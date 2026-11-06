@@ -2,9 +2,6 @@
 // INPUT CANVAS (POINTER EVENTS + GOMMA + PRESSIONE)
 // ============================================================
 
-// Estrae coordinate + pressione dal pointer event.
-// - Penna reale: usa e.pressure (0-1)
-// - Mouse/touch: 0.5 fisso
 function getCanvasCoords(e, canvas) {
     const rect = canvas.getBoundingClientRect();
 
@@ -21,7 +18,6 @@ function getCanvasCoords(e, canvas) {
     };
 }
 
-// Smussa la pressione con una media pesata degli ultimi punti.
 function smoothPressure(points, newPressure) {
     if (points.length === 0) return newPressure;
     const recent = points.slice(-3);
@@ -65,23 +61,21 @@ function handlePointerDown(e, pageData) {
     }
 
     if (appState.activeTool === 'lasso') {
-        const bbox = getSelectionBoundingBox();
-        if (bbox) {
-            // 1) Click su un handle → resize/rotate
-            const handle = hitTestHandle(point, bbox);
-            if (handle === 'rotate') {
-                startRotateSelection(point);
-                return;
-            } else if (handle) {
+        const visualBBox = getVisualBoundingBox();
+        if (visualBBox) {
+            // 1) Click su un handle (NW o SE) → resize con rotazione
+            const handle = hitTestHandle(point, visualBBox);
+            if (handle) {
                 startResizeSelection(handle, point);
                 return;
             }
             // 2) Click dentro il bbox → drag (sposta)
-            if (isPointInsideSelectionBoundingBox(point)) {
+            if (isPointInBBox(point, visualBBox)) {
                 appState.isDraggingSelection = true;
                 appState.dragStartPoint = point;
                 appState.isDrawing = true;
                 appState.selectionMoved = false;
+                pageData.canvas.style.cursor = 'grabbing';
                 return;
             }
         }
@@ -113,12 +107,17 @@ function handlePointerMove(e, pageData) {
     const palmCheck = document.getElementById('palmRejectionCheck').checked;
     if (palmCheck && e.pointerType !== 'pen') return;
     if (isPanning || isPinching) return;
+
+    // Cursore in hover (solo mouse/stylus) quando non stiamo disegnando
+    if (!appState.isDrawing && appState.activeTool === 'lasso' && e.pointerType !== 'touch') {
+        updateCursorForSelection(e, pageData);
+    }
+
     if (!appState.isDrawing) return;
     if (e.pointerId !== appState.currentPointerId) return;
 
     const point = getCanvasCoords(e, pageData.canvas);
 
-    // Pending shape: aggiusto la linea tenendo premuto
     if (appState.pendingShape) {
         const ps = appState.pendingShape;
         if (ps.activeHandle === 'end') {
@@ -132,11 +131,6 @@ function handlePointerMove(e, pageData) {
 
     if (appState.isResizingSelection) {
         applyResizeSelection(point);
-        return;
-    }
-
-    if (appState.isRotatingSelection) {
-        applyRotateSelection(point);
         return;
     }
 
@@ -175,8 +169,6 @@ function handlePointerMove(e, pageData) {
     appState.currentStroke.points.push(point);
     drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
 
-    // Gate di performance: evita la chiamata ad ogni pointermove finché
-    // non ci sono abbastanza punti per un potenziale snap.
     if (appState.autoShapeEnabled &&
         SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
         appState.currentStroke.points.length >= 6) {
@@ -204,28 +196,16 @@ function handlePointerUp(e, pageData) {
         const wasMoved = appState.selectionMoved;
         appState.isResizingSelection = false;
         appState.resizeHandle = null;
-        appState.initialBBox = null;
+        appState.resizePivot = null;
+        appState.resizeAnchor = null;
+        appState.resizeOffset = null;
+        appState.resizeCurrentAngle = 0;
         appState.initialStrokesSnapshot = null;
         appState.selectionMoved = false;
         appState.isDrawing = false;
         appState.currentPointerId = null;
         appState.currentPageForPointer = null;
-        if (wasMoved) {
-            pushHistory();
-            autoSaveTrigger();
-        }
-        return;
-    }
-
-    if (appState.isRotatingSelection) {
-        const wasMoved = appState.selectionMoved;
-        appState.isRotatingSelection = false;
-        appState.rotateCenter = null;
-        appState.initialStrokesSnapshot = null;
-        appState.selectionMoved = false;
-        appState.isDrawing = false;
-        appState.currentPointerId = null;
-        appState.currentPageForPointer = null;
+        pageData.canvas.style.cursor = 'crosshair';
         if (wasMoved) {
             pushHistory();
             autoSaveTrigger();
@@ -241,6 +221,7 @@ function handlePointerUp(e, pageData) {
         appState.isDrawing = false;
         appState.currentPointerId = null;
         appState.currentPageForPointer = null;
+        pageData.canvas.style.cursor = 'crosshair';
         if (wasMoved) pushHistory();
         autoSaveTrigger();
         return;
@@ -261,7 +242,6 @@ function handlePointerUp(e, pageData) {
     }
 
     if (appState.currentStroke && appState.currentStroke.points.length > 2) {
-        // Forme chiuse (cerchio/rettangolo) riconosciute a fine tratto
         if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
             detectAndSnapShape(appState.currentStroke, pageData);
         }
@@ -294,5 +274,27 @@ function performEraserAt(pageData, point) {
         redrawPageCanvas(pageData);
         autoSaveTrigger();
         pushHistory();
+    }
+}
+
+// ------------------------------------------------------------
+// CURSORE CONTESTUALE
+// ------------------------------------------------------------
+
+function updateCursorForSelection(e, pageData) {
+    if (appState.activeTool !== 'lasso' || appState.selectedStrokes.length === 0) {
+        pageData.canvas.style.cursor = 'crosshair';
+        return;
+    }
+    const point = getCanvasCoords(e, pageData.canvas);
+    const visualBBox = getVisualBoundingBox();
+    const handle = hitTestHandle(point, visualBBox);
+
+    if (handle) {
+        pageData.canvas.style.cursor = 'nwse-resize';
+    } else if (isPointInBBox(point, visualBBox)) {
+        pageData.canvas.style.cursor = 'move';
+    } else {
+        pageData.canvas.style.cursor = 'crosshair';
     }
 }

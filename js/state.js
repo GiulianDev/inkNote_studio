@@ -1,6 +1,5 @@
 // ============================================================
 // STATO GLOBALE DELL'APPLICAZIONE
-// Tutte le variabili condivise tra i moduli.
 // ============================================================
 
 const PAGE_WIDTH = 794;
@@ -30,21 +29,20 @@ const appState = {
     lassoPath: [],
     selectedStrokes: [],
 
-    // Drag (sposta)
     isDraggingSelection: false,
     dragStartPoint: null,
     selectionMoved: false,
 
-    // Resize (ridimensiona)
+    // Resize (similarità con pivot su un punto del contenuto)
     isResizingSelection: false,
     resizeHandle: null,
-    initialBBox: null,
+    resizePivot: null,          // punto fisso (coordinate canvas)
+    resizeAnchor: null,         // punto da mappare al puntatore
+    resizeOffset: null,         // offset iniziale startPoint - anchor
+    resizeBaseAngle: 0,
+    resizeBaseDist: 0,
+    resizeCurrentAngle: 0,
     initialStrokesSnapshot: null,
-
-    // Rotate (ruota)
-    isRotatingSelection: false,
-    rotateCenter: null,
-    rotateStartAngle: 0,
 
     pullOverscrollY: 0,
     pendingShape: null
