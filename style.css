@@ -51,7 +51,7 @@ body.dark {
 
 body.dark .page-wrapper {
     background-color: #1E293B;
-    box-shadow: 0 25px 50rem -12px rgba(0, 0, 0, 0.7);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
 }
 
 .page-canvas {
@@ -159,7 +159,7 @@ body.compact-mode #drawingToolbar {
 body.compact-mode #viewport {
     height: calc(100vh - 56px);
 }
-body.compact-mode #subbarExpandBtn {
+body.compact-mode #subbarExpandContainer {
     display: none !important;
 }
 
@@ -167,9 +167,9 @@ body.compact-mode #subbarExpandBtn {
     body.print-light { background: white !important; color: black !important; }
     body.print-dark  { background: #0F172A !important; color: #F8FAFC !important; }
 
-    header, #subbar, #toastNotification, #zoomBadge, #selectionMenu,
+    header, #subbar, #subbarExpandContainer, #toastNotification, #zoomBadge, #selectionMenu,
     #pullPageIndicator, #libraryView, #newNotebookModal, #settingsModal,
-    #undoRedoContainer, #compactExitBtn, #subbarExpandBtn {
+    #undoRedoContainer, #compactExitBtn {
         display: none !important;
     }
 

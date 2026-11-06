@@ -190,7 +190,6 @@
         </div>
 
         <div id="headerRight" class="relative z-10 flex items-center space-x-1.5 shrink-0">
-            <!-- Toggle compact mode -->
             <button onclick="toggleCompactMode()" id="compactToggleBtn" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Modalità compatta (solo dock disegno)">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M4 14h6v6M20 10h-6V4M14 4l6 6M4 20l6-6"/>
@@ -211,7 +210,7 @@
         <span class="hidden sm:inline">Esci</span>
     </button>
 
-    <!-- SUBBAR (con wrapper interno per animazione) -->
+    <!-- SUBBAR -->
     <div id="subbar" class="bg-slate-50 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 shrink-0 z-20 overflow-hidden transition-all duration-300">
         <div id="subbarContent" class="flex items-center justify-between px-6 py-1.5 w-full transition-transform duration-300">
             <div class="flex items-center space-x-2">
@@ -251,14 +250,17 @@
         </div>
     </div>
 
-    <main id="viewport">
-        <div id="canvasContainer"></div>
-        <!-- BOTTONE EXPAND SUBBAR (freccia giù, appare quando la subbar è nascosta) -->
-        <button id="subbarExpandBtn" onclick="toggleSubbar()" class="hidden absolute top-0 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-1 rounded-b-xl shadow-md border border-t-0 border-slate-300 dark:border-slate-700 z-40 transition" title="Mostra barra strumenti">
+    <!-- BOTTONE EXPAND SUBBAR (fuori dal viewport per non essere intercettato dai pointer events) -->
+    <div id="subbarExpandContainer" class="relative h-0 z-40 pointer-events-none">
+        <button id="subbarExpandBtn" onclick="toggleSubbar()" class="hidden pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-1 rounded-b-xl shadow-md border border-t-0 border-slate-300 dark:border-slate-700 transition" title="Mostra barra strumenti">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M6 9l6 6 6-6"/>
             </svg>
         </button>
+    </div>
+
+    <main id="viewport">
+        <div id="canvasContainer"></div>
     </main>
 
     <div id="pullPageIndicator" class="fixed bottom-12 left-1/2 -translate-x-1/2 hidden bg-indigo-600 text-white dark:bg-indigo-500 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl text-xs font-bold items-center gap-2 z-50 border border-indigo-400/30 transition-all duration-200">
