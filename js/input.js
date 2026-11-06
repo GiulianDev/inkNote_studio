@@ -29,21 +29,26 @@ function smoothPressure(points, newPressure) {
     return Math.max(0.05, Math.min(1, acc));
 }
 
-// Smoothing adattivo della posizione (one-euro semplificato):
-// - quando il tratto è lento → smoothing forte (rimuove il jitter)
-// - quando il tratto è veloce → smoothing leggero (zero lag percepibile)
+// Smoothing adattivo (one-euro like), controllato da appState.smoothing [0..1].
+// - smoothing = 0   → nessun filtro, posizione raw
+// - smoothing = 0.5 → bilanciato
+// - smoothing = 1   → filtro forte (rimuove jitter)
+// La velocità del gesto alleggerisce sempre il filtro per non introdurre lag.
 function smoothRawPoint(rawPoint, prevSmoothed) {
-    if (!prevSmoothed) {
+    const smoothness = Math.max(0, Math.min(1, appState.smoothing));
+
+    if (!prevSmoothed || smoothness <= 0.01) {
         return { x: rawPoint.x, y: rawPoint.y };
     }
+
     const dx = rawPoint.x - prevSmoothed.x;
     const dy = rawPoint.y - prevSmoothed.y;
     const speed = Math.hypot(dx, dy);
 
-    // Velocità tipica del tratto: 0-20 px/evento
-    // Lento (< 2): alpha 0.4 → smoothing deciso
-    // Veloce (> 10): alpha 0.85 → quasi nessun lag
-    const alpha = Math.min(0.85, Math.max(0.4, 0.4 + speed * 0.05));
+    // Base alpha: da 0.85 (poco smoothing) a 0.30 (molto smoothing)
+    const minAlpha = 0.85 - smoothness * 0.55;
+    // Boost per velocità: gesto veloce → alpha più alta (reattivo)
+    const alpha = Math.min(1.0, minAlpha + speed * 0.05);
 
     return {
         x: prevSmoothed.x + dx * alpha,

@@ -152,18 +152,26 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
     ctx.fill();
 }
 
-// Interpolazione Catmull-Rom: calcola un punto sulla curva
-// che passa per p1 e p2, con p0 e p3 come controllo.
-function catmullRomPoint(p0, p1, p2, p3, t) {
+// Interpolazione con blend tra lineare e Catmull-Rom controllato da `smoothness`.
+// - smoothness = 0   → linea retta pura (p1 → p2)
+// - smoothness = 1   → Catmull-Rom pieno
+function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
+    const lx = p1.x + (p2.x - p1.x) * t;
+    const ly = p1.y + (p2.y - p1.y) * t;
+    if (smoothness <= 0.01) return { x: lx, y: ly };
+
     const t2 = t * t;
     const t3 = t2 * t;
+    const cx = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t +
+              (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+              (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+    const cy = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t +
+              (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+              (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+
     return {
-        x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t +
-                  (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-                  (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
-        y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t +
-                  (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-                  (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+        x: lx + (cx - lx) * smoothness,
+        y: ly + (cy - ly) * smoothness
     };
 }
 
@@ -173,6 +181,7 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
 
     setupStrokeStyle(ctx, stroke, forceTargetDark);
 
+    const smoothness = appState.smoothing;
     const widths = new Array(pts.length);
     for (let i = 0; i < pts.length; i++) {
         widths[i] = computeStrokeWidth(stroke.tool, stroke.size, pts[i].pressure);
@@ -187,15 +196,16 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
         const w1 = widths[i - 1];
         const w2 = widths[i];
 
-        // Sub-step proporzionali alla lunghezza del segmento (curve morbide)
+        // Sub-step: più curvatura → più step (ma cap a 5)
         const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-        const steps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+        const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+        const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
 
         for (let s = 0; s < steps; s++) {
             const t0 = s / steps;
             const t1 = (s + 1) / steps;
-            const sp0 = catmullRomPoint(p0, p1, p2, p3, t0);
-            const sp1 = catmullRomPoint(p0, p1, p2, p3, t1);
+            const sp0 = interpolatePoint(p0, p1, p2, p3, t0, smoothness);
+            const sp1 = interpolatePoint(p0, p1, p2, p3, t1, smoothness);
             const sw0 = w1 + (w2 - w1) * t0;
             const sw1 = w1 + (w2 - w1) * t1;
             drawTaperedSegment(ctx, sp0, sp1, sw0, sw1);
@@ -229,17 +239,19 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     setupStrokeStyle(ctx, stroke, appState.isDarkMode);
 
+    const smoothness = appState.smoothing;
     const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure);
     const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure);
 
     const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-    const steps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+    const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+    const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
 
     for (let s = 0; s < steps; s++) {
         const t0 = s / steps;
         const t1 = (s + 1) / steps;
-        const sp0 = catmullRomPoint(p0, p1, p2, p3, t0);
-        const sp1 = catmullRomPoint(p0, p1, p2, p3, t1);
+        const sp0 = interpolatePoint(p0, p1, p2, p3, t0, smoothness);
+        const sp1 = interpolatePoint(p0, p1, p2, p3, t1, smoothness);
         const sw0 = w1 + (w2 - w1) * t0;
         const sw1 = w1 + (w2 - w1) * t1;
         drawTaperedSegment(ctx, sp0, sp1, sw0, sw1);

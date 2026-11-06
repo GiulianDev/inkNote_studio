@@ -163,6 +163,13 @@
             <button id="btnToggleAutoShape" onclick="toggleAutoShape()" class="auto-shape-on px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all">
                 <span id="autoShapeIcon">✨</span> <span class="hidden md:inline ml-1" id="autoShapeLabel">Auto-Forme</span>
             </button>
+            <div class="hidden sm:flex items-center space-x-1.5 bg-white dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700" title="Levigatura del tratto: 0 = fedele all'input, 100 = curve molto morbide">
+                <span class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">〰️</span>
+                <input type="range" id="smoothingSlider" min="0" max="100" value="50"
+                    class="w-14 sm:w-16 accent-indigo-600 cursor-pointer"
+                    oninput="updateSmoothing(this.value)">
+                <span id="smoothingValue" class="text-[11px] font-semibold text-slate-600 dark:text-slate-300 w-5 text-center tabular-nums">50</span>
+            </div>
         </div>
         <div class="flex items-center space-x-3">
             <div class="flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-300 dark:border-slate-700">

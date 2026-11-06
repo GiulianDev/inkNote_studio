@@ -1,11 +1,12 @@
 // ============================================================
-// IMPOSTAZIONI UTENTE (tema, stampa, mano dominante)
+// IMPOSTAZIONI UTENTE (tema, stampa, mano dominante, smoothing)
 // ============================================================
 
 const DEFAULT_SETTINGS = {
     theme: 'auto',          // 'auto' | 'light' | 'dark'
     printTheme: 'light',    // 'light' | 'dark'
-    handedness: 'right'     // 'right' | 'left'
+    handedness: 'right',    // 'right' | 'left'
+    smoothing: 50           // 0-100
 };
 
 function loadSettings() {
@@ -35,12 +36,19 @@ function applySettings(settings) {
 
     // 2. Mano dominante → specchia header/subbar
     document.body.classList.toggle('handed-left', settings.handedness === 'left');
+
+    // 3. Smoothing → aggiorna appState + slider UI
+    const smoothingValue = typeof settings.smoothing === 'number' ? settings.smoothing : 50;
+    appState.smoothing = smoothingValue / 100;
+    const slider = document.getElementById('smoothingSlider');
+    const label = document.getElementById('smoothingValue');
+    if (slider) slider.value = smoothingValue;
+    if (label) label.innerText = smoothingValue;
 }
 
 function initSettings() {
     applySettings(loadSettings());
 
-    // Se tema = auto, reagisci ai cambi di sistema
     if (window.matchMedia) {
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
             const s = loadSettings();
@@ -66,10 +74,12 @@ function closeSettingsModal() {
 }
 
 function confirmSettings() {
+    const current = loadSettings();
     const settings = {
         theme: document.getElementById('settingTheme').value,
         printTheme: document.getElementById('settingPrintTheme').value,
-        handedness: document.getElementById('settingHandedness').value
+        handedness: document.getElementById('settingHandedness').value,
+        smoothing: current.smoothing  // preserva lo slider della toolbar
     };
     saveSettings(settings);
     applySettings(settings);

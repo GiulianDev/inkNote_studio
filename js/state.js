@@ -20,6 +20,7 @@ const appState = {
     currentColor: '#000000',
     strokeWidth: 3,
     autoShapeEnabled: true,
+    smoothing: 0.5,
     bgPattern: 'ruled',
     isDarkMode: false,
     isDrawing: false,
@@ -33,7 +34,6 @@ const appState = {
     dragStartPoint: null,
     selectionMoved: false,
 
-    // Resize (similarità con pivot su un punto del contenuto)
     isResizingSelection: false,
     resizeHandle: null,
     resizePivot: null,
@@ -44,7 +44,6 @@ const appState = {
     resizeCurrentAngle: 0,
     initialStrokesSnapshot: null,
 
-    // Scribble-to-erase
     scribbleMode: false,
     scribbleTargets: [],
 
