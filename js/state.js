@@ -36,13 +36,17 @@ const appState = {
     // Resize (similarità con pivot su un punto del contenuto)
     isResizingSelection: false,
     resizeHandle: null,
-    resizePivot: null,          // punto fisso (coordinate canvas)
-    resizeAnchor: null,         // punto da mappare al puntatore
-    resizeOffset: null,         // offset iniziale startPoint - anchor
+    resizePivot: null,
+    resizeAnchor: null,
+    resizeOffset: null,
     resizeBaseAngle: 0,
     resizeBaseDist: 0,
     resizeCurrentAngle: 0,
     initialStrokesSnapshot: null,
+
+    // Scribble-to-erase
+    scribbleMode: false,
+    scribbleTargets: [],
 
     pullOverscrollY: 0,
     pendingShape: null

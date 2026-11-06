@@ -47,6 +47,10 @@ function handlePointerDown(e, pageData) {
 
     if (appState.pendingShape) finalizePendingShape();
 
+    // Reset stato scribble ad ogni nuovo pointerdown
+    appState.scribbleMode = false;
+    appState.scribbleTargets = [];
+
     try { pageData.canvas.setPointerCapture(e.pointerId); } catch (err) {}
 
     appState.activePageIndex = pageData.index;
@@ -169,7 +173,12 @@ function handlePointerMove(e, pageData) {
     appState.currentStroke.points.push(point);
     drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
 
-    if (appState.autoShapeEnabled &&
+    // Riconoscimento scarabocchio (solo se non già attivo)
+    checkForScribble(pageData);
+
+    // Snap a linea: skip se siamo in modalità scarabocchio
+    if (!appState.scribbleMode &&
+        appState.autoShapeEnabled &&
         SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
         appState.currentStroke.points.length >= 6) {
         trySnapToLineDuringDraw(pageData, point);
@@ -191,6 +200,16 @@ function handlePointerUp(e, pageData) {
     }
 
     try { pageData.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+
+    // Scribble-to-erase: se attivo, gestisce e scarta lo stroke
+    if (appState.scribbleMode) {
+        finalizeScribble(pageData);
+        appState.isDrawing = false;
+        appState.currentPointerId = null;
+        appState.currentPageForPointer = null;
+        appState.currentStroke = null;
+        return;
+    }
 
     if (appState.isResizingSelection) {
         const wasMoved = appState.selectionMoved;

@@ -2,9 +2,12 @@
 // RENDERING CANVAS CON GESTIONE PRESSIONE
 // ============================================================
 
+const SCRIBBLE_ERASE_COLOR = 'rgba(220, 38, 38, 0.6)';
+
 // Calcola la larghezza del tratto in base a strumento + pressione.
 // La curva non è lineare: più sensibile ai valori bassi, come una penna reale.
 function computeStrokeWidth(tool, baseSize, pressure) {
+
     const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
 
     if (tool === 'pen') {
@@ -74,12 +77,38 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
         }
     }
     
+    // Scarabocchio in corso: disegna i segmenti in rosso semitrasparente
+    if (appState.scribbleMode && appState.currentStroke && appState.currentStroke.points.length > 1) {
+        const pts = appState.currentStroke.points;
+        ctx.save();
+        ctx.strokeStyle = SCRIBBLE_ERASE_COLOR;
+        ctx.fillStyle = SCRIBBLE_ERASE_COLOR;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(appState.currentStroke.size * 2, 4);
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i].x, pts[i].y);
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
     ctx.restore();
 }
 
 // Prepara stile colore/compositing per lo stroke.
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     ctx.save();
+
+    if (appState.scribbleMode) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = SCRIBBLE_ERASE_COLOR;
+        ctx.fillStyle = SCRIBBLE_ERASE_COLOR;
+        return;
+    }
+
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
