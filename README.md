@@ -1,19 +1,3 @@
-# v1.5
-- modifica tasti undo e rendo
-
-# v1.6
-- gestione del pinch to zoom con pad
-
-# v1.7
-- fix dello zoom che sebra pixellato come grafica raster e non vettoriale
-
-# v1.8
-- implementazione lazo per ridimensionare e ruotare, cambiare colore e spessore a posteriori
-
-
-
-
-
 # ToDO
 [] fix sulle dimensioni del blocco note che mi sembra troppo piccolo
 [] dopo la selezione con in lazo potremmo aggiungere gli angoli attivi della selezione per effettuare un resize o un ruota
