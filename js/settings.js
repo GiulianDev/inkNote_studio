@@ -50,15 +50,23 @@ function applySettings(settings) {
     // 4. Subbar
     subbarVisible = settings.subbarVisible !== false;
     const subbar = document.getElementById('subbar');
-    const subbarBtn = document.getElementById('subbarToggleBtn');
-    if (subbar) subbar.classList.toggle('hidden', !subbarVisible);
-    if (subbarBtn) subbarBtn.classList.toggle('rotated', !subbarVisible);
+    if (subbar) subbar.classList.toggle('collapsed', !subbarVisible);
 
     // 5. Compact mode
     compactMode = !!settings.compactMode;
     document.body.classList.toggle('compact-mode', compactMode);
     const exitBtn = document.getElementById('compactExitBtn');
     if (exitBtn) exitBtn.classList.toggle('hidden', !compactMode);
+
+    // 6. Pulsante expand subbar
+    updateSubbarExpandBtnVisibility();
+}
+
+function updateSubbarExpandBtnVisibility() {
+    const expandBtn = document.getElementById('subbarExpandBtn');
+    if (!expandBtn) return;
+    const showExpand = !subbarVisible && !compactMode;
+    expandBtn.classList.toggle('hidden', !showExpand);
 }
 
 function initSettings() {

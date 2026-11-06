@@ -86,17 +86,18 @@ function toggleSubbar() {
     subbarVisible = !subbarVisible;
 
     const subbar = document.getElementById('subbar');
-    const btn = document.getElementById('subbarToggleBtn');
-    if (subbar) subbar.classList.toggle('hidden', !subbarVisible);
-    if (btn) btn.classList.toggle('rotated', !subbarVisible);
+    if (subbar) subbar.classList.toggle('collapsed', !subbarVisible);
+
+    updateSubbarExpandBtnVisibility();
 
     const s = loadSettings();
     s.subbarVisible = subbarVisible;
     saveSettings(s);
 
+    // Aspetta la fine dell'animazione prima di ricalcolare la viewport
     setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
-    }, 50);
+    }, 320);
 }
 
 function toggleCompactMode() {
@@ -105,6 +106,8 @@ function toggleCompactMode() {
     document.body.classList.toggle('compact-mode', compactMode);
     const exitBtn = document.getElementById('compactExitBtn');
     if (exitBtn) exitBtn.classList.toggle('hidden', !compactMode);
+
+    updateSubbarExpandBtnVisibility();
 
     const s = loadSettings();
     s.compactMode = compactMode;

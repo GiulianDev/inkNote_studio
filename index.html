@@ -134,7 +134,6 @@
     <!-- VISTA 2: STUDIO -->
     <header id="mainHeader" class="bg-white/95 dark:bg-slate-900/95 border-b border-slate-300 dark:border-slate-800 px-3 py-2 flex items-center justify-between gap-3 z-30 shrink-0 shadow-sm transition-all duration-200">
 
-        <!-- SINISTRA: libreria + titolo -->
         <div id="headerLeft" class="flex items-center space-x-2 shrink-0">
             <button onclick="returnToLibrary()" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition" title="Torna alla Libreria">
                 📚 <span class="hidden lg:inline">Libreria</span>
@@ -150,11 +149,9 @@
             </div>
         </div>
 
-        <!-- CENTRO: toolbar disegno unificata -->
         <div class="flex-1 flex justify-center min-w-0 overflow-hidden px-1">
             <div id="drawingToolbar" class="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-300 dark:border-slate-700 gap-1 overflow-x-auto max-w-full transition-all">
 
-                <!-- Strumenti -->
                 <button id="btnTool-pen" onclick="setTool('pen')" class="tool-btn px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm shrink-0">🖊️ <span class="hidden xl:inline ml-1">Stilografica</span></button>
                 <button id="btnTool-pencil" onclick="setTool('pencil')" class="tool-btn px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 shrink-0">✏️ <span class="hidden xl:inline ml-1">Matita</span></button>
                 <button id="btnTool-marker" onclick="setTool('marker')" class="tool-btn px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 shrink-0">🖋️ <span class="hidden xl:inline ml-1">Pennarello</span></button>
@@ -164,12 +161,10 @@
 
                 <div class="h-5 w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
 
-                <!-- Auto-Forme -->
                 <button id="btnToggleAutoShape" onclick="toggleAutoShape()" class="auto-shape-on px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0">
                     <span id="autoShapeIcon">✨</span> <span class="hidden lg:inline ml-1" id="autoShapeLabel">Auto-Forme</span>
                 </button>
 
-                <!-- Smoothing slider -->
                 <div class="hidden sm:flex items-center space-x-1.5 bg-white dark:bg-slate-700 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Levigatura del tratto: 0 = fedele all'input, 100 = curve molto morbide">
                     <span class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">〰️</span>
                     <input type="range" id="smoothingSlider" min="0" max="100" value="50" class="w-14 accent-indigo-600 cursor-pointer" oninput="updateSmoothing(this.value)">
@@ -178,7 +173,6 @@
 
                 <div class="h-5 w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
 
-                <!-- Colori -->
                 <div class="flex items-center space-x-1.5 bg-white dark:bg-slate-700 p-1 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
                     <button class="color-swatch w-6 h-6 rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" onclick="selectColor('#000000', this)"></button>
                     <button class="color-swatch w-6 h-6 rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#2563eb', this)"></button>
@@ -188,7 +182,6 @@
                     <input type="color" id="customColorPicker" class="w-6 h-6 rounded-full border-0 cursor-pointer p-0 bg-transparent" onchange="selectColor(this.value, this)">
                 </div>
 
-                <!-- Spessore -->
                 <div class="hidden md:flex items-center space-x-2 bg-white dark:bg-slate-700 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
                     <input type="range" id="strokeWidthSlider" min="1" max="25" value="3" class="w-16 accent-indigo-600 cursor-pointer" oninput="updateStrokeWidth(this.value)">
                     <span id="strokeWidthValue" class="text-xs font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">3</span>
@@ -196,14 +189,7 @@
             </div>
         </div>
 
-        <!-- DESTRA: toggle + utility -->
         <div id="headerRight" class="relative z-10 flex items-center space-x-1.5 shrink-0">
-            <!-- Toggle subbar -->
-            <button onclick="toggleSubbar()" id="subbarToggleBtn" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Mostra/nascondi barra strumenti">
-                <svg class="w-4 h-4 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M6 9l6 6 6-6"/>
-                </svg>
-            </button>
             <!-- Toggle compact mode -->
             <button onclick="toggleCompactMode()" id="compactToggleBtn" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Modalità compatta (solo dock disegno)">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -225,40 +211,54 @@
         <span class="hidden sm:inline">Esci</span>
     </button>
 
-    <!-- SUBBAR -->
-    <div id="subbar" class="bg-slate-50 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 px-6 py-1.5 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 shrink-0 z-20 transition-all">
-        <div class="flex items-center space-x-2">
-            <button onclick="addNewPage()" class="hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-lg font-medium">➕ Nuova Pagina</button>
-            <div class="h-3 w-px bg-slate-300 dark:bg-slate-700"></div>
-            <button onclick="clearCurrentPage()" class="hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 px-2 py-1 rounded-lg font-medium">🗑️ Pulisci Pagina</button>
-        </div>
-        <div class="flex items-center space-x-4">
-            <div class="flex items-center space-x-1.5">
-                <span>Pattern:</span>
-                <select id="bgPatternSelect" onchange="changeBackgroundPattern(this.value)" class="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-medium">
-                    <option value="ruled">A Righe</option>
-                    <option value="grid">A Quadretti</option>
-                    <option value="dots">Puntinato</option>
-                    <option value="blank">Bianco / Scuro Pulito</option>
-                </select>
+    <!-- SUBBAR (con wrapper interno per animazione) -->
+    <div id="subbar" class="bg-slate-50 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 shrink-0 z-20 overflow-hidden transition-all duration-300">
+        <div id="subbarContent" class="flex items-center justify-between px-6 py-1.5 w-full transition-transform duration-300">
+            <div class="flex items-center space-x-2">
+                <button onclick="addNewPage()" class="hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-lg font-medium">➕ Nuova Pagina</button>
+                <div class="h-3 w-px bg-slate-300 dark:bg-slate-700"></div>
+                <button onclick="clearCurrentPage()" class="hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 px-2 py-1 rounded-lg font-medium">🗑️ Pulisci Pagina</button>
             </div>
-            <div class="flex items-center space-x-1.5 border-l border-slate-300 dark:border-slate-700 pl-3">
-                <span>Gomma:</span>
-                <select id="eraserModeSelect" class="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-medium">
-                    <option value="stroke">Tratto Intero</option>
-                    <option value="point">Raggio Puntuale</option>
-                </select>
+            <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-1.5">
+                    <span>Pattern:</span>
+                    <select id="bgPatternSelect" onchange="changeBackgroundPattern(this.value)" class="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-medium">
+                        <option value="ruled">A Righe</option>
+                        <option value="grid">A Quadretti</option>
+                        <option value="dots">Puntinato</option>
+                        <option value="blank">Bianco / Scuro Pulito</option>
+                    </select>
+                </div>
+                <div class="flex items-center space-x-1.5 border-l border-slate-300 dark:border-slate-700 pl-3">
+                    <span>Gomma:</span>
+                    <select id="eraserModeSelect" class="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-medium">
+                        <option value="stroke">Tratto Intero</option>
+                        <option value="point">Raggio Puntuale</option>
+                    </select>
+                </div>
+                <div class="h-3 w-px bg-slate-300 dark:bg-slate-700"></div>
+                <label class="flex items-center gap-1.5 cursor-pointer font-medium select-none">
+                    <input type="checkbox" id="palmRejectionCheck" checked onchange="togglePalmRejection(this.checked)" class="rounded accent-indigo-600 w-3.5 h-3.5">
+                    <span>Palm Rejection</span>
+                </label>
+                <div class="h-3 w-px bg-slate-300 dark:bg-slate-700"></div>
+                <button onclick="toggleSubbar()" id="subbarCollapseBtn" class="hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 p-1 rounded-lg transition" title="Nascondi barra strumenti">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 15l-6-6-6 6"/>
+                    </svg>
+                </button>
             </div>
-            <div class="h-3 w-px bg-slate-300 dark:bg-slate-700"></div>
-            <label class="flex items-center gap-1.5 cursor-pointer font-medium select-none">
-                <input type="checkbox" id="palmRejectionCheck" checked onchange="togglePalmRejection(this.checked)" class="rounded accent-indigo-600 w-3.5 h-3.5">
-                <span>Palm Rejection</span>
-            </label>
         </div>
     </div>
 
     <main id="viewport">
         <div id="canvasContainer"></div>
+        <!-- BOTTONE EXPAND SUBBAR (freccia giù, appare quando la subbar è nascosta) -->
+        <button id="subbarExpandBtn" onclick="toggleSubbar()" class="hidden absolute top-0 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-1 rounded-b-xl shadow-md border border-t-0 border-slate-300 dark:border-slate-700 z-40 transition" title="Mostra barra strumenti">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 9l6 6 6-6"/>
+            </svg>
+        </button>
     </main>
 
     <div id="pullPageIndicator" class="fixed bottom-12 left-1/2 -translate-x-1/2 hidden bg-indigo-600 text-white dark:bg-indigo-500 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl text-xs font-bold items-center gap-2 z-50 border border-indigo-400/30 transition-all duration-200">
