@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=5.0">
+    <title>InkNote Studio - Notebooks & iPad Notes</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0F172A',
+                        darkpaper: '#1E293B',
+                        darkpaperborder: '#334155'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="h-screen flex flex-col select-none">
+
+    <!-- VISTA 1: LIBRERIA -->
+    <div id="libraryView" class="fixed inset-0 bg-slate-100 dark:bg-slate-950 z-50 overflow-y-auto p-6 md:p-10 flex flex-col">
+        <div class="max-w-6xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between mb-8 pb-4 border-b border-slate-300 dark:border-slate-800 gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="bg-indigo-600 text-white w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/30">📚</div>
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">InkNote Library</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">I tuoi blocchetti salvati in locale</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="handleGoogleLogin()" id="googleLoginBtn" class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-4 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition active:scale-95">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+                        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.13 0-5.78-2.11-6.73-4.96H1.18v3.14C3.15 21.32 7.23 24 12 24z"/>
+                        <path fill="#FBBC05" d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.62H1.18C.43 8.13 0 9.83 0 11.6s.43 3.47 1.18 4.98l4.09-2.34z"/>
+                        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.23 0 3.15 2.68 1.18 6.62l4.09 3.14c.95-2.85 3.6-4.96 6.73-4.96z"/>
+                    </svg>
+                    <span id="googleLoginText">Accedi con Google</span>
+                </button>
+                <button onclick="openNewNotebookModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
+                    ➕ Nuovo Quaderno
+                </button>
+                <button onclick="openSettingsModal()" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95" title="Impostazioni">
+                    ⚙️
+                </button>
+            </div>
+        </div>
+        <div class="max-w-6xl w-full mx-auto flex-1">
+            <div id="notebooksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6"></div>
+            <div id="emptyLibraryMessage" class="hidden flex-col items-center justify-center py-20 text-center text-slate-400">
+                <span class="text-5xl mb-3">📓</span>
+                <p class="font-semibold text-base text-slate-600 dark:text-slate-300">Nessun quaderno presente</p>
+                <p class="text-xs text-slate-500 mt-1">Clicca su "Nuovo Quaderno" per iniziare a prendere appunti.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALE NUOVO QUADERNO -->
+    <div id="newNotebookModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-4">Crea Nuovo Quaderno</h3>
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Titolo del Quaderno</label>
+                    <input type="text" id="modalNbTitle" value="Appunti Personali" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 font-medium">
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Colore Copertina</label>
+                    <div class="flex items-center space-x-2 pt-1" id="coverColorOptions">
+                        <button class="w-7 h-7 rounded-full bg-indigo-600 ring-2 ring-indigo-500 ring-offset-2 scale-110" data-color="#4f46e5" onclick="selectCoverColor(this)"></button>
+                        <button class="w-7 h-7 rounded-full bg-blue-600" data-color="#2563eb" onclick="selectCoverColor(this)"></button>
+                        <button class="w-7 h-7 rounded-full bg-emerald-600" data-color="#059669" onclick="selectCoverColor(this)"></button>
+                        <button class="w-7 h-7 rounded-full bg-rose-600" data-color="#e11d48" onclick="selectCoverColor(this)"></button>
+                        <button class="w-7 h-7 rounded-full bg-amber-500" data-color="#d97706" onclick="selectCoverColor(this)"></button>
+                        <button class="w-7 h-7 rounded-full bg-slate-800" data-color="#1e293b" onclick="selectCoverColor(this)"></button>
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pattern Fogli Iniziale</label>
+                    <select id="modalNbPattern" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                        <option value="ruled">A Righe</option>
+                        <option value="grid">A Quadretti</option>
+                        <option value="dots">Puntinato (Dot Grid)</option>
+                        <option value="blank">Bianco Pulito</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex items-center justify-end space-x-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <button onclick="closeNewNotebookModal()" class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
+                <button onclick="confirmCreateNotebook()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Crea Quaderno</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALE IMPOSTAZIONI -->
+    <div id="settingsModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-4">⚙️ Impostazioni</h3>
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Visualizzazione</label>
+                    <select id="settingTheme" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                        <option value="auto">Automatico (segui sistema)</option>
+                        <option value="light">Chiaro</option>
+                        <option value="dark">Scuro</option>
+                    </select>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">Come appare l'app durante l'utilizzo</p>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Stampa / PDF</label>
+                    <select id="settingPrintTheme" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                        <option value="light">Chiaro (risparmia inchiostro)</option>
+                        <option value="dark">Scuro</option>
+                    </select>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">Usato quando esporti il quaderno in PDF</p>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mano Dominante</label>
+                    <select id="settingHandedness" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                        <option value="right">Destro</option>
+                        <option value="left">Mancino (interfaccia specchiata)</option>
+                    </select>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">Sposta i controlli per non essere coperti dalla mano</p>
+                </div>
+            </div>
+            <div class="flex items-center justify-end space-x-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
+                <button onclick="confirmSettings()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Salva</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- VISTA 2: STUDIO -->
+    <header class="bg-white/95 dark:bg-slate-900/95 border-b border-slate-300 dark:border-slate-800 px-4 py-2 flex items-center justify-between z-30 shrink-0 shadow-sm">
+        <div class="flex items-center space-x-3">
+            <button onclick="returnToLibrary()" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition" title="Torna alla Libreria">📚 <span class="hidden sm:inline">Libreria</span></button>
+            <div class="h-4 w-[1px] bg-slate-300 dark:bg-slate-700"></div>
+            <div>
+                <input type="text" id="docTitle" value="Appunti Surface Pen" onchange="updateCurrentNotebookTitle(this.value)" class="font-semibold text-sm bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 rounded px-1.5 py-0.5 outline-none" />
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2">
+                    <span id="pageCounterText">Pagina 1 di 1</span>
+                    <span>•</span>
+                    <span id="statusBadge" class="text-indigo-600 dark:text-indigo-400 font-medium">Salvato</span>
+                </div>
+            </div>
+        </div>
+        <div class="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-300 dark:border-slate-700 gap-1">
+            <button id="btnTool-pen" onclick="setTool('pen')" class="tool-btn px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm">🖊️ <span class="hidden sm:inline ml-1">Stilografica</span></button>
+            <button id="btnTool-pencil" onclick="setTool('pencil')" class="tool-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300">✏️ <span class="hidden sm:inline ml-1">Matita</span></button>
+            <button id="btnTool-marker" onclick="setTool('marker')" class="tool-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300">🖋️ <span class="hidden sm:inline ml-1">Pennarello</span></button>
+            <button id="btnTool-highlighter" onclick="setTool('highlighter')" class="tool-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300">🖍️ <span class="hidden sm:inline ml-1">Evidenziatore</span></button>
+            <button id="btnTool-lasso" onclick="setTool('lasso')" class="tool-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300" title="Seleziona e sposta tratti">✂️ <span class="hidden sm:inline ml-1">Lazo</span></button>
+            <button id="btnTool-eraser" onclick="setTool('eraser')" class="tool-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300">🧹 <span class="hidden sm:inline ml-1">Gomma</span></button>
+            <div class="h-4 w-[1px] bg-slate-300 dark:bg-slate-700 mx-0.5"></div>
+            <button id="btnToggleAutoShape" onclick="toggleAutoShape()" class="auto-shape-on px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all">
+                <span id="autoShapeIcon">✨</span> <span class="hidden md:inline ml-1" id="autoShapeLabel">Auto-Forme</span>
+            </button>
+        </div>
+        <div class="flex items-center space-x-3">
+            <div class="flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-300 dark:border-slate-700">
+                <button class="color-swatch w-6 h-6 rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" onclick="selectColor('#000000', this)"></button>
+                <button class="color-swatch w-6 h-6 rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#2563eb', this)"></button>
+                <button class="color-swatch w-6 h-6 rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#059669', this)"></button>
+                <button class="color-swatch w-6 h-6 rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#e11d48', this)"></button>
+                <button class="color-swatch w-6 h-6 rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" onclick="selectColor('#d97706', this)"></button>
+                <input type="color" id="customColorPicker" class="w-6 h-6 rounded-full border-0 cursor-pointer p-0 bg-transparent" onchange="selectColor(this.value, this)">
+            </div>
+            <div class="hidden lg:flex items-center space-x-2 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl border border-slate-300 dark:border-slate-700">
+                <input type="range" id="strokeWidthSlider" min="1" max="25" value="3" class="w-16 accent-indigo-600 cursor-pointer" oninput="updateStrokeWidth(this.value)">
+                <span id="strokeWidthValue" class="text-xs font-semibold text-slate-600 dark:text-slate-300 w-4 text-center">3</span>
+            </div>
+            <button onclick="openSettingsModal()" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200" title="Impostazioni">⚙️</button>
+            <button id="themeToggleBtn" onclick="toggleTheme()" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-amber-400">🌙</button>
+            <button onclick="toggleFullscreen()" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200" title="Schermo Intero">⛶</button>
+            <button onclick="exportToPDF()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl shadow-md">📄 PDF</button>
+        </div>
+    </header>
+
+    <div id="subbar" class="bg-slate-50 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 px-6 py-1.5 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 shrink-0 z-20">
+        <div class="flex items-center space-x-2">
+            <button onclick="addNewPage()" class="hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-lg font-medium">➕ Nuova Pagina</button>
+            <div class="h-3 w-[1px] bg-slate-300 dark:bg-slate-700"></div>
+            <button onclick="clearCurrentPage()" class="hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 px-2 py-1 rounded-lg font-medium">🗑️ Pulisci Pagina</button>
+        </div>
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-1.5">
+                <span>Pattern:</span>
+                <select id="bgPatternSelect" onchange="changeBackgroundPattern(this.value)" class="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-medium">
+                    <option value="ruled">A Righe</option>
+                    <option value="grid">A Quadretti</option>
+                    <option value="dots">Puntinato</option>
+                    <option value="blank">Bianco / Scuro Pulito</option>
+                </select>
+            </div>
+            <div class="flex items-center space-x-1.5 border-l border-slate-300 dark:border-slate-700 pl-3">
+                <span>Gomma:</span>
+                <select id="eraserModeSelect" class="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-medium">
+                    <option value="stroke">Tratto Intero</option>
+                    <option value="point">Raggio Puntuale</option>
+                </select>
+            </div>
+            <div class="h-3 w-[1px] bg-slate-300 dark:bg-slate-700"></div>
+            <label class="flex items-center gap-1.5 cursor-pointer font-medium select-none">
+                <input type="checkbox" id="palmRejectionCheck" checked onchange="togglePalmRejection(this.checked)" class="rounded accent-indigo-600 w-3.5 h-3.5">
+                <span>Palm Rejection</span>
+            </label>
+        </div>
+    </div>
+
+    <main id="viewport">
+        <div id="canvasContainer"></div>
+    </main>
+
+    <div id="pullPageIndicator" class="fixed bottom-12 left-1/2 -translate-x-1/2 hidden bg-indigo-600 text-white dark:bg-indigo-500 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl text-xs font-bold items-center gap-2 z-50 border border-indigo-400/30 transition-all duration-200">
+        <span id="pullIcon">⬆️</span>
+        <span id="pullText">Scorri in su per aggiungere una nuova pagina...</span>
+    </div>
+
+    <div id="selectionMenu" class="fixed hidden bg-slate-900/95 text-white dark:bg-slate-800/95 backdrop-blur-md px-3 py-2 rounded-2xl shadow-2xl text-xs font-semibold flex items-center gap-2.5 z-50 border border-slate-700/50">
+        <div class="flex items-center gap-1.5">
+            <span class="text-[10px] uppercase tracking-wide text-slate-400">Colore</span>
+            <input type="color" id="selectionColorPicker" value="#000000"
+                class="w-7 h-7 rounded-full border border-slate-600 cursor-pointer p-0 bg-transparent"
+                onchange="changeSelectionColor(this.value)">
+        </div>
+        <div class="w-px h-6 bg-slate-700/60"></div>
+        <div class="flex items-center gap-1.5">
+            <span class="text-[10px] uppercase tracking-wide text-slate-400">Spessore</span>
+            <input type="range" id="selectionWidthSlider" min="1" max="25" value="3"
+                class="w-20 accent-indigo-500 cursor-pointer"
+                onchange="changeSelectionWidth(this.value)">
+            <span id="selectionWidthValue" class="text-[10px] w-4 text-center tabular-nums">3</span>
+        </div>
+        <div class="w-px h-6 bg-slate-700/60"></div>
+        <button onclick="deleteSelectedStrokes()"
+            class="bg-rose-600 hover:bg-rose-500 text-white px-2.5 py-1.5 rounded-lg transition"
+            title="Elimina selezione">🗑️</button>
+        <button onclick="clearSelection()"
+            class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1.5 rounded-lg transition"
+            title="Deseleziona">✕</button>
+    </div>
+
+    <!-- PULSANTI UNDO / REDO -->
+    <div id="undoRedoContainer" class="fixed bottom-6 right-6 flex items-center gap-1 bg-slate-900/90 dark:bg-slate-800/90 backdrop-blur-md p-1.5 rounded-2xl shadow-lg z-40 border border-slate-700/50 dark:border-slate-600/40">
+        <button id="undoBtn" onclick="undo()" 
+            aria-label="Annulla ultima azione"
+            title="Annulla (Ctrl+Z)"
+            class="group relative w-10 h-10 flex items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/10 active:scale-95 active:bg-white/15 transition-all duration-150 disabled:text-slate-500 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:active:scale-100 disabled:cursor-not-allowed">
+            <svg class="w-5 h-5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+            </svg>
+        </button>
+        <div class="w-px h-6 bg-white/10 dark:bg-slate-600/40"></div>
+        <button id="redoBtn" onclick="redo()" 
+            aria-label="Ripristina azione annullata"
+            title="Ripristina (Ctrl+Shift+Z / Ctrl+Y)"
+            class="group relative w-10 h-10 flex items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/10 active:scale-95 active:bg-white/15 transition-all duration-150 disabled:text-slate-500 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:active:scale-100 disabled:cursor-not-allowed">
+            <svg class="w-5 h-5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" />
+            </svg>
+        </button>
+    </div>
+
+    <div id="zoomBadge" class="fixed bottom-6 left-6 bg-slate-900/90 text-white dark:bg-slate-800/90 backdrop-blur-md px-3 py-1.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 z-40">
+        🔍 Zoom: <span id="zoomText">100%</span>
+        <button onclick="resetZoom()" class="ml-1 bg-slate-700 hover:bg-slate-600 text-white px-2 py-0.5 rounded-lg text-[10px]">Reset</button>
+    </div>
+
+    <div id="toastNotification" class="fixed top-20 right-6 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs flex items-center gap-2 transform -translate-y-20 opacity-0 transition-all duration-300 z-50 font-medium">
+        <span id="toastIcon">ℹ️</span>
+        <span id="toastMessage">Messaggio</span>
+    </div>
+
+    <!-- SCRIPT MODULARI (ordine importante) -->
+    <script defer src="js/state.js"></script>
+    <script defer src="js/utils.js"></script>
+    <script defer src="js/settings.js"></script>
+    <script defer src="js/db.js"></script>
+    <script defer src="js/history.js"></script>
+    <script defer src="js/library.js"></script>
+    <script defer src="js/pages.js"></script>
+    <script defer src="js/toolbar.js"></script>
+    <script defer src="js/render.js"></script>
+    <script defer src="js/gestures.js"></script>
+    <script defer src="js/input.js"></script>
+    <script defer src="js/shapes.js"></script>
+    <script defer src="js/lasso.js"></script>
+    <script defer src="js/main.js"></script>
+</body>
+</html>

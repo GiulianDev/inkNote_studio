@@ -1,0 +1,150 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+* {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+    background-color: #CBD5E1;
+    color: #0F172A;
+}
+
+body.dark {
+    background-color: #0F172A;
+    color: #F8FAFC;
+}
+
+#viewport {
+    width: 100vw;
+    height: calc(100vh - 84px);
+    overflow: hidden;
+    position: relative;
+    cursor: crosshair;
+}
+
+#canvasContainer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+    padding: 40px;
+}
+
+.page-wrapper {
+    width: 794px;
+    height: 1123px;
+    position: relative;
+    border-radius: 4px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    background-color: #FFFFFF;
+}
+
+body.dark .page-wrapper {
+    background-color: #1E293B;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+}
+
+.page-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+}
+
+.notebook-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.notebook-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 20px 30px -10px rgba(0,0,0,0.3);
+}
+
+.notebook-spine {
+    background: linear-gradient(90deg, rgba(0,0,0,0.25) 0%, rgba(255,255,255,0.15) 50%, rgba(0,0,0,0.1) 100%);
+}
+
+@keyframes snapEffect {
+    0% { transform: scale(0.995); opacity: 0.9; }
+    50% { transform: scale(1.005); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+.shape-snapped {
+    animation: snapEffect 0.2s ease-out;
+}
+
+/* Stile per Auto-Forme OFF */
+#btnToggleAutoShape.auto-shape-off {
+    background-color: transparent !important;
+    border-color: transparent !important;
+    color: #94a3b8 !important;
+    opacity: 0.6;
+    box-shadow: none !important;
+}
+body.dark #btnToggleAutoShape.auto-shape-off {
+    color: #64748b !important;
+}
+/* Stile per Auto-Forme ON */
+#btnToggleAutoShape.auto-shape-on {
+    background-color: #e0e7ff !important;
+    border-color: #a5b4fc !important;
+    color: #4338ca !important;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+body.dark #btnToggleAutoShape.auto-shape-on {
+    background-color: rgba(49, 46, 129, 0.8) !important;
+    border-color: #4338ca !important;
+    color: #c7d2fe !important;
+}
+
+/* Handedness: mancino → specchia header e subbar */
+body.handed-left header {
+    flex-direction: row-reverse;
+}
+body.handed-left #subbar {
+    flex-direction: row-reverse;
+}
+
+/* Handedness: mancino → undo/redo a sinistra, zoom a destra */
+body.handed-left #undoRedoContainer {
+    left: 1.5rem;
+    right: auto;
+}
+body.handed-left #zoomBadge {
+    left: auto;
+    right: 1.5rem;
+}
+
+@media print {
+    body.print-light { background: white !important; color: black !important; }
+    body.print-dark  { background: #0F172A !important; color: #F8FAFC !important; }
+
+    header, #subbar, #toastNotification, #zoomBadge, #selectionMenu,
+    #pullPageIndicator, #libraryView, #newNotebookModal, #settingsModal,
+    #undoRedoContainer {
+        display: none !important;
+    }
+
+    #viewport { height: auto !important; overflow: visible !important; }
+    #canvasContainer { transform: none !important; padding: 0 !important; }
+
+    .page-wrapper {
+        box-shadow: none !important;
+        page-break-after: always;
+        width: 210mm !important;
+        height: 297mm !important;
+    }
+    body.print-light .page-wrapper { background-color: #FFFFFF !important; }
+    body.print-dark  .page-wrapper { background-color: #1E293B !important; }
+}
