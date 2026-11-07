@@ -35,28 +35,28 @@ function computeStrokeWidth(tool, baseSize, pressure, tiltNorm = 0, speedNorm = 
     let w = baseSize;
 
     if (tool === 'pen') {
-        // Stilografica: curva a S con esponente 1.8.
-        // - p=0.1 → 0.20x  (tratto fine, quasi invisibile)
-        // - p=0.3 → 0.52x  (fine)
-        // - p=0.5 → 1.07x  (medio)
-        // - p=0.7 → 1.90x  (spesso)
-        // - p=1.0 → 3.35x  (molto spesso)
-        // Il pennino si apre in fretta agli alti: non serve calcare tanto,
-        // ma i primi millimetri di pressione non fanno quasi nulla.
-        w = baseSize * (0.15 + Math.pow(p, 1.8) * 3.2);
+        // Stilografica: curva a S accentuata, esponente 2.2.
+        // Il tratto resta fine per tutta la prima metà della pressione,
+        // poi "esplode" verso la pressione massima.
+        // - p=0.1 → 0.15x  (filo, quasi invisibile)
+        // - p=0.3 → 0.38x  (fine)
+        // - p=0.5 → 0.85x  (normale)
+        // - p=0.7 → 1.65x  (spesso)
+        // - p=1.0 → 3.50x  (molto spesso)
+        w = baseSize * (0.12 + Math.pow(p, 2.2) * 3.5);
         w *= (1 + tiltNorm * 0.15);
         w *= (1 - speedNorm * 0.25);
     } else if (tool === 'pencil') {
-        // Matita: base alta (0.5x) + esponente 0.6 (crescita rapida ai bassi).
-        // - p=0.1 → 1.25x  (già visibile, non "sparisce")
-        // - p=0.3 → 1.85x
-        // - p=0.5 → 2.48x
-        // - p=0.7 → 2.90x
-        // - p=1.0 → 3.50x
-        // Tilt ×1.5 amplifica molto: inclinando la matita il tratto si allarga
-        // fino a 1.5x in più (tipico di una matita vera su carta).
-        w = baseSize * (0.5 + Math.pow(p, 0.6) * 3.0);
-        w *= (1 + tiltNorm * 1.5);
+        // Matita: base bassa (0.2x, tratto fine a tocco leggero) con
+        // esponente 1.3 (crescita moderata all'inizio, sostenuta poi).
+        // - p=0.1 → 0.37x  (fine, alpha 0.55 lo rende visibile)
+        // - p=0.3 → 0.93x
+        // - p=0.5 → 1.62x
+        // - p=0.7 → 2.40x
+        // - p=1.0 → 3.70x
+        // Tilt ×1.3: inclinazione visibile senza diventare una striscia.
+        w = baseSize * (0.2 + Math.pow(p, 1.3) * 3.5);
+        w *= (1 + tiltNorm * 1.3);
         w *= (1 - speedNorm * 0.4);
     } else if (tool === 'marker') {
         w = baseSize * (1.2 + p * 1.0);
