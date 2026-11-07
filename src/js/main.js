@@ -4,6 +4,8 @@
 
 window.addEventListener('load', async () => {
     initSettings();
+        // Bind iniziale della canvas di test e degli slider di pressione
+    _bindPressureSliders();
 
     try {
         await initDB();

@@ -32,23 +32,20 @@ function getTaper(idx, tool) {
 
 function computeStrokeWidth(tool, rawSize, pressure, tiltNorm = 0, speedNorm = 0, taper = 1.0) {
     const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
-
-    // Mappa lo slider grezzo (1-25) a un baseSize realistico (0.5-5.5px).
-    // Il valore salvato nello stroke resta il raw (3, 5, 10, ecc.), così
-    // se cambiamo la mappatura in futuro gli stroke esistenti si adattano.
     const baseSize = sliderToBaseSize(rawSize);
     let w = baseSize;
 
-    if (tool === 'pen') {
-        // Stilografica: base quasi zero, esponente 2.5 (curva "a ginocchio").
-        w = baseSize * (0.05 + Math.pow(p, 2.5) * 3.45);
-        w *= (1 + tiltNorm * 0.15);
-        w *= (1 - speedNorm * 0.25);
-    } else if (tool === 'pencil') {
-        // Matita: base bassa ma visibile (alpha 0.55), esponente 1.6.
-        w = baseSize * (0.10 + Math.pow(p, 1.6) * 3.2);
-        w *= (1 + tiltNorm * 1.5);
-        w *= (1 - speedNorm * 0.4);
+    if (tool === 'pen' || tool === 'pencil') {
+        const params = getPressureParams();
+        const range = params.heavyMul - params.lightMul;
+        w = baseSize * (params.lightMul + Math.pow(p, params.curve) * range);
+        if (tool === 'pen') {
+            w *= (1 + tiltNorm * 0.15);
+            w *= (1 - speedNorm * 0.25);
+        } else {
+            w *= (1 + tiltNorm * 1.5);
+            w *= (1 - speedNorm * 0.4);
+        }
     } else if (tool === 'marker') {
         w = baseSize * (1.2 + p * 1.0);
         w *= (1 + tiltNorm * 0.50);
