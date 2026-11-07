@@ -1,187 +1,211 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
+/* ============================================================
+   TEMA CUSTOM (opzionale, non usato nell'HTML attuale)
+   ============================================================ */
+@theme {
+  --color-darkbg: #0F172A;
+  --color-darkpaper: #1E293B;
+  --color-darkpaperborder: #334155;
+}
+
+/* ============================================================
+   CSS CUSTOM ESISTENTE
+   ============================================================ */
 * {
-    box-sizing: border-box;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: none;
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
 }
 
 body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    overflow: hidden;
-    background-color: #CBD5E1;
-    color: #0F172A;
+  color: #0f172a;
+  background-color: #cbd5e1;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  overflow: hidden;
 }
 
 body.dark {
-    background-color: #0F172A;
-    color: #F8FAFC;
+  color: #f8fafc;
+  background-color: #0f172a;
 }
 
 #viewport {
-    width: 100vw;
-    height: calc(100vh - 84px);
-    overflow: hidden;
-    position: relative;
-    cursor: crosshair;
+  cursor: crosshair;
+  width: 100vw;
+  height: calc(100vh - 84px);
+  position: relative;
+  overflow: hidden;
 }
 
 #canvasContainer {
-    position: absolute;
-    top: 0;
-    left: 0;
-    transform-origin: 0 0;
-    will-change: transform;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 32px;
-    padding: 40px;
+  transform-origin: 0 0;
+  will-change: transform;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  padding: 40px;
+  display: flex;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .page-wrapper {
-    width: 794px;
-    height: 1123px;
-    position: relative;
-    border-radius: 4px;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-    background-color: #FFFFFF;
+  background-color: #fff;
+  border-radius: 4px;
+  width: 794px;
+  height: 1123px;
+  position: relative;
+  box-shadow: 0 20px 25px -5px #00000026, 0 8px 10px -6px #0000001a;
 }
 
 body.dark .page-wrapper {
-    background-color: #1E293B;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  background-color: #1e293b;
+  box-shadow: 0 25px 50px -12px #000000b3;
 }
 
 .page-canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    border-radius: 4px;
+  border-radius: 4px;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .notebook-card {
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform .2s, box-shadow .2s;
 }
+
 .notebook-card:hover {
-    transform: translateY(-6px);
-    box-shadow: 0 20px 30px -10px rgba(0,0,0,0.3);
+  transform: translateY(-6px);
+  box-shadow: 0 20px 30px -10px #0000004d;
 }
 
 .notebook-spine {
-    background: linear-gradient(90deg, rgba(0,0,0,0.25) 0%, rgba(255,255,255,0.15) 50%, rgba(0,0,0,0.1) 100%);
+  background: linear-gradient(90deg, #00000040 0%, #ffffff26 50%, #0000001a 100%);
 }
 
 @keyframes snapEffect {
-    0% { transform: scale(0.995); opacity: 0.9; }
-    50% { transform: scale(1.005); opacity: 1; }
-    100% { transform: scale(1); opacity: 1; }
+  0%   { opacity: .9; transform: scale(.995); }
+  50%  { opacity: 1;  transform: scale(1.005); }
+  100% { opacity: 1;  transform: scale(1); }
 }
+
 .shape-snapped {
-    animation: snapEffect 0.2s ease-out;
+  animation: .2s ease-out snapEffect;
 }
 
-/* Stile per Auto-Forme OFF */
 #btnToggleAutoShape.auto-shape-off {
-    background-color: transparent !important;
-    border-color: transparent !important;
-    color: #94a3b8 !important;
-    opacity: 0.6;
-    box-shadow: none !important;
+  opacity: .6;
+  color: #94a3b8 !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
 }
+
 body.dark #btnToggleAutoShape.auto-shape-off {
-    color: #64748b !important;
+  color: #64748b !important;
 }
-/* Stile per Auto-Forme ON */
+
 #btnToggleAutoShape.auto-shape-on {
-    background-color: #e0e7ff !important;
-    border-color: #a5b4fc !important;
-    color: #4338ca !important;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 0 0 2px #6366f140;
+  color: #4338ca !important;
+  background-color: #e0e7ff !important;
+  border-color: #a5b4fc !important;
 }
+
 body.dark #btnToggleAutoShape.auto-shape-on {
-    background-color: rgba(49, 46, 129, 0.8) !important;
-    border-color: #4338ca !important;
-    color: #c7d2fe !important;
+  color: #c7d2fe !important;
+  background-color: #312e81cc !important;
+  border-color: #4338ca !important;
 }
 
-/* Handedness: mancino → specchia header e subbar */
-body.handed-left header {
-    flex-direction: row-reverse;
-}
+body.handed-left header,
 body.handed-left #subbarContent {
-    flex-direction: row-reverse;
+  flex-direction: row-reverse;
 }
 
-/* Handedness: mancino → undo/redo a sinistra, zoom a destra */
 body.handed-left #undoRedoContainer {
-    left: 1.5rem;
-    right: auto;
+  left: 1.5rem;
+  right: auto;
 }
+
 body.handed-left #zoomBadge {
-    left: auto;
-    right: 1.5rem;
+  left: auto;
+  right: 1.5rem;
 }
 
-/* ====== SUBBAR COLLAPSE ANIMATION ====== */
 #subbar {
-    max-height: 60px;
-    transition: max-height 0.3s ease, border-bottom-width 0.3s ease;
-}
-#subbar.collapsed {
-    max-height: 0;
-    border-bottom-width: 0;
-}
-#subbar.collapsed #subbarContent {
-    transform: translateY(-100%);
+  max-height: 60px;
+  transition: max-height .3s, border-bottom-width .3s;
 }
 
-/* ====== COMPACT MODE ====== */
-body.compact-mode #mainHeader {
-    background: transparent !important;
-    border-bottom-color: transparent !important;
-    box-shadow: none !important;
-    padding: 8px 12px;
+#subbar.collapsed {
+  border-bottom-width: 0;
+  max-height: 0;
 }
+
+#subbar.collapsed #subbarContent {
+  transform: translateY(-100%);
+}
+
+body.compact-mode #mainHeader {
+  padding: 8px 12px;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-bottom-color: transparent !important;
+}
+
 body.compact-mode #headerLeft,
 body.compact-mode #headerRight,
 body.compact-mode #subbar {
-    display: none !important;
+  display: none !important;
 }
+
 body.compact-mode #drawingToolbar {
-    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.35);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px -10px #00000059;
 }
+
 body.compact-mode #viewport {
-    height: calc(100vh - 56px);
+  height: calc(100vh - 56px);
 }
+
 body.compact-mode #subbarExpandContainer {
-    display: none !important;
+  display: none !important;
 }
 
 @media print {
-    body.print-light { background: white !important; color: black !important; }
-    body.print-dark  { background: #0F172A !important; color: #F8FAFC !important; }
+  body.print-light { color: #000 !important; background: #fff !important; }
+  body.print-dark  { color: #f8fafc !important; background: #0f172a !important; }
 
-    header, #subbar, #subbarExpandContainer, #toastNotification, #zoomBadge, #selectionMenu,
-    #pullPageIndicator, #libraryView, #newNotebookModal, #settingsModal,
-    #undoRedoContainer {
-        display: none !important;
-    }
+  header, #subbar, #subbarExpandContainer, #toastNotification, #zoomBadge,
+  #selectionMenu, #pullPageIndicator, #libraryView, #newNotebookModal,
+  #settingsModal, #undoRedoContainer {
+    display: none !important;
+  }
 
-    #viewport { height: auto !important; overflow: visible !important; }
-    #canvasContainer { transform: none !important; padding: 0 !important; }
+  #viewport {
+    height: auto !important;
+    overflow: visible !important;
+  }
 
-    .page-wrapper {
-        box-shadow: none !important;
-        page-break-after: always;
-        width: 210mm !important;
-        height: 297mm !important;
-    }
-    body.print-light .page-wrapper { background-color: #FFFFFF !important; }
-    body.print-dark  .page-wrapper { background-color: #1E293B !important; }
+  #canvasContainer {
+    padding: 0 !important;
+    transform: none !important;
+  }
+
+  .page-wrapper {
+    page-break-after: always;
+    box-shadow: none !important;
+    width: 210mm !important;
+    height: 297mm !important;
+  }
+
+  body.print-light .page-wrapper { background-color: #fff !important; }
+  body.print-dark  .page-wrapper { background-color: #1e293b !important; }
 }
