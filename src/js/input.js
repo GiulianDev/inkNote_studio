@@ -18,7 +18,6 @@ function getCanvasCoords(e, canvas) {
     };
 }
 
-// Smussa la pressione con una media pesata degli ultimi punti.
 function smoothPressure(points, newPressure) {
     if (points.length === 0) return newPressure;
     const recent = points.slice(-3);
@@ -29,31 +28,26 @@ function smoothPressure(points, newPressure) {
     return Math.max(0.05, Math.min(1, acc));
 }
 
-// Smoothing adattivo (one-euro like), controllato da appState.smoothing [0..1].
-// - smoothing = 0   → nessun filtro, posizione raw
-// - smoothing = 0.5 → bilanciato
-// - smoothing = 1   → filtro forte (rimuove jitter)
-// La velocità del gesto alleggerisce sempre il filtro per non introdurre lag.
+// E: muta rawPoint in-place invece di allocare un nuovo oggetto.
+// Evita un'allocazione per pointermove (a 240Hz su Surface sono migliaia
+// di oggetti al secondo).
 function smoothRawPoint(rawPoint, prevSmoothed) {
     const smoothness = Math.max(0, Math.min(1, appState.smoothing));
 
     if (!prevSmoothed || smoothness <= 0.01) {
-        return { x: rawPoint.x, y: rawPoint.y };
+        return rawPoint;
     }
 
     const dx = rawPoint.x - prevSmoothed.x;
     const dy = rawPoint.y - prevSmoothed.y;
     const speed = Math.hypot(dx, dy);
 
-    // Base alpha: da 0.85 (poco smoothing) a 0.30 (molto smoothing)
     const minAlpha = 0.85 - smoothness * 0.55;
-    // Boost per velocità: gesto veloce → alpha più alta (reattivo)
     const alpha = Math.min(1.0, minAlpha + speed * 0.05);
 
-    return {
-        x: prevSmoothed.x + dx * alpha,
-        y: prevSmoothed.y + dy * alpha
-    };
+    rawPoint.x = prevSmoothed.x + dx * alpha;
+    rawPoint.y = prevSmoothed.y + dy * alpha;
+    return rawPoint;
 }
 
 function attachPointerListeners(pageData) {
@@ -187,18 +181,14 @@ function handlePointerMove(e, pageData) {
 
     if (!appState.currentStroke) return;
 
-    // === SMOOTHING IN ACQUISIZIONE ===
-    // 1. Posizione: filtro adattivo che rimuove jitter senza lag percepibile
     const prevSmoothed = appState.currentStroke.points[appState.currentStroke.points.length - 1];
     const smoothedPos = smoothRawPoint(rawPoint, prevSmoothed);
 
-    // 2. Pressione: smoothing pesato sui punti precedenti
     let smoothedPressure = rawPoint.pressure;
     if (rawPoint.pointerType === 'pen' && appState.currentStroke.points.length > 0) {
         smoothedPressure = smoothPressure(appState.currentStroke.points, rawPoint.pressure);
     }
 
-    // Scarta punti quasi identici al precedente (risparmio memoria + rendering)
     const minDist = 0.4;
     if (prevSmoothed && Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) < minDist) {
         return;
@@ -215,9 +205,6 @@ function handlePointerMove(e, pageData) {
     drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
 
     checkForScribble(pageData);
-
-    // FIX: rimosso il blocco trySnapToLineDuringDraw.
-    // Il rilevamento linea avviene ora al pointerup (vedi handlePointerUp).
 }
 
 function handlePointerUp(e, pageData) {
@@ -294,7 +281,6 @@ function handlePointerUp(e, pageData) {
         return;
     }
 
-    // FIX: snap linea + shape detection al rilascio, una sola volta.
     if (appState.currentStroke && appState.currentStroke.points.length > 2) {
         if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
             if (trySnapToLine(appState.currentStroke)) {
@@ -305,7 +291,17 @@ function handlePointerUp(e, pageData) {
         }
 
         pageData.strokes.push(appState.currentStroke);
-        redrawPageCanvas(pageData);
+
+        // C: append invece di redraw completo se non ci sono overlay attivi.
+        const hasOverlay = appState.pendingShape ||
+                          appState.lassoPath.length > 0 ||
+                          appState.selectedStrokes.length > 0;
+        if (hasOverlay) {
+            redrawPageCanvas(pageData);
+        } else {
+            appendStrokeToCanvas(pageData, appState.currentStroke);
+        }
+
         autoSaveTrigger();
         pushHistory();
     }

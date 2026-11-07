@@ -4,6 +4,10 @@
 
 const SCRIBBLE_ERASE_COLOR = 'rgba(220, 38, 38, 0.6)';
 
+// B: cache del tile di pattern. Single-entry, invalidata quando cambia
+// la coppia (pattern, isDark). Evita 1518 arc() per pattern dots.
+let _patternTileCache = { key: null, tile: null };
+
 function computeStrokeWidth(tool, baseSize, pressure) {
     const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
 
@@ -69,7 +73,6 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
         }
     }
 
-    // Scarabocchio in corso: disegna i segmenti in rosso semitrasparente
     if (appState.scribbleMode && appState.currentStroke && appState.currentStroke.points.length > 1) {
         const pts = appState.currentStroke.points;
         ctx.save();
@@ -90,9 +93,18 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
     ctx.restore();
 }
 
-// FIX: setupStrokeStyle NON fa più ctx.save().
-// Il chiamante (renderFullStroke / drawIncrementalSegment) gestisce save/restore.
-// Questo chiude il leak di save pendenti che si accumulavano a ogni pointermove.
+// C: disegna un singolo stroke sopra il canvas esistente, senza ridisegnare
+// il resto della pagina. Da usare solo quando non ci sono overlay attivi
+// (pendingShape, lassoPath, selectedStrokes) perché append non li ripulirebbe.
+function appendStrokeToCanvas(pageData, stroke, forceTargetDark = appState.isDarkMode) {
+    const ctx = pageData.ctx;
+    const dpr = pageData.dpr || 1;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    renderFullStroke(ctx, stroke, forceTargetDark);
+    ctx.restore();
+}
+
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -122,6 +134,8 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     }
 }
 
+// F: 1 fill() per segmento (path composto poligono + cerchio) invece di 2.
+// Con 10-50 segmenti per pointermove, sono 10-50 fill risparmiati.
 function drawTaperedSegment(ctx, p0, p1, w0, w1) {
     const dx = p1.x - p0.x;
     const dy = p1.y - p0.y;
@@ -142,19 +156,18 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
     const hw1 = Math.max(w1, 0.5) / 2;
 
     ctx.beginPath();
+    // Poligono
     ctx.moveTo(p0.x + nx * hw0, p0.y + ny * hw0);
     ctx.lineTo(p1.x + nx * hw1, p1.y + ny * hw1);
     ctx.lineTo(p1.x - nx * hw1, p1.y - ny * hw1);
     ctx.lineTo(p0.x - nx * hw0, p0.y - ny * hw0);
     ctx.closePath();
-    ctx.fill();
-
-    ctx.beginPath();
+    // Cerchio a p0 come secondo subpath dello stesso fill
+    ctx.moveTo(p0.x + hw0, p0.y);
     ctx.arc(p0.x, p0.y, hw0, 0, Math.PI * 2);
     ctx.fill();
 }
 
-// Interpolazione con blend tra lineare e Catmull-Rom controllato da `smoothness`.
 function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
     const lx = p1.x + (p2.x - p1.x) * t;
     const ly = p1.y + (p2.y - p1.y) * t;
@@ -179,7 +192,6 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
     const pts = stroke.points;
     if (pts.length < 2) return;
 
-    // FIX: save esplicito prima di setupStrokeStyle (che ora non lo fa più)
     ctx.save();
     setupStrokeStyle(ctx, stroke, forceTargetDark);
 
@@ -198,7 +210,6 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
         const w1 = widths[i - 1];
         const w2 = widths[i];
 
-        // Sub-step: più curvatura → più step (ma cap a 5)
         const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
         const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
@@ -222,8 +233,6 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
     ctx.restore();
 }
 
-// Disegno incrementale durante il gesto, con Catmull-Rom a lag 1.
-// save/restore bilanciati: setupStrokeStyle ora non ne aggiunge altri.
 function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const pts = stroke.points;
     const n = pts.length;
@@ -323,29 +332,60 @@ function drawPendingShape(ctx, forceTargetDark) {
     ctx.restore();
 }
 
+// B: genera il tile di pattern per la coppia (pattern, isDark).
+// Ritorna null per 'blank' (solo background).
+function getPatternTile(patternName, isDark) {
+    const key = `${patternName}|${isDark ? 'dark' : 'light'}`;
+    if (_patternTileCache.key === key) return _patternTileCache.tile;
+
+    let tile = null;
+    if (patternName === 'ruled') {
+        tile = document.createElement('canvas');
+        tile.width = 1;
+        tile.height = 32;
+        const tctx = tile.getContext('2d');
+        tctx.fillStyle = isDark ? '#334155' : '#E2E8F0';
+        tctx.fillRect(0, 0, 1, 1);
+    } else if (patternName === 'grid') {
+        tile = document.createElement('canvas');
+        tile.width = 25;
+        tile.height = 25;
+        const tctx = tile.getContext('2d');
+        tctx.fillStyle = isDark ? '#334155' : '#E2E8F0';
+        tctx.fillRect(0, 0, 25, 1);
+        tctx.fillRect(0, 0, 1, 25);
+    } else if (patternName === 'dots') {
+        tile = document.createElement('canvas');
+        tile.width = 24;
+        tile.height = 24;
+        const tctx = tile.getContext('2d');
+        tctx.fillStyle = isDark ? '#475569' : '#94A3B8';
+        tctx.beginPath();
+        tctx.arc(20, 20, 1.2, 0, Math.PI * 2);
+        tctx.fill();
+    }
+    _patternTileCache = { key, tile };
+    return tile;
+}
+
 function drawPaperBackground(ctx, isDark) {
     ctx.save();
     ctx.fillStyle = isDark ? '#1E293B' : '#FFFFFF';
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-    ctx.strokeStyle = isDark ? '#334155' : '#E2E8F0';
-    ctx.lineWidth = 1;
 
-    if (appState.bgPattern === 'ruled') {
-        for (let y = 60; y < PAGE_HEIGHT; y += 32) {
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(PAGE_WIDTH, y); ctx.stroke();
-        }
-    } else if (appState.bgPattern === 'grid') {
-        for (let x = 0; x < PAGE_WIDTH; x += 25) {
-            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, PAGE_HEIGHT); ctx.stroke();
-        }
-        for (let y = 0; y < PAGE_HEIGHT; y += 25) {
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(PAGE_WIDTH, y); ctx.stroke();
-        }
-    } else if (appState.bgPattern === 'dots') {
-        ctx.fillStyle = isDark ? '#475569' : '#94A3B8';
-        for (let x = 20; x < PAGE_WIDTH; x += 24) {
-            for (let y = 20; y < PAGE_HEIGHT; y += 24) {
-                ctx.beginPath(); ctx.arc(x, y, 1.2, 0, Math.PI * 2); ctx.fill();
+    const tile = getPatternTile(appState.bgPattern, isDark);
+    if (tile) {
+        const pattern = ctx.createPattern(tile, 'repeat');
+        if (pattern) {
+            ctx.fillStyle = pattern;
+            if (appState.bgPattern === 'ruled') {
+                // L'originale iniziava a y=60 con passo 32: replica l'offset
+                ctx.save();
+                ctx.translate(0, 60);
+                ctx.fillRect(0, -60, PAGE_WIDTH, PAGE_HEIGHT);
+                ctx.restore();
+            } else {
+                ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
             }
         }
     }
