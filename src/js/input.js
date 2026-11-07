@@ -107,7 +107,10 @@ function handlePointerDown(e, pageData) {
     const point = getCanvasCoords(e, pageData.canvas);
 
     if (point.pointerType === 'pen') {
-        point.pressure = Math.max(point.pressure, 0.35);
+        // Era 0.35. Abbassato a 0.2 perché ora la curva è più reattiva ai
+        // bassi: appoggiando leggermente la penna il tratto resta visibile
+        // anche con pressione 0.2 (width ~0.6x baseSize).
+        point.pressure = Math.max(point.pressure, 0.2);
     }
 
     if (appState.activeTool === 'lasso') {

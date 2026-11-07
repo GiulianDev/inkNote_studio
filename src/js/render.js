@@ -35,17 +35,21 @@ function computeStrokeWidth(tool, baseSize, pressure, tiltNorm = 0, speedNorm = 
     let w = baseSize;
 
     if (tool === 'pen') {
-        const curved = Math.pow(p, 0.55);
-        w = baseSize * (0.35 + curved * 1.3);
+        // Range ~4x: da 0.25x (pressione minima) a 3.0x (pressione massima).
+        // Esponente 0.6: risposta più pronta ai bassi (non serve calcare).
+        w = baseSize * (0.25 + Math.pow(p, 0.6) * 2.75);
         w *= (1 + tiltNorm * 0.20);
         w *= (1 - speedNorm * 0.25);
     } else if (tool === 'pencil') {
-        const curved = Math.pow(p, 0.8);
-        w = baseSize * (0.30 + curved * 2.0);
+        // Range ~4.6x: da 0.15x a 3.6x. Esponente 0.7 per curva leggermente
+        // più "grafite": ai bassi resta fine, agli alti esplode in spessore.
+        w = baseSize * (0.15 + Math.pow(p, 0.7) * 3.45);
         w *= (1 + tiltNorm * 0.80);
         w *= (1 - speedNorm * 0.50);
     } else if (tool === 'marker') {
-        w = baseSize * (1.55 + p * 0.35);
+        // Range ~1.8x: da 1.2x a 2.2x. Pennarello: deve essere corposo
+        // anche a pressione bassa, ma sentire la differenza agli alti.
+        w = baseSize * (1.2 + p * 1.0);
         w *= (1 + tiltNorm * 0.50);
         w *= (1 - speedNorm * 0.15);
     } else if (tool === 'highlighter') {
