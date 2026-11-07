@@ -39,9 +39,6 @@ function _updateDebugOverlay(pt) {
 function getCanvasCoords(e, canvas) {
     const rect = canvas.getBoundingClientRect();
 
-    // Pressione raw, senza normalizzazione automatica.
-    // La curva di risposta è gestita interamente dalla modale impostazioni
-    // (lightMul / heavyMul / curve in getPressureParams).
     let pressure = 0.5;
     if (e.pointerType === 'pen') {
         pressure = (e.pressure && e.pressure > 0) ? e.pressure : 0.5;
@@ -99,11 +96,20 @@ function attachPointerListeners(pageData) {
 // BATCHING rAF
 // ============================================================
 
-// Processa un singolo punto. Identico alla logica del vecchio
-// handlePointerMove sincrono, ma senza dispatch degli eventi.
 function _processPointerPoint(rawPoint, pageData) {
     if (appState.pendingShape) return;
     if (!appState.currentStroke || !appState.isDrawing) return;
+
+    // A: backup on-demand. Salvato al primo punto processato, quando il
+    // canvas è ancora pulito (drawIncrementalSegment richiede n>=3, quindi
+    // nessun segmento è stato disegnato per il currentStroke). Se lo stroke
+    // non entra mai in pendingShape, il backup non viene mai creato.
+    if (!appState.currentStroke.backupSaved &&
+        appState.autoShapeEnabled &&
+        SHAPE_CAPABLE_TOOLS.includes(appState.currentStroke.tool)) {
+        saveCanvasBackup(pageData);
+        appState.currentStroke.backupSaved = true;
+    }
 
     const prevSmoothed = appState.currentStroke.points[appState.currentStroke.points.length - 1];
     const smoothedPos = smoothRawPoint(rawPoint, prevSmoothed);
@@ -268,17 +274,15 @@ function handlePointerDown(e, pageData) {
         return;
     }
 
-    // Backup al pointerdown: il canvas è ancora pulito (curva live non
-    // ancora iniziata). Necessario per il ripristino in pendingShape.
-    if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
-        saveCanvasBackup(pageData);
-    }
+    // A: nessun backup qui. Sarà salvato on-demand al primo _processPointerPoint,
+    // solo se serve (autoShape && shape tool).
 
     appState.currentStroke = {
         tool: appState.activeTool,
         color: appState.currentColor,
         size: appState.strokeWidth,
         startTime: performance.now(),
+        backupSaved: false,
         points: [{
             x: point.x,
             y: point.y,
@@ -303,7 +307,6 @@ function handlePointerMove(e, pageData) {
     if (!appState.isDrawing) return;
     if (e.pointerId !== appState.currentPointerId) return;
 
-    // Rami sincroni (interattività immediata)
     if (appState.pendingShape) {
         const rawPoint = getCanvasCoords(e, pageData.canvas);
         const ps = appState.pendingShape;
@@ -351,7 +354,6 @@ function handlePointerMove(e, pageData) {
 
     if (!appState.currentStroke) return;
 
-    // RAMO DRAW: accumula punti (coalesced) e schedula flush rAF
     const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
     const events = (coalesced && coalesced.length > 0) ? coalesced : [e];
 
@@ -367,8 +369,6 @@ function handlePointerUp(e, pageData) {
     if (palmCheck && e.pointerType !== 'pen') return;
     if (e.pointerId !== appState.currentPointerId) return;
 
-    // Flush forzato dei punti pendenti prima di qualsiasi altra operazione.
-    // Garantisce che l'ultimo segmento sia disegnato al pointerup.
     _forceFlushNow(pageData);
 
     if (appState.pendingShape) {
@@ -456,6 +456,14 @@ function handlePointerUp(e, pageData) {
                 showToast('Linea agganciata', '📏');
                 snapped = true;
             } else if (detectAndSnapShape(appState.currentStroke, pageData)) {
+                snapped = true;
+            }
+        }
+
+        // B: highlighter snap orizzontale/verticale
+        if (appState.autoShapeEnabled && appState.activeTool === 'highlighter') {
+            if (trySnapHighlighter(appState.currentStroke)) {
+                showToast('Evidenziatore raddrizzato', '🖍️');
                 snapped = true;
             }
         }

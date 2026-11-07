@@ -272,3 +272,65 @@ function triggerSnapAnimation(pageData) {
     pageData.wrapper.classList.add('shape-snapped');
     setTimeout(() => pageData.wrapper.classList.remove('shape-snapped'), 250);
 }
+
+// ============================================================
+// HIGHLIGHTER SNAP (orizzontale / verticale)
+// Se il tratto highlighter è quasi orizzontale (|dy|/|dx| < 0.3)
+// o quasi verticale, lo raddrizza a y media (o x media).
+// ============================================================
+
+function trySnapHighlighter(stroke) {
+    const pts = stroke.points;
+    if (pts.length < 6) return false;
+
+    const startPt = pts[0];
+    const endPt = pts[pts.length - 1];
+    const dx = endPt.x - startPt.x;
+    const dy = endPt.y - startPt.y;
+    const len = Math.hypot(dx, dy);
+
+    if (len < 80) return false;
+
+    const angle = Math.atan2(dy, dx);
+    const absCos = Math.abs(Math.cos(angle));
+    const absSin = Math.abs(Math.sin(angle));
+
+    // Quasi orizzontale: |sin| < 0.3 (angolo < ~17°)
+    const isHorizontal = absSin < 0.3;
+    // Quasi verticale: |cos| < 0.3
+    const isVertical = absCos < 0.3;
+
+    if (!isHorizontal && !isVertical) return false;
+
+    const steps = Math.max(8, Math.floor(len / 4));
+    const straightPts = [];
+
+    if (isHorizontal) {
+        let sumY = 0;
+        for (const p of pts) sumY += p.y;
+        const avgY = sumY / pts.length;
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            straightPts.push({
+                x: startPt.x + dx * t,
+                y: avgY,
+                pressure: 0.5
+            });
+        }
+    } else {
+        let sumX = 0;
+        for (const p of pts) sumX += p.x;
+        const avgX = sumX / pts.length;
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            straightPts.push({
+                x: avgX,
+                y: startPt.y + dy * t,
+                pressure: 0.5
+            });
+        }
+    }
+
+    stroke.points = straightPts;
+    return true;
+}
