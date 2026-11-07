@@ -90,8 +90,10 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
     ctx.restore();
 }
 
+// FIX: setupStrokeStyle NON fa più ctx.save().
+// Il chiamante (renderFullStroke / drawIncrementalSegment) gestisce save/restore.
+// Questo chiude il leak di save pendenti che si accumulavano a ogni pointermove.
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
-    ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -153,8 +155,6 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
 }
 
 // Interpolazione con blend tra lineare e Catmull-Rom controllato da `smoothness`.
-// - smoothness = 0   → linea retta pura (p1 → p2)
-// - smoothness = 1   → Catmull-Rom pieno
 function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
     const lx = p1.x + (p2.x - p1.x) * t;
     const ly = p1.y + (p2.y - p1.y) * t;
@@ -179,6 +179,8 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
     const pts = stroke.points;
     if (pts.length < 2) return;
 
+    // FIX: save esplicito prima di setupStrokeStyle (che ora non lo fa più)
+    ctx.save();
     setupStrokeStyle(ctx, stroke, forceTargetDark);
 
     const smoothness = appState.smoothing;
@@ -221,7 +223,7 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
 }
 
 // Disegno incrementale durante il gesto, con Catmull-Rom a lag 1.
-// Ogni segmento viene calcolato sulla curva liscia e disegnato una volta sola.
+// save/restore bilanciati: setupStrokeStyle ora non ne aggiunge altri.
 function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const pts = stroke.points;
     const n = pts.length;
@@ -350,7 +352,6 @@ function drawPaperBackground(ctx, isDark) {
     ctx.restore();
 }
 
-// Disegna solo 2 handle di resize: NW e SE.
 function drawSelectionHandles(ctx, visualBBox) {
     const scale = transformState.scale;
     const handles = getHandlePositions(visualBBox);

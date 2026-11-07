@@ -3,20 +3,19 @@
 // Le forme geometriche usano pressione fissa 0.5 (sono "pulite")
 // ============================================================
 
-function trySnapToLineDuringDraw(pageData, currentPoint) {
-    const stroke = appState.currentStroke;
-    if (!stroke) return;
-
+// FIX: nuovo rilevamento linea applicato a pointerup sullo stroke completo.
+// Sostituisce la vecchia trySnapToLineDuringDraw (che scattava a ogni move
+// e innescava redrawPageCanvas O(n) per frame → lag).
+// Ritorna true se lo stroke è stato trasformato in linea retta.
+function trySnapToLine(stroke) {
     const pts = stroke.points;
-    if (pts.length < 6) return;
+    if (pts.length < 6) return false;
 
     const startPt = pts[0];
-    const endPt = currentPoint;
+    const endPt = pts[pts.length - 1];
 
-    // Corda minima: 50px (era 60). Rileva linee leggermente più corte,
-    // restando sopra la lunghezza tipica di una lettera scritta.
     const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-    if (chordLen < 50) return;
+    if (chordLen < 50) return false;
 
     let pathLen = 0;
     for (let i = 1; i < pts.length; i++) {
@@ -24,13 +23,13 @@ function trySnapToLineDuringDraw(pageData, currentPoint) {
     }
 
     const pathEfficiency = chordLen / Math.max(pathLen, 1);
-    if (pathEfficiency < 0.94) return;
+    if (pathEfficiency < 0.94) return false;
 
     const rmsDev = perpendicularRmsDeviation(pts, startPt, endPt);
-    if (rmsDev === null) return;
+    if (rmsDev === null) return false;
 
     const tolerance = Math.max(1.5, chordLen * 0.035);
-    if (rmsDev > tolerance) return;
+    if (rmsDev > tolerance) return false;
 
     if (pts.length >= 3) {
         const a = pts[pts.length - 3];
@@ -45,23 +44,23 @@ function trySnapToLineDuringDraw(pageData, currentPoint) {
             if (chordL > 0) {
                 const cosChord1 = (v1x * chordDx + v1y * chordDy) / (l1 * chordL);
                 const cosChord2 = (v2x * chordDx + v2y * chordDy) / (l2 * chordL);
-                if (cosChord1 < 0.80 || cosChord2 < 0.80) return;
+                if (cosChord1 < 0.80 || cosChord2 < 0.80) return false;
             }
         }
     }
 
-    appState.pendingShape = {
-        start: { x: startPt.x, y: startPt.y, pressure: 0.5 },
-        end: { x: endPt.x, y: endPt.y, pressure: 0.5 },
-        tool: stroke.tool,
-        color: stroke.color,
-        size: stroke.size,
-        activeHandle: 'end'
-    };
-
-    appState.currentStroke = null;
-    redrawPageCanvas(pageData);
-    showToast('Linea agganciata — muovi per aggiustare, rilascia per confermare', '📏');
+    const steps = Math.max(8, Math.floor(chordLen / 4));
+    const straightPts = [];
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        straightPts.push({
+            x: startPt.x + (endPt.x - startPt.x) * t,
+            y: startPt.y + (endPt.y - startPt.y) * t,
+            pressure: 0.5
+        });
+    }
+    stroke.points = straightPts;
+    return true;
 }
 
 function perpendicularRmsDeviation(points, A, B) {
@@ -81,6 +80,9 @@ function perpendicularRmsDeviation(points, A, B) {
     return Math.sqrt(sumSq / points.length);
 }
 
+// Mantenuta per compatibilità con gestures.js (abortCurrentDrawing).
+// Con il nuovo flusso pendingShape non viene mai creato, quindi è di fatto
+// no-op, ma la lasciamo per sicurezza.
 function finalizePendingShape() {
     if (!appState.pendingShape) return;
     const ps = appState.pendingShape;

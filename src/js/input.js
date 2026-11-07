@@ -216,12 +216,8 @@ function handlePointerMove(e, pageData) {
 
     checkForScribble(pageData);
 
-    if (!appState.scribbleMode &&
-        appState.autoShapeEnabled &&
-        SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
-        appState.currentStroke.points.length >= 6) {
-        trySnapToLineDuringDraw(pageData, rawPoint);
-    }
+    // FIX: rimosso il blocco trySnapToLineDuringDraw.
+    // Il rilevamento linea avviene ora al pointerup (vedi handlePointerUp).
 }
 
 function handlePointerUp(e, pageData) {
@@ -298,9 +294,14 @@ function handlePointerUp(e, pageData) {
         return;
     }
 
+    // FIX: snap linea + shape detection al rilascio, una sola volta.
     if (appState.currentStroke && appState.currentStroke.points.length > 2) {
         if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
-            detectAndSnapShape(appState.currentStroke, pageData);
+            if (trySnapToLine(appState.currentStroke)) {
+                showToast('Linea agganciata', '📏');
+            } else {
+                detectAndSnapShape(appState.currentStroke, pageData);
+            }
         }
 
         pageData.strokes.push(appState.currentStroke);
