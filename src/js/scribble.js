@@ -1,20 +1,16 @@
 // ============================================================
 // SCRIBBLE-TO-ERASE
-// Distingue scarabocchio (sovrapposizione piccola e locale) da
-// scrittura (traslazione verso destra) tramite:
+// Distingue scarabocchio (sovrapposizione locale) da scrittura
+// (traslazione) tramite metriche indipendenti dall'orientamento:
 // - dimensione stretta: solo correzioni piccole (1-2 lettere)
 // - return ratio: quanti punti tornano in zone già visitate
-// - horizontal net ratio: quanto la penna AVANZA vs quanto cammina
-// - horizontal reversals: quante volte inverte direzione orizzontale
+// - net ratio 2D: distanza inizio-fine / lunghezza percorso
 // ============================================================
 
 const SCRIBBLE_MIN_POINTS = 10;
 const SCRIBBLE_MIN_REVERSALS = 5;
 const SCRIBBLE_HIT_RADIUS = 20;
 
-// Dimensione stretta: solo correzioni piccole e locali.
-// Una lettera è ~20-40px, una parola corta ~100-150px.
-// Oltre i 180px di diagonale, l'utente deve usare gomma o lazo.
 const SCRIBBLE_MAX_DURATION_MS = 1200;
 const SCRIBBLE_MAX_BBOX_DIAGONAL = 180;
 const SCRIBBLE_MAX_PATH_LEN = 1500;
@@ -22,20 +18,20 @@ const SCRIBBLE_MIN_AVG_SPEED = 100;
 
 // Return ratio: frazione di punti che cadono in una cella già visitata
 // da almeno SCRIBBLE_RETURN_SKIP punti.
-const SCRIBBLE_MIN_RETURN_RATIO = 0.35;
+const SCRIBBLE_MIN_RETURN_RATIO = 0.40;
 const SCRIBBLE_RETURN_RADIUS = 6;
 const SCRIBBLE_RETURN_SKIP = 8;
 
-// Horizontal net ratio: |x_end - x_start| / Σ|dx|.
-// Scrittura: la penna avanza sempre → ratio alto (0.6-0.95)
-// Scarabocchio: la penna va avanti e indietro → ratio basso (0-0.3)
-const SCRIBBLE_MAX_HORIZONTAL_NET_RATIO = 0.5;
-
-// Cambi di direzione orizzontale: la scrittura ne ha pochi (3-5 per
-// parola), lo scarabocchio molti (10-30).
-const SCRIBBLE_MIN_HORIZONTAL_REVERSALS = 4;
+// Net ratio 2D: distanza inizio-fine / lunghezza del percorso.
+// - Scarabocchio (qualsiasi inclinazione): ratio basso (0.1-0.3)
+// - Scrittura ("molto", "mamma"): ratio alto (0.7-0.9)
+const SCRIBBLE_MAX_NET_RATIO_2D = 0.45;
 
 const SCRIBBLE_RESAMPLE_DIST = 2.0;
+
+// Debug: apri con ?scribble=1 per vedere i valori in console.
+const _DEBUG_SCRIBBLE = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('scribble');
 
 let _lastScribbleTargetCheck = 0;
 
@@ -85,39 +81,24 @@ function computeReturnRatio(sampled, cellSize, skip) {
     return returns / n;
 }
 
-// Net ratio orizzontale + reversals orizzontali.
-// Ignora i micro-spostamenti (< 1px) per non contare jitter.
-function computeHorizontalMetrics(sampled) {
-    if (sampled.length < 2) return { netRatio: 1, reversals: 0 };
-
-    const startX = sampled[0].x;
-    const endX = sampled[sampled.length - 1].x;
-    const net = Math.abs(endX - startX);
-
-    let total = 0;
-    let reversals = 0;
-    let lastDir = 0; // -1, 0, +1
-
+function computeNetRatio2D(sampled) {
+    if (sampled.length < 2) return 1;
+    const start = sampled[0];
+    const end = sampled[sampled.length - 1];
+    let pathLen = 0;
     for (let i = 1; i < sampled.length; i++) {
-        const dx = sampled[i].x - sampled[i - 1].x;
-        total += Math.abs(dx);
-
-        if (Math.abs(dx) > 1) {
-            const dir = dx > 0 ? 1 : -1;
-            if (lastDir !== 0 && dir !== lastDir) reversals++;
-            lastDir = dir;
-        }
+        pathLen += Math.hypot(sampled[i].x - sampled[i - 1].x, sampled[i].y - sampled[i - 1].y);
     }
-
-    return {
-        netRatio: total > 0 ? net / total : 1,
-        reversals
-    };
+    if (pathLen < 1) return 1;
+    return Math.hypot(end.x - start.x, end.y - start.y) / pathLen;
 }
 
 function isScribbleShape(pts, durationMs) {
     if (pts.length < SCRIBBLE_MIN_POINTS) return false;
-    if (!durationMs || durationMs > SCRIBBLE_MAX_DURATION_MS) return false;
+    if (!durationMs || durationMs > SCRIBBLE_MAX_DURATION_MS) {
+        if (_DEBUG_SCRIBBLE) console.log('[scribble] FAIL duration', durationMs);
+        return false;
+    }
 
     const sampled = resamplePoints(pts);
     if (sampled.length < SCRIBBLE_MIN_POINTS) return false;
@@ -149,31 +130,55 @@ function isScribbleShape(pts, durationMs) {
     const bboxH = maxY - minY;
     const bboxDiag = Math.hypot(bboxW, bboxH);
 
-    // Filtri economici (scartano subito i casi ovvi)
-    if (bboxDiag < 15) return false;
-    if (bboxDiag > SCRIBBLE_MAX_BBOX_DIAGONAL) return false;
-    if (pathLen > SCRIBBLE_MAX_PATH_LEN) return false;
-    if (reversalCount < SCRIBBLE_MIN_REVERSALS) return false;
-
     const durationSec = durationMs / 1000;
-    if (durationSec <= 0) return false;
-    const avgSpeed = pathLen / durationSec;
-    if (avgSpeed < SCRIBBLE_MIN_AVG_SPEED) return false;
+    const avgSpeed = durationSec > 0 ? pathLen / durationSec : 0;
+
+    const returnRatio = computeReturnRatio(sampled, SCRIBBLE_RETURN_RADIUS, SCRIBBLE_RETURN_SKIP);
+    const netRatio2D = computeNetRatio2D(sampled);
+
+    if (_DEBUG_SCRIBBLE) {
+        console.log('[scribble]', {
+            points: pts.length,
+            sampled: sampled.length,
+            bboxDiag: bboxDiag.toFixed(1),
+            pathLen: pathLen.toFixed(1),
+            durationMs: durationMs.toFixed(0),
+            avgSpeed: avgSpeed.toFixed(0),
+            reversalCount,
+            returnRatio: returnRatio.toFixed(2),
+            netRatio2D: netRatio2D.toFixed(2)
+        });
+    }
+
+    // Filtri economici
+    if (bboxDiag < 15) return false;
+    if (bboxDiag > SCRIBBLE_MAX_BBOX_DIAGONAL) {
+        if (_DEBUG_SCRIBBLE) console.log('  → FAIL bbox too big');
+        return false;
+    }
+    if (pathLen > SCRIBBLE_MAX_PATH_LEN) return false;
+    if (reversalCount < SCRIBBLE_MIN_REVERSALS) {
+        if (_DEBUG_SCRIBBLE) console.log('  → FAIL too few reversals');
+        return false;
+    }
+    if (avgSpeed < SCRIBBLE_MIN_AVG_SPEED) {
+        if (_DEBUG_SCRIBBLE) console.log('  → FAIL too slow');
+        return false;
+    }
 
     // Filtro 1: return ratio (sovrapposizione)
-    const returnRatio = computeReturnRatio(sampled, SCRIBBLE_RETURN_RADIUS, SCRIBBLE_RETURN_SKIP);
-    if (returnRatio < SCRIBBLE_MIN_RETURN_RATIO) return false;
+    if (returnRatio < SCRIBBLE_MIN_RETURN_RATIO) {
+        if (_DEBUG_SCRIBBLE) console.log('  → FAIL return ratio low');
+        return false;
+    }
 
-    // Filtro 2: horizontal net ratio (avanzamento vs oscillazione)
-    // "molto", "mamma", qualsiasi parola: la penna avanza → ratio alto → escluso.
-    const hMetrics = computeHorizontalMetrics(sampled);
-    if (hMetrics.netRatio > SCRIBBLE_MAX_HORIZONTAL_NET_RATIO) return false;
+    // Filtro 2: net ratio 2D (avanzamento vs ritorno al punto di partenza)
+    if (netRatio2D > SCRIBBLE_MAX_NET_RATIO_2D) {
+        if (_DEBUG_SCRIBBLE) console.log('  → FAIL net ratio 2D high');
+        return false;
+    }
 
-    // Filtro 3: horizontal reversals (cambi di direzione orizzontale)
-    // La scrittura ha pochi cambi (solo quando torna indietro per una "m",
-    // "n", "h"). Lo scarabocchio ne ha molti.
-    if (hMetrics.reversals < SCRIBBLE_MIN_HORIZONTAL_REVERSALS) return false;
-
+    if (_DEBUG_SCRIBBLE) console.log('  → MATCH');
     return true;
 }
 
