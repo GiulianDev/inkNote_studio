@@ -14,6 +14,8 @@ function getCanvasCoords(e, canvas) {
         x: (e.clientX - rect.left) * (PAGE_WIDTH / rect.width),
         y: (e.clientY - rect.top) * (PAGE_HEIGHT / rect.height),
         pressure: pressure,
+        tiltX: e.tiltX || 0,
+        tiltY: e.tiltY || 0,
         pointerType: e.pointerType
     };
 }
@@ -112,16 +114,25 @@ function handlePointerDown(e, pageData) {
         return;
     }
 
-    // Snapshot del canvas per il ripristino durante pendingShape.
     if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
         saveCanvasBackup(pageData);
     }
 
+    // Primo punto: porta tilt e speed:0 espliciti (servono al renderer per
+    // differenziare il "starting dot" e calcolare la velocità dei punti dopo).
     appState.currentStroke = {
         tool: appState.activeTool,
         color: appState.currentColor,
         size: appState.strokeWidth,
-        points: [point]
+        points: [{
+            x: point.x,
+            y: point.y,
+            pressure: point.pressure,
+            tiltX: point.tiltX,
+            tiltY: point.tiltY,
+            speed: 0,
+            pointerType: point.pointerType
+        }]
     };
 }
 
@@ -197,10 +208,19 @@ function handlePointerMove(e, pageData) {
         return;
     }
 
+    // Velocità = distanza dal punto precedente (px canvas tra due eventi).
+    // Serve al renderer per assottigliare i tratti veloci.
+    const speedPx = prevSmoothed
+        ? Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y)
+        : 0;
+
     const smoothedPoint = {
         x: smoothedPos.x,
         y: smoothedPos.y,
         pressure: smoothedPressure,
+        tiltX: rawPoint.tiltX,
+        tiltY: rawPoint.tiltY,
+        speed: speedPx,
         pointerType: rawPoint.pointerType
     };
 
@@ -209,9 +229,6 @@ function handlePointerMove(e, pageData) {
 
     checkForScribble(pageData);
 
-    // Check snap ogni 5 punti invece che a ogni punto.
-    // Scatta comunque in fretta (a 6-10 punti) ma riduce il costo O(N) per
-    // move a O(N/5).
     if (!appState.scribbleMode &&
         appState.autoShapeEnabled &&
         SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
@@ -318,11 +335,8 @@ function handlePointerUp(e, pageData) {
         pageData.strokes.push(appState.currentStroke);
 
         if (snapped) {
-            // Snap: il canvas ha la curva live, va sostituita con la forma
             redrawPageCanvas(pageData);
         } else {
-            // Nessuno snap: il canvas ha già la curva live (lag-1).
-            // Basta completare l'ultimo segmento. O(1), niente redraw.
             drawFinalSegmentOnly(pageData, appState.currentStroke);
         }
 
