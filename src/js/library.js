@@ -2,6 +2,8 @@
 // LIBRERIA QUADERNI E LOGIN
 // ============================================================
 
+let _autoSaveTimer = null;
+
 function handleGoogleLogin() {
     if (!currentUser) {
         setTimeout(() => {
@@ -144,6 +146,7 @@ async function deleteNotebook(e, id) {
 
 function returnToLibrary() {
     if (appState.pendingShape) finalizePendingShape();
+    flushAutoSave();
     if (currentNotebook) {
         syncCurrentStateToNotebook();
         saveNotebookToDB(currentNotebook);
@@ -155,7 +158,7 @@ function returnToLibrary() {
 function updateCurrentNotebookTitle(newTitle) {
     if (currentNotebook) {
         currentNotebook.title = newTitle;
-        saveNotebookToDB(currentNotebook);
+        autoSaveTrigger();
         pushHistory();
     }
 }
@@ -166,8 +169,24 @@ function syncCurrentStateToNotebook() {
     currentNotebook.pages = appState.pages.map(p => ({ pageIndex: p.index, strokes: p.strokes }));
 }
 
+// Debounce: accoda un salvataggio che avviene dopo 500ms di quiete.
+// Disegno veloce = 1 scrittura IndexedDB invece di N.
 function autoSaveTrigger() {
-    if (currentNotebook) {
+    if (!currentNotebook) return;
+    if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = setTimeout(() => {
+        _autoSaveTimer = null;
+        if (!currentNotebook) return;
+        syncCurrentStateToNotebook();
+        saveNotebookToDB(currentNotebook);
+    }, 500);
+}
+
+function flushAutoSave() {
+    if (_autoSaveTimer) {
+        clearTimeout(_autoSaveTimer);
+        _autoSaveTimer = null;
+        if (!currentNotebook) return;
         syncCurrentStateToNotebook();
         saveNotebookToDB(currentNotebook);
     }
