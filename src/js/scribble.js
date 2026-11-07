@@ -3,15 +3,15 @@
 // Riconosce uno scarabocchio a zig-zag durante il disegno
 // e cancella gli stroke che interseca.
 //
-// Comportamento target: piccoli movimenti oscillatori molto rapidi,
-// come quando si cancella con la penna sul quaderno coprendo le lettere.
-// Distinzione critica: lo scarabocchio si auto-interseca (ripassa su sé
-// stesso), la scrittura trasla (una "m" ha direzione, non si sovrappone).
+// Distinzione chiave:
+// - Scarabocchio: l'utente ripassa nella stessa zona. Baricentri dei
+//   quarti temporali vicini, chordLen inizio-fine piccola rispetto al bbox.
+// - Scrittura: il tratto trasla. Anche se ha inversioni (la "m" ne ha),
+//   i baricentri avanzano e inizio-fine sono lontani.
 // ============================================================
 
 const SCRIBBLE_MIN_POINTS = 10;
 const SCRIBBLE_MIN_REVERSALS = 5;
-const SCRIBBLE_MIN_PATH_RATIO = 3.0;
 const SCRIBBLE_MIN_REVERSAL_DENSITY = 0.06;
 const SCRIBBLE_HIT_RADIUS = 20;
 
@@ -21,21 +21,27 @@ const SCRIBBLE_MAX_PATH_LEN = 4000;
 const SCRIBBLE_MIN_REVERSAL_RATE = 2.5;
 const SCRIBBLE_MIN_AVG_SPEED = 100;
 
-// NUOVI: distinguono scarabocchio (compatto, auto-intersecante) da
-// scrittura (allungata, con traslazione netta).
-const SCRIBBLE_MAX_ASPECT_RATIO = 4.0;
-const SCRIBBLE_MIN_SELF_INTERSECTIONS = 3;
-const SCRIBBLE_SELF_INTERSECT_SKIP = 5;
-const SCRIBBLE_SELF_INTERSECT_WINDOW = 30;
-const SCRIBBLE_SELF_INTERSECT_DIST = 3.0;
+// Range pathRatio: troppo basso → linea/lettera semplice,
+// troppo alto → cerchio o loop che torna su sé stesso in modo regolare.
+const SCRIBBLE_MIN_PATH_RATIO = 3.0;
+const SCRIBBLE_MAX_PATH_RATIO = 15.0;
 
-// Distanza minima tra punti per il resampling.
+// Distanza inizio-fine rispetto alla diagonale del bbox.
+// Nella "m" inizio e fine sono lontani (0.5-0.8); nello scarabocchio
+// vicini (0.1-0.3).
+const SCRIBBLE_MAX_CHORD_RATIO = 0.5;
+
+// Progressione dei baricentri: somma delle distanze tra baricentri di
+// quarti temporali consecutivi, diviso la diagonale del bbox.
+// Nella "m" i baricentri avanzano (0.4-0.7); nello scarabocchio
+// oscillano intorno allo stesso punto (0.1-0.25).
+const SCRIBBLE_MAX_PROGRESSION_RATIO = 0.35;
+const SCRIBBLE_PROGRESSION_BUCKETS = 5;
+
 const SCRIBBLE_RESAMPLE_DIST = 2.0;
 
 let _lastScribbleTargetCheck = 0;
 
-// Sottoinsieme dei punti in cui ognuno è almeno SCRIBBLE_RESAMPLE_DIST px
-// dal precedente. Include sempre il primo e l'ultimo punto.
 function resamplePoints(pts) {
     if (pts.length === 0) return [];
     const out = [pts[0]];
@@ -54,34 +60,35 @@ function resamplePoints(pts) {
     return out;
 }
 
-// Conta quante volte il path ripassa vicino a sé stesso.
-// Confronta punti distanti temporalmente (almeno SKIP passi) ma vicini
-// spazialmente. Nella "m" le gambe sono vicine ma non si sovrappongono;
-// nello scarabocchio ogni passaggio ripassa sui precedenti.
-function countSelfIntersections(sampled) {
+// Divide i punti in N bucket temporali (uguali per numero di punti) e
+// calcola il baricentro di ciascuno.
+function computeBucketCentroids(sampled, buckets) {
     const n = sampled.length;
-    const skip = SCRIBBLE_SELF_INTERSECT_SKIP;
-    if (n < skip + 2) return 0;
-
-    const distSq = SCRIBBLE_SELF_INTERSECT_DIST * SCRIBBLE_SELF_INTERSECT_DIST;
-    const window = SCRIBBLE_SELF_INTERSECT_WINDOW;
-    const earlyExit = SCRIBBLE_MIN_SELF_INTERSECTIONS * 2;
-
-    let count = 0;
-    for (let i = 0; i < n - skip - 1; i++) {
-        const pi = sampled[i];
-        const maxJ = Math.min(n, i + skip + window);
-        for (let j = i + skip; j < maxJ; j++) {
-            const pj = sampled[j];
-            const dx = pi.x - pj.x;
-            const dy = pi.y - pj.y;
-            if (dx * dx + dy * dy < distSq) {
-                count++;
-                if (count >= earlyExit) return count;
-            }
+    const centroids = [];
+    for (let b = 0; b < buckets; b++) {
+        const start = Math.floor(b * n / buckets);
+        const end = Math.floor((b + 1) * n / buckets);
+        if (end <= start) continue;
+        let sx = 0, sy = 0;
+        for (let i = start; i < end; i++) {
+            sx += sampled[i].x;
+            sy += sampled[i].y;
         }
+        const count = end - start;
+        centroids.push({ x: sx / count, y: sy / count });
     }
-    return count;
+    return centroids;
+}
+
+// Somma delle distanze tra baricentri consecutivi.
+function computeProgressionDistance(centroids) {
+    let total = 0;
+    for (let i = 1; i < centroids.length; i++) {
+        const dx = centroids[i].x - centroids[i - 1].x;
+        const dy = centroids[i].y - centroids[i - 1].y;
+        total += Math.hypot(dx, dy);
+    }
+    return total;
 }
 
 function isScribbleShape(pts, durationMs) {
@@ -119,6 +126,9 @@ function isScribbleShape(pts, durationMs) {
     const bboxW = maxX - minX;
     const bboxH = maxY - minY;
     const bboxDiag = Math.hypot(bboxW, bboxH);
+
+    // Filtri economici
+    if (bboxDiag < 20) return false;                       // troppo piccolo
     if (bboxDiag > SCRIBBLE_MAX_BBOX_DIAGONAL) return false;
     if (pathLen > SCRIBBLE_MAX_PATH_LEN) return false;
     if (reversalCount < SCRIBBLE_MIN_REVERSALS) return false;
@@ -132,27 +142,32 @@ function isScribbleShape(pts, durationMs) {
     if (reversalRate < SCRIBBLE_MIN_REVERSAL_RATE) return false;
 
     const chordLen = Math.hypot(end.x - start.x, end.y - start.y);
-    if (chordLen < 5) {
-        // Cerchio/loop: richiediamo più inversioni e self-intersection
-        if (reversalCount < 6) return false;
-        const loopIntersections = countSelfIntersections(sampled);
-        return loopIntersections >= SCRIBBLE_MIN_SELF_INTERSECTIONS;
-    }
 
-    const pathRatio = pathLen / chordLen;
+    // Filtro chordRatio: nello scarabocchio si torna vicino all'inizio.
+    // Esclude "m", "mm", parole scritte (dove la penna avanza).
+    const chordRatio = chordLen / bboxDiag;
+    if (chordRatio > SCRIBBLE_MAX_CHORD_RATIO) return false;
+
+    // Filtro pathRatio: range tra 3 e 15.
+    // < 3 → linea o lettera semplice
+    // > 15 → cerchio/loop regolare (inizio e fine coincidono, ma path
+    //        percorso una volta sola con andamento circolare)
+    const pathRatio = pathLen / Math.max(chordLen, 1);
     if (pathRatio < SCRIBBLE_MIN_PATH_RATIO) return false;
+    if (pathRatio > SCRIBBLE_MAX_PATH_RATIO) return false;
 
+    // Filtro densità di inversioni
     const reversalDensity = reversalCount / (sampled.length - 1);
     if (reversalDensity < SCRIBBLE_MIN_REVERSAL_DENSITY) return false;
 
-    // NUOVO: aspect ratio del bbox. La "m" è allungata orizzontalmente
-    // (bboxW/bboxH ≈ 2-3), lo scarabocchio è compatto (≈ 1).
-    const aspect = Math.max(bboxW, bboxH) / Math.max(1, Math.min(bboxW, bboxH));
-    if (aspect > SCRIBBLE_MAX_ASPECT_RATIO) return false;
-
-    // NUOVO: self-intersection. Costoso, eseguito solo sui candidati.
-    const selfIntersections = countSelfIntersections(sampled);
-    if (selfIntersections < SCRIBBLE_MIN_SELF_INTERSECTIONS) return false;
+    // Filtro progressione baricentri: la penna non deve avanzare.
+    // Nella "m" i baricentri si spostano in avanti (ratio alto);
+    // nello scarabocchio oscillano intorno allo stesso punto (ratio basso).
+    const centroids = computeBucketCentroids(sampled, SCRIBBLE_PROGRESSION_BUCKETS);
+    if (centroids.length < 2) return false;
+    const progression = computeProgressionDistance(centroids);
+    const progressionRatio = progression / bboxDiag;
+    if (progressionRatio > SCRIBBLE_MAX_PROGRESSION_RATIO) return false;
 
     return true;
 }
@@ -168,8 +183,6 @@ function checkForScribble(pageData) {
     const durationMs = performance.now() - startTime;
 
     if (!appState.scribbleMode) {
-        // Check ogni 3 punti (era 2): il check self-intersection è costoso,
-        // meglio non eseguirlo a ogni punto.
         if (pts.length % 3 !== 0) return;
         if (!isScribbleShape(pts, durationMs)) return;
         appState.scribbleMode = true;
