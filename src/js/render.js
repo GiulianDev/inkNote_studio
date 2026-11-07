@@ -30,41 +30,22 @@ function getTaper(idx, tool) {
     return 1.0;
 }
 
-function computeStrokeWidth(tool, baseSize, pressure, tiltNorm = 0, speedNorm = 0, taper = 1.0) {
+function computeStrokeWidth(tool, rawSize, pressure, tiltNorm = 0, speedNorm = 0, taper = 1.0) {
     const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
+
+    // Mappa lo slider grezzo (1-25) a un baseSize realistico (0.5-5.5px).
+    // Il valore salvato nello stroke resta il raw (3, 5, 10, ecc.), così
+    // se cambiamo la mappatura in futuro gli stroke esistenti si adattano.
+    const baseSize = sliderToBaseSize(rawSize);
     let w = baseSize;
 
     if (tool === 'pen') {
         // Stilografica: base quasi zero, esponente 2.5 (curva "a ginocchio").
-        // Il tratto resta un filo per tutta la prima metà della pressione,
-        // poi esplode solo negli ultimi 20-30%.
-        // - p=0.1 → 0.06x  (filo quasi invisibile)
-        // - p=0.2 → 0.11x  (ancora un filo)
-        // - p=0.3 → 0.22x  (fine)
-        // - p=0.4 → 0.40x  (fine)
-        // - p=0.5 → 0.66x  (medio)
-        // - p=0.6 → 1.01x  (normale)
-        // - p=0.7 → 1.47x  (corposo)
-        // - p=0.8 → 2.02x  (spesso)
-        // - p=0.9 → 2.70x  (molto spesso)
-        // - p=1.0 → 3.50x  (massimo)
         w = baseSize * (0.05 + Math.pow(p, 2.5) * 3.45);
         w *= (1 + tiltNorm * 0.15);
         w *= (1 - speedNorm * 0.25);
     } else if (tool === 'pencil') {
-        // Matita: base bassa (0.10x) ma visibile grazie all'alpha 0.55.
-        // Esponente 1.6: crescita morbida, non esplode subito.
-        // - p=0.1 → 0.18x  (sottile, "sfaldato" per l'alpha)
-        // - p=0.2 → 0.34x  (sottile)
-        // - p=0.3 → 0.58x  (fine)
-        // - p=0.4 → 0.89x  (medio-fine)
-        // - p=0.5 → 1.26x  (medio)
-        // - p=0.6 → 1.69x  (medio-corposo)
-        // - p=0.7 → 2.18x  (corposo)
-        // - p=0.8 → 2.73x  (spesso)
-        // - p=0.9 → 3.34x  (molto spesso)
-        // - p=1.0 → 4.00x  (massimo, il tilt può raddoppiarlo)
-        // Tilt ×1.5: inclinando la matita si vede chiaramente l'allargamento.
+        // Matita: base bassa ma visibile (alpha 0.55), esponente 1.6.
         w = baseSize * (0.10 + Math.pow(p, 1.6) * 3.2);
         w *= (1 + tiltNorm * 1.5);
         w *= (1 - speedNorm * 0.4);

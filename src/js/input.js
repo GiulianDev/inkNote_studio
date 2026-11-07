@@ -378,7 +378,10 @@ function handlePointerUp(e, pageData) {
 
 function performEraserAt(pageData, point) {
     const mode = document.getElementById('eraserModeSelect').value;
-    const radius = appState.strokeWidth * 4.5;
+    // Era: appState.strokeWidth * 4.5. Con la nuova mappatura il valore
+    // grezzo non corrisponde più ai px: uso sliderToBaseSize come per il
+    // disegno, con moltiplicatore più alto per mantenere un raggio comodo.
+    const radius = sliderToBaseSize(appState.strokeWidth) * 12;
     const initCount = pageData.strokes.length;
 
     if (mode === 'stroke') {

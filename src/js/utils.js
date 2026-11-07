@@ -53,3 +53,14 @@ function showToast(msg, icon = 'ℹ️') {
         toast.classList.add('translate-y-2', 'opacity-0');
     }, 2500);
 }
+
+// Mappa il valore grezzo dello slider (1-25) a un baseSize realistico.
+// Slider 1 → 0.5px (filo sottilissimo)
+// Slider 3 → 1.14px (default, penna normale)
+// Slider 10 → 2.81px (corposo)
+// Slider 25 → 5.53px (molto spesso)
+// Curva esponente 0.75: crescita iniziale contenuta, poi sostenuta.
+function sliderToBaseSize(rawSliderValue) {
+    const v = Math.max(1, Math.min(25, rawSliderValue || 3));
+    return 0.5 * Math.pow(v, 0.75);
+}
