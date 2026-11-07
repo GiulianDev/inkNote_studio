@@ -35,20 +35,30 @@ function computeStrokeWidth(tool, baseSize, pressure, tiltNorm = 0, speedNorm = 
     let w = baseSize;
 
     if (tool === 'pen') {
-        // Range ~4x: da 0.25x (pressione minima) a 3.0x (pressione massima).
-        // Esponente 0.6: risposta più pronta ai bassi (non serve calcare).
-        w = baseSize * (0.25 + Math.pow(p, 0.6) * 2.75);
-        w *= (1 + tiltNorm * 0.20);
+        // Stilografica: curva a S con esponente 1.8.
+        // - p=0.1 → 0.20x  (tratto fine, quasi invisibile)
+        // - p=0.3 → 0.52x  (fine)
+        // - p=0.5 → 1.07x  (medio)
+        // - p=0.7 → 1.90x  (spesso)
+        // - p=1.0 → 3.35x  (molto spesso)
+        // Il pennino si apre in fretta agli alti: non serve calcare tanto,
+        // ma i primi millimetri di pressione non fanno quasi nulla.
+        w = baseSize * (0.15 + Math.pow(p, 1.8) * 3.2);
+        w *= (1 + tiltNorm * 0.15);
         w *= (1 - speedNorm * 0.25);
     } else if (tool === 'pencil') {
-        // Range ~4.6x: da 0.15x a 3.6x. Esponente 0.7 per curva leggermente
-        // più "grafite": ai bassi resta fine, agli alti esplode in spessore.
-        w = baseSize * (0.15 + Math.pow(p, 0.7) * 3.45);
-        w *= (1 + tiltNorm * 0.80);
-        w *= (1 - speedNorm * 0.50);
+        // Matita: base alta (0.5x) + esponente 0.6 (crescita rapida ai bassi).
+        // - p=0.1 → 1.25x  (già visibile, non "sparisce")
+        // - p=0.3 → 1.85x
+        // - p=0.5 → 2.48x
+        // - p=0.7 → 2.90x
+        // - p=1.0 → 3.50x
+        // Tilt ×1.5 amplifica molto: inclinando la matita il tratto si allarga
+        // fino a 1.5x in più (tipico di una matita vera su carta).
+        w = baseSize * (0.5 + Math.pow(p, 0.6) * 3.0);
+        w *= (1 + tiltNorm * 1.5);
+        w *= (1 - speedNorm * 0.4);
     } else if (tool === 'marker') {
-        // Range ~1.8x: da 1.2x a 2.2x. Pennarello: deve essere corposo
-        // anche a pressione bassa, ma sentire la differenza agli alti.
         w = baseSize * (1.2 + p * 1.0);
         w *= (1 + tiltNorm * 0.50);
         w *= (1 - speedNorm * 0.15);
@@ -220,7 +230,10 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
         ctx.fillStyle = c;
     } else if (stroke.tool === 'pencil') {
         ctx.globalCompositeOperation = 'source-over';
-        const c = hexToRgbA(getEffectiveColor(stroke.color, forceTargetDark), 0.65);
+        // Alpha 0.55 (era 0.65): grafite più chiara, dà l'idea del tratto
+        // "sfaldato" a pressione leggera, si scurisce visivamente quando i
+        // tratti si sovrappongono.
+        const c = hexToRgbA(getEffectiveColor(stroke.color, forceTargetDark), 0.55);
         ctx.strokeStyle = c;
         ctx.fillStyle = c;
     } else {
