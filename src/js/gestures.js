@@ -142,6 +142,10 @@ function abortCurrentDrawing() {
         const currPage = appState.pages[appState.activePageIndex];
         if (currPage) redrawPageCanvas(currPage);
     }
+    // FIX: libera lo snapshot del canvas usato dal pendingShape live.
+    // Senza questo, un pinch durante l'aggiustamento di una linea lascerebbe
+    // il backup allocato fino al prossimo pointerdown.
+    _drawBackupCanvas = null;
 }
 
 function showPullIndicator(isReady) {

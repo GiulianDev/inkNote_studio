@@ -28,9 +28,6 @@ function smoothPressure(points, newPressure) {
     return Math.max(0.05, Math.min(1, acc));
 }
 
-// E: muta rawPoint in-place invece di allocare un nuovo oggetto.
-// Evita un'allocazione per pointermove (a 240Hz su Surface sono migliaia
-// di oggetti al secondo).
 function smoothRawPoint(rawPoint, prevSmoothed) {
     const smoothness = Math.max(0, Math.min(1, appState.smoothing));
 
@@ -115,6 +112,11 @@ function handlePointerDown(e, pageData) {
         return;
     }
 
+    // Snapshot del canvas per il ripristino durante pendingShape.
+    if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
+        saveCanvasBackup(pageData);
+    }
+
     appState.currentStroke = {
         tool: appState.activeTool,
         color: appState.currentColor,
@@ -138,13 +140,16 @@ function handlePointerMove(e, pageData) {
     const rawPoint = getCanvasCoords(e, pageData.canvas);
 
     if (appState.pendingShape) {
+        // Modalità pendingShape: ripristina backup + ridisegna solo la linea.
+        // O(1) per move, niente lag.
         const ps = appState.pendingShape;
         if (ps.activeHandle === 'end') {
             ps.end = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
         } else {
             ps.start = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
         }
-        redrawPageCanvas(pageData);
+        restoreCanvasFromBackup(pageData);
+        renderPendingShapeOnly(pageData);
         return;
     }
 
@@ -205,6 +210,18 @@ function handlePointerMove(e, pageData) {
     drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
 
     checkForScribble(pageData);
+
+    // FIX: check a OGNI punto (come nel comportamento originale).
+    // Il vecchio `% 10 === 0` faceva scattare lo snap solo ai punti 10/20/30...
+    // rendendo impossibile l'aggiustamento per linee corte o "quasi dritte".
+    // Ora il rendering in pendingShape è O(1), quindi il check a ogni punto
+    // non causa lag.
+    if (!appState.scribbleMode &&
+        appState.autoShapeEnabled &&
+        SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
+        appState.currentStroke.points.length >= 6) {
+        trySnapToLineDuringDraw(pageData, rawPoint);
+    }
 }
 
 function handlePointerUp(e, pageData) {
@@ -214,6 +231,7 @@ function handlePointerUp(e, pageData) {
 
     if (appState.pendingShape) {
         finalizePendingShape();
+        _drawBackupCanvas = null;
         try { pageData.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
         appState.isDrawing = false;
         appState.currentPointerId = null;
@@ -225,6 +243,7 @@ function handlePointerUp(e, pageData) {
 
     if (appState.scribbleMode) {
         finalizeScribble(pageData);
+        _drawBackupCanvas = null;
         appState.isDrawing = false;
         appState.currentPointerId = null;
         appState.currentPageForPointer = null;
@@ -250,6 +269,7 @@ function handlePointerUp(e, pageData) {
             pushHistory();
             autoSaveTrigger();
         }
+        _drawBackupCanvas = null;
         return;
     }
 
@@ -264,10 +284,14 @@ function handlePointerUp(e, pageData) {
         pageData.canvas.style.cursor = 'crosshair';
         if (wasMoved) pushHistory();
         autoSaveTrigger();
+        _drawBackupCanvas = null;
         return;
     }
 
-    if (!appState.isDrawing) return;
+    if (!appState.isDrawing) {
+        _drawBackupCanvas = null;
+        return;
+    }
     appState.isDrawing = false;
     appState.currentPointerId = null;
     appState.currentPageForPointer = null;
@@ -278,10 +302,13 @@ function handlePointerUp(e, pageData) {
         }
         appState.lassoPath = [];
         redrawPageCanvas(pageData);
+        _drawBackupCanvas = null;
         return;
     }
 
     if (appState.currentStroke && appState.currentStroke.points.length > 2) {
+        // Fallback: se il check live non è scattato, prova lo snap statico
+        // + shape detection al rilascio.
         if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
             if (trySnapToLine(appState.currentStroke)) {
                 showToast('Linea agganciata', '📏');
@@ -291,21 +318,12 @@ function handlePointerUp(e, pageData) {
         }
 
         pageData.strokes.push(appState.currentStroke);
-
-        // C: append invece di redraw completo se non ci sono overlay attivi.
-        const hasOverlay = appState.pendingShape ||
-                          appState.lassoPath.length > 0 ||
-                          appState.selectedStrokes.length > 0;
-        if (hasOverlay) {
-            redrawPageCanvas(pageData);
-        } else {
-            appendStrokeToCanvas(pageData, appState.currentStroke);
-        }
-
+        redrawPageCanvas(pageData);
         autoSaveTrigger();
         pushHistory();
     }
     appState.currentStroke = null;
+    _drawBackupCanvas = null;
 }
 
 function performEraserAt(pageData, point) {

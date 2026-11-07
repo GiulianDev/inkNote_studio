@@ -3,9 +3,74 @@
 // Le forme geometriche usano pressione fissa 0.5 (sono "pulite")
 // ============================================================
 
-// FIX: nuovo rilevamento linea applicato a pointerup sullo stroke completo.
-// Sostituisce la vecchia trySnapToLineDuringDraw (che scattava a ogni move
-// e innescava redrawPageCanvas O(n) per frame → lag).
+// Rilevamento linea LIVE durante il disegno.
+// Invece di redrawPageCanvas (che causava lag), ripristina il canvas
+// dallo snapshot salvato al pointerdown e disegna solo il pendingShape.
+// Entra in modalità "aggiusta la linea muovendo il puntatore" fino al rilascio.
+function trySnapToLineDuringDraw(pageData, currentPoint) {
+    const stroke = appState.currentStroke;
+    if (!stroke) return false;
+
+    const pts = stroke.points;
+    if (pts.length < 6) return false;
+
+    const startPt = pts[0];
+    const endPt = currentPoint;
+
+    const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+    if (chordLen < 50) return false;
+
+    let pathLen = 0;
+    for (let i = 1; i < pts.length; i++) {
+        pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+    }
+    const pathEfficiency = chordLen / Math.max(pathLen, 1);
+    if (pathEfficiency < 0.94) return false;
+
+    const rmsDev = perpendicularRmsDeviation(pts, startPt, endPt);
+    if (rmsDev === null) return false;
+    const tolerance = Math.max(1.5, chordLen * 0.035);
+    if (rmsDev > tolerance) return false;
+
+    if (pts.length >= 3) {
+        const a = pts[pts.length - 3];
+        const b = pts[pts.length - 2];
+        const c = pts[pts.length - 1];
+        const v1x = b.x - a.x, v1y = b.y - a.y;
+        const v2x = c.x - b.x, v2y = c.y - b.y;
+        const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
+        if (l1 > 0.5 && l2 > 0.5) {
+            const chordDx = endPt.x - startPt.x, chordDy = endPt.y - startPt.y;
+            const chordL = Math.hypot(chordDx, chordDy);
+            if (chordL > 0) {
+                const cosChord1 = (v1x * chordDx + v1y * chordDy) / (l1 * chordL);
+                const cosChord2 = (v2x * chordDx + v2y * chordDy) / (l2 * chordL);
+                if (cosChord1 < 0.80 || cosChord2 < 0.80) return false;
+            }
+        }
+    }
+
+    // Entra in pendingShape. NON fa redrawPageCanvas completo:
+    // ripristina lo snapshot + disegna solo la linea. O(1) per move.
+    appState.pendingShape = {
+        start: { x: startPt.x, y: startPt.y, pressure: 0.5 },
+        end: { x: endPt.x, y: endPt.y, pressure: 0.5 },
+        tool: stroke.tool,
+        color: stroke.color,
+        size: stroke.size,
+        activeHandle: 'end'
+    };
+    appState.currentStroke = null;
+
+    restoreCanvasFromBackup(pageData);
+    renderPendingShapeOnly(pageData);
+
+    showToast('Linea agganciata — muovi per aggiustare, rilascia per confermare', '📏');
+    return true;
+}
+
+// Rilevamento linea "statico" al pointerup (fallback quando il check live
+// non è scattato, es. l'utente ha rilasciato prima del check periodico).
 // Ritorna true se lo stroke è stato trasformato in linea retta.
 function trySnapToLine(stroke) {
     const pts = stroke.points;
@@ -80,9 +145,6 @@ function perpendicularRmsDeviation(points, A, B) {
     return Math.sqrt(sumSq / points.length);
 }
 
-// Mantenuta per compatibilità con gestures.js (abortCurrentDrawing).
-// Con il nuovo flusso pendingShape non viene mai creato, quindi è di fatto
-// no-op, ma la lasciamo per sicurezza.
 function finalizePendingShape() {
     if (!appState.pendingShape) return;
     const ps = appState.pendingShape;
