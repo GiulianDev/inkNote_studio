@@ -50,8 +50,6 @@ function getSelectionBoundingBox(includePad = true) {
     };
 }
 
-// BBox visivo: dimensione minima 40px schermo per essere cliccabile.
-// Centrato sul bbox reale.
 function getVisualBoundingBox() {
     const real = getSelectionBoundingBox(false);
     if (!real) return null;
@@ -71,7 +69,6 @@ function getVisualBoundingBox() {
     return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
 }
 
-// Solo NW e SE (come Google Slides).
 function getVisibleHandles() {
     return ['nw', 'se'];
 }
@@ -107,8 +104,6 @@ function hitTestHandle(point, visualBBox) {
     return null;
 }
 
-// Trova il punto del contenuto selezionato più vicino a una coordinata.
-// Per un segmento questo restituisce naturalmente l'endpoint più vicino.
 function findClosestPointInSelection(target) {
     let closest = null;
     let minDist = Infinity;
@@ -124,7 +119,14 @@ function findClosestPointInSelection(target) {
     return closest;
 }
 
+// FIX CRITICO: non chiama redrawPageCanvas se non c'era nulla da pulire.
+// Prima veniva chiamato a ogni pointerdown in handlePointerDown → ogni nuovo
+// stroke ridisegnava l'intera pagina (O(N) per stroke, O(N²) totale).
+// Questo era il collo di bottiglia residuo principale.
 function clearSelection() {
+    const hadSelection = appState.selectedStrokes.length > 0;
+    const hadLasso = appState.lassoPath.length > 0;
+
     appState.selectedStrokes = [];
     appState.isDraggingSelection = false;
     appState.isResizingSelection = false;
@@ -133,10 +135,13 @@ function clearSelection() {
     appState.resizeOffset = null;
     appState.initialStrokesSnapshot = null;
     hideSelectionMenu();
-    const currentPage = appState.pages[appState.activePageIndex];
-    if (currentPage) {
-        currentPage.canvas.style.cursor = 'crosshair';
-        redrawPageCanvas(currentPage);
+
+    if (hadSelection || hadLasso) {
+        const currentPage = appState.pages[appState.activePageIndex];
+        if (currentPage) {
+            currentPage.canvas.style.cursor = 'crosshair';
+            redrawPageCanvas(currentPage);
+        }
     }
 }
 
@@ -162,9 +167,7 @@ function startResizeSelection(handle, startPoint) {
     const oppositeCorner = handles[oppositeHandle];
     const draggedCorner = handles[handle];
 
-    // Pivot = punto del contenuto più vicino all'angolo opposto (rimane fisso)
     const pivot = findClosestPointInSelection(oppositeCorner);
-    // Anchor = punto del contenuto più vicino all'angolo trascinato (segue il puntatore)
     const anchor = findClosestPointInSelection(draggedCorner);
     if (!pivot || !anchor) return;
 
@@ -174,7 +177,6 @@ function startResizeSelection(handle, startPoint) {
         return;
     }
 
-    // Offset iniziale: evita che il contenuto "salti" al primo movimento
     const offset = {
         x: startPoint.x - anchor.x,
         y: startPoint.y - anchor.y
@@ -201,22 +203,18 @@ function applyResizeSelection(point) {
 
     const pivot = appState.resizePivot;
     const offset = appState.resizeOffset || { x: 0, y: 0 };
-    // Target = puntatore compensato dell'offset iniziale.
-    // Così al primo frame target coincide con anchor → nessun salto.
     const target = { x: point.x - offset.x, y: point.y - offset.y };
 
     const dx = target.x - pivot.x;
     const dy = target.y - pivot.y;
     const dist = Math.hypot(dx, dy);
 
-    // Sotto la soglia minima non aggiorniamo (evita collasso a scala 0)
     if (dist < 2 / transformState.scale) return;
 
     const angle = Math.atan2(dy, dx);
     const scale = dist / appState.resizeBaseDist;
     const deltaAngle = angle - appState.resizeBaseAngle;
 
-    // Snap morbido a 0°, 90°, 180°, 270° (utile per raddrizzare)
     const snapThreshold = Math.PI / 90;
     const quarterTurn = Math.PI / 2;
     const nearest = Math.round(deltaAngle / quarterTurn) * quarterTurn;

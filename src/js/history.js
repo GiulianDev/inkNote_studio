@@ -49,7 +49,7 @@ function pushHistory() {
     _pushHistoryTimer = setTimeout(() => {
         _pushHistoryTimer = null;
         _doPushHistory();
-    }, 200);
+    }, 500);   // ← era 200, ora 500
 }
 
 function _doPushHistory() {

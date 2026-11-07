@@ -140,8 +140,6 @@ function handlePointerMove(e, pageData) {
     const rawPoint = getCanvasCoords(e, pageData.canvas);
 
     if (appState.pendingShape) {
-        // Modalità pendingShape: ripristina backup + ridisegna solo la linea.
-        // O(1) per move, niente lag.
         const ps = appState.pendingShape;
         if (ps.activeHandle === 'end') {
             ps.end = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
@@ -211,15 +209,14 @@ function handlePointerMove(e, pageData) {
 
     checkForScribble(pageData);
 
-    // FIX: check a OGNI punto (come nel comportamento originale).
-    // Il vecchio `% 10 === 0` faceva scattare lo snap solo ai punti 10/20/30...
-    // rendendo impossibile l'aggiustamento per linee corte o "quasi dritte".
-    // Ora il rendering in pendingShape è O(1), quindi il check a ogni punto
-    // non causa lag.
+    // Check snap ogni 5 punti invece che a ogni punto.
+    // Scatta comunque in fretta (a 6-10 punti) ma riduce il costo O(N) per
+    // move a O(N/5).
     if (!appState.scribbleMode &&
         appState.autoShapeEnabled &&
         SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
-        appState.currentStroke.points.length >= 6) {
+        appState.currentStroke.points.length >= 6 &&
+        appState.currentStroke.points.length % 5 === 0) {
         trySnapToLineDuringDraw(pageData, rawPoint);
     }
 }
