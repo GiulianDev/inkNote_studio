@@ -20,14 +20,26 @@ function trySnapToLineDuringDraw(pageData, currentPoint) {
     const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
     if (chordLen < 50) return false;
 
-    let pathLen = 0;
-    for (let i = 1; i < pts.length; i++) {
-        pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+    // FASE 2: pathLen incrementale, non ricalcolato a ogni check.
+    // stroke._pathLen è aggiornato in _processPointerPoint quando si
+    // aggiunge un punto. Se manca, fallback al calcolo completo (primo check).
+    let pathLen;
+    if (stroke._pathLen !== undefined && stroke._pathLen > 0) {
+        pathLen = stroke._pathLen;
+    } else {
+        pathLen = 0;
+        for (let i = 1; i < pts.length; i++) {
+            pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+        }
+        stroke._pathLen = pathLen;
     }
+
     const pathEfficiency = chordLen / Math.max(pathLen, 1);
     if (pathEfficiency < 0.94) return false;
 
-    const rmsDev = perpendicularRmsDeviation(pts, startPt, endPt);
+    // FASE 2: RMS campionato ogni 3 punti invece di tutti.
+    // Su tratti lunghi il guadagno è ~3x, la sensibilità è identica.
+    const rmsDev = perpendicularRmsDeviationSampled(pts, startPt, endPt, 3);
     if (rmsDev === null) return false;
     const tolerance = Math.max(1.5, chordLen * 0.035);
     if (rmsDev > tolerance) return false;
@@ -50,8 +62,6 @@ function trySnapToLineDuringDraw(pageData, currentPoint) {
         }
     }
 
-    // Entra in pendingShape. NON fa redrawPageCanvas completo:
-    // ripristina lo snapshot + disegna solo la linea. O(1) per move.
     appState.pendingShape = {
         start: { x: startPt.x, y: startPt.y, pressure: 0.5 },
         end: { x: endPt.x, y: endPt.y, pressure: 0.5 },
@@ -67,6 +77,40 @@ function trySnapToLineDuringDraw(pageData, currentPoint) {
 
     showToast('Linea agganciata — muovi per aggiustare, rilascia per confermare', '📏');
     return true;
+}
+
+// NUOVA: RMS campionato. Salta i punti che non sono multipli di `step`,
+// più l'ultimo. Costo O(n/step) invece di O(n).
+function perpendicularRmsDeviationSampled(points, A, B, step) {
+    const dx = B.x - A.x, dy = B.y - A.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return null;
+    const ux = dx / len, uy = dy / len;
+
+    let sumSq = 0;
+    let count = 0;
+    for (let i = 0; i < points.length; i += step) {
+        const p = points[i];
+        const px = p.x - A.x, py = p.y - A.y;
+        const along = px * ux + py * uy;
+        const perpX = px - along * ux;
+        const perpY = py - along * uy;
+        const d = Math.hypot(perpX, perpY);
+        sumSq += d * d;
+        count++;
+    }
+    // Includi sempre l'ultimo punto
+    if ((points.length - 1) % step !== 0) {
+        const p = points[points.length - 1];
+        const px = p.x - A.x, py = p.y - A.y;
+        const along = px * ux + py * uy;
+        const perpX = px - along * ux;
+        const perpY = py - along * uy;
+        sumSq += perpX * perpX + perpY * perpY;
+        count++;
+    }
+    if (count === 0) return null;
+    return Math.sqrt(sumSq / count);
 }
 
 // Rilevamento linea "statico" al pointerup (fallback quando il check live

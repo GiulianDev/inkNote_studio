@@ -140,6 +140,15 @@ function _processPointerPoint(rawPoint, pageData) {
 
     appState.currentStroke.points.push(smoothedPoint);
 
+    // FASE 2: pathLen incrementale per trySnapToLineDuringDraw
+    if (appState.currentStroke._pathLen === undefined) {
+        appState.currentStroke._pathLen = 0;
+    }
+    if (appState.currentStroke.points.length >= 2) {
+        const prev = appState.currentStroke.points[appState.currentStroke.points.length - 2];
+        appState.currentStroke._pathLen += Math.hypot(smoothedPoint.x - prev.x, smoothedPoint.y - prev.y);
+    }
+
     if (appState.scribbleMode) {
         drawScribbleSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
     } else {
