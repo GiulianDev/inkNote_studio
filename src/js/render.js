@@ -35,28 +35,38 @@ function computeStrokeWidth(tool, baseSize, pressure, tiltNorm = 0, speedNorm = 
     let w = baseSize;
 
     if (tool === 'pen') {
-        // Stilografica: curva a S accentuata, esponente 2.2.
-        // Il tratto resta fine per tutta la prima metà della pressione,
-        // poi "esplode" verso la pressione massima.
-        // - p=0.1 → 0.15x  (filo, quasi invisibile)
-        // - p=0.3 → 0.38x  (fine)
-        // - p=0.5 → 0.85x  (normale)
-        // - p=0.7 → 1.65x  (spesso)
-        // - p=1.0 → 3.50x  (molto spesso)
-        w = baseSize * (0.12 + Math.pow(p, 2.2) * 3.5);
+        // Stilografica: base quasi zero, esponente 2.5 (curva "a ginocchio").
+        // Il tratto resta un filo per tutta la prima metà della pressione,
+        // poi esplode solo negli ultimi 20-30%.
+        // - p=0.1 → 0.06x  (filo quasi invisibile)
+        // - p=0.2 → 0.11x  (ancora un filo)
+        // - p=0.3 → 0.22x  (fine)
+        // - p=0.4 → 0.40x  (fine)
+        // - p=0.5 → 0.66x  (medio)
+        // - p=0.6 → 1.01x  (normale)
+        // - p=0.7 → 1.47x  (corposo)
+        // - p=0.8 → 2.02x  (spesso)
+        // - p=0.9 → 2.70x  (molto spesso)
+        // - p=1.0 → 3.50x  (massimo)
+        w = baseSize * (0.05 + Math.pow(p, 2.5) * 3.45);
         w *= (1 + tiltNorm * 0.15);
         w *= (1 - speedNorm * 0.25);
     } else if (tool === 'pencil') {
-        // Matita: base bassa (0.2x, tratto fine a tocco leggero) con
-        // esponente 1.3 (crescita moderata all'inizio, sostenuta poi).
-        // - p=0.1 → 0.37x  (fine, alpha 0.55 lo rende visibile)
-        // - p=0.3 → 0.93x
-        // - p=0.5 → 1.62x
-        // - p=0.7 → 2.40x
-        // - p=1.0 → 3.70x
-        // Tilt ×1.3: inclinazione visibile senza diventare una striscia.
-        w = baseSize * (0.2 + Math.pow(p, 1.3) * 3.5);
-        w *= (1 + tiltNorm * 1.3);
+        // Matita: base bassa (0.10x) ma visibile grazie all'alpha 0.55.
+        // Esponente 1.6: crescita morbida, non esplode subito.
+        // - p=0.1 → 0.18x  (sottile, "sfaldato" per l'alpha)
+        // - p=0.2 → 0.34x  (sottile)
+        // - p=0.3 → 0.58x  (fine)
+        // - p=0.4 → 0.89x  (medio-fine)
+        // - p=0.5 → 1.26x  (medio)
+        // - p=0.6 → 1.69x  (medio-corposo)
+        // - p=0.7 → 2.18x  (corposo)
+        // - p=0.8 → 2.73x  (spesso)
+        // - p=0.9 → 3.34x  (molto spesso)
+        // - p=1.0 → 4.00x  (massimo, il tilt può raddoppiarlo)
+        // Tilt ×1.5: inclinando la matita si vede chiaramente l'allargamento.
+        w = baseSize * (0.10 + Math.pow(p, 1.6) * 3.2);
+        w *= (1 + tiltNorm * 1.5);
         w *= (1 - speedNorm * 0.4);
     } else if (tool === 'marker') {
         w = baseSize * (1.2 + p * 1.0);
