@@ -2,6 +2,34 @@
 // INPUT CANVAS (POINTER EVENTS + GOMMA + PRESSIONE + SMOOTHING)
 // ============================================================
 
+// Debug overlay: attivabile con ?debug=1 nell'URL.
+// Mostra tiltX/tiltY/speed/pressure in basso a destra per verificare
+// che i dati arrivino dal driver della penna.
+const _DEBUG_INK = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('debug');
+let _debugEl = null;
+
+function _updateDebugOverlay(pt) {
+    if (!_DEBUG_INK) return;
+    if (!_debugEl) {
+        _debugEl = document.createElement('div');
+        _debugEl.style.cssText = `
+            position:fixed; bottom:80px; right:16px; z-index:9999;
+            background:rgba(0,0,0,0.85); color:#0f0; padding:8px 12px;
+            font-family:monospace; font-size:12px; border-radius:8px;
+            pointer-events:none; line-height:1.4;
+        `;
+        document.body.appendChild(_debugEl);
+    }
+    const tiltMag = Math.hypot(pt.tiltX || 0, pt.tiltY || 0);
+    _debugEl.innerHTML =
+        `type: ${pt.pointerType || '-'}<br>` +
+        `tiltX: ${(pt.tiltX || 0).toFixed(1)}°  tiltY: ${(pt.tiltY || 0).toFixed(1)}°<br>` +
+        `tiltMag: ${tiltMag.toFixed(1)}° (norm: ${Math.min(1, tiltMag / 30).toFixed(2)})<br>` +
+        `speed: ${(pt.speed || 0).toFixed(1)}px (norm: ${Math.min(1, (pt.speed || 0) / 8).toFixed(2)})<br>` +
+        `pressure: ${(pt.pressure || 0).toFixed(3)}`;
+}
+
 function getCanvasCoords(e, canvas) {
     const rect = canvas.getBoundingClientRect();
 
@@ -118,8 +146,6 @@ function handlePointerDown(e, pageData) {
         saveCanvasBackup(pageData);
     }
 
-    // Primo punto: porta tilt e speed:0 espliciti (servono al renderer per
-    // differenziare il "starting dot" e calcolare la velocità dei punti dopo).
     appState.currentStroke = {
         tool: appState.activeTool,
         color: appState.currentColor,
@@ -208,8 +234,6 @@ function handlePointerMove(e, pageData) {
         return;
     }
 
-    // Velocità = distanza dal punto precedente (px canvas tra due eventi).
-    // Serve al renderer per assottigliare i tratti veloci.
     const speedPx = prevSmoothed
         ? Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y)
         : 0;
@@ -226,6 +250,8 @@ function handlePointerMove(e, pageData) {
 
     appState.currentStroke.points.push(smoothedPoint);
     drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
+
+    _updateDebugOverlay(smoothedPoint);
 
     checkForScribble(pageData);
 

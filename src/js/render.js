@@ -4,31 +4,56 @@
 
 const SCRIBBLE_ERASE_COLOR = 'rgba(220, 38, 38, 0.6)';
 
-// Canvas off-screen per ripristino canvas durante pendingShape.
 let _drawBackupCanvas = null;
-
-// Cache del background: ridisegnato una sola volta per (pattern, tema, dpr).
-// Su redraw successivi: un singolo drawImage invece di 35-1518 operazioni.
 let _bgCache = { key: null, canvas: null };
 
-function computeStrokeWidth(tool, baseSize, pressure) {
+// Tilt normalizzato: tilt 30° → 1.0. Surface in scrittura normale sta
+// tra 20° e 40°, quindi il range utile è ben coperto.
+function getTiltNorm(pt) {
+    if (!pt || (!pt.tiltX && !pt.tiltY)) return 0;
+    return Math.min(1, Math.hypot(pt.tiltX || 0, pt.tiltY || 0) / 30);
+}
+
+// Speed normalizzata: 8px canvas tra due eventi → 1.0.
+// Su Surface a 120Hz, scrittura normale sta tra 2-10px.
+function getSpeedNorm(pt) {
+    if (!pt || !pt.speed) return 0;
+    return Math.min(1, pt.speed / 8);
+}
+
+// Taper solo per pen e pencil. Highlighter e marker hanno larghezze
+// uniformi per definizione: un taper sul primo punto crea un blob visibile.
+function getTaper(idx, tool) {
+    if (tool !== 'pen' && tool !== 'pencil') return 1.0;
+    if (idx === 0) return 1.4;
+    if (idx === 1) return 1.15;
+    return 1.0;
+}
+
+function computeStrokeWidth(tool, baseSize, pressure, tiltNorm = 0, speedNorm = 0, taper = 1.0) {
     const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
+    let w = baseSize;
 
     if (tool === 'pen') {
         const curved = Math.pow(p, 0.55);
-        return baseSize * (0.35 + curved * 1.3);
+        w = baseSize * (0.35 + curved * 1.3);
+        w *= (1 + tiltNorm * 0.20);
+        w *= (1 - speedNorm * 0.25);
+    } else if (tool === 'pencil') {
+        const curved = Math.pow(p, 0.8);
+        w = baseSize * (0.30 + curved * 2.0);
+        w *= (1 + tiltNorm * 0.80);
+        w *= (1 - speedNorm * 0.50);
+    } else if (tool === 'marker') {
+        w = baseSize * (1.55 + p * 0.35);
+        w *= (1 + tiltNorm * 0.50);
+        w *= (1 - speedNorm * 0.15);
+    } else if (tool === 'highlighter') {
+        w = baseSize * 4.0;
     }
-    if (tool === 'pencil') {
-        const curved = Math.pow(p, 0.7);
-        return baseSize * (0.6 + curved * 0.6);
-    }
-    if (tool === 'marker') {
-        return baseSize * (1.55 + p * 0.35);
-    }
-    if (tool === 'highlighter') {
-        return baseSize * 4.0;
-    }
-    return baseSize;
+
+    w *= taper;
+    return w;
 }
 
 function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
@@ -96,7 +121,6 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
     ctx.restore();
 }
 
-// Snapshot del canvas per ripristino in pendingShape.
 function saveCanvasBackup(pageData) {
     if (!_drawBackupCanvas) {
         _drawBackupCanvas = document.createElement('canvas');
@@ -127,9 +151,6 @@ function renderPendingShapeOnly(pageData) {
     ctx.restore();
 }
 
-// Disegna SOLO il segmento finale (p[n-2] → p[n-1]) e il cappuccio finale.
-// Necessario perché drawIncrementalSegment ha lag-1: quando l'utente rilascia,
-// l'ultimo segmento non è ancora stato renderizzato sul canvas.
 function drawFinalSegmentOnly(pageData, stroke) {
     const pts = stroke.points;
     const n = pts.length;
@@ -150,8 +171,8 @@ function drawFinalSegmentOnly(pageData, stroke) {
     const p2 = pts[i2];
     const p3 = pts[i2];
 
-    const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure);
-    const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure);
+    const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure, getTiltNorm(p1), getSpeedNorm(p1), getTaper(i1, stroke.tool));
+    const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, getTiltNorm(p2), getSpeedNorm(p2), getTaper(i2, stroke.tool));
 
     const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
     const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
@@ -187,8 +208,10 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     }
 
     if (stroke.tool === 'highlighter') {
+        // Highlighter: alpha 0.4 (era 0.35). Niente taper su questo tool,
+        // quindi il tratto è uniforme e il multiply funziona come previsto.
         ctx.globalCompositeOperation = forceTargetDark ? 'screen' : 'multiply';
-        const c = hexToRgbA(stroke.color, forceTargetDark ? 0.5 : 0.35);
+        const c = hexToRgbA(stroke.color, forceTargetDark ? 0.55 : 0.40);
         ctx.strokeStyle = c;
         ctx.fillStyle = c;
     } else if (stroke.tool === 'pencil') {
@@ -258,22 +281,27 @@ function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
 
 function renderFullStroke(ctx, stroke, forceTargetDark) {
     const pts = stroke.points;
-    if (pts.length < 2) return;
+    const n = pts.length;
+    if (n < 2) return;
 
     ctx.save();
     setupStrokeStyle(ctx, stroke, forceTargetDark);
 
     const smoothness = appState.smoothing;
-    const widths = new Array(pts.length);
-    for (let i = 0; i < pts.length; i++) {
-        widths[i] = computeStrokeWidth(stroke.tool, stroke.size, pts[i].pressure);
+    const widths = new Array(n);
+    for (let i = 0; i < n; i++) {
+        const pt = pts[i];
+        widths[i] = computeStrokeWidth(
+            stroke.tool, stroke.size, pt.pressure,
+            getTiltNorm(pt), getSpeedNorm(pt), getTaper(i, stroke.tool)
+        );
     }
 
-    for (let i = 1; i < pts.length; i++) {
+    for (let i = 1; i < n; i++) {
         const p0 = pts[i >= 2 ? i - 2 : 0];
         const p1 = pts[i - 1];
         const p2 = pts[i];
-        const p3 = pts[i + 1 < pts.length ? i + 1 : pts.length - 1];
+        const p3 = pts[i + 1 < n ? i + 1 : n - 1];
 
         const w1 = widths[i - 1];
         const w2 = widths[i];
@@ -293,9 +321,9 @@ function renderFullStroke(ctx, stroke, forceTargetDark) {
         }
     }
 
-    const lastW = Math.max(widths[widths.length - 1], 0.5);
+    const lastW = Math.max(widths[n - 1], 0.5);
     ctx.beginPath();
-    ctx.arc(pts[pts.length - 1].x, pts[pts.length - 1].y, lastW / 2, 0, Math.PI * 2);
+    ctx.arc(pts[n - 1].x, pts[n - 1].y, lastW / 2, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -319,8 +347,8 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     setupStrokeStyle(ctx, stroke, appState.isDarkMode);
 
     const smoothness = appState.smoothing;
-    const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure);
-    const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure);
+    const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure, getTiltNorm(p1), getSpeedNorm(p1), getTaper(i1, stroke.tool));
+    const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, getTiltNorm(p2), getSpeedNorm(p2), getTaper(i2, stroke.tool));
 
     const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
     const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
@@ -400,9 +428,6 @@ function drawPendingShape(ctx, forceTargetDark) {
     ctx.restore();
 }
 
-// Pre-render del background in canvas off-screen, alla risoluzione DPR richiesta.
-// Visivamente identico all'originale (stesse coordinate, stesso lineWidth),
-// ma O(1) per redraw: drawImage invece di 35-1518 operazioni.
 function getBackgroundCanvas(patternName, isDark, dpr) {
     const key = `${patternName}|${isDark ? 'dark' : 'light'}|${dpr}`;
     if (_bgCache.key === key) return _bgCache.canvas;
