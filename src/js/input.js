@@ -457,10 +457,15 @@ function handlePointerUp(e, pageData) {
         return;
     }
 
-    if (appState.currentStroke && appState.currentStroke.points.length > 2) {
+    if (appState.currentStroke && appState.currentStroke.points.length >= 1) {
         let snapped = false;
 
-        if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
+        // Snap e shape detection solo se ci sono abbastanza punti per
+        // averne un senso geometrico. Un tap di 1 punto non è mai una
+        // linea o un cerchio.
+        if (appState.currentStroke.points.length > 2 &&
+            appState.autoShapeEnabled &&
+            SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
             if (trySnapToLine(appState.currentStroke)) {
                 showToast('Linea agganciata', '📏');
                 snapped = true;
@@ -469,18 +474,13 @@ function handlePointerUp(e, pageData) {
             }
         }
 
-        // B: highlighter snap orizzontale/verticale
-        if (appState.autoShapeEnabled && appState.activeTool === 'highlighter') {
-            if (trySnapHighlighter(appState.currentStroke)) {
-                showToast('Evidenziatore raddrizzato', '🖍️');
-                snapped = true;
-            }
-        }
-
         pageData.strokes.push(appState.currentStroke);
 
         if (snapped) {
             redrawPageCanvas(pageData);
+        } else if (appState.currentStroke.points.length === 1) {
+            // Tap breve: puntino (i, j, punto fermo, puntino di una lettera)
+            drawDotOnly(pageData, appState.currentStroke);
         } else {
             drawFinalSegmentOnly(pageData, appState.currentStroke);
         }

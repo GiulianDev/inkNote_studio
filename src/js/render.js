@@ -339,10 +339,67 @@ function drawFinalSegmentOnly(pageData, stroke) {
     ctx.restore();
 }
 
+// Disegna un singolo punto (dot). Usato al pointerup quando lo stroke ha
+// 1 solo punto (tap breve, tipico dei puntini su "i" e "j").
+// Il dot viene disegnato direttamente sul canvas senza passare da
+// drawFinalSegmentOnly (che richiede n >= 2).
+function drawDotOnly(pageData, stroke) {
+    const pts = stroke.points;
+    if (pts.length === 0) return;
+    const pt = pts[0];
+
+    const ctx = pageData.ctx;
+    const dpr = pageData.dpr || 1;
+
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    setupStrokeStyle(ctx, stroke, appState.isDarkMode);
+
+    const baseSize = sliderToBaseSize(stroke.size);
+    const w = computeStrokeWidth(
+        stroke.tool, stroke.size, pt.pressure,
+        getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize
+    );
+
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
 function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
     const pts = stroke.points;
     const n = pts.length;
-    if (n < 2) return;
+    if (n < 1) return;
+
+    // Caso 1 punto: è un dot (es. il puntino sulla "i").
+    // Disegna un cerchio pieno alla posizione, con dimensione basata su
+    // pressione ma senza taper (che è pensato per il primo punto di uno
+    // stroke con movimento).
+    if (n === 1) {
+        ctx.save();
+        if (overrideColor) {
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = overrideColor;
+            ctx.fillStyle = overrideColor;
+        } else {
+            setupStrokeStyle(ctx, stroke, forceTargetDark);
+        }
+        const baseSize = sliderToBaseSize(stroke.size);
+        const pt = pts[0];
+        const w = computeStrokeWidth(
+            stroke.tool, stroke.size, pt.pressure,
+            getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize
+        );
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+    }
 
     ctx.save();
     if (overrideColor) {
