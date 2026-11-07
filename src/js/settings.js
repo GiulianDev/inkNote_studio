@@ -101,7 +101,6 @@ function openSettingsModal() {
     if (elPrint) elPrint.value = s.printTheme;
     if (elHand) elHand.value = s.handedness;
 
-    // Inizializza gli slider di pressione con i valori correnti
     const lightSlider = document.getElementById('pressureLightSlider');
     const heavySlider = document.getElementById('pressureHeavySlider');
     const curveSlider = document.getElementById('pressureCurveSlider');
@@ -113,10 +112,13 @@ function openSettingsModal() {
 
     const modal = document.getElementById('settingsModal');
     if (!modal) return;
+    // FIX: rimosso classList.add('flex'). Il wrapper interno ha già
+    // min-h-full flex items-center justify-center: il container esterno
+    // resta block con overflow-y-auto e può scrollare se il contenuto
+    // supera l'altezza dello schermo.
     modal.classList.remove('hidden');
-    modal.classList.add('flex');
+    modal.scrollTop = 0;
 
-    // Ridisegna la canvas di test con i parametri correnti
     requestAnimationFrame(() => _redrawPressureTest());
 }
 
@@ -124,8 +126,6 @@ function closeSettingsModal() {
     const modal = document.getElementById('settingsModal');
     if (!modal) return;
     modal.classList.add('hidden');
-    modal.classList.remove('flex');
-    // Annulla: ripristina i parametri di pressione precedenti
     _pressureParamsCache = null;
 }
 

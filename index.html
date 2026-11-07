@@ -48,121 +48,118 @@
     </div>
 
     <!-- MODALE NUOVO QUADERNO -->
-    <div id="newNotebookModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
-            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-4">Crea Nuovo Quaderno</h3>
-            <div class="space-y-4 text-xs">
-                <div>
-                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Titolo del Quaderno</label>
-                    <input type="text" id="modalNbTitle" value="Appunti Personali" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 font-medium">
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Colore Copertina</label>
-                    <div class="flex items-center space-x-2 pt-1" id="coverColorOptions">
-                        <button class="w-7 h-7 rounded-full bg-indigo-600 ring-2 ring-indigo-500 ring-offset-2 scale-110" data-color="#4f46e5" onclick="selectCoverColor(this)"></button>
-                        <button class="w-7 h-7 rounded-full bg-blue-600" data-color="#2563eb" onclick="selectCoverColor(this)"></button>
-                        <button class="w-7 h-7 rounded-full bg-emerald-600" data-color="#059669" onclick="selectCoverColor(this)"></button>
-                        <button class="w-7 h-7 rounded-full bg-rose-600" data-color="#e11d48" onclick="selectCoverColor(this)"></button>
-                        <button class="w-7 h-7 rounded-full bg-amber-500" data-color="#d97706" onclick="selectCoverColor(this)"></button>
-                        <button class="w-7 h-7 rounded-full bg-slate-800" data-color="#1e293b" onclick="selectCoverColor(this)"></button>
+    <div id="newNotebookModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden overflow-y-auto">
+        <div class="min-h-full flex items-center justify-center p-4">
+            <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
+                <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-4">Crea Nuovo Quaderno</h3>
+                <div class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Titolo del Quaderno</label>
+                        <input type="text" id="modalNbTitle" value="Appunti Personali" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 font-medium">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Colore Copertina</label>
+                        <div class="flex items-center space-x-2 pt-1" id="coverColorOptions">
+                            <button class="w-7 h-7 rounded-full bg-indigo-600 ring-2 ring-indigo-500 ring-offset-2 scale-110" data-color="#4f46e5" onclick="selectCoverColor(this)"></button>
+                            <button class="w-7 h-7 rounded-full bg-blue-600" data-color="#2563eb" onclick="selectCoverColor(this)"></button>
+                            <button class="w-7 h-7 rounded-full bg-emerald-600" data-color="#059669" onclick="selectCoverColor(this)"></button>
+                            <button class="w-7 h-7 rounded-full bg-rose-600" data-color="#e11d48" onclick="selectCoverColor(this)"></button>
+                            <button class="w-7 h-7 rounded-full bg-amber-500" data-color="#d97706" onclick="selectCoverColor(this)"></button>
+                            <button class="w-7 h-7 rounded-full bg-slate-800" data-color="#1e293b" onclick="selectCoverColor(this)"></button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pattern Fogli Iniziale</label>
+                        <select id="modalNbPattern" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                            <option value="ruled">A Righe</option>
+                            <option value="grid">A Quadretti</option>
+                            <option value="dots">Puntinato (Dot Grid)</option>
+                            <option value="blank">Bianco Pulito</option>
+                        </select>
                     </div>
                 </div>
-                <div>
-                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pattern Fogli Iniziale</label>
-                    <select id="modalNbPattern" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                        <option value="ruled">A Righe</option>
-                        <option value="grid">A Quadretti</option>
-                        <option value="dots">Puntinato (Dot Grid)</option>
-                        <option value="blank">Bianco Pulito</option>
-                    </select>
+                <div class="flex items-center justify-end space-x-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                    <button onclick="closeNewNotebookModal()" class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
+                    <button onclick="confirmCreateNotebook()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Crea Quaderno</button>
                 </div>
-            </div>
-            <div class="flex items-center justify-end space-x-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <button onclick="closeNewNotebookModal()" class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
-                <button onclick="confirmCreateNotebook()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Crea Quaderno</button>
             </div>
         </div>
     </div>
 
     <!-- MODALE IMPOSTAZIONI -->
-    <div id="settingsModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
-            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-4">⚙️ Impostazioni</h3>
-            <div class="space-y-4 text-xs">
-                <div>
-                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Visualizzazione</label>
-                    <select id="settingTheme" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                        <option value="auto">Automatico (segui sistema)</option>
-                        <option value="light">Chiaro</option>
-                        <option value="dark">Scuro</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Stampa / PDF</label>
-                    <select id="settingPrintTheme" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                        <option value="light">Chiaro (risparmia inchiostro)</option>
-                        <option value="dark">Scuro</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mano Dominante</label>
-                    <select id="settingHandedness" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                        <option value="right">Destro</option>
-                        <option value="left">Mancino (interfaccia specchiata)</option>
-                    </select>
-                </div>
-                                <div>
-                    <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mano Dominante</label>
-                    <select id="settingHandedness" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                        <option value="right">Destro</option>
-                        <option value="left">Mancino (interfaccia specchiata)</option>
-                    </select>
-                </div>
+    <div id="settingsModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden overflow-y-auto">
+        <div class="min-h-full flex items-center justify-center p-4">
+            <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
+                <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-4">⚙️ Impostazioni</h3>
+                <div class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Visualizzazione</label>
+                        <select id="settingTheme" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                            <option value="auto">Automatico (segui sistema)</option>
+                            <option value="light">Chiaro</option>
+                            <option value="dark">Scuro</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Stampa / PDF</label>
+                        <select id="settingPrintTheme" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                            <option value="light">Chiaro (risparmia inchiostro)</option>
+                            <option value="dark">Scuro</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mano Dominante</label>
+                        <select id="settingHandedness" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                            <option value="right">Destro</option>
+                            <option value="left">Mancino (interfaccia specchiata)</option>
+                        </select>
+                    </div>
 
-                <!-- INIZIO SEZIONE INCHIOSTRO -->
-                <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
-                    <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3">✒️ Inchiostro</h4>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                <span>Tratto leggero</span>
-                                <span id="pressureLightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">10</span>
-                            </label>
-                            <input type="range" id="pressureLightSlider" min="0" max="100" value="10" class="w-full accent-indigo-600 cursor-pointer">
-                            <p class="text-[10px] text-slate-500 mt-0.5">Spessore minimo a pressione minima</p>
-                        </div>
-                        <div>
-                            <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                <span>Tratto pesante</span>
-                                <span id="pressureHeavyValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">340</span>
-                            </label>
-                            <input type="range" id="pressureHeavySlider" min="100" max="500" value="340" class="w-full accent-indigo-600 cursor-pointer">
-                            <p class="text-[10px] text-slate-500 mt-0.5">Spessore massimo a pressione massima</p>
-                        </div>
-                        <div>
-                            <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                <span>Curva</span>
-                                <span id="pressureCurveValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">60</span>
-                            </label>
-                            <input type="range" id="pressureCurveSlider" min="0" max="100" value="60" class="w-full accent-indigo-600 cursor-pointer">
-                            <p class="text-[10px] text-slate-500 mt-0.5">0 = lineare · 100 = crescita solo agli alti</p>
-                        </div>
-                        <div>
-                            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui</label>
-                            <canvas id="pressureTestCanvas" class="w-full h-28 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" style="touch-action:none;cursor:crosshair;"></canvas>
-                            <p class="text-[10px] text-slate-500 mt-1">Disegna con la penna per vedere l'effetto.</p>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <button onclick="resetPressureDefaults()" class="text-xs text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold">Ripristina default</button>
-                            <button onclick="clearPressureTest()" class="text-xs text-slate-600 dark:text-slate-400 hover:text-rose-600 font-semibold">Pulisci area</button>
+                    <!-- INIZIO SEZIONE INCHIOSTRO -->
+                    <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
+                        <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3">✒️ Inchiostro</h4>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                    <span>Tratto leggero</span>
+                                    <span id="pressureLightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">10</span>
+                                </label>
+                                <input type="range" id="pressureLightSlider" min="0" max="100" value="10" class="w-full accent-indigo-600 cursor-pointer">
+                                <p class="text-[10px] text-slate-500 mt-0.5">Spessore minimo a pressione minima</p>
+                            </div>
+                            <div>
+                                <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                    <span>Tratto pesante</span>
+                                    <span id="pressureHeavyValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">340</span>
+                                </label>
+                                <input type="range" id="pressureHeavySlider" min="100" max="500" value="340" class="w-full accent-indigo-600 cursor-pointer">
+                                <p class="text-[10px] text-slate-500 mt-0.5">Spessore massimo a pressione massima</p>
+                            </div>
+                            <div>
+                                <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                    <span>Curva</span>
+                                    <span id="pressureCurveValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">60</span>
+                                </label>
+                                <input type="range" id="pressureCurveSlider" min="0" max="100" value="60" class="w-full accent-indigo-600 cursor-pointer">
+                                <p class="text-[10px] text-slate-500 mt-0.5">0 = lineare · 100 = crescita solo agli alti</p>
+                            </div>
+                            <div>
+                                <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui</label>
+                                <canvas id="pressureTestCanvas" class="w-full h-28 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" style="touch-action:none;cursor:crosshair;"></canvas>
+                                <p class="text-[10px] text-slate-500 mt-1">Disegna con la penna per vedere l'effetto.</p>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <button onclick="resetPressureDefaults()" class="text-xs text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold">Ripristina default</button>
+                                <button onclick="clearPressureTest()" class="text-xs text-slate-600 dark:text-slate-400 hover:text-rose-600 font-semibold">Pulisci area</button>
+                            </div>
                         </div>
                     </div>
+                    <!-- FINE SEZIONE INCHIOSTRO -->
                 </div>
-                <!-- FINE SEZIONE INCHIOSTRO -->
-            </div>
-            <div class="flex items-center justify-end space-x-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
-                <button onclick="confirmSettings()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Salva</button>
+                <div class="flex items-center justify-end space-x-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                    <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
+                    <button onclick="confirmSettings()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Salva</button>
+                </div>
             </div>
         </div>
     </div>

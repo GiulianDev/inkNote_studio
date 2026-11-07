@@ -71,13 +71,17 @@ async function renderLibraryView() {
 }
 
 function openNewNotebookModal() {
-    document.getElementById('newNotebookModal').classList.remove('hidden');
-    document.getElementById('newNotebookModal').classList.add('flex');
+    const modal = document.getElementById('newNotebookModal');
+    if (!modal) return;
+    // FIX: stesso pattern della modale impostazioni.
+    modal.classList.remove('hidden');
+    modal.scrollTop = 0;
 }
 
 function closeNewNotebookModal() {
-    document.getElementById('newNotebookModal').classList.add('hidden');
-    document.getElementById('newNotebookModal').classList.remove('flex');
+    const modal = document.getElementById('newNotebookModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
 }
 
 function selectCoverColor(btn) {
