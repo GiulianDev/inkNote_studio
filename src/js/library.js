@@ -73,15 +73,17 @@ async function renderLibraryView() {
 function openNewNotebookModal() {
     const modal = document.getElementById('newNotebookModal');
     if (!modal) return;
-    // FIX: stesso pattern della modale impostazioni.
     modal.classList.remove('hidden');
-    modal.scrollTop = 0;
+    modal.classList.add('flex');
+    const body = modal.querySelector('.overflow-y-auto');
+    if (body) body.scrollTop = 0;
 }
 
 function closeNewNotebookModal() {
     const modal = document.getElementById('newNotebookModal');
     if (!modal) return;
     modal.classList.add('hidden');
+    modal.classList.remove('flex');
 }
 
 function selectCoverColor(btn) {

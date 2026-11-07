@@ -112,12 +112,11 @@ function openSettingsModal() {
 
     const modal = document.getElementById('settingsModal');
     if (!modal) return;
-    // FIX: rimosso classList.add('flex'). Il wrapper interno ha già
-    // min-h-full flex items-center justify-center: il container esterno
-    // resta block con overflow-y-auto e può scrollare se il contenuto
-    // supera l'altezza dello schermo.
     modal.classList.remove('hidden');
-    modal.scrollTop = 0;
+    modal.classList.add('flex');
+    // Reset dello scroll nel body della modale (non del container)
+    const body = modal.querySelector('.overflow-y-auto');
+    if (body) body.scrollTop = 0;
 
     requestAnimationFrame(() => _redrawPressureTest());
 }
@@ -126,6 +125,7 @@ function closeSettingsModal() {
     const modal = document.getElementById('settingsModal');
     if (!modal) return;
     modal.classList.add('hidden');
+    modal.classList.remove('flex');
     _pressureParamsCache = null;
 }
 
