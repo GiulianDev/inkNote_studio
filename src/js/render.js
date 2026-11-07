@@ -2,27 +2,22 @@
 // RENDERING CANVAS CON GESTIONE PRESSIONE + CURVE LISCE
 // ============================================================
 
-const SCRIBBLE_ERASE_COLOR = 'rgba(220, 38, 38, 0.6)';
+const SCRIBBLE_ERASE_COLOR = 'rgba(220, 38, 38, 0.6)';       // path del gesto
+const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';     // stroke da cancellare
 
 let _drawBackupCanvas = null;
 let _bgCache = { key: null, canvas: null };
 
-// Tilt normalizzato: tilt 30° → 1.0. Surface in scrittura normale sta
-// tra 20° e 40°, quindi il range utile è ben coperto.
 function getTiltNorm(pt) {
     if (!pt || (!pt.tiltX && !pt.tiltY)) return 0;
     return Math.min(1, Math.hypot(pt.tiltX || 0, pt.tiltY || 0) / 30);
 }
 
-// Speed normalizzata: 8px canvas tra due eventi → 1.0.
-// Su Surface a 120Hz, scrittura normale sta tra 2-10px.
 function getSpeedNorm(pt) {
     if (!pt || !pt.speed) return 0;
     return Math.min(1, pt.speed / 8);
 }
 
-// Taper solo per pen e pencil. Highlighter e marker hanno larghezze
-// uniformi per definizione: un taper sul primo punto crea un blob visibile.
 function getTaper(idx, tool) {
     if (tool !== 'pen' && tool !== 'pencil') return 1.0;
     if (idx === 0) return 1.4;
@@ -67,7 +62,16 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
     ctx.scale(dpr, dpr);
 
     drawPaperBackground(ctx, forceTargetDark, dpr);
-    pageData.strokes.forEach(stroke => { renderFullStroke(ctx, stroke, forceTargetDark); });
+
+    // Set per lookup O(1) dei target dello scribble
+    const targetSet = (appState.scribbleMode && appState.scribbleTargets)
+        ? new Set(appState.scribbleTargets)
+        : null;
+
+    pageData.strokes.forEach(stroke => {
+        const isTarget = targetSet && targetSet.has(stroke);
+        renderFullStroke(ctx, stroke, forceTargetDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
+    });
 
     if (appState.pendingShape) {
         drawPendingShape(ctx, forceTargetDark);
@@ -103,6 +107,7 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
         }
     }
 
+    // Path del gesto scribble: solo feedback visivo
     if (appState.scribbleMode && appState.currentStroke && appState.currentStroke.points.length > 1) {
         const pts = appState.currentStroke.points;
         ctx.save();
@@ -198,29 +203,20 @@ function drawFinalSegmentOnly(pageData, stroke) {
     ctx.restore();
 }
 
+// FIX: rimosso il ramo `if (appState.scribbleMode)` che colorava di rosso
+// TUTTI gli stroke durante il redraw. Ora applica sempre il colore reale;
+// l'evidenziazione dei target è gestita via overrideColor in renderFullStroke.
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    if (appState.scribbleMode) {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = SCRIBBLE_ERASE_COLOR;
-        ctx.fillStyle = SCRIBBLE_ERASE_COLOR;
-        return;
-    }
-
     if (stroke.tool === 'highlighter') {
-        // Highlighter: alpha 0.4 (era 0.35). Niente taper su questo tool,
-        // quindi il tratto è uniforme e il multiply funziona come previsto.
         ctx.globalCompositeOperation = forceTargetDark ? 'screen' : 'multiply';
         const c = hexToRgbA(stroke.color, forceTargetDark ? 0.55 : 0.40);
         ctx.strokeStyle = c;
         ctx.fillStyle = c;
     } else if (stroke.tool === 'pencil') {
         ctx.globalCompositeOperation = 'source-over';
-        // Alpha 0.55 (era 0.65): grafite più chiara, dà l'idea del tratto
-        // "sfaldato" a pressione leggera, si scurisce visivamente quando i
-        // tratti si sovrappongono.
         const c = hexToRgbA(getEffectiveColor(stroke.color, forceTargetDark), 0.55);
         ctx.strokeStyle = c;
         ctx.fillStyle = c;
@@ -284,13 +280,23 @@ function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
     };
 }
 
-function renderFullStroke(ctx, stroke, forceTargetDark) {
+// FIX: aggiunto overrideColor opzionale. Se presente, disegna lo stroke in
+// quel colore (usato per evidenziare i target dello scribble).
+function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
     const pts = stroke.points;
     const n = pts.length;
     if (n < 2) return;
 
     ctx.save();
-    setupStrokeStyle(ctx, stroke, forceTargetDark);
+    if (overrideColor) {
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = overrideColor;
+        ctx.fillStyle = overrideColor;
+    } else {
+        setupStrokeStyle(ctx, stroke, forceTargetDark);
+    }
 
     const smoothness = appState.smoothing;
     const widths = new Array(n);
@@ -369,6 +375,30 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
         drawTaperedSegment(ctx, sp0, sp1, sw0, sw1);
     }
 
+    ctx.restore();
+}
+
+// NUOVO: disegna solo il segmento corrente del path scribble in rosso.
+// Usato in handlePointerMove quando appState.scribbleMode è true, per
+// evitare che i nuovi punti vengano disegnati in nero sopra il path rosso.
+function drawScribbleSegment(ctx, stroke, dpr = 1) {
+    const pts = stroke.points;
+    const n = pts.length;
+    if (n < 2) return;
+    const p1 = pts[n - 2];
+    const p2 = pts[n - 1];
+
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.strokeStyle = SCRIBBLE_ERASE_COLOR;
+    ctx.fillStyle = SCRIBBLE_ERASE_COLOR;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(stroke.size * 2, 4);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
     ctx.restore();
 }
 

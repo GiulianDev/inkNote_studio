@@ -8,7 +8,10 @@ const SCRIBBLE_MIN_POINTS = 12;
 const SCRIBBLE_MIN_REVERSALS = 4;
 const SCRIBBLE_MIN_PATH_RATIO = 2.5;
 const SCRIBBLE_MIN_REVERSAL_DENSITY = 0.15;
-const SCRIBBLE_HIT_RADIUS = 20; // px canvas
+const SCRIBBLE_HIT_RADIUS = 20;
+
+// Contatore per ricalcolare i target ogni N punti durante lo scribble.
+let _lastScribbleTargetCheck = 0;
 
 function isScribbleShape(pts) {
     if (pts.length < SCRIBBLE_MIN_POINTS) return false;
@@ -45,21 +48,33 @@ function isScribbleShape(pts) {
         && reversalDensity >= SCRIBBLE_MIN_REVERSAL_DENSITY;
 }
 
+// FIX: al rilevamento iniziale calcola subito i target e li salva in
+// appState.scribbleTargets (così redrawPageCanvas li evidenzia in rosso).
+// Durante lo scribble, ricalcola ogni 15 punti per aggiornare i target
+// se il gesto si estende su altri stroke.
 function checkForScribble(pageData) {
-    if (appState.scribbleMode) return;
     if (!appState.currentStroke) return;
     if (appState.activeTool === 'eraser' || appState.activeTool === 'lasso') return;
 
     const pts = appState.currentStroke.points;
     if (pts.length < SCRIBBLE_MIN_POINTS) return;
 
-    // D: check ogni 10 punti invece di ogni 3 (O(n²) → O(n²/3.3))
-    if (pts.length % 10 !== 0) return;
-
-    if (!isScribbleShape(pts)) return;
-
-    appState.scribbleMode = true;
-    redrawPageCanvas(pageData);
+    if (!appState.scribbleMode) {
+        if (pts.length % 3 !== 0) return;
+        if (!isScribbleShape(pts)) return;
+        appState.scribbleMode = true;
+        appState.scribbleTargets = findStrokesIntersectingScribble(pts, pageData);
+        _lastScribbleTargetCheck = pts.length;
+        redrawPageCanvas(pageData);
+    } else {
+        if (pts.length - _lastScribbleTargetCheck < 15) return;
+        _lastScribbleTargetCheck = pts.length;
+        const newTargets = findStrokesIntersectingScribble(pts, pageData);
+        if (newTargets.length !== appState.scribbleTargets.length) {
+            appState.scribbleTargets = newTargets;
+            redrawPageCanvas(pageData);
+        }
+    }
 }
 
 function findStrokesIntersectingScribble(scribblePoints, pageData) {
@@ -106,6 +121,8 @@ function findStrokesIntersectingScribble(scribblePoints, pageData) {
 function finalizeScribble(pageData) {
     if (!appState.scribbleMode) return false;
 
+    // Ricalcola i target sull'intero path per essere sicuri di averli tutti,
+    // anche se il gesto è proseguito oltre l'ultimo check periodico.
     const targets = findStrokesIntersectingScribble(
         appState.currentStroke ? appState.currentStroke.points : [],
         pageData
@@ -126,5 +143,6 @@ function finalizeScribble(pageData) {
 
     appState.scribbleMode = false;
     appState.scribbleTargets = [];
+    _lastScribbleTargetCheck = 0;
     return true;
 }

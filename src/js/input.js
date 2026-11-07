@@ -252,7 +252,15 @@ function handlePointerMove(e, pageData) {
     };
 
     appState.currentStroke.points.push(smoothedPoint);
-    drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
+
+    // FIX: durante lo scribble, disegna il segmento corrente in ROSSO
+    // (path del gesto). Prima veniva disegnato con drawIncrementalSegment
+    // in colore normale, creando una coda nera sopra il path rosso.
+    if (appState.scribbleMode) {
+        drawScribbleSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
+    } else {
+        drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
+    }
 
     _updateDebugOverlay(smoothedPoint);
 
