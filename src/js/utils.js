@@ -54,13 +54,15 @@ function showToast(msg, icon = 'ℹ️') {
     }, 2500);
 }
 
-// Mappa il valore grezzo dello slider (1-25) a un baseSize realistico.
-// Slider 1 → 0.5px (filo sottilissimo)
-// Slider 3 → 1.14px (default, penna normale)
-// Slider 10 → 2.81px (corposo)
-// Slider 25 → 5.53px (molto spesso)
-// Curva esponente 0.75: crescita iniziale contenuta, poi sostenuta.
+// Cache della conversione slider → baseSize. Evita Math.pow per ogni
+// chiamata (usata in computeStrokeWidth per ogni punto del rendering).
+const _baseSizeCache = { raw: -1, size: 0 };
+
 function sliderToBaseSize(rawSliderValue) {
     const v = Math.max(1, Math.min(25, rawSliderValue || 3));
-    return 0.5 * Math.pow(v, 0.75);
+    if (_baseSizeCache.raw === v) return _baseSizeCache.size;
+    const s = 0.5 * Math.pow(v, 0.75);
+    _baseSizeCache.raw = v;
+    _baseSizeCache.size = s;
+    return s;
 }

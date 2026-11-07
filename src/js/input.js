@@ -6,8 +6,11 @@ const _DEBUG_INK = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).has('debug');
 let _debugEl = null;
 
-// Stato del batching rAF. Un unico oggetto, rafId === null è l'unico
-// indicatore di "nessun rAF pendente".
+// Numero massimo di punti processati per batch. Se il buffer si riempie,
+// il flush avviene subito (sync) per non accumulare latenza.
+const MAX_BATCH_POINTS = 8;
+const FORCE_FLUSH_MAX = 30;  // cap al pointerup: più alto, per non perdere il finale
+
 const _flushState = {
     points: [],
     rafId: null,
@@ -96,20 +99,11 @@ function attachPointerListeners(pageData) {
 // BATCHING rAF
 // ============================================================
 
+// Processa un singolo punto. NIENTE checkForScribble o snap check qui:
+// sono spostati fuori dal loop (una volta per batch) in _doFlush.
 function _processPointerPoint(rawPoint, pageData) {
     if (appState.pendingShape) return;
     if (!appState.currentStroke || !appState.isDrawing) return;
-
-    // A: backup on-demand. Salvato al primo punto processato, quando il
-    // canvas è ancora pulito (drawIncrementalSegment richiede n>=3, quindi
-    // nessun segmento è stato disegnato per il currentStroke). Se lo stroke
-    // non entra mai in pendingShape, il backup non viene mai creato.
-    if (!appState.currentStroke.backupSaved &&
-        appState.autoShapeEnabled &&
-        SHAPE_CAPABLE_TOOLS.includes(appState.currentStroke.tool)) {
-        saveCanvasBackup(pageData);
-        appState.currentStroke.backupSaved = true;
-    }
 
     const prevSmoothed = appState.currentStroke.points[appState.currentStroke.points.length - 1];
     const smoothedPos = smoothRawPoint(rawPoint, prevSmoothed);
@@ -140,7 +134,6 @@ function _processPointerPoint(rawPoint, pageData) {
 
     appState.currentStroke.points.push(smoothedPoint);
 
-    // FASE 2: pathLen incrementale per trySnapToLineDuringDraw
     if (appState.currentStroke._pathLen === undefined) {
         appState.currentStroke._pathLen = 0;
     }
@@ -156,21 +149,47 @@ function _processPointerPoint(rawPoint, pageData) {
     }
 
     _updateDebugOverlay(smoothedPoint);
+}
+
+// Esegue i check post-batch (scribble, snap linea). Una sola volta per
+// batch invece di una per punto: risparmia 8-15 chiamate per frame.
+function _runPostBatchChecks(pageData) {
+    if (!appState.currentStroke || !appState.isDrawing) return;
+    if (appState.pendingShape) return;
+
+    const pts = appState.currentStroke.points;
+    if (pts.length === 0) return;
 
     checkForScribble(pageData);
+
+    if (!appState.currentStroke || !appState.isDrawing) return;
+    if (appState.pendingShape) return;
 
     if (!appState.scribbleMode &&
         appState.autoShapeEnabled &&
         SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
-        appState.currentStroke &&
-        appState.currentStroke.points.length >= 6 &&
-        appState.currentStroke.points.length % 5 === 0) {
-        trySnapToLineDuringDraw(pageData, rawPoint);
+        pts.length >= 6) {
+        const lastPt = pts[pts.length - 1];
+        trySnapToLineDuringDraw(pageData, lastPt);
     }
 }
 
 function _scheduleFlush(pageData) {
     _flushState.pageData = pageData;
+
+    // Se il buffer è già pieno, flusha SUBITO in modo sincrono.
+    // Questo impedisce che il buffer cresca quando il browser è sotto
+    // carico (rAF in ritardo): la latenza massima è il tempo di
+    // processare MAX_BATCH_POINTS, non il ritardo del rAF.
+    if (_flushState.points.length >= MAX_BATCH_POINTS) {
+        if (_flushState.rafId !== null) {
+            cancelAnimationFrame(_flushState.rafId);
+            _flushState.rafId = null;
+        }
+        _doFlush();
+        return;
+    }
+
     if (_flushState.rafId !== null) return;
     _flushState.rafId = requestAnimationFrame(_doFlush);
 }
@@ -178,7 +197,7 @@ function _scheduleFlush(pageData) {
 function _doFlush() {
     _flushState.rafId = null;
     const pageData = _flushState.pageData;
-    const batch = _flushState.points;
+    let batch = _flushState.points;
     _flushState.points = [];
     _flushState.pageData = null;
 
@@ -186,11 +205,20 @@ function _doFlush() {
     if (!appState.currentStroke || !appState.isDrawing) return;
     if (appState.pendingShape) return;
 
+    // Cap al batch size: se il browser ha accumulato troppi punti,
+    // processa solo gli ultimi. I punti vecchi sarebbero "vecchi"
+    // visivamente comunque, e processarli rallenterebbe il frame.
+    if (batch.length > MAX_BATCH_POINTS) {
+        batch = batch.slice(-MAX_BATCH_POINTS);
+    }
+
     for (const rawPoint of batch) {
         if (appState.pendingShape) break;
         if (!appState.currentStroke || !appState.isDrawing) break;
         _processPointerPoint(rawPoint, pageData);
     }
+
+    _runPostBatchChecks(pageData);
 }
 
 function _cancelFlush() {
@@ -207,7 +235,7 @@ function _forceFlushNow(pageData) {
         cancelAnimationFrame(_flushState.rafId);
         _flushState.rafId = null;
     }
-    const batch = _flushState.points;
+    let batch = _flushState.points;
     _flushState.points = [];
     _flushState.pageData = null;
 
@@ -215,11 +243,22 @@ function _forceFlushNow(pageData) {
     if (!appState.currentStroke || !appState.isDrawing) return;
     if (appState.pendingShape) return;
 
+    // Al pointerup cap più alto (30): vogliamo la massima accuratezza
+    // del punto finale, ma evitiamo freeze con buffer enormi.
+    if (batch.length > FORCE_FLUSH_MAX) {
+        batch = batch.slice(-FORCE_FLUSH_MAX);
+    }
+
     for (const rawPoint of batch) {
         if (appState.pendingShape) break;
         if (!appState.currentStroke || !appState.isDrawing) break;
         _processPointerPoint(rawPoint, pageData);
     }
+
+    // Post-check solo scribble: lo snap al rilascio è gestito
+    // separatamente in handlePointerUp (trySnapToLine statico).
+    if (!appState.currentStroke || !appState.isDrawing) return;
+    checkForScribble(pageData);
 }
 
 // ============================================================
@@ -283,15 +322,15 @@ function handlePointerDown(e, pageData) {
         return;
     }
 
-    // A: nessun backup qui. Sarà salvato on-demand al primo _processPointerPoint,
-    // solo se serve (autoShape && shape tool).
+    if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
+        saveCanvasBackup(pageData);
+    }
 
     appState.currentStroke = {
         tool: appState.activeTool,
         color: appState.currentColor,
         size: appState.strokeWidth,
         startTime: performance.now(),
-        backupSaved: false,
         points: [{
             x: point.x,
             y: point.y,
@@ -460,9 +499,6 @@ function handlePointerUp(e, pageData) {
     if (appState.currentStroke && appState.currentStroke.points.length >= 1) {
         let snapped = false;
 
-        // Snap e shape detection solo se ci sono abbastanza punti per
-        // averne un senso geometrico. Un tap di 1 punto non è mai una
-        // linea o un cerchio.
         if (appState.currentStroke.points.length > 2 &&
             appState.autoShapeEnabled &&
             SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
@@ -479,7 +515,6 @@ function handlePointerUp(e, pageData) {
         if (snapped) {
             redrawPageCanvas(pageData);
         } else if (appState.currentStroke.points.length === 1) {
-            // Tap breve: puntino (i, j, punto fermo, puntino di una lettera)
             drawDotOnly(pageData, appState.currentStroke);
         } else {
             drawFinalSegmentOnly(pageData, appState.currentStroke);
