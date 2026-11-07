@@ -131,6 +131,7 @@ function applyPinchTransform(startCenter, startTransform, newCenter, targetScale
 
 function abortCurrentDrawing() {
     if (appState.pendingShape) finalizePendingShape();
+
     if (appState.isDrawing || appState.currentStroke) {
         if (appState.currentPointerId !== null && appState.currentPageForPointer) {
             try { appState.currentPageForPointer.canvas.releasePointerCapture(appState.currentPointerId); } catch (err) {}
@@ -139,12 +140,12 @@ function abortCurrentDrawing() {
         appState.currentStroke = null;
         appState.currentPointerId = null;
         appState.currentPageForPointer = null;
+        // FIX: reset scribble se era attivo
+        appState.scribbleMode = false;
+        appState.scribbleTargets = [];
         const currPage = appState.pages[appState.activePageIndex];
         if (currPage) redrawPageCanvas(currPage);
     }
-    // FIX: libera lo snapshot del canvas usato dal pendingShape live.
-    // Senza questo, un pinch durante l'aggiustamento di una linea lascerebbe
-    // il backup allocato fino al prossimo pointerdown.
     _drawBackupCanvas = null;
 }
 

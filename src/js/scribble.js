@@ -2,27 +2,53 @@
 // SCRIBBLE-TO-ERASE
 // Riconosce uno scarabocchio a zig-zag durante il disegno
 // e cancella gli stroke che interseca.
+//
+// Vincoli per evitare falsi positivi durante la scrittura:
+// - durata breve (uno scribble è rapido)
+// - dimensione contenuta (uno scribble è piccolo)
+// - densità di inversioni alta (zigzag serrato)
+// - velocità media alta
 // ============================================================
 
 const SCRIBBLE_MIN_POINTS = 12;
-const SCRIBBLE_MIN_REVERSALS = 4;
-const SCRIBBLE_MIN_PATH_RATIO = 2.5;
-const SCRIBBLE_MIN_REVERSAL_DENSITY = 0.15;
+const SCRIBBLE_MIN_REVERSALS = 6;               // era 4
+const SCRIBBLE_MIN_PATH_RATIO = 3.0;            // era 2.5
+const SCRIBBLE_MIN_REVERSAL_DENSITY = 0.20;     // era 0.15
 const SCRIBBLE_HIT_RADIUS = 20;
 
-// Contatore per ricalcolare i target ogni N punti durante lo scribble.
+// Nuovi vincoli
+const SCRIBBLE_MAX_DURATION_MS = 700;           // gesto molto rapido
+const SCRIBBLE_MAX_BBOX_DIAGONAL = 320;         // bbox massimo (px canvas)
+const SCRIBBLE_MAX_PATH_LEN = 2500;             // lunghezza massima del gesto
+const SCRIBBLE_MIN_REVERSAL_RATE = 12;          // inversioni al secondo
+const SCRIBBLE_MIN_AVG_SPEED = 400;             // px/s minimo (veloce)
+
 let _lastScribbleTargetCheck = 0;
 
-function isScribbleShape(pts) {
+// pts: punti dello stroke
+// durationMs: durata dall'inizio del gesto
+function isScribbleShape(pts, durationMs) {
     if (pts.length < SCRIBBLE_MIN_POINTS) return false;
+
+    // Vincolo temporale: lo scribble è molto rapido
+    if (!durationMs || durationMs > SCRIBBLE_MAX_DURATION_MS) return false;
 
     let reversalCount = 0;
     let pathLen = 0;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     const start = pts[0];
     const end = pts[pts.length - 1];
 
-    for (let i = 1; i < pts.length; i++) {
-        pathLen += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+
+        if (i > 0) {
+            pathLen += Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y);
+        }
         if (i >= 2) {
             const v1x = pts[i - 1].x - pts[i - 2].x;
             const v1y = pts[i - 1].y - pts[i - 2].y;
@@ -34,11 +60,30 @@ function isScribbleShape(pts) {
         }
     }
 
+    // Vincolo dimensione: bbox contenuto
+    const bboxW = maxX - minX;
+    const bboxH = maxY - minY;
+    const bboxDiag = Math.hypot(bboxW, bboxH);
+    if (bboxDiag > SCRIBBLE_MAX_BBOX_DIAGONAL) return false;
+
+    // Vincolo lunghezza path
+    if (pathLen > SCRIBBLE_MAX_PATH_LEN) return false;
+
     if (reversalCount < SCRIBBLE_MIN_REVERSALS) return false;
+
+    // Velocità media: uno scribble è veloce
+    const durationSec = durationMs / 1000;
+    if (durationSec <= 0) return false;
+    const avgSpeed = pathLen / durationSec;
+    if (avgSpeed < SCRIBBLE_MIN_AVG_SPEED) return false;
+
+    // Rate di inversioni: uno scribble è "serrato"
+    const reversalRate = reversalCount / durationSec;
+    if (reversalRate < SCRIBBLE_MIN_REVERSAL_RATE) return false;
 
     const chordLen = Math.hypot(end.x - start.x, end.y - start.y);
     if (chordLen < 5) {
-        return reversalCount >= 6;
+        return reversalCount >= 8;   // era 6
     }
 
     const pathRatio = pathLen / chordLen;
@@ -48,10 +93,6 @@ function isScribbleShape(pts) {
         && reversalDensity >= SCRIBBLE_MIN_REVERSAL_DENSITY;
 }
 
-// FIX: al rilevamento iniziale calcola subito i target e li salva in
-// appState.scribbleTargets (così redrawPageCanvas li evidenzia in rosso).
-// Durante lo scribble, ricalcola ogni 15 punti per aggiornare i target
-// se il gesto si estende su altri stroke.
 function checkForScribble(pageData) {
     if (!appState.currentStroke) return;
     if (appState.activeTool === 'eraser' || appState.activeTool === 'lasso') return;
@@ -59,9 +100,12 @@ function checkForScribble(pageData) {
     const pts = appState.currentStroke.points;
     if (pts.length < SCRIBBLE_MIN_POINTS) return;
 
+    const startTime = appState.currentStroke.startTime || performance.now();
+    const durationMs = performance.now() - startTime;
+
     if (!appState.scribbleMode) {
         if (pts.length % 3 !== 0) return;
-        if (!isScribbleShape(pts)) return;
+        if (!isScribbleShape(pts, durationMs)) return;
         appState.scribbleMode = true;
         appState.scribbleTargets = findStrokesIntersectingScribble(pts, pageData);
         _lastScribbleTargetCheck = pts.length;
@@ -118,11 +162,11 @@ function findStrokesIntersectingScribble(scribblePoints, pageData) {
     return targets;
 }
 
+// FIX: SEMPRE redrawPageCanvas alla fine, anche quando non ci sono target.
+// Prima, se non c'erano target, il path rosso rimaneva visibile sul canvas.
 function finalizeScribble(pageData) {
     if (!appState.scribbleMode) return false;
 
-    // Ricalcola i target sull'intero path per essere sicuri di averli tutti,
-    // anche se il gesto è proseguito oltre l'ultimo check periodico.
     const targets = findStrokesIntersectingScribble(
         appState.currentStroke ? appState.currentStroke.points : [],
         pageData
@@ -130,7 +174,6 @@ function finalizeScribble(pageData) {
 
     if (targets.length > 0) {
         pageData.strokes = pageData.strokes.filter(s => !targets.includes(s));
-        redrawPageCanvas(pageData);
         autoSaveTrigger();
         pushHistory();
         showToast(
@@ -141,8 +184,11 @@ function finalizeScribble(pageData) {
         );
     }
 
+    // Reset stato PRIMA del redraw, così il path scribble non viene ridisegnato
     appState.scribbleMode = false;
     appState.scribbleTargets = [];
     _lastScribbleTargetCheck = 0;
+
+    redrawPageCanvas(pageData);
     return true;
 }

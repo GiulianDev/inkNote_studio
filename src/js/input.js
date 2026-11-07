@@ -153,10 +153,12 @@ function handlePointerDown(e, pageData) {
         tool: appState.activeTool,
         color: appState.currentColor,
         size: appState.strokeWidth,
+        startTime: performance.now(),   // ← NUOVO: serve al check scribble
         points: [{
             x: point.x,
             y: point.y,
             pressure: point.pressure,
+            rawPressure: point.rawPressure,
             tiltX: point.tiltX,
             tiltY: point.tiltY,
             speed: 0,
