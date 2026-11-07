@@ -213,15 +213,11 @@ body.compact-mode #subbarExpandContainer {
 /* ============================================================
    SCROLLBAR CUSTOM (modali, pannelli)
    Applicare la classe .custom-scrollbar all'elemento scrollabile.
-   Sottile, arrotondata, coerente con il tema slate/indigo.
    ============================================================ */
 
-.custom-scrollbar {
-    scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 transparent; /* Firefox: thumb / track */
-    scrollbar-gutter: stable;
-}
-
+/* 1. Stile per Chrome, Edge, Safari (e tutti i WebKit/Blink).
+      NON impostare scrollbar-width o scrollbar-color qui,
+      altrimenti Chrome 121+ ignora queste regole. */
 .custom-scrollbar::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -245,16 +241,11 @@ body.compact-mode #subbarExpandContainer {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:active {
-    background-color: #6366f1; /* indigo-500: feedback coerente col brand */
-}
-
-/* Dark mode */
-.dark .custom-scrollbar {
-    scrollbar-color: #475569 transparent; /* slate-600 */
+    background-color: #6366f1; /* indigo-500 */
 }
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: #475569;
+    background-color: #475569; /* slate-600 */
 }
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -263,4 +254,18 @@ body.compact-mode #subbarExpandContainer {
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:active {
     background-color: #818cf8; /* indigo-400 */
+}
+
+/* 2. Stile per Firefox: usa le proprietà standard SOLO dove i pseudo-elementi
+      WebKit non sono supportati. @supports (not selector(...)) è il modo
+      corretto per rilevare i browser che non capiscono ::-webkit-scrollbar. */
+@supports not selector(::-webkit-scrollbar) {
+    .custom-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: #cbd5e1 transparent;
+    }
+
+    .dark .custom-scrollbar {
+        scrollbar-color: #475569 transparent;
+    }
 }
