@@ -1,24 +1,39 @@
 // ============================================================
 // SCRIBBLE-TO-ERASE
-// Distingue scarabocchio (sovrapposizione) da scrittura (traslazione)
-// tramite return ratio: quante volte la penna ripassa in una zona già
-// visitata almeno N punti prima.
+// Distingue scarabocchio (sovrapposizione piccola e locale) da
+// scrittura (traslazione verso destra) tramite:
+// - dimensione stretta: solo correzioni piccole (1-2 lettere)
+// - return ratio: quanti punti tornano in zone già visitate
+// - horizontal net ratio: quanto la penna AVANZA vs quanto cammina
+// - horizontal reversals: quante volte inverte direzione orizzontale
 // ============================================================
 
 const SCRIBBLE_MIN_POINTS = 10;
 const SCRIBBLE_MIN_REVERSALS = 5;
 const SCRIBBLE_HIT_RADIUS = 20;
 
-const SCRIBBLE_MAX_DURATION_MS = 2000;
-const SCRIBBLE_MAX_BBOX_DIAGONAL = 500;
-const SCRIBBLE_MAX_PATH_LEN = 5000;
-const SCRIBBLE_MIN_AVG_SPEED = 80;
+// Dimensione stretta: solo correzioni piccole e locali.
+// Una lettera è ~20-40px, una parola corta ~100-150px.
+// Oltre i 180px di diagonale, l'utente deve usare gomma o lazo.
+const SCRIBBLE_MAX_DURATION_MS = 1200;
+const SCRIBBLE_MAX_BBOX_DIAGONAL = 180;
+const SCRIBBLE_MAX_PATH_LEN = 1500;
+const SCRIBBLE_MIN_AVG_SPEED = 100;
 
 // Return ratio: frazione di punti che cadono in una cella già visitata
 // da almeno SCRIBBLE_RETURN_SKIP punti.
 const SCRIBBLE_MIN_RETURN_RATIO = 0.35;
 const SCRIBBLE_RETURN_RADIUS = 6;
 const SCRIBBLE_RETURN_SKIP = 8;
+
+// Horizontal net ratio: |x_end - x_start| / Σ|dx|.
+// Scrittura: la penna avanza sempre → ratio alto (0.6-0.95)
+// Scarabocchio: la penna va avanti e indietro → ratio basso (0-0.3)
+const SCRIBBLE_MAX_HORIZONTAL_NET_RATIO = 0.5;
+
+// Cambi di direzione orizzontale: la scrittura ne ha pochi (3-5 per
+// parola), lo scarabocchio molti (10-30).
+const SCRIBBLE_MIN_HORIZONTAL_REVERSALS = 4;
 
 const SCRIBBLE_RESAMPLE_DIST = 2.0;
 
@@ -42,8 +57,6 @@ function resamplePoints(pts) {
     return out;
 }
 
-// Ritorna la frazione [0,1] di punti che passano vicino a un punto
-// visitato almeno `skip` passi prima. O(n) grazie alla griglia.
 function computeReturnRatio(sampled, cellSize, skip) {
     const n = sampled.length;
     if (n < skip + 1) return 0;
@@ -55,7 +68,6 @@ function computeReturnRatio(sampled, cellSize, skip) {
         const cx = Math.floor(p.x / cellSize);
         const cy = Math.floor(p.y / cellSize);
 
-        // Controlla la cella corrente e le 8 adiacenti
         let hasReturn = false;
         for (let dx = -1; dx <= 1 && !hasReturn; dx++) {
             for (let dy = -1; dy <= 1 && !hasReturn; dy++) {
@@ -71,6 +83,36 @@ function computeReturnRatio(sampled, cellSize, skip) {
         cells.set(cx + ',' + cy, i);
     }
     return returns / n;
+}
+
+// Net ratio orizzontale + reversals orizzontali.
+// Ignora i micro-spostamenti (< 1px) per non contare jitter.
+function computeHorizontalMetrics(sampled) {
+    if (sampled.length < 2) return { netRatio: 1, reversals: 0 };
+
+    const startX = sampled[0].x;
+    const endX = sampled[sampled.length - 1].x;
+    const net = Math.abs(endX - startX);
+
+    let total = 0;
+    let reversals = 0;
+    let lastDir = 0; // -1, 0, +1
+
+    for (let i = 1; i < sampled.length; i++) {
+        const dx = sampled[i].x - sampled[i - 1].x;
+        total += Math.abs(dx);
+
+        if (Math.abs(dx) > 1) {
+            const dir = dx > 0 ? 1 : -1;
+            if (lastDir !== 0 && dir !== lastDir) reversals++;
+            lastDir = dir;
+        }
+    }
+
+    return {
+        netRatio: total > 0 ? net / total : 1,
+        reversals
+    };
 }
 
 function isScribbleShape(pts, durationMs) {
@@ -118,9 +160,19 @@ function isScribbleShape(pts, durationMs) {
     const avgSpeed = pathLen / durationSec;
     if (avgSpeed < SCRIBBLE_MIN_AVG_SPEED) return false;
 
-    // Filtro principale: return ratio
+    // Filtro 1: return ratio (sovrapposizione)
     const returnRatio = computeReturnRatio(sampled, SCRIBBLE_RETURN_RADIUS, SCRIBBLE_RETURN_SKIP);
     if (returnRatio < SCRIBBLE_MIN_RETURN_RATIO) return false;
+
+    // Filtro 2: horizontal net ratio (avanzamento vs oscillazione)
+    // "molto", "mamma", qualsiasi parola: la penna avanza → ratio alto → escluso.
+    const hMetrics = computeHorizontalMetrics(sampled);
+    if (hMetrics.netRatio > SCRIBBLE_MAX_HORIZONTAL_NET_RATIO) return false;
+
+    // Filtro 3: horizontal reversals (cambi di direzione orizzontale)
+    // La scrittura ha pochi cambi (solo quando torna indietro per una "m",
+    // "n", "h"). Lo scarabocchio ne ha molti.
+    if (hMetrics.reversals < SCRIBBLE_MIN_HORIZONTAL_REVERSALS) return false;
 
     return true;
 }
