@@ -1,42 +1,24 @@
 // ============================================================
 // SCRIBBLE-TO-ERASE
-// Riconosce uno scarabocchio a zig-zag durante il disegno
-// e cancella gli stroke che interseca.
-//
-// Distinzione chiave:
-// - Scarabocchio: l'utente ripassa nella stessa zona. Baricentri dei
-//   quarti temporali vicini, chordLen inizio-fine piccola rispetto al bbox.
-// - Scrittura: il tratto trasla. Anche se ha inversioni (la "m" ne ha),
-//   i baricentri avanzano e inizio-fine sono lontani.
+// Distingue scarabocchio (sovrapposizione) da scrittura (traslazione)
+// tramite return ratio: quante volte la penna ripassa in una zona già
+// visitata almeno N punti prima.
 // ============================================================
 
 const SCRIBBLE_MIN_POINTS = 10;
 const SCRIBBLE_MIN_REVERSALS = 5;
-const SCRIBBLE_MIN_REVERSAL_DENSITY = 0.06;
 const SCRIBBLE_HIT_RADIUS = 20;
 
-const SCRIBBLE_MAX_DURATION_MS = 1500;
-const SCRIBBLE_MAX_BBOX_DIAGONAL = 400;
-const SCRIBBLE_MAX_PATH_LEN = 4000;
-const SCRIBBLE_MIN_REVERSAL_RATE = 2.5;
-const SCRIBBLE_MIN_AVG_SPEED = 100;
+const SCRIBBLE_MAX_DURATION_MS = 2000;
+const SCRIBBLE_MAX_BBOX_DIAGONAL = 500;
+const SCRIBBLE_MAX_PATH_LEN = 5000;
+const SCRIBBLE_MIN_AVG_SPEED = 80;
 
-// Range pathRatio: troppo basso → linea/lettera semplice,
-// troppo alto → cerchio o loop che torna su sé stesso in modo regolare.
-const SCRIBBLE_MIN_PATH_RATIO = 3.0;
-const SCRIBBLE_MAX_PATH_RATIO = 15.0;
-
-// Distanza inizio-fine rispetto alla diagonale del bbox.
-// Nella "m" inizio e fine sono lontani (0.5-0.8); nello scarabocchio
-// vicini (0.1-0.3).
-const SCRIBBLE_MAX_CHORD_RATIO = 0.5;
-
-// Progressione dei baricentri: somma delle distanze tra baricentri di
-// quarti temporali consecutivi, diviso la diagonale del bbox.
-// Nella "m" i baricentri avanzano (0.4-0.7); nello scarabocchio
-// oscillano intorno allo stesso punto (0.1-0.25).
-const SCRIBBLE_MAX_PROGRESSION_RATIO = 0.35;
-const SCRIBBLE_PROGRESSION_BUCKETS = 5;
+// Return ratio: frazione di punti che cadono in una cella già visitata
+// da almeno SCRIBBLE_RETURN_SKIP punti.
+const SCRIBBLE_MIN_RETURN_RATIO = 0.35;
+const SCRIBBLE_RETURN_RADIUS = 6;
+const SCRIBBLE_RETURN_SKIP = 8;
 
 const SCRIBBLE_RESAMPLE_DIST = 2.0;
 
@@ -60,35 +42,35 @@ function resamplePoints(pts) {
     return out;
 }
 
-// Divide i punti in N bucket temporali (uguali per numero di punti) e
-// calcola il baricentro di ciascuno.
-function computeBucketCentroids(sampled, buckets) {
+// Ritorna la frazione [0,1] di punti che passano vicino a un punto
+// visitato almeno `skip` passi prima. O(n) grazie alla griglia.
+function computeReturnRatio(sampled, cellSize, skip) {
     const n = sampled.length;
-    const centroids = [];
-    for (let b = 0; b < buckets; b++) {
-        const start = Math.floor(b * n / buckets);
-        const end = Math.floor((b + 1) * n / buckets);
-        if (end <= start) continue;
-        let sx = 0, sy = 0;
-        for (let i = start; i < end; i++) {
-            sx += sampled[i].x;
-            sy += sampled[i].y;
-        }
-        const count = end - start;
-        centroids.push({ x: sx / count, y: sy / count });
-    }
-    return centroids;
-}
+    if (n < skip + 1) return 0;
+    const cells = new Map();
+    let returns = 0;
 
-// Somma delle distanze tra baricentri consecutivi.
-function computeProgressionDistance(centroids) {
-    let total = 0;
-    for (let i = 1; i < centroids.length; i++) {
-        const dx = centroids[i].x - centroids[i - 1].x;
-        const dy = centroids[i].y - centroids[i - 1].y;
-        total += Math.hypot(dx, dy);
+    for (let i = 0; i < n; i++) {
+        const p = sampled[i];
+        const cx = Math.floor(p.x / cellSize);
+        const cy = Math.floor(p.y / cellSize);
+
+        // Controlla la cella corrente e le 8 adiacenti
+        let hasReturn = false;
+        for (let dx = -1; dx <= 1 && !hasReturn; dx++) {
+            for (let dy = -1; dy <= 1 && !hasReturn; dy++) {
+                const key = (cx + dx) + ',' + (cy + dy);
+                const prevIdx = cells.get(key);
+                if (prevIdx !== undefined && i - prevIdx >= skip) {
+                    hasReturn = true;
+                }
+            }
+        }
+        if (hasReturn) returns++;
+
+        cells.set(cx + ',' + cy, i);
     }
-    return total;
+    return returns / n;
 }
 
 function isScribbleShape(pts, durationMs) {
@@ -101,8 +83,6 @@ function isScribbleShape(pts, durationMs) {
     let reversalCount = 0;
     let pathLen = 0;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    const start = sampled[0];
-    const end = sampled[sampled.length - 1];
 
     for (let i = 0; i < sampled.length; i++) {
         const p = sampled[i];
@@ -127,8 +107,8 @@ function isScribbleShape(pts, durationMs) {
     const bboxH = maxY - minY;
     const bboxDiag = Math.hypot(bboxW, bboxH);
 
-    // Filtri economici
-    if (bboxDiag < 20) return false;                       // troppo piccolo
+    // Filtri economici (scartano subito i casi ovvi)
+    if (bboxDiag < 15) return false;
     if (bboxDiag > SCRIBBLE_MAX_BBOX_DIAGONAL) return false;
     if (pathLen > SCRIBBLE_MAX_PATH_LEN) return false;
     if (reversalCount < SCRIBBLE_MIN_REVERSALS) return false;
@@ -138,36 +118,9 @@ function isScribbleShape(pts, durationMs) {
     const avgSpeed = pathLen / durationSec;
     if (avgSpeed < SCRIBBLE_MIN_AVG_SPEED) return false;
 
-    const reversalRate = reversalCount / durationSec;
-    if (reversalRate < SCRIBBLE_MIN_REVERSAL_RATE) return false;
-
-    const chordLen = Math.hypot(end.x - start.x, end.y - start.y);
-
-    // Filtro chordRatio: nello scarabocchio si torna vicino all'inizio.
-    // Esclude "m", "mm", parole scritte (dove la penna avanza).
-    const chordRatio = chordLen / bboxDiag;
-    if (chordRatio > SCRIBBLE_MAX_CHORD_RATIO) return false;
-
-    // Filtro pathRatio: range tra 3 e 15.
-    // < 3 → linea o lettera semplice
-    // > 15 → cerchio/loop regolare (inizio e fine coincidono, ma path
-    //        percorso una volta sola con andamento circolare)
-    const pathRatio = pathLen / Math.max(chordLen, 1);
-    if (pathRatio < SCRIBBLE_MIN_PATH_RATIO) return false;
-    if (pathRatio > SCRIBBLE_MAX_PATH_RATIO) return false;
-
-    // Filtro densità di inversioni
-    const reversalDensity = reversalCount / (sampled.length - 1);
-    if (reversalDensity < SCRIBBLE_MIN_REVERSAL_DENSITY) return false;
-
-    // Filtro progressione baricentri: la penna non deve avanzare.
-    // Nella "m" i baricentri si spostano in avanti (ratio alto);
-    // nello scarabocchio oscillano intorno allo stesso punto (ratio basso).
-    const centroids = computeBucketCentroids(sampled, SCRIBBLE_PROGRESSION_BUCKETS);
-    if (centroids.length < 2) return false;
-    const progression = computeProgressionDistance(centroids);
-    const progressionRatio = progression / bboxDiag;
-    if (progressionRatio > SCRIBBLE_MAX_PROGRESSION_RATIO) return false;
+    // Filtro principale: return ratio
+    const returnRatio = computeReturnRatio(sampled, SCRIBBLE_RETURN_RADIUS, SCRIBBLE_RETURN_SKIP);
+    if (returnRatio < SCRIBBLE_MIN_RETURN_RATIO) return false;
 
     return true;
 }
