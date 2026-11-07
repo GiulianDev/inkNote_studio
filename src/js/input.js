@@ -2,12 +2,17 @@
 // INPUT CANVAS (POINTER EVENTS + GOMMA + PRESSIONE + SMOOTHING)
 // ============================================================
 
-// Debug overlay: attivabile con ?debug=1 nell'URL.
-// Mostra tiltX/tiltY/speed/pressure in basso a destra per verificare
-// che i dati arrivino dal driver della penna.
 const _DEBUG_INK = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).has('debug');
 let _debugEl = null;
+
+// Stato del batching rAF. Un unico oggetto, rafId === null è l'unico
+// indicatore di "nessun rAF pendente".
+const _flushState = {
+    points: [],
+    rafId: null,
+    pageData: null
+};
 
 function _updateDebugOverlay(pt) {
     if (!_DEBUG_INK) return;
@@ -27,12 +32,16 @@ function _updateDebugOverlay(pt) {
         `tiltX: ${(pt.tiltX || 0).toFixed(1)}°  tiltY: ${(pt.tiltY || 0).toFixed(1)}°<br>` +
         `tiltMag: ${tiltMag.toFixed(1)}° (norm: ${Math.min(1, tiltMag / 30).toFixed(2)})<br>` +
         `speed: ${(pt.speed || 0).toFixed(1)}px (norm: ${Math.min(1, (pt.speed || 0) / 8).toFixed(2)})<br>` +
-        `pressure: ${(pt.pressure || 0).toFixed(3)}`;
+        `pressure: ${(pt.pressure || 0).toFixed(3)}<br>` +
+        `batch: ${_flushState.points.length} pending`;
 }
 
 function getCanvasCoords(e, canvas) {
     const rect = canvas.getBoundingClientRect();
 
+    // Pressione raw, senza normalizzazione automatica.
+    // La curva di risposta è gestita interamente dalla modale impostazioni
+    // (lightMul / heavyMul / curve in getPressureParams).
     let pressure = 0.5;
     if (e.pointerType === 'pen') {
         pressure = (e.pressure && e.pressure > 0) ? e.pressure : 0.5;
@@ -86,6 +95,122 @@ function attachPointerListeners(pageData) {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
+// ============================================================
+// BATCHING rAF
+// ============================================================
+
+// Processa un singolo punto. Identico alla logica del vecchio
+// handlePointerMove sincrono, ma senza dispatch degli eventi.
+function _processPointerPoint(rawPoint, pageData) {
+    if (appState.pendingShape) return;
+    if (!appState.currentStroke || !appState.isDrawing) return;
+
+    const prevSmoothed = appState.currentStroke.points[appState.currentStroke.points.length - 1];
+    const smoothedPos = smoothRawPoint(rawPoint, prevSmoothed);
+
+    let smoothedPressure = rawPoint.pressure;
+    if (rawPoint.pointerType === 'pen' && appState.currentStroke.points.length > 0) {
+        smoothedPressure = smoothPressure(appState.currentStroke.points, rawPoint.pressure);
+    }
+
+    const minDist = 0.4;
+    if (prevSmoothed && Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) < minDist) {
+        return;
+    }
+
+    const speedPx = prevSmoothed
+        ? Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y)
+        : 0;
+
+    const smoothedPoint = {
+        x: smoothedPos.x,
+        y: smoothedPos.y,
+        pressure: smoothedPressure,
+        tiltX: rawPoint.tiltX,
+        tiltY: rawPoint.tiltY,
+        speed: speedPx,
+        pointerType: rawPoint.pointerType
+    };
+
+    appState.currentStroke.points.push(smoothedPoint);
+
+    if (appState.scribbleMode) {
+        drawScribbleSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
+    } else {
+        drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
+    }
+
+    _updateDebugOverlay(smoothedPoint);
+
+    checkForScribble(pageData);
+
+    if (!appState.scribbleMode &&
+        appState.autoShapeEnabled &&
+        SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
+        appState.currentStroke &&
+        appState.currentStroke.points.length >= 6 &&
+        appState.currentStroke.points.length % 5 === 0) {
+        trySnapToLineDuringDraw(pageData, rawPoint);
+    }
+}
+
+function _scheduleFlush(pageData) {
+    _flushState.pageData = pageData;
+    if (_flushState.rafId !== null) return;
+    _flushState.rafId = requestAnimationFrame(_doFlush);
+}
+
+function _doFlush() {
+    _flushState.rafId = null;
+    const pageData = _flushState.pageData;
+    const batch = _flushState.points;
+    _flushState.points = [];
+    _flushState.pageData = null;
+
+    if (!pageData || batch.length === 0) return;
+    if (!appState.currentStroke || !appState.isDrawing) return;
+    if (appState.pendingShape) return;
+
+    for (const rawPoint of batch) {
+        if (appState.pendingShape) break;
+        if (!appState.currentStroke || !appState.isDrawing) break;
+        _processPointerPoint(rawPoint, pageData);
+    }
+}
+
+function _cancelFlush() {
+    if (_flushState.rafId !== null) {
+        cancelAnimationFrame(_flushState.rafId);
+        _flushState.rafId = null;
+    }
+    _flushState.points = [];
+    _flushState.pageData = null;
+}
+
+function _forceFlushNow(pageData) {
+    if (_flushState.rafId !== null) {
+        cancelAnimationFrame(_flushState.rafId);
+        _flushState.rafId = null;
+    }
+    const batch = _flushState.points;
+    _flushState.points = [];
+    _flushState.pageData = null;
+
+    if (!pageData || batch.length === 0) return;
+    if (!appState.currentStroke || !appState.isDrawing) return;
+    if (appState.pendingShape) return;
+
+    for (const rawPoint of batch) {
+        if (appState.pendingShape) break;
+        if (!appState.currentStroke || !appState.isDrawing) break;
+        _processPointerPoint(rawPoint, pageData);
+    }
+}
+
+// ============================================================
+// POINTER HANDLERS
+// ============================================================
+
 function handlePointerDown(e, pageData) {
     const palmCheck = document.getElementById('palmRejectionCheck').checked;
     if (palmCheck && e.pointerType !== 'pen') return;
@@ -96,6 +221,7 @@ function handlePointerDown(e, pageData) {
 
     appState.scribbleMode = false;
     appState.scribbleTargets = [];
+    _cancelFlush();
 
     try { pageData.canvas.setPointerCapture(e.pointerId); } catch (err) {}
 
@@ -107,9 +233,6 @@ function handlePointerDown(e, pageData) {
     const point = getCanvasCoords(e, pageData.canvas);
 
     if (point.pointerType === 'pen') {
-        // Era 0.35. Abbassato a 0.2 perché ora la curva è più reattiva ai
-        // bassi: appoggiando leggermente la penna il tratto resta visibile
-        // anche con pressione 0.2 (width ~0.6x baseSize).
         point.pressure = Math.max(point.pressure, 0.2);
     }
 
@@ -145,6 +268,8 @@ function handlePointerDown(e, pageData) {
         return;
     }
 
+    // Backup al pointerdown: il canvas è ancora pulito (curva live non
+    // ancora iniziata). Necessario per il ripristino in pendingShape.
     if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
         saveCanvasBackup(pageData);
     }
@@ -153,12 +278,11 @@ function handlePointerDown(e, pageData) {
         tool: appState.activeTool,
         color: appState.currentColor,
         size: appState.strokeWidth,
-        startTime: performance.now(),   // ← NUOVO: serve al check scribble
+        startTime: performance.now(),
         points: [{
             x: point.x,
             y: point.y,
             pressure: point.pressure,
-            rawPressure: point.rawPressure,
             tiltX: point.tiltX,
             tiltY: point.tiltY,
             speed: 0,
@@ -179,9 +303,9 @@ function handlePointerMove(e, pageData) {
     if (!appState.isDrawing) return;
     if (e.pointerId !== appState.currentPointerId) return;
 
-    const rawPoint = getCanvasCoords(e, pageData.canvas);
-
+    // Rami sincroni (interattività immediata)
     if (appState.pendingShape) {
+        const rawPoint = getCanvasCoords(e, pageData.canvas);
         const ps = appState.pendingShape;
         if (ps.activeHandle === 'end') {
             ps.end = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
@@ -194,11 +318,12 @@ function handlePointerMove(e, pageData) {
     }
 
     if (appState.isResizingSelection) {
-        applyResizeSelection(rawPoint);
+        applyResizeSelection(getCanvasCoords(e, pageData.canvas));
         return;
     }
 
     if (appState.isDraggingSelection && appState.dragStartPoint) {
+        const rawPoint = getCanvasCoords(e, pageData.canvas);
         const dx = rawPoint.x - appState.dragStartPoint.x;
         const dy = rawPoint.y - appState.dragStartPoint.y;
         if (dx !== 0 || dy !== 0) {
@@ -214,73 +339,37 @@ function handlePointerMove(e, pageData) {
     }
 
     if (appState.activeTool === 'lasso') {
-        appState.lassoPath.push(rawPoint);
+        appState.lassoPath.push(getCanvasCoords(e, pageData.canvas));
         redrawPageCanvas(pageData);
         return;
     }
 
     if (appState.activeTool === 'eraser') {
-        performEraserAt(pageData, rawPoint);
+        performEraserAt(pageData, getCanvasCoords(e, pageData.canvas));
         return;
     }
 
     if (!appState.currentStroke) return;
 
-    const prevSmoothed = appState.currentStroke.points[appState.currentStroke.points.length - 1];
-    const smoothedPos = smoothRawPoint(rawPoint, prevSmoothed);
+    // RAMO DRAW: accumula punti (coalesced) e schedula flush rAF
+    const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
+    const events = (coalesced && coalesced.length > 0) ? coalesced : [e];
 
-    let smoothedPressure = rawPoint.pressure;
-    if (rawPoint.pointerType === 'pen' && appState.currentStroke.points.length > 0) {
-        smoothedPressure = smoothPressure(appState.currentStroke.points, rawPoint.pressure);
+    for (const ev of events) {
+        _flushState.points.push(getCanvasCoords(ev, pageData.canvas));
     }
 
-    const minDist = 0.4;
-    if (prevSmoothed && Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) < minDist) {
-        return;
-    }
-
-    const speedPx = prevSmoothed
-        ? Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y)
-        : 0;
-
-    const smoothedPoint = {
-        x: smoothedPos.x,
-        y: smoothedPos.y,
-        pressure: smoothedPressure,
-        tiltX: rawPoint.tiltX,
-        tiltY: rawPoint.tiltY,
-        speed: speedPx,
-        pointerType: rawPoint.pointerType
-    };
-
-    appState.currentStroke.points.push(smoothedPoint);
-
-    // FIX: durante lo scribble, disegna il segmento corrente in ROSSO
-    // (path del gesto). Prima veniva disegnato con drawIncrementalSegment
-    // in colore normale, creando una coda nera sopra il path rosso.
-    if (appState.scribbleMode) {
-        drawScribbleSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
-    } else {
-        drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
-    }
-
-    _updateDebugOverlay(smoothedPoint);
-
-    checkForScribble(pageData);
-
-    if (!appState.scribbleMode &&
-        appState.autoShapeEnabled &&
-        SHAPE_CAPABLE_TOOLS.includes(appState.activeTool) &&
-        appState.currentStroke.points.length >= 6 &&
-        appState.currentStroke.points.length % 5 === 0) {
-        trySnapToLineDuringDraw(pageData, rawPoint);
-    }
+    _scheduleFlush(pageData);
 }
 
 function handlePointerUp(e, pageData) {
     const palmCheck = document.getElementById('palmRejectionCheck').checked;
     if (palmCheck && e.pointerType !== 'pen') return;
     if (e.pointerId !== appState.currentPointerId) return;
+
+    // Flush forzato dei punti pendenti prima di qualsiasi altra operazione.
+    // Garantisce che l'ultimo segmento sia disegnato al pointerup.
+    _forceFlushNow(pageData);
 
     if (appState.pendingShape) {
         finalizePendingShape();
@@ -388,9 +477,6 @@ function handlePointerUp(e, pageData) {
 
 function performEraserAt(pageData, point) {
     const mode = document.getElementById('eraserModeSelect').value;
-    // Era: appState.strokeWidth * 4.5. Con la nuova mappatura il valore
-    // grezzo non corrisponde più ai px: uso sliderToBaseSize come per il
-    // disegno, con moltiplicatore più alto per mantenere un raggio comodo.
     const radius = sliderToBaseSize(appState.strokeWidth) * 12;
     const initCount = pageData.strokes.length;
 

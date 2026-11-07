@@ -182,7 +182,7 @@ function drawFinalSegmentOnly(pageData, stroke) {
     const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, getTiltNorm(p2), getSpeedNorm(p2), getTaper(i2, stroke.tool));
 
     const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-    const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+    const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
     const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
 
     for (let s = 0; s < steps; s++) {
@@ -203,9 +203,6 @@ function drawFinalSegmentOnly(pageData, stroke) {
     ctx.restore();
 }
 
-// FIX: rimosso il ramo `if (appState.scribbleMode)` che colorava di rosso
-// TUTTI gli stroke durante il redraw. Ora applica sempre il colore reale;
-// l'evidenziazione dei target è gestita via overrideColor in renderFullStroke.
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -280,8 +277,6 @@ function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
     };
 }
 
-// FIX: aggiunto overrideColor opzionale. Se presente, disegna lo stroke in
-// quel colore (usato per evidenziare i target dello scribble).
 function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
     const pts = stroke.points;
     const n = pts.length;
@@ -318,7 +313,7 @@ function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
         const w2 = widths[i];
 
         const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-        const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+        const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
         const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
 
         for (let s = 0; s < steps; s++) {
@@ -362,7 +357,7 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, getTiltNorm(p2), getSpeedNorm(p2), getTaper(i2, stroke.tool));
 
     const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-    const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+    const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
     const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
 
     for (let s = 0; s < steps; s++) {
@@ -378,9 +373,7 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     ctx.restore();
 }
 
-// NUOVO: disegna solo il segmento corrente del path scribble in rosso.
-// Usato in handlePointerMove quando appState.scribbleMode è true, per
-// evitare che i nuovi punti vengano disegnati in nero sopra il path rosso.
+// Disegna solo il segmento corrente del path scribble in rosso.
 function drawScribbleSegment(ctx, stroke, dpr = 1) {
     const pts = stroke.points;
     const n = pts.length;
