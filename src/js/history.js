@@ -35,6 +35,7 @@ function areSnapshotsEqual(a, b) {
     if (a.notebookTitle !== b.notebookTitle) return false;
     if (a.pages.length !== b.pages.length) return false;
     for (let i = 0; i < a.pages.length; i++) {
+        if (a.pages[i].strokes.length !== b.pages[i].strokes.length) return false;
         if (JSON.stringify(a.pages[i].strokes) !== JSON.stringify(b.pages[i].strokes)) return false;
     }
     return true;

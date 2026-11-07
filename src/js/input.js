@@ -307,18 +307,28 @@ function handlePointerUp(e, pageData) {
     }
 
     if (appState.currentStroke && appState.currentStroke.points.length > 2) {
-        // Fallback: se il check live non è scattato, prova lo snap statico
-        // + shape detection al rilascio.
+        let snapped = false;
+
         if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
             if (trySnapToLine(appState.currentStroke)) {
                 showToast('Linea agganciata', '📏');
-            } else {
-                detectAndSnapShape(appState.currentStroke, pageData);
+                snapped = true;
+            } else if (detectAndSnapShape(appState.currentStroke, pageData)) {
+                snapped = true;
             }
         }
 
         pageData.strokes.push(appState.currentStroke);
-        redrawPageCanvas(pageData);
+
+        if (snapped) {
+            // Snap: il canvas ha la curva live, va sostituita con la forma
+            redrawPageCanvas(pageData);
+        } else {
+            // Nessuno snap: il canvas ha già la curva live (lag-1).
+            // Basta completare l'ultimo segmento. O(1), niente redraw.
+            drawFinalSegmentOnly(pageData, appState.currentStroke);
+        }
+
         autoSaveTrigger();
         pushHistory();
     }

@@ -4,10 +4,12 @@
 
 const SCRIBBLE_ERASE_COLOR = 'rgba(220, 38, 38, 0.6)';
 
-// Canvas off-screen usato per ripristinare lo stato del canvas quando
-// si entra in pendingShape (snap linea live). Evita redrawPageCanvas O(n)
-// a ogni pointermove durante l'aggiustamento della linea.
+// Canvas off-screen per ripristino canvas durante pendingShape.
 let _drawBackupCanvas = null;
+
+// Cache del background: ridisegnato una sola volta per (pattern, tema, dpr).
+// Su redraw successivi: un singolo drawImage invece di 35-1518 operazioni.
+let _bgCache = { key: null, canvas: null };
 
 function computeStrokeWidth(tool, baseSize, pressure) {
     const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
@@ -37,7 +39,7 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
     ctx.clearRect(0, 0, pageData.canvas.width, pageData.canvas.height);
     ctx.scale(dpr, dpr);
 
-    drawPaperBackground(ctx, forceTargetDark);
+    drawPaperBackground(ctx, forceTargetDark, dpr);
     pageData.strokes.forEach(stroke => { renderFullStroke(ctx, stroke, forceTargetDark); });
 
     if (appState.pendingShape) {
@@ -94,8 +96,7 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
     ctx.restore();
 }
 
-// Salva il canvas corrente in _drawBackupCanvas (per ripristino durante pendingShape).
-// Chiamato al pointerdown per tool di disegno con autoShape attivo.
+// Snapshot del canvas per ripristino in pendingShape.
 function saveCanvasBackup(pageData) {
     if (!_drawBackupCanvas) {
         _drawBackupCanvas = document.createElement('canvas');
@@ -107,8 +108,6 @@ function saveCanvasBackup(pageData) {
     bctx.drawImage(pageData.canvas, 0, 0);
 }
 
-// Ripristina il canvas dallo snapshot (cancella eventuale curva parziale).
-// Costo: clearRect + drawImage, GPU-accelerato.
 function restoreCanvasFromBackup(pageData) {
     if (!_drawBackupCanvas) return;
     const ctx = pageData.ctx;
@@ -119,7 +118,6 @@ function restoreCanvasFromBackup(pageData) {
     ctx.restore();
 }
 
-// Disegna solo il pendingShape sopra il canvas (già ripristinato dal backup).
 function renderPendingShapeOnly(pageData) {
     const ctx = pageData.ctx;
     const dpr = pageData.dpr || 1;
@@ -129,7 +127,54 @@ function renderPendingShapeOnly(pageData) {
     ctx.restore();
 }
 
-// setupStrokeStyle NON fa ctx.save(): lo gestisce il chiamante.
+// Disegna SOLO il segmento finale (p[n-2] → p[n-1]) e il cappuccio finale.
+// Necessario perché drawIncrementalSegment ha lag-1: quando l'utente rilascia,
+// l'ultimo segmento non è ancora stato renderizzato sul canvas.
+function drawFinalSegmentOnly(pageData, stroke) {
+    const pts = stroke.points;
+    const n = pts.length;
+    if (n < 2) return;
+
+    const ctx = pageData.ctx;
+    const dpr = pageData.dpr || 1;
+
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    setupStrokeStyle(ctx, stroke, appState.isDarkMode);
+
+    const smoothness = appState.smoothing;
+    const i1 = n - 2;
+    const i2 = n - 1;
+    const p0 = pts[Math.max(0, i1 - 1)];
+    const p1 = pts[i1];
+    const p2 = pts[i2];
+    const p3 = pts[i2];
+
+    const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure);
+    const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure);
+
+    const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const baseSteps = Math.max(2, Math.min(5, Math.ceil(segLen / 3)));
+    const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
+
+    for (let s = 0; s < steps; s++) {
+        const t0 = s / steps;
+        const t1 = (s + 1) / steps;
+        const sp0 = interpolatePoint(p0, p1, p2, p3, t0, smoothness);
+        const sp1 = interpolatePoint(p0, p1, p2, p3, t1, smoothness);
+        const sw0 = w1 + (w2 - w1) * t0;
+        const sw1 = w1 + (w2 - w1) * t1;
+        drawTaperedSegment(ctx, sp0, sp1, sw0, sw1);
+    }
+
+    const lastW = Math.max(w2, 0.5);
+    ctx.beginPath();
+    ctx.arc(p2.x, p2.y, lastW / 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -159,8 +204,6 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
     }
 }
 
-// 2 fill separati (poligono + cerchio). Un unico fill con due subpath
-// causa buchi per la nonzero winding rule.
 function drawTaperedSegment(ctx, p0, p1, w0, w1) {
     const dx = p1.x - p0.x;
     const dy = p1.y - p0.y;
@@ -357,33 +400,51 @@ function drawPendingShape(ctx, forceTargetDark) {
     ctx.restore();
 }
 
-function drawPaperBackground(ctx, isDark) {
-    ctx.save();
-    ctx.fillStyle = isDark ? '#1E293B' : '#FFFFFF';
-    ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-    ctx.strokeStyle = isDark ? '#334155' : '#E2E8F0';
-    ctx.lineWidth = 1;
+// Pre-render del background in canvas off-screen, alla risoluzione DPR richiesta.
+// Visivamente identico all'originale (stesse coordinate, stesso lineWidth),
+// ma O(1) per redraw: drawImage invece di 35-1518 operazioni.
+function getBackgroundCanvas(patternName, isDark, dpr) {
+    const key = `${patternName}|${isDark ? 'dark' : 'light'}|${dpr}`;
+    if (_bgCache.key === key) return _bgCache.canvas;
 
-    if (appState.bgPattern === 'ruled') {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(PAGE_WIDTH * dpr);
+    canvas.height = Math.floor(PAGE_HEIGHT * dpr);
+    const bctx = canvas.getContext('2d');
+    bctx.scale(dpr, dpr);
+
+    bctx.fillStyle = isDark ? '#1E293B' : '#FFFFFF';
+    bctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+    bctx.strokeStyle = isDark ? '#334155' : '#E2E8F0';
+    bctx.lineWidth = 1;
+
+    if (patternName === 'ruled') {
         for (let y = 60; y < PAGE_HEIGHT; y += 32) {
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(PAGE_WIDTH, y); ctx.stroke();
+            bctx.beginPath(); bctx.moveTo(0, y); bctx.lineTo(PAGE_WIDTH, y); bctx.stroke();
         }
-    } else if (appState.bgPattern === 'grid') {
+    } else if (patternName === 'grid') {
         for (let x = 0; x < PAGE_WIDTH; x += 25) {
-            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, PAGE_HEIGHT); ctx.stroke();
+            bctx.beginPath(); bctx.moveTo(x, 0); bctx.lineTo(x, PAGE_HEIGHT); bctx.stroke();
         }
         for (let y = 0; y < PAGE_HEIGHT; y += 25) {
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(PAGE_WIDTH, y); ctx.stroke();
+            bctx.beginPath(); bctx.moveTo(0, y); bctx.lineTo(PAGE_WIDTH, y); bctx.stroke();
         }
-    } else if (appState.bgPattern === 'dots') {
-        ctx.fillStyle = isDark ? '#475569' : '#94A3B8';
+    } else if (patternName === 'dots') {
+        bctx.fillStyle = isDark ? '#475569' : '#94A3B8';
         for (let x = 20; x < PAGE_WIDTH; x += 24) {
             for (let y = 20; y < PAGE_HEIGHT; y += 24) {
-                ctx.beginPath(); ctx.arc(x, y, 1.2, 0, Math.PI * 2); ctx.fill();
+                bctx.beginPath(); bctx.arc(x, y, 1.2, 0, Math.PI * 2); bctx.fill();
             }
         }
     }
-    ctx.restore();
+
+    _bgCache = { key, canvas };
+    return canvas;
+}
+
+function drawPaperBackground(ctx, isDark, dpr) {
+    const bg = getBackgroundCanvas(appState.bgPattern, isDark, dpr || 1);
+    ctx.drawImage(bg, 0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 }
 
 function drawSelectionHandles(ctx, visualBBox) {

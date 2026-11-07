@@ -179,7 +179,7 @@ function finalizePendingShape() {
 
 function detectAndSnapShape(stroke, pageData) {
     const pts = stroke.points;
-    if (pts.length < 8) return;
+    if (pts.length < 8) return false;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     let pathLen = 0;
@@ -195,19 +195,19 @@ function detectAndSnapShape(stroke, pageData) {
     const bboxH = maxY - minY;
     const bboxDiag = Math.hypot(bboxW, bboxH);
 
-    if (bboxDiag < 90) return;
+    if (bboxDiag < 90) return false;
 
     const startPt = pts[0];
     const endPt = pts[pts.length - 1];
     const closureDist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
     const closureRatio = closureDist / Math.max(pathLen, 1);
-    if (closureRatio > 0.12) return;
+    if (closureRatio > 0.12) return false;
 
     const w = bboxW, h = bboxH;
-    if (w < 40 || h < 40) return;
+    if (w < 40 || h < 40) return false;
 
     const aspect = w / h;
-    if (aspect < 0.75 || aspect > 1.35) return;
+    if (aspect < 0.75 || aspect > 1.35) return false;
 
     const cx = minX + w / 2;
     const cy = minY + h / 2;
@@ -249,7 +249,7 @@ function detectAndSnapShape(stroke, pageData) {
         stroke.points = circlePts;
         showToast('Forma: Cerchio', '⭕');
         triggerSnapAnimation(pageData);
-        return;
+        return true;
     }
 
     if (isRect) {
@@ -262,7 +262,10 @@ function detectAndSnapShape(stroke, pageData) {
         ];
         showToast('Forma: Rettangolo', '⬛');
         triggerSnapAnimation(pageData);
+        return true;
     }
+
+    return false;
 }
 
 function triggerSnapAnimation(pageData) {
