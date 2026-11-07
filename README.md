@@ -1,3 +1,13 @@
+
+
+# COMMAND
+- npm run dev
+- npm run build → build classica multi-file (usata da Tauri e Capacitor)
+- npm run build:singlefile → build a file singolo (per la versione online)
+- npm run build:singlefileoffline → build a file singolo (per la versione offline)
+
+
+
 # ToDO
 [] fix sulle dimensioni del blocco note che mi sembra troppo piccolo
 [] dopo la selezione con in lazo potremmo aggiungere gli angoli attivi della selezione per effettuare un resize o un ruota
