@@ -215,9 +215,16 @@ body.compact-mode #subbarExpandContainer {
    Applicare la classe .custom-scrollbar all'elemento scrollabile.
    ============================================================ */
 
-/* 1. Stile per Chrome, Edge, Safari (WebKit/Blink).
-      NON usare scrollbar-width o scrollbar-color qui:
-      su Windows Chrome 121+ ignorerebbe queste regole. */
+/* Neutralizza qualsiasi valore ereditato di scrollbar-color o scrollbar-width.
+   Senza questo, un antenato (o Tailwind) potrebbe impostare un valore
+   diverso da "auto" e far ignorare completamente ::-webkit-scrollbar
+   su Chrome/Edge Windows. */
+.custom-scrollbar {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+}
+
+/* 1. Stile per Chrome, Edge, Safari (WebKit/Blink) */
 .custom-scrollbar::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -256,10 +263,8 @@ body.compact-mode #subbarExpandContainer {
     background-color: #818cf8; /* indigo-400 */
 }
 
-/* 2. Fallback SOLO per Firefox.
-      @supports not selector(::-webkit-scrollbar) assicura che Chrome
-      non veda mai queste proprietà, che altrimenti sovrascriverebbero
-      i nostri stili WebKit. */
+/* 2. Fallback SOLO per Firefox (che ignora ::-webkit-scrollbar).
+   Questo blocco non viene mai letto da Chrome/Edge. */
 @supports not selector(::-webkit-scrollbar) {
     .custom-scrollbar {
         scrollbar-width: thin;
