@@ -176,6 +176,9 @@ function changeBackgroundPattern(pattern) {
 function clearCurrentPage() {
     const currentPage = appState.pages[appState.activePageIndex];
     if (currentPage && currentPage.strokes.length > 0) {
+        if (!confirm('Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Ctrl+Z.')) {
+            return;
+        }
         currentPage.strokes = [];
         clearSelection();
         redrawPageCanvas(currentPage);

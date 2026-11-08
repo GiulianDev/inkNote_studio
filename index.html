@@ -226,8 +226,12 @@
                     <button class="color-swatch w-5 h-5 rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#059669', this)" title="Verde"></button>
                     <button class="color-swatch w-5 h-5 rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#e11d48', this)" title="Rosso"></button>
                     <button class="color-swatch w-5 h-5 rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" onclick="selectColor('#d97706', this)" title="Arancio"></button>
+                    
+                    <div id="recentColorsContainer" class="hidden items-center space-x-1 bg-white dark:bg-slate-700 p-0.5 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0"></div>
+
                     <input type="color" id="customColorPicker" class="w-5 h-5 rounded-full border-0 cursor-pointer p-0 bg-transparent" onchange="selectColor(this.value, this)" title="Colore personalizzato">
                 </div>
+
 
                 <div class="hidden md:flex items-center space-x-1.5 bg-white dark:bg-slate-700 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Spessore tratto">
                     <input type="range" id="strokeWidthSlider" min="1" max="25" value="3" class="w-14 accent-indigo-600 cursor-pointer" oninput="updateStrokeWidth(this.value)">
@@ -367,6 +371,7 @@
     <script defer src="src/js/shapes.js"></script>
     <script defer src="src/js/scribble.js"></script>
     <script defer src="src/js/lasso.js"></script>
+    <script defer src="src/js/keyboard.js"></script>
     <script defer src="src/js/main.js"></script>
 </body>
 </html>

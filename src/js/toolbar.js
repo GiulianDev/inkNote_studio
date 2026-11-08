@@ -2,14 +2,56 @@
 // TOOLBAR E TEMA
 // ============================================================
 
-function setTool(toolName) {
-    appState.activeTool = toolName;
-    clearSelection();
-    document.querySelectorAll('.tool-btn').forEach(btn => {
-        btn.classList.remove('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+const RECENT_COLORS_MAX = 8;
+const RECENT_COLORS_KEY = 'inknote_recent_colors';
+
+function loadRecentColors() {
+    try {
+        const saved = localStorage.getItem(RECENT_COLORS_KEY);
+        return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveRecentColor(colorHex) {
+    // Normalizza hex (lowercase)
+    const color = colorHex.toLowerCase();
+    let recent = loadRecentColors();
+    // Rimuovi duplicato se presente
+    recent = recent.filter(c => c !== color);
+    // Aggiungi in testa
+    recent.unshift(color);
+    // Tronca
+    if (recent.length > RECENT_COLORS_MAX) recent = recent.slice(0, RECENT_COLORS_MAX);
+    try {
+        localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(recent));
+    } catch (e) {}
+    renderRecentColors();
+}
+
+function renderRecentColors() {
+    const container = document.getElementById('recentColorsContainer');
+    if (!container) return;
+    const recent = loadRecentColors();
+    if (recent.length === 0) {
+        container.classList.add('hidden');
+        container.classList.remove('flex');
+        return;
+    }
+    container.classList.remove('hidden');
+    container.classList.add('flex');
+    container.innerHTML = '';
+    recent.forEach(color => {
+        const btn = document.createElement('button');
+        btn.className = 'w-4 h-4 rounded-full border border-white dark:border-slate-800 cursor-pointer transition hover:scale-110';
+        btn.style.backgroundColor = color;
+        btn.title = color;
+        btn.addEventListener('click', () => {
+            selectColor(color, btn);
+        });
+        container.appendChild(btn);
     });
-    const activeBtn = document.getElementById(`btnTool-${toolName}`);
-    if (activeBtn) activeBtn.classList.add('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
 }
 
 function selectColor(colorHex, element) {
@@ -17,6 +59,8 @@ function selectColor(colorHex, element) {
     document.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('ring-2', 'ring-indigo-500', 'scale-105'));
     if (element && element.classList.contains('color-swatch')) element.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
     if (appState.activeTool === 'eraser' || appState.activeTool === 'lasso') setTool('pen');
+    // Salva come recente (solo se non è il nero di default? No, salva sempre)
+    saveRecentColor(colorHex);
 }
 
 function updateStrokeWidth(val) {

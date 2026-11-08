@@ -21,7 +21,7 @@ function saveNotebookToDB(notebook) {
     notebook.updatedAt = new Date().toISOString();
     const tx = db.transaction('notebooks', 'readwrite');
     tx.objectStore('notebooks').put(notebook);
-    showStatusBadge('Salvato');
+    // Badge "Salvato" gestito da library.js (autoSaveTrigger).
 }
 
 function loadAllNotebooksFromDB() {

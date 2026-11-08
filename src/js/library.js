@@ -179,12 +179,14 @@ function syncCurrentStateToNotebook() {
 // Disegno veloce = 1 scrittura IndexedDB invece di N.
 function autoSaveTrigger() {
     if (!currentNotebook) return;
+    showStatusBadge('Salvataggio...');
     if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
     _autoSaveTimer = setTimeout(() => {
         _autoSaveTimer = null;
         if (!currentNotebook) return;
         syncCurrentStateToNotebook();
         saveNotebookToDB(currentNotebook);
+        showStatusBadge('Salvato');
     }, 500);
 }
 
@@ -195,5 +197,6 @@ function flushAutoSave() {
         if (!currentNotebook) return;
         syncCurrentStateToNotebook();
         saveNotebookToDB(currentNotebook);
+        showStatusBadge('Salvato');
     }
 }

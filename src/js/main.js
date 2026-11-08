@@ -14,7 +14,9 @@ window.addEventListener('load', async () => {
 
     centerViewport();
     setupViewportGestures();
+    setupKeyboardShortcuts();
     updateAutoShapeButtonUI();
+    renderRecentColors();
 
     window.addEventListener('resize', () => {
         refreshCanvasResolution(true);
@@ -33,9 +35,16 @@ window.addEventListener('load', async () => {
 // FIX: flush dei debounce prima della chiusura.
 // Senza questo, gli ultimi 200-500ms di attività andrebbero persi
 // se l'utente chiude il tab subito dopo aver disegnato.
-window.addEventListener('beforeunload', () => {
+window.addEventListener('beforeunload', (e) => {
+    // Se c'è un autosave pendente, flusha e avvisa.
+    const hasPendingSave = _autoSaveTimer !== null;
     flushHistory();
     flushAutoSave();
+    if (hasPendingSave && currentNotebook) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+    }
 });
 
 function toggleFullscreen() {
