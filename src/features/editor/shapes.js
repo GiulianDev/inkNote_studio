@@ -8,28 +8,62 @@ import { clearOverlay, renderPendingShapeOnOverlay, renderFullStroke } from './r
 import { pushHistory } from './history.js';
 import { scheduleSave } from './autosave.js';
 
-export function trySnapToLineDuringDraw(pageData, currentPoint) {
-  const stroke = state.currentStroke;
-  if (!stroke) return false;
-  const pts = stroke.points;
-  if (pts.length < 6) return false;
-  const startPt = pts[0], endPt = currentPoint;
-  const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-  if (chordLen < 50) return false;
+// ------------------------------------------------------------
+// Soglie rilevamento linea retta (aggiornate per essere più
+// selettive: linee "leggermente ondulate" non devono più
+// essere agganciate come rette).
+// ------------------------------------------------------------
+const LINE_MIN_CHORD_LEN     = 60;    // lunghezza minima corda
+const LINE_MIN_PATH_RATIO    = 0.965; // chord/path (0.94 era troppo permissivo)
+const LINE_MAX_RMS_BASE      = 1.0;   // RMS minimo assoluto
+const LINE_MAX_RMS_FACTOR    = 0.010; // RMS massimo proporzionale (0.035 era troppo)
+const LINE_MAX_COS_CONSISTENCY = 0.85; // coseno direzione (0.80 era troppo)
+const LINE_SIGN_HYSTERESIS   = 1.5;   // px di isteresi per contare un cambio di segno
 
-  let pathLen;
-  if (stroke._pathLen !== undefined && stroke._pathLen > 0) pathLen = stroke._pathLen;
-  else {
-    pathLen = 0;
-    for (let i = 1; i < pts.length; i++) pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
-    stroke._pathLen = pathLen;
+// ------------------------------------------------------------
+// Conta i cambi di segno della deviazione perpendicolare
+// rispetto alla corda A→B. Con isteresi per ignorare il rumore.
+// Linea retta: 0-2. Linea ondulata: 4+.
+// ------------------------------------------------------------
+function countPerpSignChanges(points, A, B, hysteresis) {
+  const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
+  if (len < 1) return 0;
+  const nx = -dy / len, ny = dx / len;
+  let lastSign = 0;
+  let changes = 0;
+  for (const p of points) {
+    const px = p.x - A.x, py = p.y - A.y;
+    const perp = px * nx + py * ny;
+    if (perp > hysteresis) {
+      if (lastSign === -1) changes++;
+      lastSign = 1;
+    } else if (perp < -hysteresis) {
+      if (lastSign === 1) changes++;
+      lastSign = -1;
+    }
   }
-  if (chordLen / Math.max(pathLen, 1) < 0.94) return false;
+  return changes;
+}
 
+function maxSignChangesForChord(chordLen) {
+  return Math.max(2, Math.floor(chordLen / 100));
+}
+
+// ------------------------------------------------------------
+// Validazione condivisa: tutti i criteri "linea retta"
+// (tranne chord/path che è calcolato a monte nei due entry point)
+// ------------------------------------------------------------
+function validateLineShape(pts, startPt, endPt, chordLen) {
+  // RMS deviation perpendicolare
   const rmsDev = perpendicularRmsDeviationSampled(pts, startPt, endPt, 3);
   if (rmsDev === null) return false;
-  if (rmsDev > Math.max(1.5, chordLen * 0.035)) return false;
+  if (rmsDev > Math.max(LINE_MAX_RMS_BASE, chordLen * LINE_MAX_RMS_FACTOR)) return false;
 
+  // Cambi di segno della deviazione (anti-onda)
+  const signChanges = countPerpSignChanges(pts, startPt, endPt, LINE_SIGN_HYSTERESIS);
+  if (signChanges > maxSignChangesForChord(chordLen)) return false;
+
+  // Coerenza direzione agli estremi
   if (pts.length >= 3) {
     const a = pts[pts.length - 3], b = pts[pts.length - 2], c = pts[pts.length - 1];
     const v1x = b.x - a.x, v1y = b.y - a.y, v2x = c.x - b.x, v2y = c.y - b.y;
@@ -40,10 +74,32 @@ export function trySnapToLineDuringDraw(pageData, currentPoint) {
       if (chordL > 0) {
         const cos1 = (v1x * chordDx + v1y * chordDy) / (l1 * chordL);
         const cos2 = (v2x * chordDx + v2y * chordDy) / (l2 * chordL);
-        if (cos1 < 0.80 || cos2 < 0.80) return false;
+        if (cos1 < LINE_MAX_COS_CONSISTENCY || cos2 < LINE_MAX_COS_CONSISTENCY) return false;
       }
     }
   }
+  return true;
+}
+
+export function trySnapToLineDuringDraw(pageData, currentPoint) {
+  const stroke = state.currentStroke;
+  if (!stroke) return false;
+  const pts = stroke.points;
+  if (pts.length < 6) return false;
+  const startPt = pts[0], endPt = currentPoint;
+  const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+  if (chordLen < LINE_MIN_CHORD_LEN) return false;
+
+  let pathLen;
+  if (stroke._pathLen !== undefined && stroke._pathLen > 0) pathLen = stroke._pathLen;
+  else {
+    pathLen = 0;
+    for (let i = 1; i < pts.length; i++) pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+    stroke._pathLen = pathLen;
+  }
+  if (chordLen / Math.max(pathLen, 1) < LINE_MIN_PATH_RATIO) return false;
+
+  if (!validateLineShape(pts, startPt, endPt, chordLen)) return false;
 
   state.pendingShape = {
     start: { x: startPt.x, y: startPt.y, pressure: 0.5 },
@@ -83,27 +139,13 @@ export function trySnapToLine(stroke) {
   if (pts.length < 6) return false;
   const startPt = pts[0], endPt = pts[pts.length - 1];
   const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-  if (chordLen < 50) return false;
+  if (chordLen < LINE_MIN_CHORD_LEN) return false;
   let pathLen = 0;
   for (let i = 1; i < pts.length; i++) pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
-  if (chordLen / Math.max(pathLen, 1) < 0.94) return false;
-  // Verifica RMS deviazione
-  const rmsDev = perpendicularRmsDeviation(pts, startPt, endPt);
-  if (rmsDev === null || rmsDev > Math.max(1.5, chordLen * 0.035)) return false;
-  // Coerenza direzione
-  if (pts.length >= 3) {
-    const a = pts[pts.length - 3], b = pts[pts.length - 2], c = pts[pts.length - 1];
-    const v1x = b.x - a.x, v1y = b.y - a.y, v2x = c.x - b.x, v2y = c.y - b.y;
-    const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
-    if (l1 > 0.5 && l2 > 0.5) {
-      const cdX = endPt.x - startPt.x, cdY = endPt.y - startPt.y;
-      const cl = Math.hypot(cdX, cdY);
-      if (cl > 0) {
-        if (((v1x*cdX + v1y*cdY) / (l1*cl)) < 0.80 ||
-            ((v2x*cdX + v2y*cdY) / (l2*cl)) < 0.80) return false;
-      }
-    }
-  }
+  if (chordLen / Math.max(pathLen, 1) < LINE_MIN_PATH_RATIO) return false;
+
+  if (!validateLineShape(pts, startPt, endPt, chordLen)) return false;
+
   const steps = Math.max(8, Math.floor(chordLen / 4));
   const straightPts = [];
   for (let i = 0; i <= steps; i++) {
