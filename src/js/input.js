@@ -379,7 +379,8 @@ function handlePointerMove(e, pageData) {
             appState.selectedStrokes.forEach(stroke => {
                 stroke.points.forEach(p => { p.x += dx; p.y += dy; });
             });
-            redrawPageCanvas(pageData);
+            // BLOCO 2: solo overlay (page canvas esclude gli stroke selezionati).
+            redrawSelectionOverlay(pageData);
             updateSelectionMenuPosition();
         }
         appState.dragStartPoint = rawPoint;

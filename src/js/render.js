@@ -203,7 +203,16 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
         ? new Set(appState.scribbleTargets)
         : null;
 
+    // BLOCO 2: gli stroke selezionati sono esclusi dal page canvas.
+    // Vengono disegnati solo sull'overlay (per permettere drag/resize O(1)).
+    const selectedSet = (appState.selectedStrokes && appState.selectedStrokes.length > 0)
+        ? new Set(appState.selectedStrokes)
+        : null;
+
     pageData.strokes.forEach(stroke => {
+        if (selectedSet && selectedSet.has(stroke)) {
+            return;
+        }
         const isTarget = targetSet && targetSet.has(stroke);
         renderFullStroke(ctx, stroke, forceTargetDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
     });
@@ -797,7 +806,21 @@ function drawSelectionBBoxOnOverlay(pageData) {
 // deselezione) e dopo operazioni che azzerano l'overlay.
 function redrawSelectionOverlay(pageData) {
     clearOverlay(pageData);
-    if (appState.selectedStrokes.length > 0) {
-        drawSelectionBBoxOnOverlay(pageData);
+    if (appState.selectedStrokes.length === 0) return;
+
+    // BLOCO 2: gli stroke selezionati sono esclusi dal page canvas, quindi
+    // devono essere disegnati qui sull'overlay (alla loro posizione corrente,
+    // che può essere stata mutata da drag/resize).
+    const octx = pageData.overlayCtx;
+    if (octx) {
+        const dpr = pageData.dpr || 1;
+        octx.save();
+        octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        appState.selectedStrokes.forEach(stroke => {
+            renderFullStroke(octx, stroke, appState.isDarkMode);
+        });
+        octx.restore();
     }
+
+    drawSelectionBBoxOnOverlay(pageData);
 }

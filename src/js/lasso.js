@@ -13,6 +13,11 @@ function selectStrokesInsideLasso(pageData) {
     if (appState.selectedStrokes.length > 0) {
         showSelectionMenu();
         showToast(`${appState.selectedStrokes.length} elementi selezionati`, '✂️');
+        // BLOCO 2: redraw page canvas (esclude i selezionati) PRIMA di
+        // disegnare l'overlay. Senza questo, gli stroke selezionati sarebbero
+        // visibili sia sul page canvas (vecchia posizione) che sull'overlay
+        // (nuova posizione) durante il drag → ghosting.
+        redrawPageCanvas(pageData);
         redrawSelectionOverlay(pageData);
     } else {
         // FASE C fix: nessun target trovato. Pulisci esplicitamente overlay
@@ -144,10 +149,12 @@ function clearSelection() {
         const currentPage = appState.pages[appState.activePageIndex];
         if (currentPage) {
             currentPage.canvas.style.cursor = 'crosshair';
-            // FASE C: bbox è sull'overlay, non sul page canvas.
-            // clearSelection azzera selectedStrokes e lassoPath, quindi
-            // redrawSelectionOverlay fa semplicemente clearOverlay.
-            redrawSelectionOverlay(currentPage);
+            // BLOCO 2: gli stroke selezionati erano esclusi dal page canvas.
+            // Ora che stiamo per deselezionare, dobbiamo ridisegnare il page
+            // canvas (che includerà di nuovo tutti gli stroke alle loro
+            // posizioni correnti, comprese quelle mutate da drag/resize).
+            redrawPageCanvas(currentPage);
+            redrawSelectionOverlay(currentPage);  // fa solo clearOverlay
         }
     }
 }
@@ -256,8 +263,8 @@ function applyResizeSelection(point) {
     appState.selectionMoved = true;
     const currentPage = appState.pages[appState.activePageIndex];
     if (currentPage) {
-        redrawPageCanvas(currentPage);
-        // FASE C: bbox segue il resize sull'overlay
+        // BLOCO 2: solo overlay. Il page canvas esclude gli stroke selezionati
+        // (non serve ridisegnarlo durante il resize).
         redrawSelectionOverlay(currentPage);
     }
     updateSelectionMenuPosition();

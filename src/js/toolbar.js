@@ -5,6 +5,19 @@
 const RECENT_COLORS_MAX = 4;
 const RECENT_COLORS_KEY = 'inknote_recent_colors';
 
+// Colori di default della palette (non vanno mai nei recenti).
+const DEFAULT_COLORS = ['#000000', '#2563eb', '#059669', '#e11d48', '#d97706'];
+
+function setTool(toolName) {
+    appState.activeTool = toolName;
+    clearSelection();
+    document.querySelectorAll('.tool-btn').forEach(btn => {
+        btn.classList.remove('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+    });
+    const activeBtn = document.getElementById(`btnTool-${toolName}`);
+    if (activeBtn) activeBtn.classList.add('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+}
+
 function loadRecentColors() {
     try {
         const saved = localStorage.getItem(RECENT_COLORS_KEY);
@@ -15,15 +28,20 @@ function loadRecentColors() {
 }
 
 function saveRecentColor(colorHex) {
-    // Normalizza hex (lowercase)
     const color = colorHex.toLowerCase();
+
+    // I 5 colori di default non entrano mai nei recenti.
+    if (DEFAULT_COLORS.includes(color)) return;
+
     let recent = loadRecentColors();
-    // Rimuovi duplicato se presente
-    recent = recent.filter(c => c !== color);
-    // Aggiungi in testa
+
+    // Se il colore è già nei recenti, non modificare nulla:
+    // né aggiungerlo di nuovo, né riordinare la lista.
+    if (recent.includes(color)) return;
+
     recent.unshift(color);
-    // Tronca
     if (recent.length > RECENT_COLORS_MAX) recent = recent.slice(0, RECENT_COLORS_MAX);
+
     try {
         localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(recent));
     } catch (e) {}
@@ -66,7 +84,6 @@ function selectColor(colorHex, element) {
     document.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('ring-2', 'ring-indigo-500', 'scale-105'));
     if (element && element.classList.contains('color-swatch')) element.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
     if (appState.activeTool === 'eraser' || appState.activeTool === 'lasso') setTool('pen');
-    // Salva come recente (solo se non è il nero di default? No, salva sempre)
     saveRecentColor(colorHex);
 }
 
@@ -125,8 +142,12 @@ function setDarkMode(isDark) {
     appState.pages.forEach(p => {
         if (isPageVisible(p)) {
             redrawPageCanvas(p);
+            // BLOCO 2: gli stroke selezionati sono sull'overlay e vanno
+            // ridisegnati con il nuovo tema.
+            if (p.index === appState.activePageIndex && appState.selectedStrokes.length > 0) {
+                redrawSelectionOverlay(p);
+            }
         } else {
-            // Marca la pagina come "da ridisegnare" quando diventa visibile
             p._wasVisible = false;
         }
     });
@@ -155,7 +176,6 @@ function toggleSubbar() {
     s.subbarVisible = subbarVisible;
     saveSettings(s);
 
-    // Aspetta la fine dell'animazione prima di ricalcolare la viewport
     setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
     }, 320);
