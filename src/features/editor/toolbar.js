@@ -8,7 +8,9 @@ import { saveSettings, loadSettings } from '../../services/preferences.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './render.js';
 import { clearSelection } from './lasso.js';
 
-const ERASER_LEVELS = [1, 4, 8, 14, 22]; // size slider equivalente per livello 1..5
+// Raggi in pixel canvas (PAGE_WIDTH=794, PAGE_HEIGHT=1123) per livello 1..5.
+// Valori pensati per essere progressivi e "veri": dal puntuale al tappo.
+const ERASER_RADII = [3, 8, 16, 30, 50];
 const ERASER_KEY = 'inknote_eraser_size';
 
 const RECENT_COLORS_MAX = 4;
@@ -252,10 +254,10 @@ function _saveEraserSize(level) {
   try { localStorage.setItem(ERASER_KEY, String(n)); } catch (e) {}
 }
 
-// Mappatura livello → size per il rendering della gomma
-export function getEraserSliderSize() {
+// Mappatura livello → raggio in pixel canvas per il rendering della gomma
+export function getEraserRadius() {
   const lvl = Math.max(1, Math.min(5, state.eraserSize || 3));
-  return ERASER_LEVELS[lvl - 1];
+  return ERASER_RADII[lvl - 1];
 }
 
 function _updateEraserMenuUI() {

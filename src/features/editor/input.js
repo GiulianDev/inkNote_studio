@@ -5,7 +5,7 @@
 import { drawPredictions, clearPredictions, isPredictionSupported } from './prediction.js';
 import { invalidateStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
-import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast, sliderToBaseSize } from '../../core/utils.js';
+import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
   drawIncrementalSegment, drawScribbleSegment, clearOverlay,
   redrawPageCanvas, redrawSelectionOverlay,
@@ -26,7 +26,7 @@ import {
   updateCursorForSelection, updateSelectionMenuPosition
 } from './lasso.js';
 import { updatePageCounterUI } from './header.js';
-import { getEraserSliderSize } from './toolbar.js';
+import { getEraserRadius } from './toolbar.js';
 
 const MAX_BATCH_POINTS = 16;
 const _useRawPointerUpdate = typeof window !== 'undefined' && 'onpointerrawupdate' in window;
@@ -613,13 +613,10 @@ export function handlePointerUp(e, pageData) {
 function performEraserBatch(pageData, points) {
   if (!points || points.length === 0) return;
   const mode = document.getElementById('eraserModeSelect').value;
-  // Raggio basato sul livello selezionato nel popup eraser (1..5).
-  // Default 3 = media. Extra ×1.3 con penna eraser (gomma fisica).
-  // Cap a 80px sul canvas per evitare raggi abnormi.
-  const baseSize = getEraserSliderSize();
-  const baseRadius = 8 + sliderToBaseSize(baseSize) * 12;
-  const extraFactor = state._penEraserActive ? 1.3 : 1.0;
-  const radius = Math.max(12, Math.min(baseRadius * extraFactor, 80));
+  // Raggio in pixel canvas basato sul livello del popup eraser (1..5).
+  // Nessun extra factor per la penna: il livello scelto vale identico
+  // per dock e penna. Chi vuole più grande, seleziona livello più alto.
+  const radius = getEraserRadius();
   const radiusSq = radius * radius;
 
   // Pre-calcolo bounding box del batch per early reject
