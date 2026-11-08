@@ -1,6 +1,6 @@
 // ============================================================
 // STORICO UNDO / REDO
-// Snapshot completi dello stato del quaderno (pagine + pattern + titolo)
+// Snapshot per-pagina, debounced: 1 push ogni ~200ms di attività.
 // ============================================================
 
 const historyState = {
@@ -10,6 +10,8 @@ const historyState = {
     isRestoring: false
 };
 
+let _pushHistoryTimer = null;
+
 function deepClone(obj) {
     if (typeof structuredClone === 'function') {
         try { return structuredClone(obj); } catch (e) { /* fallback */ }
@@ -17,13 +19,21 @@ function deepClone(obj) {
     return JSON.parse(JSON.stringify(obj));
 }
 
+// Snapshot SOLO della pagina attiva. Le pagine inattive non cambiano
+// durante il disegno: clonarle era O(tutte le pagine) per ogni pointerup.
 function captureSnapshot() {
+    const page = appState.pages[appState.activePageIndex];
+    if (!page) return null;
+    const strokesClone = deepClone(page.strokes);
+    // Rimuovi campi derivati dal rendering che non devono influenzare
+    // il confronto fra snapshot (evita push inutili dopo toggle tema).
+    strokesClone.forEach(s => {
+        delete s._styleCache;
+        delete s._pathLen;
+    });
     return {
-        pages: appState.pages.map(p => ({
-            index: p.index,
-            strokes: deepClone(p.strokes)
-        })),
-        activePageIndex: appState.activePageIndex,
+        pageIndex: appState.activePageIndex,
+        strokes: strokesClone,
         bgPattern: appState.bgPattern,
         notebookTitle: currentNotebook ? currentNotebook.title : ''
     };
@@ -31,27 +41,37 @@ function captureSnapshot() {
 
 function areSnapshotsEqual(a, b) {
     if (!a || !b) return false;
+    if (a.pageIndex !== b.pageIndex) return false;
     if (a.bgPattern !== b.bgPattern) return false;
     if (a.notebookTitle !== b.notebookTitle) return false;
-    if (a.pages.length !== b.pages.length) return false;
-    for (let i = 0; i < a.pages.length; i++) {
-        if (JSON.stringify(a.pages[i].strokes) !== JSON.stringify(b.pages[i].strokes)) return false;
-    }
-    return true;
+    if (a.strokes.length !== b.strokes.length) return false;
+    return JSON.stringify(a.strokes) === JSON.stringify(b.strokes);
 }
 
+// Debounce: ogni chiamata resetta il timer. Lo snapshot viene
+// effettivamente push-ato dopo 200ms di quiete.
 function pushHistory() {
     if (historyState.isRestoring) return;
+    if (_pushHistoryTimer) clearTimeout(_pushHistoryTimer);
+    _pushHistoryTimer = setTimeout(() => {
+        _pushHistoryTimer = null;
+        _doPushHistory();
+    }, 500);   // ← era 200, ora 500
+}
 
-    // Rimuove i redo oltre l'indice corrente
+function _doPushHistory() {
+    if (historyState.isRestoring) return;
+
     if (historyState.index < historyState.stack.length - 1) {
         historyState.stack = historyState.stack.slice(0, historyState.index + 1);
     }
 
     const newSnap = captureSnapshot();
+    if (!newSnap) return;
+
     const lastSnap = historyState.stack[historyState.index];
     if (lastSnap && areSnapshotsEqual(lastSnap, newSnap)) {
-        return; // nessuna modifica reale: skip
+        return;
     }
 
     historyState.stack.push(newSnap);
@@ -62,7 +82,20 @@ function pushHistory() {
     updateUndoRedoUI();
 }
 
+// Forza l'esecuzione del push pendente. Usato da undo/redo e beforeunload.
+function flushHistory() {
+    if (_pushHistoryTimer) {
+        clearTimeout(_pushHistoryTimer);
+        _pushHistoryTimer = null;
+        _doPushHistory();
+    }
+}
+
 function resetHistory() {
+    if (_pushHistoryTimer) {
+        clearTimeout(_pushHistoryTimer);
+        _pushHistoryTimer = null;
+    }
     historyState.stack = [];
     historyState.index = -1;
     if (!currentNotebook) {
@@ -70,28 +103,39 @@ function resetHistory() {
         return;
     }
     const snap = captureSnapshot();
+    if (!snap) {
+        updateUndoRedoUI();
+        return;
+    }
     historyState.stack.push(snap);
     historyState.index = 0;
     updateUndoRedoUI();
 }
 
 function undo() {
+    flushHistory();
     if (historyState.index <= 0) return;
     historyState.index--;
     applySnapshot(historyState.stack[historyState.index]);
 }
 
 function redo() {
+    flushHistory();
     if (historyState.index >= historyState.stack.length - 1) return;
     historyState.index++;
     applySnapshot(historyState.stack[historyState.index]);
 }
 
+// Applica snapshot solo alla pagina attiva. Undo cross-page non è
+// supportato: se l'utente ha cambiato pagina, resetta lo stack.
 function applySnapshot(snap) {
     if (!snap) return;
+    if (snap.pageIndex !== appState.activePageIndex) {
+        resetHistory();
+        return;
+    }
     historyState.isRestoring = true;
 
-    // Reset stato temporaneo
     appState.pendingShape = null;
     appState.selectedStrokes = [];
     appState.lassoPath = [];
@@ -104,31 +148,41 @@ function applySnapshot(snap) {
     appState.selectionMoved = false;
     hideSelectionMenu();
 
-    // Pattern
     if (snap.bgPattern) {
         appState.bgPattern = snap.bgPattern;
         const sel = document.getElementById('bgPatternSelect');
         if (sel) sel.value = snap.bgPattern;
     }
 
-    // Titolo
     if (currentNotebook && snap.notebookTitle !== undefined) {
         currentNotebook.title = snap.notebookTitle;
         document.getElementById('docTitle').value = snap.notebookTitle;
     }
 
-    // Ricostruisce il canvas container
-    document.getElementById('canvasContainer').innerHTML = '';
-    appState.pages = [];
-    snap.pages.forEach(p => {
-        createNewPageDOM(p.index, deepClone(p.strokes));
-    });
+    // Ricostruisce SOLO la pagina attiva
+    const pageIndex = appState.activePageIndex;
+    const container = document.getElementById('canvasContainer');
+    const oldWrapper = container.querySelector(`.page-wrapper[data-index="${pageIndex}"]`);
+    if (oldWrapper) oldWrapper.remove();
+    appState.pages.splice(pageIndex, 1);
 
-    appState.activePageIndex = Math.min(
-        Math.max(0, snap.activePageIndex),
-        Math.max(0, appState.pages.length - 1)
-    );
+    createNewPageDOM(snap.pageIndex, deepClone(snap.strokes));
+
+    // createNewPageDOM fa push in fondo: riordino array e DOM per index
+    appState.pages.sort((a, b) => a.index - b.index);
+    const wrappers = Array.from(container.querySelectorAll('.page-wrapper'));
+    wrappers.sort((a, b) => parseInt(a.dataset.index) - parseInt(b.dataset.index));
+    wrappers.forEach(w => container.appendChild(w));
+
     updatePageCounterUI();
+
+    // FASE C: la pagina è stata ricostruita, l'overlay della nuova pagina
+    // è vuoto (appena creato da createNewPageDOM). Ma se c'era una
+    // selezione attiva prima dell'undo, va ripulita anche visivamente.
+    const newPage = appState.pages[appState.activePageIndex];
+    if (newPage) {
+        redrawSelectionOverlay(newPage);
+    }
 
     historyState.isRestoring = false;
     updateUndoRedoUI();

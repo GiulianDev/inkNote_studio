@@ -1,6 +1,5 @@
 // ============================================================
 // STATO GLOBALE DELL'APPLICAZIONE
-// Tutte le variabili condivise tra i moduli.
 // ============================================================
 
 const PAGE_WIDTH = 794;
@@ -14,6 +13,10 @@ let currentUser = null;
 let currentNotebook = null;
 let selectedCoverColor = '#4f46e5';
 
+// Stato UI toolbar
+let subbarVisible = true;
+let compactMode = false;
+
 const appState = {
     pages: [],
     activePageIndex: 0,
@@ -21,6 +24,7 @@ const appState = {
     currentColor: '#000000',
     strokeWidth: 3,
     autoShapeEnabled: true,
+    smoothing: 0.5,
     bgPattern: 'ruled',
     isDarkMode: false,
     isDrawing: false,
@@ -30,21 +34,22 @@ const appState = {
     lassoPath: [],
     selectedStrokes: [],
 
-    // Drag (sposta)
     isDraggingSelection: false,
     dragStartPoint: null,
     selectionMoved: false,
 
-    // Resize (ridimensiona)
     isResizingSelection: false,
     resizeHandle: null,
-    initialBBox: null,
+    resizePivot: null,
+    resizeAnchor: null,
+    resizeOffset: null,
+    resizeBaseAngle: 0,
+    resizeBaseDist: 0,
+    resizeCurrentAngle: 0,
     initialStrokesSnapshot: null,
 
-    // Rotate (ruota)
-    isRotatingSelection: false,
-    rotateCenter: null,
-    rotateStartAngle: 0,
+    scribbleMode: false,
+    scribbleTargets: [],
 
     pullOverscrollY: 0,
     pendingShape: null

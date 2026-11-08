@@ -32,13 +32,37 @@ function getEffectiveColor(color, forceDark = appState.isDarkMode) {
 }
 
 function showStatusBadge(txt) {
-    document.getElementById('statusBadge').innerText = txt;
+    const el = document.getElementById('statusBadge');
+    if (el) el.innerText = txt;
 }
 
 function showToast(msg, icon = 'ℹ️') {
     const toast = document.getElementById('toastNotification');
-    document.getElementById('toastMessage').innerText = msg;
-    document.getElementById('toastIcon').innerText = icon;
-    toast.classList.remove('-translate-y-20', 'opacity-0');
-    setTimeout(() => toast.classList.add('-translate-y-20', 'opacity-0'), 2500);
+    if (!toast) return;
+    const msgEl = document.getElementById('toastMessage');
+    const iconEl = document.getElementById('toastIcon');
+    if (msgEl) msgEl.innerText = msg;
+    if (iconEl) iconEl.innerText = icon;
+
+    toast.classList.remove('translate-y-2', 'opacity-0');
+    toast.classList.add('translate-y-0', 'opacity-100');
+
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-2', 'opacity-0');
+    }, 2500);
+}
+
+// Cache della conversione slider → baseSize. Evita Math.pow per ogni
+// chiamata (usata in computeStrokeWidth per ogni punto del rendering).
+const _baseSizeCache = { raw: -1, size: 0 };
+
+function sliderToBaseSize(rawSliderValue) {
+    const v = Math.max(1, Math.min(25, rawSliderValue || 3));
+    if (_baseSizeCache.raw === v) return _baseSizeCache.size;
+    const s = 0.5 * Math.pow(v, 0.75);
+    _baseSizeCache.raw = v;
+    _baseSizeCache.size = s;
+    return s;
 }

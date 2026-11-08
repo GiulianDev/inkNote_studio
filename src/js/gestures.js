@@ -131,6 +131,11 @@ function applyPinchTransform(startCenter, startTransform, newCenter, targetScale
 
 function abortCurrentDrawing() {
     if (appState.pendingShape) finalizePendingShape();
+
+    // Cancella i punti in attesa del flush rAF. Senza questo, al prossimo
+    // frame verrebbero disegnati su uno stroke che non esiste più.
+    _cancelFlush();
+
     if (appState.isDrawing || appState.currentStroke) {
         if (appState.currentPointerId !== null && appState.currentPageForPointer) {
             try { appState.currentPageForPointer.canvas.releasePointerCapture(appState.currentPointerId); } catch (err) {}
@@ -139,8 +144,15 @@ function abortCurrentDrawing() {
         appState.currentStroke = null;
         appState.currentPointerId = null;
         appState.currentPageForPointer = null;
+        appState.scribbleMode = false;
+        appState.scribbleTargets = [];
+        appState.lassoPath = [];
+        appState.selectedStrokes = [];
         const currPage = appState.pages[appState.activePageIndex];
-        if (currPage) redrawPageCanvas(currPage);
+        if (currPage) {
+            redrawPageCanvas(currPage);
+            clearOverlay(currPage);
+        }
     }
 }
 

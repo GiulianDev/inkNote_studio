@@ -3,7 +3,9 @@
 // ============================================================
 
 window.addEventListener('load', async () => {
-    initSettings();   // applica tema + handedness prima di tutto
+    initSettings();
+        // Bind iniziale della canvas di test e degli slider di pressione
+    _bindPressureSliders();
 
     try {
         await initDB();
@@ -15,12 +17,9 @@ window.addEventListener('load', async () => {
     updateAutoShapeButtonUI();
 
     window.addEventListener('resize', () => {
-        // Cambio dimensioni finestra (o DPR del monitor): ridisegna tutto
         refreshCanvasResolution(true);
     });
 
-    // Alcuni browser non emettono `resize` al cambio di monitor/DPR:
-    // ascolta il matchMedia della risoluzione corrente.
     if (window.matchMedia) {
         try {
             const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
@@ -31,20 +30,35 @@ window.addEventListener('load', async () => {
     }
 });
 
+// FIX: flush dei debounce prima della chiusura.
+// Senza questo, gli ultimi 200-500ms di attività andrebbero persi
+// se l'utente chiude il tab subito dopo aver disegnato.
+window.addEventListener('beforeunload', () => {
+    flushHistory();
+    flushAutoSave();
+});
+
 function toggleFullscreen() {
     if (!document.fullscreenElement) { document.documentElement.requestFullscreen().catch(() => {}); }
     else { document.exitFullscreen(); }
 }
 
 function exportToPDF() {
+    if (appState.pendingShape) finalizePendingShape();
+
     const settings = loadSettings();
     const printDark = settings.printTheme === 'dark';
-
-    // Per la stampa: forza un DPR alto su tutte le pagine,
-    // indipendentemente dallo zoom corrente e dalla visibilità.
     const PRINT_DPR = Math.min((window.devicePixelRatio || 1) * 2, 4);
 
     appState.pages.forEach(p => {
+        // FIX difensivo: invalida la cache stile su ogni stroke. Elimina
+        // qualsiasi possibilità di usare stili stale (dark) durante il
+        // render di stampa (light).
+        p.strokes.forEach(s => { s._styleCache = null; });
+        // FIX difensivo: pulisci overlay PRIMA del resize. Se il resize
+        // non cambia le dimensioni (caso raro), l'overlay manterrebbe il
+        // contenuto precedente e coprirebbe il page canvas durante il print.
+        clearOverlay(p);
         resizeCanvasForHDPI(p, PRINT_DPR);
         redrawPageCanvas(p, printDark);
     });

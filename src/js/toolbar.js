@@ -21,7 +21,8 @@ function selectColor(colorHex, element) {
 
 function updateStrokeWidth(val) {
     appState.strokeWidth = parseInt(val);
-    document.getElementById('strokeWidthValue').innerText = val;
+    const label = document.getElementById('strokeWidthValue');
+    if (label) label.innerText = val;
 }
 
 function toggleAutoShape() {
@@ -35,6 +36,7 @@ function toggleAutoShape() {
 
 function updateAutoShapeButtonUI() {
     const btn = document.getElementById('btnToggleAutoShape');
+    if (!btn) return;
     const icon = document.getElementById('autoShapeIcon');
     const label = document.getElementById('autoShapeLabel');
     if (appState.autoShapeEnabled) {
@@ -56,7 +58,6 @@ function toggleTheme() {
     const newDark = !appState.isDarkMode;
     setDarkMode(newDark);
 
-    // Aggiorna la preferenza salvata: un toggle rapido imposta light/dark espliciti
     const s = loadSettings();
     s.theme = newDark ? 'dark' : 'light';
     saveSettings(s);
@@ -65,6 +66,60 @@ function toggleTheme() {
 function setDarkMode(isDark) {
     appState.isDarkMode = isDark;
     document.body.classList.toggle('dark', isDark);
-    document.getElementById('themeToggleBtn').innerText = isDark ? '☀️' : '🌙';
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.innerText = isDark ? '☀️' : '🌙';
     appState.pages.forEach(p => redrawPageCanvas(p));
+}
+
+function updateSmoothing(val) {
+    const intVal = parseInt(val);
+    appState.smoothing = intVal / 100;
+    const label = document.getElementById('smoothingValue');
+    if (label) label.innerText = intVal;
+
+    const s = loadSettings();
+    s.smoothing = intVal;
+    saveSettings(s);
+}
+
+function toggleSubbar() {
+    subbarVisible = !subbarVisible;
+
+    const subbar = document.getElementById('subbar');
+    if (subbar) subbar.classList.toggle('collapsed', !subbarVisible);
+
+    updateSubbarExpandBtnVisibility();
+
+    const s = loadSettings();
+    s.subbarVisible = subbarVisible;
+    saveSettings(s);
+
+    // Aspetta la fine dell'animazione prima di ricalcolare la viewport
+    setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+    }, 320);
+}
+
+function toggleCompactMode() {
+    compactMode = !compactMode;
+
+    document.body.classList.toggle('compact-mode', compactMode);
+    const exitBtn = document.getElementById('compactExitBtn');
+    if (exitBtn) exitBtn.classList.toggle('hidden', !compactMode);
+
+    updateSubbarExpandBtnVisibility();
+
+    const s = loadSettings();
+    s.compactMode = compactMode;
+    saveSettings(s);
+
+    showToast(
+        compactMode ? 'Modalità compatta: solo dock disegno' : 'Modalità completa ripristinata',
+        compactMode ? '🎯' : '↩️'
+    );
+
+    setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        centerViewport();
+    }, 50);
 }
