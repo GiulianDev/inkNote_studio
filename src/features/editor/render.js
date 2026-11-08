@@ -14,6 +14,7 @@ const SCRIBBLE_ERASE_COLOR  = 'rgba(220, 38, 38, 0.6)';
 const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';
 
 let _bgCache = { key: null, canvas: null };
+const BACKGROUND_DPR = 2;
 
 const _ptA = { x: 0, y: 0 };
 const _ptB = { x: 0, y: 0 };
@@ -240,8 +241,8 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
   ctx.clearRect(0, 0, pageData.canvas.width, pageData.canvas.height);
   ctx.scale(dpr, dpr);
 
-  drawPaperBackground(ctx, forceTargetDark, dpr);
-
+  drawPaperBackground(ctx, forceTargetDark);
+  
   const targetSet = (state.scribbleMode && state.scribbleTargets)
     ? new Set(state.scribbleTargets) : null;
   const selectedSet = (state.selectedStrokes && state.selectedStrokes.length > 0)
@@ -547,14 +548,14 @@ export function drawPendingShape(ctx, forceTargetDark) {
   ctx.restore();
 }
 
-function getBackgroundCanvas(patternName, isDark, dpr) {
-  const key = `${patternName}|${isDark ? 'dark' : 'light'}|${dpr}`;
+function getBackgroundCanvas(patternName, isDark) {
+  const key = `${patternName}|${isDark ? 'dark' : 'light'}`;
   if (_bgCache.key === key) return _bgCache.canvas;
   const canvas = document.createElement('canvas');
-  canvas.width = Math.floor(PAGE_WIDTH * dpr);
-  canvas.height = Math.floor(PAGE_HEIGHT * dpr);
+  canvas.width = Math.floor(PAGE_WIDTH * BACKGROUND_DPR);
+  canvas.height = Math.floor(PAGE_HEIGHT * BACKGROUND_DPR);
   const bctx = canvas.getContext('2d');
-  bctx.scale(dpr, dpr);
+  bctx.scale(BACKGROUND_DPR, BACKGROUND_DPR);
   bctx.fillStyle = isDark ? '#1E293B' : '#FFFFFF';
   bctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
   bctx.strokeStyle = isDark ? '#334155' : '#E2E8F0';
@@ -582,8 +583,8 @@ function getBackgroundCanvas(patternName, isDark, dpr) {
   return canvas;
 }
 
-export function drawPaperBackground(ctx, isDark, dpr) {
-  const bg = getBackgroundCanvas(state.bgPattern, isDark, dpr || 1);
+export function drawPaperBackground(ctx, isDark) {
+  const bg = getBackgroundCanvas(state.bgPattern, isDark);
   ctx.drawImage(bg, 0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 }
 

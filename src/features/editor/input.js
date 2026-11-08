@@ -27,7 +27,7 @@ import {
 } from './lasso.js';
 import { updatePageCounterUI } from './header.js';
 
-const MAX_BATCH_POINTS = 8;
+const MAX_BATCH_POINTS = 16;
 const _useRawPointerUpdate = typeof window !== 'undefined' && 'onpointerrawupdate' in window;
 
 const _flushState = { points: [], rafId: null, pageData: null };
