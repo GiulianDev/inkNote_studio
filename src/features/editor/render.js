@@ -2,6 +2,7 @@
 // RENDERING CANVAS + geometry bbox selezione (unico file)
 // ============================================================
 
+import { getStrokeBitmap, buildStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import {
   PAGE_WIDTH, PAGE_HEIGHT, hexToRgbA, getEffectiveColor,
@@ -160,6 +161,13 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
 
 function canUnifyFill(tool) { return tool === 'pen' || tool === 'marker'; }
 
+// Variante per il rendering INCREMENTALE: include pencil per velocità
+// durante la scrittura. Al pointerup si usa renderFullStroke (che NON
+// usa questa variante) per ripristinare il darkening corretto.
+function canUnifyFillIncremental(tool) {
+  return tool === 'pen' || tool === 'marker' || tool === 'pencil';
+}
+
 function addTaperedSegmentPolygon(ctx, p0, p1, w0, w1) {
   const dx = p1.x - p0.x, dy = p1.y - p0.y;
   const len = Math.hypot(dx, dy);
@@ -242,6 +250,23 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
   pageData.strokes.forEach(stroke => {
     if (selectedSet && selectedSet.has(stroke)) return;
     const isTarget = targetSet && targetSet.has(stroke);
+
+    // Cache bitmap per pencil (unico tool che beneficia:
+    // gli altri sono già veloci con unify).
+    // Skippa se lo stroke è un target scribble (deve mostrare override rosso).
+    if (stroke.tool === 'pencil' && !isTarget) {
+      let cached = getStrokeBitmap(stroke, dpr, forceTargetDark);
+      if (!cached) cached = buildStrokeBitmap(stroke, dpr, forceTargetDark);
+      if (cached) {
+        ctx.drawImage(
+          cached.canvas,
+          cached.bbox.x, cached.bbox.y,
+          cached.bbox.w, cached.bbox.h
+        );
+        return;
+      }
+    }
+
     renderFullStroke(ctx, stroke, forceTargetDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
   });
 
@@ -405,7 +430,7 @@ export function drawIncrementalSegment(ctx, stroke, dpr = 1) {
   const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
   const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
   const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
-  const unified = canUnifyFill(stroke.tool);
+  const unified = canUnifyFillIncremental(stroke.tool);
   if (unified) {
     ctx.beginPath();
     for (let s = 0; s < steps; s++) {
@@ -434,8 +459,8 @@ export function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const tipP1 = pts[n - 2], tipP2 = pts[n - 1];
     const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure, getTiltNorm(tipP1), getSpeedNorm(tipP1), 1.0, baseSize);
     const tipW2 = computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure, getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize);
-    if (canUnifyFill(stroke.tool)) {
-      ctx.beginPath();
+    if (canUnifyFillIncremental(stroke.tool)) {
+    ctx.beginPath();
       addTaperedSegmentPolygon(ctx, tipP1, tipP2, tipW1, tipW2);
       ctx.fill();
       ctx.beginPath();

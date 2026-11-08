@@ -2,6 +2,7 @@
 // LASSO + SELEZIONE + RESIZE + MENU CONTESTUALE
 // ============================================================
 
+import { invalidateStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import { showToast, PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
 import {
@@ -130,6 +131,7 @@ export function applyResizeSelection(point) {
         pressure: p.pressure
       };
     });
+    invalidateStrokeBitmap(stroke);
   });
   state.selectionMoved = true;
   const current = state.pages[state.activePageIndex];
@@ -139,7 +141,11 @@ export function applyResizeSelection(point) {
 
 export function previewSelectionColor(newColor) {
   if (state.selectedStrokes.length === 0) return;
-  state.selectedStrokes.forEach(s => { s.color = newColor; s._styleCache = null; });
+  state.selectedStrokes.forEach(s => {
+    s.color = newColor;
+    s._styleCache = null;
+    invalidateStrokeBitmap(s);
+  });
   const current = state.pages[state.activePageIndex];
   if (current) { redrawPageCanvas(current); redrawSelectionOverlay(current); }
 }
@@ -155,7 +161,10 @@ export function changeSelectionColor(newColor) {
 export function previewSelectionWidth(newWidth) {
   if (state.selectedStrokes.length === 0) return;
   const w = parseInt(newWidth);
-  state.selectedStrokes.forEach(s => { s.size = w; });
+  state.selectedStrokes.forEach(s => {
+    s.size = w;
+    invalidateStrokeBitmap(s);
+  });
   const label = document.getElementById('selectionWidthValue');
   if (label) label.innerText = w;
   const current = state.pages[state.activePageIndex];

@@ -2,6 +2,7 @@
 // INPUT CANVAS + BATCHING rAF (in un unico file)
 // ============================================================
 
+import { invalidateStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
@@ -415,17 +416,23 @@ function performEraserAt(pageData, point) {
   const mode = document.getElementById('eraserModeSelect').value;
   const radius = (0.5 * Math.pow(Math.max(1, Math.min(25, state.strokeWidth || 3)), 0.75)) * 12;
   const initCount = pageData.strokes.length;
+  const modified = new Set();
   if (mode === 'stroke') {
-    pageData.strokes = pageData.strokes.filter(stroke =>
-      !stroke.points.some(p => Math.hypot(p.x - point.x, p.y - point.y) < radius)
-    );
+    pageData.strokes = pageData.strokes.filter(stroke => {
+      const hit = stroke.points.some(p => Math.hypot(p.x - point.x, p.y - point.y) < radius);
+      if (hit) modified.add(stroke);
+      return !hit;
+    });
   } else {
     pageData.strokes.forEach(stroke => {
+      const before = stroke.points.length;
       stroke.points = stroke.points.filter(p => Math.hypot(p.x - point.x, p.y - point.y) >= radius);
+      if (stroke.points.length !== before) modified.add(stroke);
     });
     pageData.strokes = pageData.strokes.filter(s => s.points.length > 1);
   }
-  if (pageData.strokes.length !== initCount) {
+  if (modified.size > 0) {
+    modified.forEach(invalidateStrokeBitmap);
     redrawPageCanvas(pageData);
     scheduleSave();
     pushHistory();
