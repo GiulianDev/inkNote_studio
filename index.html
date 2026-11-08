@@ -220,15 +220,14 @@
 
                 <div class="h-5 w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
 
+                <!-- COLORI -->
                 <div class="flex items-center space-x-1 bg-white dark:bg-slate-700 p-0.5 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
                     <button class="color-swatch w-5 h-5 rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" onclick="selectColor('#000000', this)" title="Nero"></button>
                     <button class="color-swatch w-5 h-5 rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#2563eb', this)" title="Blu"></button>
                     <button class="color-swatch w-5 h-5 rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#059669', this)" title="Verde"></button>
                     <button class="color-swatch w-5 h-5 rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" onclick="selectColor('#e11d48', this)" title="Rosso"></button>
                     <button class="color-swatch w-5 h-5 rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" onclick="selectColor('#d97706', this)" title="Arancio"></button>
-                    
-                    <div id="recentColorsContainer" class="hidden items-center space-x-1 bg-white dark:bg-slate-700 p-0.5 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0"></div>
-
+                    <div id="recentColorsContainer" class="hidden items-center space-x-1"></div>
                     <input type="color" id="customColorPicker" class="w-5 h-5 rounded-full border-0 cursor-pointer p-0 bg-transparent" onchange="selectColor(this.value, this)" title="Colore personalizzato">
                 </div>
 

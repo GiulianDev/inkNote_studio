@@ -2,7 +2,7 @@
 // TOOLBAR E TEMA
 // ============================================================
 
-const RECENT_COLORS_MAX = 8;
+const RECENT_COLORS_MAX = 4;
 const RECENT_COLORS_KEY = 'inknote_recent_colors';
 
 function loadRecentColors() {
@@ -42,9 +42,16 @@ function renderRecentColors() {
     container.classList.remove('hidden');
     container.classList.add('flex');
     container.innerHTML = '';
+
+    // Separatore verticale prima dei colori recenti (visibile solo quando
+    // ci sono recenti). Crea una "linea" tra i 5 fissi e i recenti.
+    const sep = document.createElement('div');
+    sep.className = 'w-px h-4 bg-slate-300 dark:bg-slate-600 mx-0.5 shrink-0';
+    container.appendChild(sep);
+
     recent.forEach(color => {
         const btn = document.createElement('button');
-        btn.className = 'w-4 h-4 rounded-full border border-white dark:border-slate-800 cursor-pointer transition hover:scale-110';
+        btn.className = 'w-4 h-4 rounded-full border border-white dark:border-slate-800 cursor-pointer transition hover:scale-110 shrink-0';
         btn.style.backgroundColor = color;
         btn.title = color;
         btn.addEventListener('click', () => {
