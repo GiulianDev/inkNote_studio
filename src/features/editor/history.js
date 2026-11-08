@@ -1,5 +1,7 @@
 // ============================================================
 // UNDO/REDO: snapshot per-pagina, debounced 500ms
+// Priorità 7: hash leggero per evitare deepClone + stringify
+// inutili quando lo stato non è cambiato.
 // ============================================================
 
 import { state } from '../../core/state.js';
@@ -16,6 +18,43 @@ function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
+// ------------------------------------------------------------
+// Hash leggero dello stato corrente.
+// Cattura: n° stroke, n° punti, size, colore, primo e ultimo punto,
+// bgPattern. Non è crittografico: collisioni rare possono causare
+// uno skip occasionale di uno step, non un bug visibile.
+// ------------------------------------------------------------
+function _computeStateHash() {
+  const page = state.pages[state.activePageIndex];
+  const pattern = state.bgPattern || '';
+  if (!page) {
+    let h = -1;
+    for (let j = 0; j < pattern.length; j++) h = ((h * 31) + pattern.charCodeAt(j)) | 0;
+    return h | 0;
+  }
+  const strokes = page.strokes;
+  let h = strokes.length | 0;
+  for (let i = 0; i < strokes.length; i++) {
+    const s = strokes[i];
+    h = ((h * 31) + (s.points.length | 0)) | 0;
+    h = ((h * 31) + (s.size | 0)) | 0;
+    const c = s.color || '#000000';
+    for (let j = 0; j < c.length; j++) h = ((h * 31) + c.charCodeAt(j)) | 0;
+    const first = s.points[0];
+    const last = s.points[s.points.length - 1];
+    if (first) {
+      h = ((h * 31) + ((first.x * 100) | 0)) | 0;
+      h = ((h * 31) + ((first.y * 100) | 0)) | 0;
+    }
+    if (last && last !== first) {
+      h = ((h * 31) + ((last.x * 100) | 0)) | 0;
+      h = ((h * 31) + ((last.y * 100) | 0)) | 0;
+    }
+  }
+  for (let j = 0; j < pattern.length; j++) h = ((h * 31) + pattern.charCodeAt(j)) | 0;
+  return h | 0;
+}
+
 function captureSnapshot() {
   const page = state.pages[state.activePageIndex];
   if (!page) return null;
@@ -26,14 +65,6 @@ function captureSnapshot() {
     strokes: strokesClone,
     bgPattern: state.bgPattern
   };
-}
-
-function areSnapshotsEqual(a, b) {
-  if (!a || !b) return false;
-  if (a.pageIndex !== b.pageIndex) return false;
-  if (a.bgPattern !== b.bgPattern) return false;
-  if (a.strokes.length !== b.strokes.length) return false;
-  return JSON.stringify(a.strokes) === JSON.stringify(b.strokes);
 }
 
 export function pushHistory() {
@@ -47,13 +78,21 @@ export function pushHistory() {
 
 function _doPushHistory() {
   if (historyState.isRestoring) return;
+
+  const newHash = _computeStateHash();
+  const lastSnap = historyState.stack[historyState.index];
+
+  // Skip se lo stato è identico all'ultimo snapshot (nessun clone!)
+  if (lastSnap && lastSnap._hash === newHash) return;
+
+  // Taglia il future prima di pushare
   if (historyState.index < historyState.stack.length - 1) {
     historyState.stack = historyState.stack.slice(0, historyState.index + 1);
   }
+
   const newSnap = captureSnapshot();
   if (!newSnap) return;
-  const lastSnap = historyState.stack[historyState.index];
-  if (lastSnap && areSnapshotsEqual(lastSnap, newSnap)) return;
+  newSnap._hash = newHash;
   historyState.stack.push(newSnap);
   if (historyState.stack.length > historyState.maxSteps) historyState.stack.shift();
   historyState.index = historyState.stack.length - 1;
@@ -74,6 +113,7 @@ export function resetHistory() {
   historyState.index = -1;
   const snap = captureSnapshot();
   if (!snap) { updateUndoRedoUI(); return; }
+  snap._hash = _computeStateHash();
   historyState.stack.push(snap);
   historyState.index = 0;
   updateUndoRedoUI();
@@ -116,7 +156,6 @@ function _applySnapshot(snap) {
     if (sel) sel.value = snap.bgPattern;
   }
 
-  // Ricostruzione pagina: emetto evento, pages.js ascolta e ricostruisce
   emit('history:restore', snap);
 
   historyState.isRestoring = false;
