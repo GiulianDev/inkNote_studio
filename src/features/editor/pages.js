@@ -2,6 +2,7 @@
 // PAGINE: createNewPageDOM, addNewPage, resize, resolution
 // ============================================================
 
+import { ensurePredictionCanvas } from './prediction.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, showToast, on } from '../../core/utils.js';
 import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from './render.js';
@@ -41,6 +42,7 @@ export function createNewPageDOM(pageIndex, initialStrokes = []) {
     strokes: initialStrokes
   };
 
+  ensurePredictionCanvas(pageData);
   resizeCanvasForHDPI(pageData);
   state.pages.push(pageData);
   attachPointerListeners(pageData);

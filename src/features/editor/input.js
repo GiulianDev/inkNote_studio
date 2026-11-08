@@ -2,6 +2,7 @@
 // INPUT CANVAS + BATCHING rAF (in un unico file)
 // ============================================================
 
+import { drawPredictions, clearPredictions, isPredictionSupported } from './prediction.js';
 import { invalidateStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
@@ -145,6 +146,7 @@ function _doFlush() {
   if (!pageData || batch.length === 0) return;
   if (!state.currentStroke || !state.isDrawing) return;
   if (state.pendingShape) return;
+  clearPredictions(pageData); 
   for (const rawPoint of batch) {
     if (state.pendingShape) break;
     if (!state.currentStroke || !state.isDrawing) break;
@@ -194,7 +196,7 @@ export function abortCurrentDrawing() {
     state.lassoPath = [];
     state.selectedStrokes = [];
     const curr = state.pages[state.activePageIndex];
-    if (curr) { redrawPageCanvas(curr); clearOverlay(curr); }
+    if (curr) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
   }
 }
 
@@ -211,6 +213,7 @@ export function handlePointerDown(e, pageData) {
   state.scribbleTargets = [];
   _cancelFlush();
   clearOverlay(pageData);
+  clearPredictions(pageData);
   try { pageData.canvas.setPointerCapture(e.pointerId); } catch (err) {}
 
   state.activePageIndex = pageData.index;
@@ -311,6 +314,15 @@ export function handlePointerMove(e, pageData) {
   const events = (coalesced && coalesced.length > 0) ? coalesced : [e];
   for (const ev of events) _flushState.points.push(getCanvasCoords(ev, pageData.canvas));
   _scheduleFlush(pageData);
+
+  // Predizioni: solo pen e solo se supportate. Disegna "fantasma"
+  // avanti rispetto al punto reale, sostituito al prossimo frame.
+  if (isPredictionSupported(e)) {
+    const predicted = e.getPredictedEvents();
+    if (predicted && predicted.length > 0) {
+      drawPredictions(pageData, predicted);
+    }
+  }
 }
 
 export function handlePointerUp(e, pageData) {
@@ -319,6 +331,7 @@ export function handlePointerUp(e, pageData) {
   if (e.pointerId !== state.currentPointerId) return;
 
   _forceFlushNow(pageData);
+  clearPredictions(pageData);
 
   if (state.pendingShape) {
     finalizePendingShape();
