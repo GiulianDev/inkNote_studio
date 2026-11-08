@@ -544,7 +544,6 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const unified = canUnifyFill(stroke.tool);
 
     if (unified) {
-        // Un solo fill per poligoni, un solo fill per cerchi
         ctx.beginPath();
         for (let s = 0; s < steps; s++) {
             const t0 = s / steps;
@@ -566,7 +565,6 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
         }
         ctx.fill();
     } else {
-        // Pencil / highlighter: fill separati
         for (let s = 0; s < steps; s++) {
             const t0 = s / steps;
             const t1 = (s + 1) / steps;
@@ -575,6 +573,31 @@ function drawIncrementalSegment(ctx, stroke, dpr = 1) {
             const sw0 = w1 + (w2 - w1) * t0;
             const sw1 = w1 + (w2 - w1) * t1;
             drawTaperedSegment(ctx, _ptA, _ptB, sw0, sw1);
+        }
+    }
+
+    // TIP SEGMENT: solo quando smoothness = 0.
+    // Disegna il segmento n-2 → n-1 (l'ultimo punto, la punta della penna)
+    // come linea retta. Con smoothness = 0, il prossimo frame disegnerebbe
+    // esattamente questa linea (Catmull-Rom con smoothness=0 = lineare),
+    // quindi non c'è artefatto: al prossimo evento il segmento coincide.
+    // Effetto: l'inchiostro arriva alla punta della penna, non resta 1 punto
+    // indietro. Elimina il lag-1 nel caso "no smoothing".
+    if (smoothness <= 0.01 && n >= 2) {
+        const tipP1 = pts[n - 2];
+        const tipP2 = pts[n - 1];
+        const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure, getTiltNorm(tipP1), getSpeedNorm(tipP1), 1.0, baseSize);
+        const tipW2 = computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure, getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize);
+
+        if (canUnifyFill(stroke.tool)) {
+            ctx.beginPath();
+            addTaperedSegmentPolygon(ctx, tipP1, tipP2, tipW1, tipW2);
+            ctx.fill();
+            ctx.beginPath();
+            addTaperedSegmentCircle(ctx, tipP1, tipW1);
+            ctx.fill();
+        } else {
+            drawTaperedSegment(ctx, tipP1, tipP2, tipW1, tipW2);
         }
     }
 

@@ -6,9 +6,11 @@ const _DEBUG_INK = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).has('debug');
 let _debugEl = null;
 
-// Numero massimo di punti processati per batch. Se il buffer si riempie,
-// il flush avviene subito (sync) per non accumulare latenza.
 const MAX_BATCH_POINTS = 8;
+
+// pointerrawupdate: emesso da Chrome/Edge/WebView2 prima dell'allineamento
+// al vsync. Guadagna 5-10ms di latenza percepita.
+const _useRawPointerUpdate = typeof window !== 'undefined' && 'onpointerrawupdate' in window;
 
 const _flushState = {
     points: [],
@@ -30,10 +32,8 @@ function _updateDebugOverlay(pt) {
     }
     const tiltMag = Math.hypot(pt.tiltX || 0, pt.tiltY || 0);
     _debugEl.innerHTML =
-        `type: ${pt.pointerType || '-'}<br>` +
-        `tiltX: ${(pt.tiltX || 0).toFixed(1)}°  tiltY: ${(pt.tiltY || 0).toFixed(1)}°<br>` +
-        `tiltMag: ${tiltMag.toFixed(1)}° (norm: ${Math.min(1, tiltMag / 30).toFixed(2)})<br>` +
-        `speed: ${(pt.speed || 0).toFixed(1)}px (norm: ${Math.min(1, (pt.speed || 0) / 8).toFixed(2)})<br>` +
+        `${_useRawPointerUpdate ? 'raw' : 'move'} · type: ${pt.pointerType || '-'}<br>` +
+        `tiltMag: ${tiltMag.toFixed(1)}°  speed: ${(pt.speed || 0).toFixed(1)}px<br>` +
         `pressure: ${(pt.pressure || 0).toFixed(3)}<br>` +
         `batch: ${_flushState.points.length} pending`;
 }
@@ -88,7 +88,15 @@ function smoothRawPoint(rawPoint, prevSmoothed) {
 function attachPointerListeners(pageData) {
     const canvas = pageData.canvas;
     canvas.addEventListener('pointerdown', (e) => handlePointerDown(e, pageData));
-    canvas.addEventListener('pointermove', (e) => handlePointerMove(e, pageData));
+
+    // Usa pointerrawupdate dove disponibile (Chrome/Edge/WebView2).
+    // Fallback a pointermove per altri browser.
+    if (_useRawPointerUpdate) {
+        canvas.addEventListener('pointerrawupdate', (e) => handlePointerMove(e, pageData), { passive: false });
+    } else {
+        canvas.addEventListener('pointermove', (e) => handlePointerMove(e, pageData), { passive: false });
+    }
+
     canvas.addEventListener('pointerup', (e) => handlePointerUp(e, pageData));
     canvas.addEventListener('pointercancel', (e) => handlePointerUp(e, pageData));
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -98,8 +106,6 @@ function attachPointerListeners(pageData) {
 // BATCHING rAF
 // ============================================================
 
-// Processa un singolo punto. NIENTE checkForScribble o snap check qui:
-// sono spostati fuori dal loop (una volta per batch) in _doFlush.
 function _processPointerPoint(rawPoint, pageData) {
     if (appState.pendingShape) return;
     if (!appState.currentStroke || !appState.isDrawing) return;
@@ -112,7 +118,9 @@ function _processPointerPoint(rawPoint, pageData) {
         smoothedPressure = smoothPressure(appState.currentStroke.points, rawPoint.pressure);
     }
 
-    const minDist = 0.4;
+    // Con smoothness = 0, non filtrare: ogni punto della penna deve essere
+    // disegnato. Con smoothness > 0, filtra i micro-movimenti.
+    const minDist = appState.smoothing <= 0.01 ? 0.01 : 0.4;
     if (prevSmoothed && Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) < minDist) {
         return;
     }
@@ -150,8 +158,6 @@ function _processPointerPoint(rawPoint, pageData) {
     _updateDebugOverlay(smoothedPoint);
 }
 
-// Esegue i check post-batch (scribble, snap linea). Una sola volta per
-// batch invece di una per punto: risparmia 8-15 chiamate per frame.
 function _runPostBatchChecks(pageData) {
     if (!appState.currentStroke || !appState.isDrawing) return;
     if (appState.pendingShape) return;
@@ -176,10 +182,6 @@ function _runPostBatchChecks(pageData) {
 function _scheduleFlush(pageData) {
     _flushState.pageData = pageData;
 
-    // Se il buffer è già pieno, flusha SUBITO in modo sincrono.
-    // Questo impedisce che il buffer cresca quando il browser è sotto
-    // carico (rAF in ritardo): la latenza massima è il tempo di
-    // processare MAX_BATCH_POINTS, non il ritardo del rAF.
     if (_flushState.points.length >= MAX_BATCH_POINTS) {
         if (_flushState.rafId !== null) {
             cancelAnimationFrame(_flushState.rafId);
@@ -204,11 +206,6 @@ function _doFlush() {
     if (!appState.currentStroke || !appState.isDrawing) return;
     if (appState.pendingShape) return;
 
-    // Processa TUTTI i punti del batch, in ordine cronologico.
-    // NON tagliare: punti scartati = gap visivi (la "v" perde il vertice,
-    // la "o" si chiude prematuramente).
-    // Il buffer non cresce mai troppo perché _scheduleFlush fa flush sync
-    // quando raggiunge MAX_BATCH_POINTS.
     for (const rawPoint of batch) {
         if (appState.pendingShape) break;
         if (!appState.currentStroke || !appState.isDrawing) break;
@@ -240,7 +237,6 @@ function _forceFlushNow(pageData) {
     if (!appState.currentStroke || !appState.isDrawing) return;
     if (appState.pendingShape) return;
 
-    // Stessa logica: processa tutti i punti, nessun taglio.
     for (const rawPoint of batch) {
         if (appState.pendingShape) break;
         if (!appState.currentStroke || !appState.isDrawing) break;
