@@ -166,8 +166,10 @@ function applySnapshot(snap) {
     if (oldWrapper) oldWrapper.remove();
     appState.pages.splice(pageIndex, 1);
 
-    createNewPageDOM(snap.pageIndex, deepClone(snap.strokes));
-
+    // snap.strokes è già una copia isolata (deepClone in captureSnapshot),
+    // non serve un secondo clone qui.
+    createNewPageDOM(snap.pageIndex, snap.strokes);
+    
     // createNewPageDOM fa push in fondo: riordino array e DOM per index
     appState.pages.sort((a, b) => a.index - b.index);
     const wrappers = Array.from(container.querySelectorAll('.page-wrapper'));

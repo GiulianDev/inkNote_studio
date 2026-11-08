@@ -731,32 +731,6 @@ function renderPendingShapeOnOverlay(pageData) {
     octx.restore();
 }
 
-// FASE B+: disegna il path dello scribble sull'overlay.
-// Chiamata da checkForScribble all'attivazione e quando i target cambiano.
-function drawScribblePathOnOverlay(pageData) {
-    if (!pageData.overlayCtx) return;
-    if (!appState.currentStroke) return;
-    const pts = appState.currentStroke.points;
-    if (pts.length < 2) return;
-
-    const octx = pageData.overlayCtx;
-    const dpr = pageData.dpr || 1;
-    octx.save();
-    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    octx.strokeStyle = SCRIBBLE_ERASE_COLOR;
-    octx.fillStyle = SCRIBBLE_ERASE_COLOR;
-    octx.lineCap = 'round';
-    octx.lineJoin = 'round';
-    octx.lineWidth = Math.max(appState.currentStroke.size * 2, 4);
-    octx.beginPath();
-    octx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) {
-        octx.lineTo(pts[i].x, pts[i].y);
-    }
-    octx.stroke();
-    octx.restore();
-}
-
 // ============================================================
 // FASE C: rendering lasso e bbox di selezione sull'overlay
 // ============================================================

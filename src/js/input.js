@@ -57,12 +57,15 @@ function getCanvasCoords(e, canvas) {
 }
 
 function smoothPressure(points, newPressure) {
-    if (points.length === 0) return newPressure;
-    const recent = points.slice(-3);
+    const n = points.length;
+    if (n === 0) return newPressure;
     const wNew = 0.6;
-    const wOld = 0.4 / Math.max(1, recent.length);
+    const count = Math.min(3, n);
+    const wOld = 0.4 / count;
     let acc = newPressure * wNew;
-    for (const p of recent) acc += (p.pressure || 0.5) * wOld;
+    for (let i = n - count; i < n; i++) {
+        acc += (points[i].pressure || 0.5) * wOld;
+    }
     return Math.max(0.05, Math.min(1, acc));
 }
 
@@ -161,7 +164,7 @@ function _processPointerPoint(rawPoint, pageData) {
         drawIncrementalSegment(pageData.overlayCtx, appState.currentStroke, pageData.dpr);
     }
 
-    _updateDebugOverlay(smoothedPoint);
+    if (_DEBUG_INK) _updateDebugOverlay(smoothedPoint);
 }
 
 function _runPostBatchChecks(pageData) {

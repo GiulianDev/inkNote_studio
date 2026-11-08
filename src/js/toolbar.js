@@ -68,7 +68,17 @@ function setDarkMode(isDark) {
     document.body.classList.toggle('dark', isDark);
     const btn = document.getElementById('themeToggleBtn');
     if (btn) btn.innerText = isDark ? '☀️' : '🌙';
-    appState.pages.forEach(p => redrawPageCanvas(p));
+    // Ridisegna solo le pagine visibili. Le pagine fuori viewport vengono
+    // ridisegnate automaticamente quando entrano nel viewport (via
+    // refreshCanvasResolution al resize/pan).
+    appState.pages.forEach(p => {
+        if (isPageVisible(p)) {
+            redrawPageCanvas(p);
+        } else {
+            // Marca la pagina come "da ridisegnare" quando diventa visibile
+            p._wasVisible = false;
+        }
+    });
 }
 
 function updateSmoothing(val) {
