@@ -20,8 +20,6 @@ export function flushAutoSave() {
   _commit();
 }
 
-export function isPending() { return _timer !== null; }
-
 function _commit() {
   _timer = null;
   if (!getCurrentNotebook()) return;

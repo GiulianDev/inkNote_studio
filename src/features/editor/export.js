@@ -3,7 +3,7 @@
 // ============================================================
 
 import { state } from '../../core/state.js';
-import { loadSettings } from '../../services/settings.js';
+import { loadSettings } from '../../services/preferences.js';
 import { finalizePendingShape } from './shapes.js';
 import { clearOverlay, redrawPageCanvas } from './render.js';
 import { resizeCanvasForHDPI, refreshCanvasResolution } from './pages.js';

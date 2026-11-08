@@ -1,61 +1,115 @@
 
+# InkNote Studio
 
-# COMMAND
-- npm run dev
-- npm run build → build classica multi-file (usata da Tauri e Capacitor)
-- npm run build:singlefile → build a file singolo (per la versione online)
-- npm run build:singlefileoffline → build a file singolo (per la versione offline)
+App di note-taking con canvas per penna/stylus, in stile GoodNotes.
+Vanilla JS + ES Modules, bundlata con Vite. Predisposta per essere
+compilata come eseguibile desktop con Tauri.
 
+## Prerequisiti
 
+- **Node.js** ≥ 18 (raccomandato 20+)
+- **npm** ≥ 9
 
-# ToDO
-[] fix sulle dimensioni del blocco note che mi sembra troppo piccolo
-[x] dopo la selezione con in lazo potremmo aggiungere gli angoli attivi della selezione per effettuare un resize o un ruota
+## Comandi
 
-# REFACTORING ES
+```bash
+# installa dipendenze
+npm install
+
+# dev server con HMR
+npm run dev
+# → apri http://localhost:5173/
+
+# build di produzione (in dist/)
+npm run build
+
+# anteprima del build di produzione (NON durante lo sviluppo)
+npm run preview
+```
+
+> ⚠️ **Durante lo sviluppo usa sempre `npm run dev`**, mai `npm run preview`.
+> Apri sempre `http://localhost:5173/` e **mai** il file `index.html` da
+> `file://` (i moduli ES non caricano da file system).
+
+## Struttura
+
+```
 src/
-├── main.js                                    ← composition root
-├── style.css
+├── main.js                    Composition root (bootstrap)
+├── style.css                  CSS (Tailwind + custom)
 ├── core/
-│   ├── state.js                               ← state + viewport
-│   └── utils.js                               ← costanti + helper + bus + toast
+│   ├── state.js               Stato globale (state + viewport)
+│   └── utils.js               Costanti, helper puri, event bus, toast
 ├── services/
-│   ├── db.js                                  ← IndexedDB puro
-│   ├── auth.js                                ← login mock
-│   └── settings.js                            ← logica settings + pressure cache
+│   ├── db.js                  IndexedDB puro
+│   ├── auth.js                Login Google (mock)
+│   └── settings.js            Persistenza impostazioni + cache pressione
 └── features/
-    ├── library/library.js                     ← view + modale creazione
-    ├── settings/settings.js                   ← modale impostazioni + calibrazione
+    ├── library/library.js           Vista libreria + modale nuovo quaderno
+    ├── settings/settings.js         Modale impostazioni + calibrazione
     └── editor/
-        ├── session.js                         ← currentNotebook
-        ├── autosave.js                        ← debounce 500ms
-        ├── editor.js                          ← open/close/sync
-        ├── header.js                          ← page counter
-        ├── history.js                         ← undo/redo
-        ├── pages.js                           ← createNewPageDOM + resolution
-        ├── transform.js                       ← applyTransform + pinch
-        ├── gestures.js                        ← pan/pinch/pull-to-add
-        ├── toolbar.js                         ← toolbar + subbar + theme
-        ├── keyboard.js                        ← shortcuts
-        ├── input.js                           ← pointer + batching rAF
-        ├── render.js                          ← rendering + geometry bbox
-        ├── shapes.js                          ← riconoscimento forme
-        ├── scribble.js                        ← scribble-to-erase
-        ├── lasso.js                           ← lasso + resize + menu
-        └── export.js                          ← PDF + fullscreen
-    
-# Piano d'azione proposto
-Oggi (in ordine):
+        ├── session.js               Notebook aperto + sync/save
+        ├── autosave.js              Debounce 500ms → save
+        ├── editor.js                open/close notebook
+        ├── header.js                Page counter
+        ├── history.js               Undo/redo (snapshot per-pagina)
+        ├── pages.js                 createNewPageDOM + resolution
+        ├── transform.js             applyTransform + pinch
+        ├── gestures.js              Pan/pinch/pull-to-add-page
+        ├── toolbar.js               Toolbar + subbar + theme
+        ├── keyboard.js              Shortcuts
+        ├── input.js                 Pointer handlers + batching rAF
+        ├── render.js                Rendering + geometry bbox
+        ├── shapes.js                Riconoscimento forme
+        ├── scribble.js              Scribble-to-erase
+        ├── lasso.js                 Lasso + resize + selection menu
+        ├── export.js                PDF + fullscreen
+        └── bindings.js              Bind di tutta la UI editor
+```
 
-Blocco 1 — fix rapidi e micro-ottimizzazioni (~1 ora)
+## Architettura (in 30 secondi)
 
-Blocco 2 — drag/resize overlay (~mezza giornata)
+- **Moduli ES** con una sola direzione di dipendenza:
+  `core ← services ← features ← main.js`
+- **Nessun ciclo di import** (verificato).
+- **Nessun `onclick` inline**: tutti i listener sono in `bindings.js` (editor),
+  `library.js#bindLibraryUI`, `settings.js#bindSettingsUI`.
+- **Stato in `core/state.js`** (`state` + `viewport`), plain object mutabili,
+  senza Proxy/reactive (hot path a 120+ Hz).
+- **Event bus** (`emit`/`on`) solo per broadcast UI a bassa frequenza
+  (`library:refresh`, `history:restore`, `settings:changed`).
+- **Callback injection** per rompere gli accoppiamenti caldi
+  (`setViewportChangeHandler`, `setDarkModeHandler`).
 
-Blocco 3 — sprint UX (~2 ore)
+## Note di performance
 
-Totale: ~1 giorno di lavoro sul codice attuale.
+Il motore di disegno usa:
 
-Poi: refactoring ES modules (2-3 giorni), poi Tauri (1 giorno), poi Capacitor (1 giorno).
+- `pointerrawupdate` (Chrome/Edge/WebView2) per minima latenza
+- Batching rAF: max 8 punti per frame, poi flush sincrono
+- Overlay canvas: lo stroke in corso è disegnato lì, poi copiato 1:1
+  sul page canvas al pointerup (evita redraw O(N) per ogni punto)
+- Cache stile (`stroke._styleCache`) invalidata solo su cambio tema
+- Cache lunghezza path (`stroke._pathLen`) per il riconoscimento forme
+
+Ottimizzazioni rimandate (Fase 6):
+
+- History: version counter invece di `JSON.stringify` per confronto snapshot
+- `getCanvasCoords` con out-param (elimina ~200 allocazioni/sec)
+- `palmRejectionEnabled` / `eraserMode` spostati nello store
+  (eliminano `getElementById` dal hot path)
+
+## Roadmap
+
+- [x] Refactoring a ES Modules con gerarchia pulita
+- [x] Rimozione `onclick` inline e bridge `window.*`
+- [ ] Pulizia finale (rename `services/settings.js` → `preferences.js`)
+- [ ] Compilazione Tauri (`.exe` / `.app` / `.AppImage`)
+- [ ] Ottimizzazioni Fase 6 con benchmark
+
+## Licenza
+
+Da definire.
 
 
 
@@ -78,21 +132,6 @@ Poi: refactoring ES modules (2-3 giorni), poi Tauri (1 giorno), poi Capacitor (1
     Doppio canvas: uno “live” a bassa persistenza per il tratto in corso, uno “committed” per tutti i tratti già confermati. Ridisegnare l’intera pagina ad ogni move è il collo di bottiglia principale su pagine con molti tratti.
 
     Valutare WebGL2 solo se il profiling mostra che il 2D è il limite: per 2D vettoriale il 2D è spesso sufficiente, ma con migliaia di tratti il fill dei trapezi può pesare.
-
-
-# Smart Ink: la funzione che separa “disegno” da “editing”
-GoodNotes non si limita a raddrizzare linee e riconoscere forme. Ha Smart Ink: raddrizza la scrittura, inserisce spazio tra note, ridimensiona una sezione e fa reflow delle parole sulle righe. Inoltre gesture come Scribble to Erase e Circle to Lasso.
-
-Voi avete già lazo e auto-forme, che è una base. I prossimi passi realistici:
-
-[x] Lasso → sposta/ridimensiona/ruota il gruppo di tratti (non solo spostare).
-
-[x] Lasso → cambia colore/spessore a posteriori.
-
-[] Riconoscimento di gesture: scarabocchio = cancella, cerchio = seleziona. Sono euristiche geometriche, non ML, e valgono molto in usabilità.
-    - da testare sul tablet
-
-[] Il reflow del handwriting è molto più complesso: richiede segmentazione in parole/righe e un modello di layout. È un progetto a sé, non un “dettaglio”.
 
 
 # Ricerca e OCR: senza questo non è “professionale”

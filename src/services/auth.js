@@ -6,8 +6,6 @@ import { showToast, showStatusBadge } from '../core/utils.js';
 
 let currentUser = null;
 
-export function getCurrentUser() { return currentUser; }
-
 export function handleGoogleLogin() {
   if (!currentUser) {
     setTimeout(() => {

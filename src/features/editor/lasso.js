@@ -3,7 +3,7 @@
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
-import { showToast } from '../../core/utils.js';
+import { showToast, PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
 import {
   redrawPageCanvas, redrawSelectionOverlay, clearOverlay,
   renderFullStroke,
@@ -12,7 +12,6 @@ import {
 } from './render.js';
 import { pushHistory } from './history.js';
 import { scheduleSave } from './autosave.js';
-import { PAGE_WIDTH } from '../../core/utils.js';
 
 export function selectStrokesInsideLasso(pageData) {
   const polygon = state.lassoPath;
@@ -65,7 +64,7 @@ export function clearSelection() {
   }
 }
 
-export function snapshotSelectedStrokes() {
+function snapshotSelectedStrokes() {
   return state.selectedStrokes.map(s => ({
     color: s.color, size: s.size, tool: s.tool,
     points: s.points.map(p => ({ x: p.x, y: p.y, pressure: p.pressure }))
@@ -185,7 +184,7 @@ export function deleteSelectedStrokes() {
   }
 }
 
-export function showSelectionMenu() {
+function showSelectionMenu() {
   const menu = document.getElementById('selectionMenu');
   menu.classList.remove('hidden');
   if (state.selectedStrokes.length > 0) {
@@ -200,7 +199,7 @@ export function showSelectionMenu() {
   updateSelectionMenuPosition();
 }
 
-export function hideSelectionMenu() {
+function hideSelectionMenu() {
   document.getElementById('selectionMenu').classList.add('hidden');
 }
 
@@ -226,7 +225,7 @@ export function updateCursorForSelection(e, pageData) {
   const rect = pageData.canvas.getBoundingClientRect();
   const point = {
     x: (e.clientX - rect.left) * (PAGE_WIDTH / rect.width),
-    y: (e.clientY - rect.top) * (1123 / rect.height)
+    y: (e.clientY - rect.top) * (PAGE_HEIGHT / rect.height)
   };
   const visualBBox = getVisualBoundingBox();
   const handle = hitTestHandle(point, visualBBox);

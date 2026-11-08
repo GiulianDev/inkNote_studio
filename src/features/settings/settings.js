@@ -6,7 +6,7 @@ import { state } from '../../core/state.js';
 import { showToast } from '../../core/utils.js';
 import {
   loadSettings, saveSettings, applySettings, DEFAULT_SETTINGS
-} from '../../services/settings.js';
+} from '../../services/preferences.js';
 import { computeStrokeWidth } from '../editor/render.js';
 
 export function openSettingsModal() {

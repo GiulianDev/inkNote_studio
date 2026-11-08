@@ -4,7 +4,7 @@
 
 import { state } from '../../core/state.js';
 import { showToast } from '../../core/utils.js';
-import { saveSettings, loadSettings } from '../../services/settings.js';
+import { saveSettings, loadSettings } from '../../services/preferences.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './render.js';
 import { clearSelection } from './lasso.js';
 import { centerViewport } from './pages.js';
@@ -23,7 +23,7 @@ export function setTool(toolName) {
   if (activeBtn) activeBtn.classList.add('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
 }
 
-export function loadRecentColors() {
+function loadRecentColors() {
   try {
     const saved = localStorage.getItem(RECENT_COLORS_KEY);
     return saved ? JSON.parse(saved) : [];

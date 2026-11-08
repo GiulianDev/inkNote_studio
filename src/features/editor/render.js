@@ -7,7 +7,7 @@ import {
   PAGE_WIDTH, PAGE_HEIGHT, hexToRgbA, getEffectiveColor,
   roundRect, sliderToBaseSize
 } from '../../core/utils.js';
-import { getPressureParams } from '../../services/settings.js';
+import { getPressureParams } from '../../services/preferences.js';
 
 const SCRIBBLE_ERASE_COLOR  = 'rgba(220, 38, 38, 0.6)';
 const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';

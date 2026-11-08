@@ -71,7 +71,7 @@ export function resetZoom() {
   showToast('Zoom resettato', '🔍');
 }
 
-export function getCurrentRenderDpr(pageData) {
+function getCurrentRenderDpr(pageData) {
   const deviceDpr = window.devicePixelRatio || 1;
   const zoom = Math.max(1, viewport.scale);
   const extra = Math.min(zoom, MAX_ZOOM_DPR_BOOST);
@@ -153,7 +153,7 @@ export function clearCurrentPage() {
   }
 }
 
-export function restorePageFromSnapshot(snap) {
+function restorePageFromSnapshot(snap) {
   const pageIndex = snap.pageIndex;
   const container = document.getElementById('canvasContainer');
   const oldWrapper = container.querySelector(`.page-wrapper[data-index="${pageIndex}"]`);

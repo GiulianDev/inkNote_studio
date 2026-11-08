@@ -5,7 +5,7 @@
 import { initDB } from './services/db.js';
 import {
   loadSettings, applySettings, initSettingsListeners, setDarkModeHandler
-} from './services/settings.js';
+} from './services/preferences.js';
 import {
   centerViewport, refreshCanvasResolution
 } from './features/editor/pages.js';
