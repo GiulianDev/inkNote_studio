@@ -14,32 +14,35 @@
 
 # REFACTORING ES
 src/
-├── main.js                         (composition root)
-├── style.css                       (invariato)
+├── main.js                                    ← composition root
+├── style.css
 ├── core/
-│   └── utils.js                    (constants + helpers + eventBus + toast + badge)
+│   ├── state.js                               ← state + viewport
+│   └── utils.js                               ← costanti + helper + bus + toast
 ├── services/
-│   ├── db.js
-│   ├── settings.js                 (load/save/apply + getPressureParams)
-│   └── auth.js
+│   ├── db.js                                  ← IndexedDB puro
+│   ├── auth.js                                ← login mock
+│   └── settings.js                            ← logica settings + pressure cache
 └── features/
-    ├── library/library.js
-    ├── editor/
-    │   ├── editor.js               (open/close notebook, sync)
-    │   ├── autosave.js
-    │   ├── header.js
-    │   ├── pages.js
-    │   ├── history.js
-    │   ├── toolbar.js
-    │   ├── input.js
-    │   ├── render.js               (con geometry bbox/handle)
-    │   ├── shapes.js
-    │   ├── scribble.js
-    │   ├── lasso.js
-    │   ├── gestures.js
-    │   ├── keyboard.js
-    │   └── export.js
-    └── settings/settings.js
+    ├── library/library.js                     ← view + modale creazione
+    ├── settings/settings.js                   ← modale impostazioni + calibrazione
+    └── editor/
+        ├── session.js                         ← currentNotebook
+        ├── autosave.js                        ← debounce 500ms
+        ├── editor.js                          ← open/close/sync
+        ├── header.js                          ← page counter
+        ├── history.js                         ← undo/redo
+        ├── pages.js                           ← createNewPageDOM + resolution
+        ├── transform.js                       ← applyTransform + pinch
+        ├── gestures.js                        ← pan/pinch/pull-to-add
+        ├── toolbar.js                         ← toolbar + subbar + theme
+        ├── keyboard.js                        ← shortcuts
+        ├── input.js                           ← pointer + batching rAF
+        ├── render.js                          ← rendering + geometry bbox
+        ├── shapes.js                          ← riconoscimento forme
+        ├── scribble.js                        ← scribble-to-erase
+        ├── lasso.js                           ← lasso + resize + menu
+        └── export.js                          ← PDF + fullscreen
     
 # Piano d'azione proposto
 Oggi (in ordine):
