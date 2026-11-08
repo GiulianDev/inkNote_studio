@@ -24,9 +24,16 @@ function deepClone(obj) {
 function captureSnapshot() {
     const page = appState.pages[appState.activePageIndex];
     if (!page) return null;
+    const strokesClone = deepClone(page.strokes);
+    // Rimuovi campi derivati dal rendering che non devono influenzare
+    // il confronto fra snapshot (evita push inutili dopo toggle tema).
+    strokesClone.forEach(s => {
+        delete s._styleCache;
+        delete s._pathLen;
+    });
     return {
         pageIndex: appState.activePageIndex,
-        strokes: deepClone(page.strokes),
+        strokes: strokesClone,
         bgPattern: appState.bgPattern,
         notebookTitle: currentNotebook ? currentNotebook.title : ''
     };
