@@ -73,7 +73,14 @@ export function applySettings(settings) {
   state.compactMode = !!settings.compactMode;
   document.body.classList.toggle('compact-mode', state.compactMode);
   const exitBtn = document.getElementById('compactExitBtn');
-  if (exitBtn) exitBtn.classList.toggle('hidden', !state.compactMode);
+  if (exitBtn) {
+    exitBtn.classList.remove('hidden');
+    exitBtn.title = state.compactMode ? 'Esci da schermo intero' : 'Schermo intero';
+  }
+  const expandIcon = document.getElementById('compactIconExpand');
+  const reduceIcon = document.getElementById('compactIconReduce');
+  if (expandIcon) expandIcon.style.display = state.compactMode ? '' : 'none';
+  if (reduceIcon) reduceIcon.style.display = state.compactMode ? 'none' : '';
 
   _updateSubbarExpandBtnVisibility();
 
@@ -82,9 +89,15 @@ export function applySettings(settings) {
 
 function _updateSubbarExpandBtnVisibility() {
   const expandBtn = document.getElementById('subbarExpandBtn');
-  if (!expandBtn) return;
-  const showExpand = !state.subbarVisible && !state.compactMode;
-  expandBtn.classList.toggle('hidden', !showExpand);
+  const collapseBtn = document.getElementById('subbarCollapseBtn');
+  if (expandBtn) {
+    const showExpand = !state.subbarVisible && !state.compactMode;
+    expandBtn.classList.toggle('hidden', !showExpand);
+  }
+  if (collapseBtn) {
+    const showCollapse = state.subbarVisible && !state.compactMode;
+    collapseBtn.classList.toggle('hidden', !showCollapse);
+  }
 }
 
 export function initSettingsListeners() {

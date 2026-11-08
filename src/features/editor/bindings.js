@@ -6,10 +6,11 @@
 
 import {
   setTool, selectColor, updateStrokeWidth, updateSmoothing,
-  toggleAutoShape, toggleTheme, toggleCompactMode, toggleSubbar
+  toggleAutoShape, toggleTheme, toggleCompactMode, toggleSubbar,
+  initCompactFullscreenSync
 } from './toolbar.js';
 import { openSettingsModal } from '../settings/settings.js';
-import { toggleFullscreen, exportToPDF } from './export.js';
+import { exportToPDF } from './export.js';
 import { undo, redo } from './history.js';
 import { returnToLibrary, updateCurrentNotebookTitle } from './editor.js';
 import {
@@ -56,14 +57,10 @@ export function bindEditorUI() {
     ?.addEventListener('change', (e) => updateCurrentNotebookTitle(e.target.value));
   document.getElementById('compactExitBtn')
     ?.addEventListener('click', toggleCompactMode);
-  document.getElementById('compactToggleBtn')
-    ?.addEventListener('click', toggleCompactMode);
   document.getElementById('openSettingsBtnHeader')
     ?.addEventListener('click', openSettingsModal);
   document.getElementById('themeToggleBtn')
     ?.addEventListener('click', toggleTheme);
-  document.getElementById('fullscreenBtn')
-    ?.addEventListener('click', toggleFullscreen);
   document.getElementById('exportPdfBtn')
     ?.addEventListener('click', exportToPDF);
 
@@ -102,4 +99,7 @@ export function bindEditorUI() {
   // --- Undo / Redo ---
   document.getElementById('undoBtn')?.addEventListener('click', undo);
   document.getElementById('redoBtn')?.addEventListener('click', redo);
+
+  // --- Sync fullscreen ↔ compact ---
+  initCompactFullscreenSync();
 }

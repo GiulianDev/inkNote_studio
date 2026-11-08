@@ -162,26 +162,74 @@ export function toggleSubbar() {
 
 function _updateSubbarExpandBtnVisibility() {
   const expandBtn = document.getElementById('subbarExpandBtn');
-  if (!expandBtn) return;
-  const showExpand = !state.subbarVisible && !state.compactMode;
-  expandBtn.classList.toggle('hidden', !showExpand);
+  const collapseBtn = document.getElementById('subbarCollapseBtn');
+  if (expandBtn) {
+    const showExpand = !state.subbarVisible && !state.compactMode;
+    expandBtn.classList.toggle('hidden', !showExpand);
+  }
+  if (collapseBtn) {
+    const showCollapse = state.subbarVisible && !state.compactMode;
+    collapseBtn.classList.toggle('hidden', !showCollapse);
+  }
+}
+
+function _updateCompactButtonUI() {
+  const btn = document.getElementById('compactExitBtn');
+  if (btn) {
+    btn.classList.remove('hidden');
+    btn.title = state.compactMode ? 'Esci da schermo intero' : 'Schermo intero';
+  }
+  const expandIcon = document.getElementById('compactIconExpand');
+  const reduceIcon = document.getElementById('compactIconReduce');
+  if (expandIcon) expandIcon.style.display = state.compactMode ? '' : 'none';
+  if (reduceIcon) reduceIcon.style.display = state.compactMode ? 'none' : '';
 }
 
 export function toggleCompactMode() {
   state.compactMode = !state.compactMode;
   document.body.classList.toggle('compact-mode', state.compactMode);
-  const exitBtn = document.getElementById('compactExitBtn');
-  if (exitBtn) exitBtn.classList.toggle('hidden', !state.compactMode);
+  _updateCompactButtonUI();
   _updateSubbarExpandBtnVisibility();
+
+  // Toggle fullscreen browser in sync con compact.
+  // Richiede user gesture (siamo dentro un click handler → ok).
+  try {
+    if (state.compactMode && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else if (!state.compactMode && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  } catch (err) {}
+
   const s = loadSettings();
   s.compactMode = state.compactMode;
   saveSettings(s);
   showToast(
-    state.compactMode ? 'Modalità compatta: solo dock disegno' : 'Modalità completa ripristinata',
-    state.compactMode ? '🎯' : '↩️'
+    state.compactMode ? 'Schermo intero attivo' : 'Modalità completa ripristinata',
+    state.compactMode ? '⛶' : '↩️'
   );
   setTimeout(() => {
     window.dispatchEvent(new Event('resize'));
     centerViewport();
   }, 50);
+}
+
+// Sync manuale: se l'utente esce da fullscreen (Esc, F11, gesture OS),
+// disattiviamo anche compactMode per coerenza visiva.
+export function initCompactFullscreenSync() {
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && state.compactMode) {
+      state.compactMode = false;
+      document.body.classList.remove('compact-mode');
+      _updateCompactButtonUI();
+      _updateSubbarExpandBtnVisibility();
+      const s = loadSettings();
+      s.compactMode = false;
+      saveSettings(s);
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        centerViewport();
+      }, 50);
+    }
+  });
 }
