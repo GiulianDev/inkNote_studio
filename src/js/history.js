@@ -169,6 +169,14 @@ function applySnapshot(snap) {
 
     updatePageCounterUI();
 
+    // FASE C: la pagina è stata ricostruita, l'overlay della nuova pagina
+    // è vuoto (appena creato da createNewPageDOM). Ma se c'era una
+    // selezione attiva prima dell'undo, va ripulita anche visivamente.
+    const newPage = appState.pages[appState.activePageIndex];
+    if (newPage) {
+        redrawSelectionOverlay(newPage);
+    }
+
     historyState.isRestoring = false;
     updateUndoRedoUI();
     autoSaveTrigger();

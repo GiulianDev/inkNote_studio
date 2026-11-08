@@ -8,9 +8,14 @@ function selectStrokesInsideLasso(pageData) {
         stroke.points.some(pt => isPointInPolygon(pt, polygon))
     );
 
+    // FASE C: il path del lasso non serve più, va rimosso dall'overlay
+    appState.lassoPath = [];
+
     if (appState.selectedStrokes.length > 0) {
         showSelectionMenu();
         showToast(`${appState.selectedStrokes.length} elementi selezionati`, '✂️');
+        // FASE C: bbox su overlay
+        redrawSelectionOverlay(pageData);
     } else {
         clearSelection();
     }
@@ -131,7 +136,10 @@ function clearSelection() {
         const currentPage = appState.pages[appState.activePageIndex];
         if (currentPage) {
             currentPage.canvas.style.cursor = 'crosshair';
-            redrawPageCanvas(currentPage);
+            // FASE C: bbox è sull'overlay, non sul page canvas.
+            // clearSelection azzera selectedStrokes e lassoPath, quindi
+            // redrawSelectionOverlay fa semplicemente clearOverlay.
+            redrawSelectionOverlay(currentPage);
         }
     }
 }
@@ -186,7 +194,13 @@ function startResizeSelection(handle, startPoint) {
     appState.selectionMoved = false;
 
     const currentPage = appState.pages[appState.activePageIndex];
-    if (currentPage) currentPage.canvas.style.cursor = 'nwse-resize';
+    if (currentPage) {
+        currentPage.canvas.style.cursor = 'nwse-resize';
+        // FASE C: il resize aggiorna i dati reali e ridisegna il page canvas
+        // (drag/resize restano su redrawPageCanvas per il ghosting), quindi
+        // il bbox va ridisegnato sull'overlay per restare coerente.
+        redrawSelectionOverlay(currentPage);
+    }
 }
 
 function applyResizeSelection(point) {
@@ -233,7 +247,11 @@ function applyResizeSelection(point) {
 
     appState.selectionMoved = true;
     const currentPage = appState.pages[appState.activePageIndex];
-    if (currentPage) redrawPageCanvas(currentPage);
+    if (currentPage) {
+        redrawPageCanvas(currentPage);
+        // FASE C: bbox segue il resize sull'overlay
+        redrawSelectionOverlay(currentPage);
+    }
     updateSelectionMenuPosition();
 }
 
@@ -245,7 +263,10 @@ function changeSelectionColor(newColor) {
     if (appState.selectedStrokes.length === 0) return;
     appState.selectedStrokes.forEach(s => { s.color = newColor; });
     const currentPage = appState.pages[appState.activePageIndex];
-    if (currentPage) redrawPageCanvas(currentPage);
+    if (currentPage) {
+        redrawPageCanvas(currentPage);
+        redrawSelectionOverlay(currentPage);
+    }
     autoSaveTrigger();
     pushHistory();
     showToast('Colore aggiornato', '🎨');
@@ -258,7 +279,10 @@ function changeSelectionWidth(newWidth) {
     const widthValue = document.getElementById('selectionWidthValue');
     if (widthValue) widthValue.innerText = w;
     const currentPage = appState.pages[appState.activePageIndex];
-    if (currentPage) redrawPageCanvas(currentPage);
+    if (currentPage) {
+        redrawPageCanvas(currentPage);
+        redrawSelectionOverlay(currentPage);
+    }
     autoSaveTrigger();
     pushHistory();
     showToast('Spessore aggiornato', '📏');
@@ -272,8 +296,10 @@ function deleteSelectedStrokes() {
     const currentPage = appState.pages[appState.activePageIndex];
     if (currentPage && appState.selectedStrokes.length > 0) {
         currentPage.strokes = currentPage.strokes.filter(s => !appState.selectedStrokes.includes(s));
-        clearSelection();
+        appState.selectedStrokes = [];
+        hideSelectionMenu();
         redrawPageCanvas(currentPage);
+        clearOverlay(currentPage);
         autoSaveTrigger();
         pushHistory();
         showToast('Elementi eliminati', '🗑️');

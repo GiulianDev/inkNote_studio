@@ -307,7 +307,8 @@ function handlePointerDown(e, pageData) {
         clearSelection();
         appState.isDrawing = true;
         appState.lassoPath = [point];
-        redrawPageCanvas(pageData);
+        // FASE C: il lasso va sull'overlay, il page canvas non cambia
+        clearOverlay(pageData);
         return;
     }
 
@@ -384,7 +385,9 @@ function handlePointerMove(e, pageData) {
 
     if (appState.activeTool === 'lasso') {
         appState.lassoPath.push(getCanvasCoords(e, pageData.canvas));
-        redrawPageCanvas(pageData);
+        // FASE C: disegna solo il nuovo segmento sull'overlay.
+        // O(1) per frame invece di O(n stroke sulla pagina).
+        drawLassoIncrementalOnOverlay(pageData);
         return;
     }
 
@@ -482,9 +485,11 @@ function handlePointerUp(e, pageData) {
     if (appState.activeTool === 'lasso') {
         if (appState.lassoPath.length > 5) {
             selectStrokesInsideLasso(pageData);
+        } else {
+            // Lasso troppo corto: nessuna selezione, pulisci overlay
+            appState.lassoPath = [];
+            clearOverlay(pageData);
         }
-        appState.lassoPath = [];
-        redrawPageCanvas(pageData);
         _drawBackupCanvas = null;
         return;
     }

@@ -209,36 +209,6 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
         renderFullStroke(ctx, stroke, forceTargetDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
     });
 
-    if (appState.activeTool === 'lasso' && appState.lassoPath.length > 1) {
-        ctx.save();
-        ctx.strokeStyle = '#2563eb';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        appState.lassoPath.forEach((pt, idx) => {
-            if (idx === 0) ctx.moveTo(pt.x, pt.y);
-            else ctx.lineTo(pt.x, pt.y);
-        });
-        ctx.stroke();
-        ctx.restore();
-    }
-
-    if (appState.selectedStrokes.length > 0) {
-        const visualBBox = getVisualBoundingBox();
-        if (visualBBox) {
-            const scale = transformState.scale;
-            ctx.save();
-            ctx.strokeStyle = '#3b82f6';
-            ctx.lineWidth = 2 / scale;
-            ctx.setLineDash([6 / scale, 6 / scale]);
-            ctx.strokeRect(visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height);
-            ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
-            ctx.fillRect(visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height);
-            ctx.restore();
-            drawSelectionHandles(ctx, visualBBox);
-        }
-    }
-
     ctx.restore();
 }
 
@@ -822,4 +792,99 @@ function drawScribblePathOnOverlay(pageData) {
     }
     octx.stroke();
     octx.restore();
+}
+
+// ============================================================
+// FASE C: rendering lasso e bbox di selezione sull'overlay
+// ============================================================
+
+// Disegna l'intero path del lasso sull'overlay (non incrementale).
+// Chiamata quando il path cambia per motivi esterni al move
+// (es. inizio lasso, undo/redo, cambio tema).
+function drawLassoPathOnOverlay(pageData) {
+    if (!pageData.overlayCtx) return;
+    if (appState.activeTool !== 'lasso') return;
+    if (appState.lassoPath.length < 2) return;
+
+    const octx = pageData.overlayCtx;
+    const dpr = pageData.dpr || 1;
+    octx.save();
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    octx.strokeStyle = '#2563eb';
+    octx.lineWidth = 1.5;
+    octx.setLineDash([5, 5]);
+    octx.beginPath();
+    appState.lassoPath.forEach((pt, idx) => {
+        if (idx === 0) octx.moveTo(pt.x, pt.y);
+        else octx.lineTo(pt.x, pt.y);
+    });
+    octx.stroke();
+    octx.restore();
+}
+
+// Disegna solo l'ultimo segmento del lasso sull'overlay (incrementale).
+// Molto più economico di drawLassoPathOnOverlay per i pointermove:
+// O(1) invece di O(n punti del lasso).
+function drawLassoIncrementalOnOverlay(pageData) {
+    if (!pageData.overlayCtx) return;
+    if (appState.activeTool !== 'lasso') return;
+    const n = appState.lassoPath.length;
+    if (n < 2) return;
+
+    const p1 = appState.lassoPath[n - 2];
+    const p2 = appState.lassoPath[n - 1];
+
+    const octx = pageData.overlayCtx;
+    const dpr = pageData.dpr || 1;
+    octx.save();
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    octx.strokeStyle = '#2563eb';
+    octx.lineWidth = 1.5;
+    octx.setLineDash([5, 5]);
+    octx.beginPath();
+    octx.moveTo(p1.x, p1.y);
+    octx.lineTo(p2.x, p2.y);
+    octx.stroke();
+    octx.restore();
+}
+
+// Disegna il bbox di selezione (rettangolo tratteggiato + handle + badge)
+// sull'overlay. Non tocca il page canvas.
+function drawSelectionBBoxOnOverlay(pageData) {
+    if (!pageData.overlayCtx) return;
+    if (appState.selectedStrokes.length === 0) return;
+
+    const visualBBox = getVisualBoundingBox();
+    if (!visualBBox) return;
+
+    const octx = pageData.overlayCtx;
+    const dpr = pageData.dpr || 1;
+    const scale = transformState.scale;
+
+    octx.save();
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Rettangolo tratteggiato
+    octx.strokeStyle = '#3b82f6';
+    octx.lineWidth = 2 / scale;
+    octx.setLineDash([6 / scale, 6 / scale]);
+    octx.strokeRect(visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height);
+    octx.fillStyle = 'rgba(59, 130, 246, 0.08)';
+    octx.fillRect(visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height);
+    octx.setLineDash([]);
+
+    // Handle
+    drawSelectionHandles(octx, visualBBox);
+
+    octx.restore();
+}
+
+// Ridisegna completamente l'overlay per lo stato "selezione".
+// Usata ogni volta che la selezione cambia (attivazione, modifica,
+// deselezione) e dopo operazioni che azzerano l'overlay.
+function redrawSelectionOverlay(pageData) {
+    clearOverlay(pageData);
+    if (appState.selectedStrokes.length > 0) {
+        drawSelectionBBoxOnOverlay(pageData);
+    }
 }

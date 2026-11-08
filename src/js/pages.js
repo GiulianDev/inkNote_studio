@@ -140,6 +140,11 @@ function refreshCanvasResolution(force = false) {
         if (force || dprChanged || visibilityChanged) {
             resizeCanvasForHDPI(p, targetDpr);
             redrawPageCanvas(p);
+            // FASE C: il bbox di selezione vive sull'overlay e va ridisegnato
+            // se la pagina attiva ha una selezione attiva.
+            if (p.index === appState.activePageIndex && appState.selectedStrokes.length > 0) {
+                redrawSelectionOverlay(p);
+            }
             p._wasVisible = visible;
         }
     });
