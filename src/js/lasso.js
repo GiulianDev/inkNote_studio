@@ -69,15 +69,6 @@ function getVisualBoundingBox() {
     return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
 }
 
-function getVisibleHandles() {
-    return ['nw', 'se'];
-}
-
-function isPointInsideSelectionBoundingBox(pt) {
-    const bbox = getSelectionBoundingBox();
-    if (!bbox) return false;
-    return pt.x >= bbox.minX && pt.x <= bbox.maxX && pt.y >= bbox.minY && pt.y <= bbox.maxY;
-}
 
 function isPointInBBox(pt, bbox) {
     if (!bbox) return false;

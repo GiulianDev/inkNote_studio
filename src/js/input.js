@@ -485,14 +485,19 @@ function handlePointerUp(e, pageData) {
     if (appState.currentStroke && appState.currentStroke.points.length >= 1) {
         let snapped = false;
 
-        if (appState.currentStroke.points.length > 2 &&
-            appState.autoShapeEnabled &&
-            SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
-            if (trySnapToLine(appState.currentStroke)) {
-                showToast('Linea agganciata', '📏');
-                snapped = true;
-            } else if (detectAndSnapShape(appState.currentStroke, pageData)) {
-                snapped = true;
+        if (appState.currentStroke.points.length > 2 && appState.autoShapeEnabled) {
+            if (appState.activeTool === 'highlighter') {
+                if (trySnapHighlighter(appState.currentStroke)) {
+                    showToast('Evidenziatore raddrizzato', '🖍️');
+                    snapped = true;
+                }
+            } else if (SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
+                if (trySnapToLine(appState.currentStroke)) {
+                    showToast('Linea agganciata', '📏');
+                    snapped = true;
+                } else if (detectAndSnapShape(appState.currentStroke, pageData)) {
+                    snapped = true;
+                }
             }
         }
 
