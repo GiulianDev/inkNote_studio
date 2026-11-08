@@ -269,6 +269,11 @@ function handlePointerDown(e, pageData) {
     appState.scribbleTargets = [];
     _cancelFlush();
 
+    // Rete di sicurezza: se un'operazione precedente ha lasciato residui
+    // sull'overlay (abort anomalo, cambio tab durante pendingShape, ecc.),
+    // li puliamo prima di iniziare il nuovo stroke.
+    clearOverlay(pageData);
+
     try { pageData.canvas.setPointerCapture(e.pointerId); } catch (err) {}
 
     appState.activePageIndex = pageData.index;

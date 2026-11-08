@@ -44,6 +44,8 @@ function toggleFullscreen() {
 }
 
 function exportToPDF() {
+    if (appState.pendingShape) finalizePendingShape();
+
     const settings = loadSettings();
     const printDark = settings.printTheme === 'dark';
 

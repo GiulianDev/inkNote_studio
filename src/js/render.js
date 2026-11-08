@@ -209,10 +209,6 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
         renderFullStroke(ctx, stroke, forceTargetDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
     });
 
-    if (appState.pendingShape) {
-        drawPendingShape(ctx, forceTargetDark);
-    }
-
     if (appState.activeTool === 'lasso' && appState.lassoPath.length > 1) {
         ctx.save();
         ctx.strokeStyle = '#2563eb';
