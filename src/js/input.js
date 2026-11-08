@@ -150,8 +150,8 @@ function _processPointerPoint(rawPoint, pageData) {
     }
 
     if (appState.scribbleMode) {
-        // Scribble path resta sul page canvas per ora (Fase C lo sposta)
-        drawScribbleSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
+        // Scribble path va sull'overlay, non sul page canvas
+        drawScribbleSegment(pageData.overlayCtx, appState.currentStroke, pageData.dpr);
     } else if (appState.activeTool === 'highlighter') {
         // Highlighter: multiply/screen non funziona su overlay trasparente.
         // Continua su page canvas diretto.

@@ -147,7 +147,10 @@ function abortCurrentDrawing() {
         appState.scribbleMode = false;
         appState.scribbleTargets = [];
         const currPage = appState.pages[appState.activePageIndex];
-        if (currPage) redrawPageCanvas(currPage);
+        if (currPage) {
+            redrawPageCanvas(currPage);
+            clearOverlay(currPage);
+        }
     }
     _drawBackupCanvas = null;
 }

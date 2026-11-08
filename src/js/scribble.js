@@ -198,7 +198,11 @@ function checkForScribble(pageData) {
         appState.scribbleMode = true;
         appState.scribbleTargets = findStrokesIntersectingScribble(pts, pageData);
         _lastScribbleTargetCheck = pts.length;
+        // Target evidenziati sul page canvas
         redrawPageCanvas(pageData);
+        // Path scribble sull'overlay
+        clearOverlay(pageData);
+        drawScribblePathOnOverlay(pageData);
     } else {
         if (pts.length - _lastScribbleTargetCheck < 15) return;
         _lastScribbleTargetCheck = pts.length;
@@ -206,6 +210,8 @@ function checkForScribble(pageData) {
         if (newTargets.length !== appState.scribbleTargets.length) {
             appState.scribbleTargets = newTargets;
             redrawPageCanvas(pageData);
+            clearOverlay(pageData);
+            drawScribblePathOnOverlay(pageData);
         }
     }
 }
@@ -276,5 +282,6 @@ function finalizeScribble(pageData) {
     _lastScribbleTargetCheck = 0;
 
     redrawPageCanvas(pageData);
+    clearOverlay(pageData);
     return true;
 }
