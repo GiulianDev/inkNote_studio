@@ -10,7 +10,22 @@
 
 # ToDO
 [] fix sulle dimensioni del blocco note che mi sembra troppo piccolo
-[] dopo la selezione con in lazo potremmo aggiungere gli angoli attivi della selezione per effettuare un resize o un ruota
+[x] dopo la selezione con in lazo potremmo aggiungere gli angoli attivi della selezione per effettuare un resize o un ruota
+
+
+# Piano d'azione proposto
+Oggi (in ordine):
+
+Blocco 1 — fix rapidi e micro-ottimizzazioni (~1 ora)
+
+Blocco 2 — drag/resize overlay (~mezza giornata)
+
+Blocco 3 — sprint UX (~2 ore)
+
+Totale: ~1 giorno di lavoro sul codice attuale.
+
+Poi: refactoring ES modules (2-3 giorni), poi Tauri (1 giorno), poi Capacitor (1 giorno).
+
 
 
 
