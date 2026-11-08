@@ -32,15 +32,55 @@ const _useRawPointerUpdate = typeof window !== 'undefined' && 'onpointerrawupdat
 
 const _flushState = { points: [], rafId: null, pageData: null };
 
+// --- Priorità 4+8: cache rect + pool oggetti ---
+let _strokeRect = null;
+let _strokeRectScale = 0;
+let _strokeRectX = 0;
+let _strokeRectY = 0;
+const _pointPool = [];
+let _pointPoolIdx = 0;
+
+function resetPointPool() { _pointPoolIdx = 0; }
+function invalidateStrokeRect() {
+  _strokeRect = null;
+  _strokeRectScale = 0;
+  _strokeRectX = 0;
+  _strokeRectY = 0;
+}
+
 export function getCanvasCoords(e, canvas) {
-  const rect = canvas.getBoundingClientRect();
-  let pressure = 0.5;
-  if (e.pointerType === 'pen') pressure = (e.pressure && e.pressure > 0) ? e.pressure : 0.5;
-  return {
-    x: (e.clientX - rect.left) * (PAGE_WIDTH / rect.width),
-    y: (e.clientY - rect.top) * (PAGE_HEIGHT / rect.height),
-    pressure, tiltX: e.tiltX || 0, tiltY: e.tiltY || 0, pointerType: e.pointerType
-  };
+  // Priorità 4: cache rect, auto-invalidata se zoom/pan cambiano
+  let rect;
+  if (_strokeRect &&
+      _strokeRectScale === viewport.scale &&
+      _strokeRectX === viewport.x &&
+      _strokeRectY === viewport.y) {
+    rect = _strokeRect;
+  } else {
+    rect = canvas.getBoundingClientRect();
+    _strokeRect = rect;
+    _strokeRectScale = viewport.scale;
+    _strokeRectX = viewport.x;
+    _strokeRectY = viewport.y;
+  }
+
+  // Priorità 8: pooling oggetti (nessuna allocazione per punto)
+  let p;
+  if (_pointPoolIdx < _pointPool.length) {
+    p = _pointPool[_pointPoolIdx++];
+  } else {
+    p = { x: 0, y: 0, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 0, pointerType: 'pen' };
+    _pointPool.push(p);
+    _pointPoolIdx++;
+  }
+  p.x = (e.clientX - rect.left) * (PAGE_WIDTH / rect.width);
+  p.y = (e.clientY - rect.top) * (PAGE_HEIGHT / rect.height);
+  p.pressure = (e.pointerType === 'pen' && e.pressure > 0) ? e.pressure : 0.5;
+  p.tiltX = e.tiltX || 0;
+  p.tiltY = e.tiltY || 0;
+  p.speed = 0;
+  p.pointerType = e.pointerType;
+  return p;
 }
 
 function smoothPressure(points, newPressure) {
@@ -104,12 +144,12 @@ function _processPointerPoint(rawPoint, pageData) {
   }
   if (state.scribbleMode) {
     drawScribbleSegment(pageData.overlayCtx, state.currentStroke,
-                        pageData.overlayDpr || pageData.dpr);   // ← mod
+                        pageData.overlayDpr || pageData.dpr);
   } else if (state.activeTool === 'highlighter') {
-    drawIncrementalSegment(pageData.ctx, state.currentStroke, pageData.dpr);  // main: OK invariato
+    drawIncrementalSegment(pageData.ctx, state.currentStroke, pageData.dpr);
   } else {
     drawIncrementalSegment(pageData.overlayCtx, state.currentStroke,
-                           pageData.overlayDpr || pageData.dpr);   // ← mod
+                           pageData.overlayDpr || pageData.dpr);
   }
 }
 
@@ -143,22 +183,28 @@ function _doFlush() {
   const batch = _flushState.points;
   _flushState.points = [];
   _flushState.pageData = null;
-  if (!pageData || batch.length === 0) return;
-  if (!state.currentStroke || !state.isDrawing) return;
-  if (state.pendingShape) return;
-  clearPredictions(pageData); 
-  for (const rawPoint of batch) {
-    if (state.pendingShape) break;
-    if (!state.currentStroke || !state.isDrawing) break;
-    _processPointerPoint(rawPoint, pageData);
+  try {
+    if (!pageData || batch.length === 0) return;
+    if (!state.currentStroke || !state.isDrawing) return;
+    if (state.pendingShape) return;
+    clearPredictions(pageData);
+    for (const rawPoint of batch) {
+      if (state.pendingShape) break;
+      if (!state.currentStroke || !state.isDrawing) break;
+      _processPointerPoint(rawPoint, pageData);
+    }
+    _runPostBatchChecks(pageData);
+  } finally {
+    // Priorità 8: il batch è stato processato, gli oggetti pool sono liberi
+    resetPointPool();
   }
-  _runPostBatchChecks(pageData);
 }
 
 function _cancelFlush() {
   if (_flushState.rafId !== null) { cancelAnimationFrame(_flushState.rafId); _flushState.rafId = null; }
   _flushState.points = [];
   _flushState.pageData = null;
+  resetPointPool();
 }
 
 function _forceFlushNow(pageData) {
@@ -166,16 +212,20 @@ function _forceFlushNow(pageData) {
   const batch = _flushState.points;
   _flushState.points = [];
   _flushState.pageData = null;
-  if (!pageData || batch.length === 0) return;
-  if (!state.currentStroke || !state.isDrawing) return;
-  if (state.pendingShape) return;
-  for (const rawPoint of batch) {
-    if (state.pendingShape) break;
-    if (!state.currentStroke || !state.isDrawing) break;
-    _processPointerPoint(rawPoint, pageData);
+  try {
+    if (!pageData || batch.length === 0) return;
+    if (!state.currentStroke || !state.isDrawing) return;
+    if (state.pendingShape) return;
+    for (const rawPoint of batch) {
+      if (state.pendingShape) break;
+      if (!state.currentStroke || !state.isDrawing) break;
+      _processPointerPoint(rawPoint, pageData);
+    }
+    if (!state.currentStroke || !state.isDrawing) return;
+    checkForScribble(pageData);
+  } finally {
+    resetPointPool();
   }
-  if (!state.currentStroke || !state.isDrawing) return;
-  checkForScribble(pageData);
 }
 
 // --- abort ---
@@ -198,6 +248,8 @@ export function abortCurrentDrawing() {
     const curr = state.pages[state.activePageIndex];
     if (curr) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
   }
+  resetPointPool();
+  invalidateStrokeRect();
 }
 
 // --- pointer handlers ---
@@ -207,6 +259,11 @@ export function handlePointerDown(e, pageData) {
   if (palmCheck && e.pointerType !== 'pen') return;
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
+
+  // Priorità 8: nuovo stroke, pool pulito
+  resetPointPool();
+  // Priorità 4: nuova sessione, rect da rileggere
+  invalidateStrokeRect();
 
   if (state.pendingShape) finalizePendingShape();
   state.scribbleMode = false;
@@ -231,7 +288,8 @@ export function handlePointerDown(e, pageData) {
       if (handle) { startResizeSelection(handle, point); return; }
       if (isPointInBBox(point, visualBBox)) {
         state.isDraggingSelection = true;
-        state.dragStartPoint = point;
+        // Priorità 8: copia esplicita, non trattenere il pool
+        state.dragStartPoint = { x: point.x, y: point.y };
         state.isDrawing = true;
         state.selectionMoved = false;
         pageData.canvas.style.cursor = 'grabbing';
@@ -240,7 +298,8 @@ export function handlePointerDown(e, pageData) {
     }
     clearSelection();
     state.isDrawing = true;
-    state.lassoPath = [point];
+    // Priorità 8: copia esplicita, non trattenere il pool
+    state.lassoPath = [{ x: point.x, y: point.y, pressure: point.pressure }];
     clearOverlay(pageData);
     return;
   }
@@ -294,12 +353,15 @@ export function handlePointerMove(e, pageData) {
       redrawSelectionOverlay(pageData);
       updateSelectionMenuPosition();
     }
-    state.dragStartPoint = rawPoint;
+    // Priorità 8: copia esplicita, non trattenere il pool
+    state.dragStartPoint = { x: rawPoint.x, y: rawPoint.y };
     return;
   }
 
   if (state.activeTool === 'lasso') {
-    state.lassoPath.push(getCanvasCoords(e, pageData.canvas));
+    // Priorità 8: copia esplicita, non trattenere il pool
+    const lp = getCanvasCoords(e, pageData.canvas);
+    state.lassoPath.push({ x: lp.x, y: lp.y, pressure: lp.pressure });
     drawLassoIncrementalOnOverlay(pageData);
     return;
   }
@@ -315,8 +377,6 @@ export function handlePointerMove(e, pageData) {
   for (const ev of events) _flushState.points.push(getCanvasCoords(ev, pageData.canvas));
   _scheduleFlush(pageData);
 
-  // Predizioni: solo pen e solo se supportate. Disegna "fantasma"
-  // avanti rispetto al punto reale, sostituito al prossimo frame.
   if (isPredictionSupported(e)) {
     const predicted = e.getPredictedEvents();
     if (predicted && predicted.length > 0) {
@@ -337,6 +397,7 @@ export function handlePointerUp(e, pageData) {
     finalizePendingShape();
     try { pageData.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
+    resetPointPool(); invalidateStrokeRect();
     return;
   }
 
@@ -346,6 +407,7 @@ export function handlePointerUp(e, pageData) {
     finalizeScribble(pageData);
     state.isDrawing = false; state.currentPointerId = null;
     state.currentPageForPointer = null; state.currentStroke = null;
+    resetPointPool(); invalidateStrokeRect();
     return;
   }
 
@@ -359,6 +421,7 @@ export function handlePointerUp(e, pageData) {
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
     pageData.canvas.style.cursor = 'crosshair';
     if (wasMoved) { pushHistory(); scheduleSave(); }
+    resetPointPool(); invalidateStrokeRect();
     return;
   }
 
@@ -370,15 +433,20 @@ export function handlePointerUp(e, pageData) {
     pageData.canvas.style.cursor = 'crosshair';
     if (wasMoved) pushHistory();
     scheduleSave();
+    resetPointPool(); invalidateStrokeRect();
     return;
   }
 
-  if (!state.isDrawing) return;
+  if (!state.isDrawing) {
+    resetPointPool(); invalidateStrokeRect();
+    return;
+  }
   state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
 
   if (state.activeTool === 'lasso') {
     if (state.lassoPath.length > 5) selectStrokesInsideLasso(pageData);
     else { state.lassoPath = []; clearOverlay(pageData); }
+    resetPointPool(); invalidateStrokeRect();
     return;
   }
 
@@ -410,9 +478,6 @@ export function handlePointerUp(e, pageData) {
     } else if (state.activeTool === 'highlighter') {
       drawFinalSegmentOnly(pageData, state.currentStroke);
     } else {
-      // Overlay è a DPR ridotta: niente drawImage, ridisegna l'intero stroke
-      // sul main. Costo O(n) una volta per stroke, compensato dai fill
-      // incrementali più leggeri durante il disegno.
       const pctx = pageData.ctx, dpr = pageData.dpr || 1;
       pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       renderFullStroke(pctx, state.currentStroke, state.isDarkMode);
@@ -423,12 +488,13 @@ export function handlePointerUp(e, pageData) {
     pushHistory();
   }
   state.currentStroke = null;
+  resetPointPool();
+  invalidateStrokeRect();
 }
 
 function performEraserAt(pageData, point) {
   const mode = document.getElementById('eraserModeSelect').value;
   const radius = (0.5 * Math.pow(Math.max(1, Math.min(25, state.strokeWidth || 3)), 0.75)) * 12;
-  const initCount = pageData.strokes.length;
   const modified = new Set();
   if (mode === 'stroke') {
     pageData.strokes = pageData.strokes.filter(stroke => {
