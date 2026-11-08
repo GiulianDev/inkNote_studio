@@ -18,6 +18,7 @@ const MAX_ZOOM_DPR_BOOST = 1.3;
 const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 2);
 
 let _resolutionRefreshTimer = null;
+let _activePageRaf = null;
 
 export function createNewPageDOM(pageIndex, initialStrokes = []) {
   const container = document.getElementById('canvasContainer');
@@ -72,6 +73,53 @@ export function resetZoom() {
   viewport.scale = 1.0;
   applyTransform();
   showToast('Zoom resettato', '🔍');
+}
+
+// ------------------------------------------------------------
+// Pagina attiva basata sul viewport
+// ------------------------------------------------------------
+
+export function getMostCenteredPage() {
+  if (state.pages.length === 0) return null;
+  const vp = document.getElementById('viewport');
+  if (!vp) return state.pages[0];
+  const vpRect = vp.getBoundingClientRect();
+  const vpCenterX = vpRect.left + vpRect.width / 2;
+  const vpCenterY = vpRect.top + vpRect.height / 2;
+  let bestPage = null;
+  let bestVisibleArea = 0;
+  let bestDist = Infinity;
+  for (const page of state.pages) {
+    const rect = page.wrapper.getBoundingClientRect();
+    const visibleW = Math.max(0, Math.min(rect.right, vpRect.right) - Math.max(rect.left, vpRect.left));
+    const visibleH = Math.max(0, Math.min(rect.bottom, vpRect.bottom) - Math.max(rect.top, vpRect.top));
+    const visibleArea = visibleW * visibleH;
+    if (visibleArea <= 0) continue;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dist = Math.hypot(cx - vpCenterX, cy - vpCenterY);
+    if (visibleArea > bestVisibleArea || (visibleArea === bestVisibleArea && dist < bestDist)) {
+      bestVisibleArea = visibleArea;
+      bestDist = dist;
+      bestPage = page;
+    }
+  }
+  return bestPage;
+}
+
+export function updateActivePageFromViewport() {
+  if (_activePageRaf !== null) return;
+  _activePageRaf = requestAnimationFrame(() => {
+    _activePageRaf = null;
+    const page = getMostCenteredPage();
+    if (!page || page.index === state.activePageIndex) return;
+    if (state.selectedStrokes.length > 0) {
+      // Consolida la selezione sulla pagina precedente prima di cambiare
+      clearSelection();
+    }
+    state.activePageIndex = page.index;
+    updatePageCounterUI();
+  });
 }
 
 function getCurrentRenderDpr(pageData) {
@@ -148,16 +196,19 @@ export function changeBackgroundPattern(pattern) {
 }
 
 export function clearCurrentPage() {
-  const curr = state.pages[state.activePageIndex];
-  if (curr && curr.strokes.length > 0) {
-    if (!confirm('Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Ctrl+Z.')) return;
-    curr.strokes = [];
-    clearSelection();
-    redrawPageCanvas(curr);
-    scheduleSave();
-    pushHistory();
-    showToast('Pagina pulita', '🧹');
+  const page = getMostCenteredPage() || state.pages[state.activePageIndex];
+  if (!page || page.strokes.length === 0) return;
+  if (!confirm('Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Ctrl+Z.')) return;
+  if (state.selectedStrokes.length > 0) clearSelection();
+  if (page.index !== state.activePageIndex) {
+    state.activePageIndex = page.index;
+    updatePageCounterUI();
   }
+  page.strokes = [];
+  redrawPageCanvas(page);
+  scheduleSave();
+  pushHistory();
+  showToast('Pagina pulita', '🧹');
 }
 
 function restorePageFromSnapshot(snap) {
