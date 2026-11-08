@@ -6,7 +6,9 @@ import { escapeHtml, showToast, on } from '../../core/utils.js';
 import {
   loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB
 } from '../../services/db.js';
+import { handleGoogleLogin } from '../../services/auth.js';
 import { openNotebook } from '../editor/editor.js';
+import { openSettingsModal } from '../settings/settings.js';
 
 let selectedCoverColor = '#4f46e5';
 
@@ -110,6 +112,27 @@ export async function deleteNotebook(e, id) {
     renderLibraryView();
     showToast('Quaderno eliminato', '🗑️');
   }
+}
+
+// ============================================================
+// BINDINGS UI LIBRERIA
+// ============================================================
+
+export function bindLibraryUI() {
+  document.getElementById('googleLoginBtn')
+    ?.addEventListener('click', handleGoogleLogin);
+  document.getElementById('newNotebookBtn')
+    ?.addEventListener('click', openNewNotebookModal);
+  document.getElementById('openSettingsBtnLib')
+    ?.addEventListener('click', openSettingsModal);
+  document.getElementById('confirmCreateNbBtn')
+    ?.addEventListener('click', confirmCreateNotebook);
+  document.getElementById('cancelNewNbBtn')
+    ?.addEventListener('click', closeNewNotebookModal);
+
+  document.querySelectorAll('#coverColorOptions button').forEach(btn => {
+    btn.addEventListener('click', () => selectCoverColor(btn));
+  });
 }
 
 on('library:refresh', renderLibraryView);

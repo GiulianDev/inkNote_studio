@@ -147,7 +147,6 @@ function _onPressureTestMove(e) {
 function _onPressureTestUp(e) {
   if (_pressureTestState.current && _pressureTestState.current.points.length > 1) {
     _pressureTestState.strokes.push(_pressureTestState.current);
-    // Limita a 20 stroke di test: oltre, scarta il più vecchio.
     if (_pressureTestState.strokes.length > 20) _pressureTestState.strokes.shift();
   }
   _pressureTestState.current = null;
@@ -223,7 +222,21 @@ export function clearPressureTest() {
   _redrawPressureTest();
 }
 
-// Bind iniziale alla load
 export function initSettingsModal() {
   _bindPressureSliders();
+}
+
+// ============================================================
+// BINDINGS UI IMPOSTAZIONI
+// ============================================================
+
+export function bindSettingsUI() {
+  document.getElementById('confirmSettingsBtn')
+    ?.addEventListener('click', confirmSettings);
+  document.getElementById('cancelSettingsBtn')
+    ?.addEventListener('click', closeSettingsModal);
+  document.getElementById('resetPressureBtn')
+    ?.addEventListener('click', resetPressureDefaults);
+  document.getElementById('clearPressureBtn')
+    ?.addEventListener('click', clearPressureTest);
 }
