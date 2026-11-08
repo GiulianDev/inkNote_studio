@@ -13,7 +13,8 @@ import { updatePageCounterUI } from './header.js';
 import { applyTransform } from './transform.js';
 
 const MAX_RENDER_DPR = 4;
-const MAX_ZOOM_DPR_BOOST = 2;
+const MAX_ZOOM_DPR_BOOST = 1.3;
+const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 2);
 
 let _resolutionRefreshTimer = null;
 
@@ -96,12 +97,9 @@ export function resizeCanvasForHDPI(pageData, dprOverride) {
   const newH = Math.floor(PAGE_HEIGHT * dpr);
   let changed = false;
   if (pageData.canvas.width !== newW || pageData.canvas.height !== newH) {
-    pageData.canvas.width = newW;
-    pageData.canvas.height = newH;
-    changed = true;
+    pageData.canvas.width = newW; pageData.canvas.height = newH; changed = true;
   }
-  // Overlay: DPR limitata a 2 (è solo anteprima temporanea)
-  const overlayDpr = Math.min(dpr, 2);
+  const overlayDpr = Math.min(dpr, BASE_OVERLAY_DPR);
   const oW = Math.floor(PAGE_WIDTH * overlayDpr);
   const oH = Math.floor(PAGE_HEIGHT * overlayDpr);
   if (pageData.overlayCanvas &&

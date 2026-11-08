@@ -22,8 +22,7 @@
  * @property {number} [startTime]  performance.now() al pointerdown
  * @property {Object} [_styleCache] Cache rendering (invalicata da cambio tema)
  * @property {number} [_pathLen]   Lunghezza cumulativa del path (cache forme)
- * @property {number} [overlayDpr]  DPR usata per l'overlay (limitata a 2)
- */
+*/
 
 /**
  * @typedef {Object} PageData
@@ -36,6 +35,7 @@
  * @property {Stroke[]} strokes
  * @property {number} [dpr]
  * @property {boolean} [_wasVisible]
+ * @property {number} [overlayDpr]  DPR usata per l'overlay (limitata a 2)
  */
 
 /**
