@@ -387,3 +387,31 @@ body[data-dock-size="large"] {
   width: var(--dock-swatch-size);
   height: var(--dock-swatch-size);
 }
+
+/* ============================================================
+   CURSORE GOMMA (cerchio tratteggiato che segue la penna)
+   ============================================================ */
+.eraser-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 9999;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 1.5px dashed rgba(15, 23, 42, 0.70);
+  background: rgba(15, 23, 42, 0.06);
+  transform: translate(-50%, -50%);
+  will-change: transform, width, height;
+  opacity: 0;
+  transition: opacity 0.10s ease;
+}
+
+.eraser-cursor.visible {
+  opacity: 1;
+}
+
+body.dark .eraser-cursor {
+  border-color: rgba(248, 250, 252, 0.75);
+  background: rgba(248, 250, 252, 0.06);
+}

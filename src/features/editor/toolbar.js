@@ -25,6 +25,8 @@ export function setTool(toolName) {
   });
   const activeBtn = document.getElementById(`btnTool-${toolName}`);
   if (activeBtn) activeBtn.classList.add('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  // Notifica input.js di nascondere il cursore gomma (evita ciclo di import)
+  document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
 }
 
 function loadRecentColors() {

@@ -76,6 +76,87 @@ function invalidateStrokeRect() {
   _strokeRectY = 0;
 }
 
+// ------------------------------------------------------------
+// Cursore gomma: cerchio che mostra l'area di cancellazione.
+// Elemento DOM (non canvas) per zero costo di rendering.
+// ------------------------------------------------------------
+let _eraserCursorEl = null;
+let _eraserCursorRaf = null;
+let _eraserCursorLastX = 0;
+let _eraserCursorLastY = 0;
+let _eraserCursorPageData = null;
+
+function ensureEraserCursor() {
+  if (_eraserCursorEl) return _eraserCursorEl;
+  let el = document.getElementById('eraserCursor');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'eraserCursor';
+    el.className = 'eraser-cursor';
+    document.body.appendChild(el);
+  }
+  _eraserCursorEl = el;
+  return el;
+}
+
+function _applyEraserCursorFrame() {
+  _eraserCursorRaf = null;
+  const el = _eraserCursorEl;
+  const pageData = _eraserCursorPageData;
+  if (!el || !pageData) return;
+
+  // Riusa la cache rect di getCanvasCoords se valida, altrimenti ricalcola.
+  let rect = _strokeRect;
+  if (!rect ||
+      _strokeRectScale !== viewport.scale ||
+      _strokeRectX !== viewport.x ||
+      _strokeRectY !== viewport.y) {
+    rect = pageData.canvas.getBoundingClientRect();
+    _strokeRect = rect;
+    _strokeRectScale = viewport.scale;
+    _strokeRectX = viewport.x;
+    _strokeRectY = viewport.y;
+  }
+
+  const radiusCanvas = getEraserRadius();
+  const radiusScreen = radiusCanvas * (rect.width / PAGE_WIDTH);
+  // Diametro visivo = 2 × raggio. Nessun minimo forzato: deve mostrare la
+  // vera area di cancellazione. Solo un floor 3px per evitare che sparisca.
+  const diameter = Math.max(3, radiusScreen * 2);
+
+  el.style.width = `${diameter}px`;
+  el.style.height = `${diameter}px`;
+  el.style.left = `${_eraserCursorLastX}px`;
+  el.style.top = `${_eraserCursorLastY}px`;
+  el.classList.add('visible');
+}
+
+function updateEraserCursor(e, pageData) {
+  ensureEraserCursor();
+  _eraserCursorLastX = e.clientX;
+  _eraserCursorLastY = e.clientY;
+  _eraserCursorPageData = pageData;
+  if (_eraserCursorRaf === null) {
+    _eraserCursorRaf = requestAnimationFrame(_applyEraserCursorFrame);
+  }
+}
+
+function hideEraserCursor() {
+  if (_eraserCursorRaf !== null) {
+    cancelAnimationFrame(_eraserCursorRaf);
+    _eraserCursorRaf = null;
+  }
+  if (_eraserCursorEl) _eraserCursorEl.classList.remove('visible');
+}
+
+function _shouldShowEraserCursor(e) {
+  if (state.scribbleMode) return false;
+  if (state._penEraserActive) return true;
+  if (state.activeTool === 'eraser') return true;
+  if (isPenEraser(e)) return true;
+  return false;
+}
+
 function _getSelectedBBox() {
   if (state.selectedStrokes.length === 0) return null;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -154,6 +235,8 @@ export function attachPointerListeners(pageData) {
   canvas.addEventListener('pointerup', (e) => handlePointerUp(e, pageData));
   canvas.addEventListener('pointercancel', (e) => handlePointerUp(e, pageData));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  // Nasconde il cursore gomma quando la penna esce dal canvas
+  canvas.addEventListener('pointerleave', () => { hideEraserCursor(); });
 }
 
 // --- batch pipeline ---
@@ -269,6 +352,7 @@ function _forceFlushNow(pageData) {
 
 export function abortCurrentDrawing() {
   if (state.pendingShape) finalizePendingShape();
+  hideEraserCursor();
   _cancelFlush();
   if (state.isDrawing || state.currentStroke) {
     // FIX CRONOLOGIA: se c'era un eraser in corso, pusha prima di
@@ -306,6 +390,14 @@ export function abortCurrentDrawing() {
 
 export function handlePointerDown(e, pageData) {
   const penEraser = isPenEraser(e);
+
+  // Cursore gomma: mostra subito (copre il caso "tap senza hover precedente")
+  if (penEraser || state.activeTool === 'eraser') {
+    updateEraserCursor(e, pageData);
+  } else {
+    hideEraserCursor();
+  }
+
   const palmCheck = document.getElementById('palmRejectionCheck').checked;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || penEraser;
   if (palmCheck && !isPenLike) return;
@@ -400,6 +492,14 @@ export function handlePointerDown(e, pageData) {
 }
 
 export function handlePointerMove(e, pageData) {
+  // Cursore gomma: aggiorna SEMPRE prima delle guardie, così funziona
+  // anche con penna in hover (non tocca ancora il foglio) e con mouse.
+  if (_shouldShowEraserCursor(e)) {
+    updateEraserCursor(e, pageData);
+  } else {
+    hideEraserCursor();
+  }
+
   const palmCheck = document.getElementById('palmRejectionCheck').checked;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
   if (palmCheck && !isPenLike) return;
@@ -490,6 +590,11 @@ export function handlePointerUp(e, pageData) {
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
   if (palmCheck && !isPenLike) return;
   if (e.pointerId !== state.currentPointerId) return;
+
+  // Nasconde il cursore se non siamo più in eraser mode (il prossimo hover
+  // lo ri-mostrerà se serve). Se la penna è ancora in hover, è il prossimo
+  // pointermove a decidere.
+  if (!_shouldShowEraserCursor(e)) hideEraserCursor();
 
   state._penEraserActive = false;
   _forceFlushNow(pageData);
@@ -674,3 +779,11 @@ function performEraserBatch(pageData, points) {
     // pushHistory() resta a handlePointerUp (1 step per gesto).
   }
 }
+
+// Nasconde il cursore gomma quando si cambia tool (evita ciclo di import:
+// toolbar.js emette, input.js ascolta)
+document.addEventListener('inknote:tool-changed', () => {
+  if (state.activeTool !== 'eraser' && !state._penEraserActive) {
+    hideEraserCursor();
+  }
+});
