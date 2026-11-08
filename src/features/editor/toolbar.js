@@ -7,7 +7,6 @@ import { showToast } from '../../core/utils.js';
 import { saveSettings, loadSettings } from '../../services/preferences.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './render.js';
 import { clearSelection } from './lasso.js';
-import { centerViewport } from './pages.js';
 
 const RECENT_COLORS_MAX = 4;
 const RECENT_COLORS_KEY = 'inknote_recent_colors';
@@ -210,7 +209,6 @@ export function toggleCompactMode() {
   );
   setTimeout(() => {
     window.dispatchEvent(new Event('resize'));
-    centerViewport();
   }, 50);
 }
 
@@ -228,7 +226,6 @@ export function initCompactFullscreenSync() {
       saveSettings(s);
       setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
-        centerViewport();
       }, 50);
     }
   });

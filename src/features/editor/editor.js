@@ -7,7 +7,7 @@ import { showToast, emit } from '../../core/utils.js';
 import { loadAllNotebooksFromDB } from '../../services/db.js';
 import { setCurrentNotebook, getCurrentNotebook, syncCurrentState, saveCurrentNotebook } from './session.js';
 import { scheduleSave, flushAutoSave } from './autosave.js';
-import { createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport } from './pages.js';
+import { createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport, installViewportResizeObserver } from './pages.js';
 import { updatePageCounterUI } from './header.js';
 import { resetHistory, pushHistory } from './history.js';
 import { setViewportChangeHandler } from './transform.js';
@@ -22,6 +22,7 @@ export function initEditorHandlers() {
   });
   // Anche al resize della finestra (cambia la centratura)
   window.addEventListener('resize', () => updateActivePageFromViewport());
+  installViewportResizeObserver();
 }
 
 export async function openNotebook(id) {

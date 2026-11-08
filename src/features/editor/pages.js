@@ -20,6 +20,10 @@ const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 2);
 let _resolutionRefreshTimer = null;
 let _activePageRaf = null;
 
+let _viewportResizeObserver = null;
+let _lastVpW = 0;
+let _lastVpH = 0;
+
 export function createNewPageDOM(pageIndex, initialStrokes = []) {
   const container = document.getElementById('canvasContainer');
   const pageWrapper = document.createElement('div');
@@ -73,6 +77,36 @@ export function resetZoom() {
   viewport.scale = 1.0;
   applyTransform();
   showToast('Zoom resettato', '🔍');
+}
+
+export function installViewportResizeObserver() {
+  if (_viewportResizeObserver) return;
+  const vp = document.getElementById('viewport');
+  if (!vp) return;
+
+  _lastVpW = vp.clientWidth;
+  _lastVpH = vp.clientHeight;
+
+  _viewportResizeObserver = new ResizeObserver(() => {
+    const newW = vp.clientWidth;
+    const newH = vp.clientHeight;
+    if (newW === _lastVpW && newH === _lastVpH) return;
+
+    // Punto canvas al centro del vecchio viewport (con scale/pan correnti)
+    const canvasCX = (_lastVpW / 2 - viewport.x) / viewport.scale;
+    const canvasCY = (_lastVpH / 2 - viewport.y) / viewport.scale;
+
+    // Riposiziona in modo che lo stesso punto resti al centro
+    viewport.x = newW / 2 - canvasCX * viewport.scale;
+    viewport.y = newH / 2 - canvasCY * viewport.scale;
+
+    _lastVpW = newW;
+    _lastVpH = newH;
+
+    applyTransform();
+  });
+
+  _viewportResizeObserver.observe(vp);
 }
 
 // ------------------------------------------------------------
