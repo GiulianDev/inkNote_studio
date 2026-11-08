@@ -3,14 +3,21 @@
 // ============================================================
 
 import { state } from '../../core/state.js';
-import { showToast } from '../../core/utils.js';
+import { showToast, sliderToBaseSize } from '../../core/utils.js';
 import { redrawPageCanvas, clearOverlay, drawScribbleStroke } from './render.js';
 import { pushHistory } from './history.js';
 import { scheduleSave } from './autosave.js';
 
 const SCRIBBLE_MIN_POINTS = 12;
 const SCRIBBLE_MIN_REVERSALS = 7;
-const SCRIBBLE_HIT_RADIUS = 20;
+// Raggio di hit: SOLO tolleranza di movimento/rumore.
+// Lo spessore visivo degli stroke viene aggiunto separatamente.
+const SCRIBBLE_HIT_RADIUS = 6;
+// Padding conservativo per early-reject bbox (copre qualsiasi size target).
+const SCRIBBLE_BBOX_PAD = 16;
+// Peso dello spessore visivo dello stroke target nel calcolo soglia.
+const SCRIBBLE_STROKE_WEIGHT = 0.6;
+
 const SCRIBBLE_MAX_DURATION_MS = 1200;
 const SCRIBBLE_MAX_BBOX_DIAGONAL = 180;
 const SCRIBBLE_MAX_PATH_LEN = 1500;
@@ -61,12 +68,10 @@ function computeReturnRatio(sampled, cellSize, skip) {
   return returns / n;
 }
 
-// Conta la frazione di punti in celle visitate 3+ volte (multi-return).
-// Scribble vero: alta densità. Parola: quasi zero.
 function computeMultiReturnRatio(sampled, cellSize, skip) {
   const n = sampled.length;
   if (n < skip + 1) return 0;
-  const cells = new Map();  // key -> array di indici
+  const cells = new Map();
   let multiReturns = 0;
   for (let i = 0; i < n; i++) {
     const p = sampled[i];
@@ -148,8 +153,6 @@ export function checkForScribble(pageData) {
     state.scribbleTargets = findStrokesIntersectingScribble(pts, pageData);
     _lastScribbleTargetCheck = pts.length;
     redrawPageCanvas(pageData);
-    // FIX COLORE: l'overlay contiene i primi punti disegnati col colore
-    // originale del tool. Cancellalo e ridisegna l'intero stroke in rosso.
     clearOverlay(pageData);
     drawScribbleStroke(pageData.overlayCtx, state.currentStroke, overlayDpr);
   } else {
@@ -159,22 +162,46 @@ export function checkForScribble(pageData) {
     if (newTargets.length !== state.scribbleTargets.length) {
       state.scribbleTargets = newTargets;
       redrawPageCanvas(pageData);
-      // Coerenza overlay quando cambiano i target
       clearOverlay(pageData);
       drawScribbleStroke(pageData.overlayCtx, state.currentStroke, overlayDpr);
     }
   }
 }
 
+// ------------------------------------------------------------
+// Distanza punto-segmento al quadrato (evita sqrt nel caso base)
+// ------------------------------------------------------------
+function pointToSegmentDistSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < 0.0001) {
+    const ex = px - ax, ey = py - ay;
+    return ex * ex + ey * ey;
+  }
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  if (t < 0) t = 0; else if (t > 1) t = 1;
+  const cx = ax + t * dx, cy = ay + t * dy;
+  const ex = px - cx, ey = py - cy;
+  return ex * ex + ey * ey;
+}
+
+// ------------------------------------------------------------
+// Trova strokes Toccati dallo scribble.
+// - Interpola i segmenti dello scribble (coglie pointermove diradati)
+// - Soglia = tolleranza fissa + spessore visivo del target
+// - Early reject bbox conservativo per performance
+// ------------------------------------------------------------
 function findStrokesIntersectingScribble(scribblePoints, pageData) {
   if (scribblePoints.length === 0 || pageData.strokes.length === 0) return [];
+
   let sbMinX = Infinity, sbMaxX = -Infinity, sbMinY = Infinity, sbMaxY = -Infinity;
   for (const p of scribblePoints) {
     if (p.x < sbMinX) sbMinX = p.x; if (p.x > sbMaxX) sbMaxX = p.x;
     if (p.y < sbMinY) sbMinY = p.y; if (p.y > sbMaxY) sbMaxY = p.y;
   }
-  const pad = SCRIBBLE_HIT_RADIUS;
-  sbMinX -= pad; sbMaxX += pad; sbMinY -= pad; sbMaxY += pad;
+  sbMinX -= SCRIBBLE_BBOX_PAD; sbMaxX += SCRIBBLE_BBOX_PAD;
+  sbMinY -= SCRIBBLE_BBOX_PAD; sbMaxY += SCRIBBLE_BBOX_PAD;
+
   const targets = [];
   for (const stroke of pageData.strokes) {
     let stMinX = Infinity, stMaxX = -Infinity, stMinY = Infinity, stMaxY = -Infinity;
@@ -183,10 +210,27 @@ function findStrokesIntersectingScribble(scribblePoints, pageData) {
       if (p.y < stMinY) stMinY = p.y; if (p.y > stMaxY) stMaxY = p.y;
     }
     if (stMaxX < sbMinX || stMinX > sbMaxX || stMaxY < sbMinY || stMinY > sbMaxY) continue;
+
+    // Soglia: tolleranza + spessore visivo del target
+    const strokeR = sliderToBaseSize(stroke.size) * SCRIBBLE_STROKE_WEIGHT;
+    const threshold = SCRIBBLE_HIT_RADIUS + strokeR;
+    const thresholdSq = threshold * threshold;
+
     let hit = false;
     for (const sp of stroke.points) {
-      for (const xp of scribblePoints) {
-        if (Math.hypot(sp.x - xp.x, sp.y - xp.y) < SCRIBBLE_HIT_RADIUS) { hit = true; break; }
+      for (let i = 1; i < scribblePoints.length; i++) {
+        const a = scribblePoints[i - 1];
+        const b = scribblePoints[i];
+        // Quick reject: bounding circle del segmento
+        const abLen = Math.hypot(b.x - a.x, b.y - a.y);
+        const midX = (a.x + b.x) * 0.5;
+        const midY = (a.y + b.y) * 0.5;
+        const quickR = abLen * 0.5 + threshold;
+        const dmx = sp.x - midX, dmy = sp.y - midY;
+        if (dmx * dmx + dmy * dmy > quickR * quickR) continue;
+
+        const dSq = pointToSegmentDistSq(sp.x, sp.y, a.x, a.y, b.x, b.y);
+        if (dSq < thresholdSq) { hit = true; break; }
       }
       if (hit) break;
     }
