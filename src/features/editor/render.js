@@ -487,6 +487,23 @@ export function drawScribbleSegment(ctx, stroke, dpr = 1) {
   ctx.restore();
 }
 
+export function drawScribbleStroke(ctx, stroke, dpr = 1) {
+  const pts = stroke.points;
+  if (pts.length < 2) return;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.strokeStyle = SCRIBBLE_ERASE_COLOR;
+  ctx.fillStyle = SCRIBBLE_ERASE_COLOR;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(stroke.size * 2, 4);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function drawPendingShape(ctx, forceTargetDark) {
   const ps = state.pendingShape;
   if (!ps) return;

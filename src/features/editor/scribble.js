@@ -4,21 +4,22 @@
 
 import { state } from '../../core/state.js';
 import { showToast } from '../../core/utils.js';
-import { redrawPageCanvas, clearOverlay } from './render.js';
+import { redrawPageCanvas, clearOverlay, drawScribbleStroke } from './render.js';
 import { pushHistory } from './history.js';
 import { scheduleSave } from './autosave.js';
 
-const SCRIBBLE_MIN_POINTS = 10;
-const SCRIBBLE_MIN_REVERSALS = 5;
+const SCRIBBLE_MIN_POINTS = 12;
+const SCRIBBLE_MIN_REVERSALS = 7;
 const SCRIBBLE_HIT_RADIUS = 20;
 const SCRIBBLE_MAX_DURATION_MS = 1200;
 const SCRIBBLE_MAX_BBOX_DIAGONAL = 180;
 const SCRIBBLE_MAX_PATH_LEN = 1500;
 const SCRIBBLE_MIN_AVG_SPEED = 100;
-const SCRIBBLE_MIN_RETURN_RATIO = 0.40;
+const SCRIBBLE_MIN_RETURN_RATIO = 0.50;
+const SCRIBBLE_MIN_MULTI_RETURN_RATIO = 0.12;
 const SCRIBBLE_RETURN_RADIUS = 6;
 const SCRIBBLE_RETURN_SKIP = 8;
-const SCRIBBLE_MAX_NET_RATIO_2D = 0.45;
+const SCRIBBLE_MAX_NET_RATIO_2D = 0.38;
 const SCRIBBLE_RESAMPLE_DIST = 2.0;
 
 let _lastScribbleTargetCheck = 0;
@@ -60,6 +61,30 @@ function computeReturnRatio(sampled, cellSize, skip) {
   return returns / n;
 }
 
+// Conta la frazione di punti in celle visitate 3+ volte (multi-return).
+// Scribble vero: alta densità. Parola: quasi zero.
+function computeMultiReturnRatio(sampled, cellSize, skip) {
+  const n = sampled.length;
+  if (n < skip + 1) return 0;
+  const cells = new Map();  // key -> array di indici
+  let multiReturns = 0;
+  for (let i = 0; i < n; i++) {
+    const p = sampled[i];
+    const cx = Math.floor(p.x / cellSize), cy = Math.floor(p.y / cellSize);
+    const key = cx + ',' + cy;
+    const arr = cells.get(key);
+    if (arr) {
+      let count = 0;
+      for (const prevIdx of arr) if (i - prevIdx >= skip) count++;
+      if (count >= 2) multiReturns++;
+      arr.push(i);
+    } else {
+      cells.set(key, [i]);
+    }
+  }
+  return multiReturns / n;
+}
+
 function computeNetRatio2D(sampled) {
   if (sampled.length < 2) return 1;
   const start = sampled[0], end = sampled[sampled.length - 1];
@@ -94,6 +119,7 @@ function isScribbleShape(pts, durationMs) {
   const bboxDiag = Math.hypot(bboxW, bboxH);
   const avgSpeed = pathLen / (durationMs / 1000);
   const returnRatio = computeReturnRatio(sampled, SCRIBBLE_RETURN_RADIUS, SCRIBBLE_RETURN_SKIP);
+  const multiReturnRatio = computeMultiReturnRatio(sampled, SCRIBBLE_RETURN_RADIUS, SCRIBBLE_RETURN_SKIP);
   const netRatio2D = computeNetRatio2D(sampled);
   if (bboxDiag < 15) return false;
   if (bboxDiag > SCRIBBLE_MAX_BBOX_DIAGONAL) return false;
@@ -101,6 +127,7 @@ function isScribbleShape(pts, durationMs) {
   if (reversalCount < SCRIBBLE_MIN_REVERSALS) return false;
   if (avgSpeed < SCRIBBLE_MIN_AVG_SPEED) return false;
   if (returnRatio < SCRIBBLE_MIN_RETURN_RATIO) return false;
+  if (multiReturnRatio < SCRIBBLE_MIN_MULTI_RETURN_RATIO) return false;
   if (netRatio2D > SCRIBBLE_MAX_NET_RATIO_2D) return false;
   return true;
 }
@@ -112,6 +139,8 @@ export function checkForScribble(pageData) {
   if (pts.length < SCRIBBLE_MIN_POINTS) return;
   const startTime = state.currentStroke.startTime || performance.now();
   const durationMs = performance.now() - startTime;
+  const overlayDpr = pageData.overlayDpr || pageData.dpr || 1;
+
   if (!state.scribbleMode) {
     if (pts.length % 3 !== 0) return;
     if (!isScribbleShape(pts, durationMs)) return;
@@ -119,6 +148,10 @@ export function checkForScribble(pageData) {
     state.scribbleTargets = findStrokesIntersectingScribble(pts, pageData);
     _lastScribbleTargetCheck = pts.length;
     redrawPageCanvas(pageData);
+    // FIX COLORE: l'overlay contiene i primi punti disegnati col colore
+    // originale del tool. Cancellalo e ridisegna l'intero stroke in rosso.
+    clearOverlay(pageData);
+    drawScribbleStroke(pageData.overlayCtx, state.currentStroke, overlayDpr);
   } else {
     if (pts.length - _lastScribbleTargetCheck < 15) return;
     _lastScribbleTargetCheck = pts.length;
@@ -126,6 +159,9 @@ export function checkForScribble(pageData) {
     if (newTargets.length !== state.scribbleTargets.length) {
       state.scribbleTargets = newTargets;
       redrawPageCanvas(pageData);
+      // Coerenza overlay quando cambiano i target
+      clearOverlay(pageData);
+      drawScribbleStroke(pageData.overlayCtx, state.currentStroke, overlayDpr);
     }
   }
 }
