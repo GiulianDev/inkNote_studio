@@ -57,6 +57,11 @@ let _dragStartBBox = null;
 let _dragAccX = 0;
 let _dragAccY = 0;
 
+// Traccia se il gesto corrente è stato un eraser (dock o penna).
+// Consente di consolidare l'intero gesto in UN SOLO step di history
+// a pointerup, indipendentemente dal numero di move intermedi.
+let _gestureUsedEraser = false;
+
 function resetPointPool() { _pointPoolIdx = 0; }
 function invalidateStrokeRect() {
   _strokeRect = null;
@@ -275,6 +280,7 @@ export function abortCurrentDrawing() {
     if (curr) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
   }
   state._penEraserActive = false;
+  _gestureUsedEraser = false;
   _dragStartPoint = null;
   _dragStartBBox = null;
   _dragAccX = 0;
@@ -300,6 +306,7 @@ export function handlePointerDown(e, pageData) {
   // Con penna gli utenti concatenano i gesti rapidamente, quindi il
   // bug si manifesta quasi sempre; con mouse raramente.
   flushHistory();
+  _gestureUsedEraser = false;
 
   resetPointPool();
   invalidateStrokeRect();
@@ -359,7 +366,11 @@ export function handlePointerDown(e, pageData) {
 
   clearSelection();
   state.isDrawing = true;
-  if (effectiveTool === 'eraser') { performEraserAt(pageData, point); return; }
+  if (effectiveTool === 'eraser') {
+    _gestureUsedEraser = true;
+    performEraserAt(pageData, point);
+    return;
+  }
 
   state.currentStroke = {
     tool: state.activeTool, color: state.currentColor, size: state.strokeWidth,
@@ -429,6 +440,7 @@ export function handlePointerMove(e, pageData) {
   }
 
   if (state.activeTool === 'eraser' || state._penEraserActive) {
+    _gestureUsedEraser = true;
     performEraserAt(pageData, getCanvasCoords(e, pageData.canvas));
     return;
   }
@@ -456,6 +468,15 @@ export function handlePointerUp(e, pageData) {
   state._penEraserActive = false;
   _forceFlushNow(pageData);
   clearPredictions(pageData);
+
+  // FIX CRONOLOGIA: consolida il gesto eraser in UN SOLO step.
+  // performEraserAt non chiama più pushHistory durante i move,
+  // quindi qui è l'unico punto in cui l'intero drag viene pushato.
+  // Dock e penna ora producono entrambi 1 step per gesto.
+  if (_gestureUsedEraser) {
+    pushHistory();
+    _gestureUsedEraser = false;
+  }
 
   if (state.pendingShape) {
     finalizePendingShape();
@@ -585,6 +606,7 @@ function performEraserAt(pageData, point) {
     modified.forEach(invalidateStrokeBitmap);
     redrawPageCanvas(pageData);
     scheduleSave();
-    pushHistory();
+    // pushHistory() SPOSTATO a handlePointerUp: un intero gesto
+    // (drag con dock o penna) = 1 solo step di history.
   }
 }
