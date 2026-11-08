@@ -154,7 +154,6 @@ function abortCurrentDrawing() {
             clearOverlay(currPage);
         }
     }
-    _drawBackupCanvas = null;
 }
 
 function showPullIndicator(isReady) {

@@ -48,10 +48,17 @@ function exportToPDF() {
 
     const settings = loadSettings();
     const printDark = settings.printTheme === 'dark';
-
     const PRINT_DPR = Math.min((window.devicePixelRatio || 1) * 2, 4);
 
     appState.pages.forEach(p => {
+        // FIX difensivo: invalida la cache stile su ogni stroke. Elimina
+        // qualsiasi possibilità di usare stili stale (dark) durante il
+        // render di stampa (light).
+        p.strokes.forEach(s => { s._styleCache = null; });
+        // FIX difensivo: pulisci overlay PRIMA del resize. Se il resize
+        // non cambia le dimensioni (caso raro), l'overlay manterrebbe il
+        // contenuto precedente e coprirebbe il page canvas durante il print.
+        clearOverlay(p);
         resizeCanvasForHDPI(p, PRINT_DPR);
         redrawPageCanvas(p, printDark);
     });

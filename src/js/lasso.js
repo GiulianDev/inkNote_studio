@@ -267,20 +267,35 @@ function applyResizeSelection(point) {
 // COLOR / WIDTH
 // ------------------------------------------------------------
 
-function changeSelectionColor(newColor) {
+// Preview: applica il colore agli stroke selezionati e ridisegna,
+// senza toccare history/autosave. Chiamata da oninput del color picker
+// (aggiornamento in tempo reale mentre l'utente muove il cursore).
+function previewSelectionColor(newColor) {
     if (appState.selectedStrokes.length === 0) return;
-    appState.selectedStrokes.forEach(s => { s.color = newColor; });
+    appState.selectedStrokes.forEach(s => {
+        s.color = newColor;
+        s._styleCache = null;  // invalida cache stile (dipende da colore)
+    });
     const currentPage = appState.pages[appState.activePageIndex];
     if (currentPage) {
         redrawPageCanvas(currentPage);
         redrawSelectionOverlay(currentPage);
     }
+}
+
+// Commit: applica il colore e salva in history/autosave.
+// Chiamata da onchange del color picker (chiusura/conferma).
+function changeSelectionColor(newColor) {
+    if (appState.selectedStrokes.length === 0) return;
+    previewSelectionColor(newColor);
     autoSaveTrigger();
     pushHistory();
     showToast('Colore aggiornato', '🎨');
 }
 
-function changeSelectionWidth(newWidth) {
+// Preview: applica lo spessore agli stroke selezionati e ridisegna,
+// senza history/autosave. Chiamata da oninput dello slider.
+function previewSelectionWidth(newWidth) {
     if (appState.selectedStrokes.length === 0) return;
     const w = parseInt(newWidth);
     appState.selectedStrokes.forEach(s => { s.size = w; });
@@ -291,6 +306,13 @@ function changeSelectionWidth(newWidth) {
         redrawPageCanvas(currentPage);
         redrawSelectionOverlay(currentPage);
     }
+}
+
+// Commit: applica lo spessore e salva in history/autosave.
+// Chiamata da onchange dello slider.
+function changeSelectionWidth(newWidth) {
+    if (appState.selectedStrokes.length === 0) return;
+    previewSelectionWidth(newWidth);
     autoSaveTrigger();
     pushHistory();
     showToast('Spessore aggiornato', '📏');
