@@ -14,9 +14,11 @@ export function openSettingsModal() {
   const elTheme = document.getElementById('settingTheme');
   const elPrint = document.getElementById('settingPrintTheme');
   const elHand = document.getElementById('settingHandedness');
+  const elDock = document.getElementById('settingDockSize');
   if (elTheme) elTheme.value = s.theme;
   if (elPrint) elPrint.value = s.printTheme;
   if (elHand) elHand.value = s.handedness;
+  if (elDock) elDock.value = s.dockSize || 'medium';
 
   const lightSlider = document.getElementById('pressureLightSlider');
   const heavySlider = document.getElementById('pressureHeavySlider');
@@ -48,6 +50,7 @@ export function confirmSettings() {
   const elTheme = document.getElementById('settingTheme');
   const elPrint = document.getElementById('settingPrintTheme');
   const elHand = document.getElementById('settingHandedness');
+  const elDock = document.getElementById('settingDockSize');
   const lightSlider = document.getElementById('pressureLightSlider');
   const heavySlider = document.getElementById('pressureHeavySlider');
   const curveSlider = document.getElementById('pressureCurveSlider');
@@ -59,6 +62,7 @@ export function confirmSettings() {
     smoothing: current.smoothing,
     subbarVisible: current.subbarVisible,
     compactMode: current.compactMode,
+    dockSize: elDock ? elDock.value : (current.dockSize || 'medium'),
     pressureLight: lightSlider ? parseInt(lightSlider.value) : current.pressureLight,
     pressureHeavy: heavySlider ? parseInt(heavySlider.value) : current.pressureHeavy,
     pressureCurve: curveSlider ? parseInt(curveSlider.value) : current.pressureCurve

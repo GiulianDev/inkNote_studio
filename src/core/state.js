@@ -50,6 +50,7 @@
  * @property {'auto'|'light'|'dark'} theme
  * @property {'light'|'dark'} printTheme
  * @property {'right'|'left'} handedness
+ * @property {'small'|'medium'|'large'} dockSize 
  * @property {number} smoothing      0..100
  * @property {boolean} subbarVisible
  * @property {boolean} compactMode

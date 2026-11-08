@@ -301,3 +301,89 @@ body.compact-mode #subbarExpandContainer {
         scrollbar-color: #475569 transparent;
     }
 }
+
+/* ============================================================
+   DOCK SCALABILE
+   Livelli: small / medium / large, controllati via
+   data-dock-size sul <body>.
+   ============================================================ */
+
+body[data-dock-size="small"] {
+  --dock-btn-h: 32px;
+  --dock-font-size: 14px;
+  --dock-px: 8px;
+  --dock-range-w: 48px;
+  --dock-swatch-size: 18px;
+  --dock-divider-h: 18px;
+  --dock-container-h: 32px;
+  --dock-icon-size: 18px;
+}
+
+body[data-dock-size="medium"] {
+  --dock-btn-h: 44px;
+  --dock-font-size: 18px;
+  --dock-px: 10px;
+  --dock-range-w: 60px;
+  --dock-swatch-size: 24px;
+  --dock-divider-h: 24px;
+  --dock-container-h: 44px;
+  --dock-icon-size: 20px;
+}
+
+body[data-dock-size="large"] {
+  --dock-btn-h: 52px;
+  --dock-font-size: 22px;
+  --dock-px: 14px;
+  --dock-range-w: 80px;
+  --dock-swatch-size: 28px;
+  --dock-divider-h: 28px;
+  --dock-container-h: 52px;
+  --dock-icon-size: 24px;
+}
+
+.dock-tool-btn {
+  min-height: var(--dock-btn-h);
+  padding-left: var(--dock-px);
+  padding-right: var(--dock-px);
+  font-size: var(--dock-font-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+}
+
+.dock-container {
+  min-height: var(--dock-container-h);
+  padding-left: var(--dock-px);
+  padding-right: var(--dock-px);
+}
+
+.dock-range {
+  width: var(--dock-range-w);
+}
+
+.dock-swatch {
+  width: var(--dock-swatch-size);
+  height: var(--dock-swatch-size);
+  flex-shrink: 0;
+}
+
+.dock-divider {
+  height: var(--dock-divider-h);
+}
+
+.dock-icon-btn {
+  width: var(--dock-btn-h);
+  height: var(--dock-btn-h);
+  font-size: var(--dock-font-size);
+}
+
+.dock-pill-btn {
+  height: var(--dock-btn-h);
+  font-size: calc(var(--dock-font-size) * 0.75);
+}
+
+#customColorPicker.dock-swatch {
+  width: var(--dock-swatch-size);
+  height: var(--dock-swatch-size);
+}

@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = {
   smoothing: 50,
   subbarVisible: true,
   compactMode: false,
+  dockSize: 'medium',
   pressureLight: 10,
   pressureHeavy: 340,
   pressureCurve: 60
@@ -59,6 +60,11 @@ export function applySettings(settings) {
 
   document.body.classList.toggle('handed-left', settings.handedness === 'left');
 
+  const dockSize = (settings.dockSize === 'small' || settings.dockSize === 'large')
+    ? settings.dockSize
+    : 'medium';
+  document.body.dataset.dockSize = dockSize;
+  
   const smoothingValue = typeof settings.smoothing === 'number' ? settings.smoothing : 50;
   state.smoothing = smoothingValue / 100;
   const slider = document.getElementById('smoothingSlider');
