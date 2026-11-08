@@ -12,7 +12,35 @@
 [] fix sulle dimensioni del blocco note che mi sembra troppo piccolo
 [x] dopo la selezione con in lazo potremmo aggiungere gli angoli attivi della selezione per effettuare un resize o un ruota
 
-
+# REFACTORING ES
+src/
+├── main.js                         (composition root)
+├── style.css                       (invariato)
+├── core/
+│   └── utils.js                    (constants + helpers + eventBus + toast + badge)
+├── services/
+│   ├── db.js
+│   ├── settings.js                 (load/save/apply + getPressureParams)
+│   └── auth.js
+└── features/
+    ├── library/library.js
+    ├── editor/
+    │   ├── editor.js               (open/close notebook, sync)
+    │   ├── autosave.js
+    │   ├── header.js
+    │   ├── pages.js
+    │   ├── history.js
+    │   ├── toolbar.js
+    │   ├── input.js
+    │   ├── render.js               (con geometry bbox/handle)
+    │   ├── shapes.js
+    │   ├── scribble.js
+    │   ├── lasso.js
+    │   ├── gestures.js
+    │   ├── keyboard.js
+    │   └── export.js
+    └── settings/settings.js
+    
 # Piano d'azione proposto
 Oggi (in ordine):
 
