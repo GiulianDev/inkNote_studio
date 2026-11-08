@@ -19,7 +19,7 @@ import {
   detectAndSnapShape, finalizePendingShape, trySnapHighlighter
 } from './shapes.js';
 import { scheduleSave } from './autosave.js';
-import { pushHistory } from './history.js';
+import { pushHistory, resetHistory } from './history.js';
 import {
   selectStrokesInsideLasso, clearSelection,
   startResizeSelection, applyResizeSelection,
@@ -285,7 +285,8 @@ export function handlePointerDown(e, pageData) {
   // BUG FIX: se stiamo cambiando pagina con una selezione attiva,
   // consolidiamo la selezione sulla pagina precedente (main canvas)
   // PRIMA di cambiare activePageIndex.
-  if (state.activePageIndex !== pageData.index && state.selectedStrokes.length > 0) {
+  const pageChanged = state.activePageIndex !== pageData.index;
+  if (pageChanged && state.selectedStrokes.length > 0) {
     clearSelection();
   }
 
@@ -298,6 +299,7 @@ export function handlePointerDown(e, pageData) {
   try { pageData.canvas.setPointerCapture(e.pointerId); } catch (err) {}
 
   state.activePageIndex = pageData.index;
+  if (pageChanged) resetHistory();
   state.currentPointerId = e.pointerId;
   state.currentPageForPointer = pageData;
   updatePageCounterUI();

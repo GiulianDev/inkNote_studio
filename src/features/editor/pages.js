@@ -7,7 +7,7 @@ import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, showToast, on } from '../../core/utils.js';
 import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from './render.js';
 import { attachPointerListeners } from './input.js';
-import { pushHistory } from './history.js';
+import { pushHistory, resetHistory } from './history.js';
 import { scheduleSave } from './autosave.js';
 import { clearSelection } from './lasso.js';
 import { updatePageCounterUI } from './header.js';
@@ -119,6 +119,8 @@ export function updateActivePageFromViewport() {
     }
     state.activePageIndex = page.index;
     updatePageCounterUI();
+    // Cambio pagina = stack history della pagina precedente non è più coerente
+    resetHistory();
   });
 }
 
@@ -196,14 +198,13 @@ export function changeBackgroundPattern(pattern) {
 }
 
 export function clearCurrentPage() {
-  const page = getMostCenteredPage() || state.pages[state.activePageIndex];
+  // Usa la pagina attiva (sincronizzata da updateActivePageFromViewport
+  // durante lo scroll). Non cambio activePageIndex qui: la history è
+  // per-pagina e un cambio forzato invaliderebbe lo stack.
+  const page = state.pages[state.activePageIndex];
   if (!page || page.strokes.length === 0) return;
   if (!confirm('Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Ctrl+Z.')) return;
   if (state.selectedStrokes.length > 0) clearSelection();
-  if (page.index !== state.activePageIndex) {
-    state.activePageIndex = page.index;
-    updatePageCounterUI();
-  }
   page.strokes = [];
   redrawPageCanvas(page);
   scheduleSave();
