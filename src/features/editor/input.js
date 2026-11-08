@@ -26,6 +26,7 @@ import {
   updateCursorForSelection, updateSelectionMenuPosition
 } from './lasso.js';
 import { updatePageCounterUI } from './header.js';
+import { getEraserSliderSize } from './toolbar.js';
 
 const MAX_BATCH_POINTS = 16;
 const _useRawPointerUpdate = typeof window !== 'undefined' && 'onpointerrawupdate' in window;
@@ -612,10 +613,11 @@ export function handlePointerUp(e, pageData) {
 function performEraserBatch(pageData, points) {
   if (!points || points.length === 0) return;
   const mode = document.getElementById('eraserModeSelect').value;
-  // Raggio basato sulla mappatura corrente dello slider (coerente col rendering).
-  // +8 base, +12 per unità di slider. Extra ×1.3 con penna eraser (gomma fisica).
-  // Cap a 80px sul canvas per evitare raggi abnormi a slider alti.
-  const baseRadius = 8 + sliderToBaseSize(state.strokeWidth) * 12;
+  // Raggio basato sul livello selezionato nel popup eraser (1..5).
+  // Default 3 = media. Extra ×1.3 con penna eraser (gomma fisica).
+  // Cap a 80px sul canvas per evitare raggi abnormi.
+  const baseSize = getEraserSliderSize();
+  const baseRadius = 8 + sliderToBaseSize(baseSize) * 12;
   const extraFactor = state._penEraserActive ? 1.3 : 1.0;
   const radius = Math.max(12, Math.min(baseRadius * extraFactor, 80));
   const radiusSq = radius * radius;

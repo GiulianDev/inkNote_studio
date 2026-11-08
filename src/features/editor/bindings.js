@@ -4,10 +4,12 @@
 // Chiamato una volta sola da main.js dopo il load.
 // ============================================================
 
+import { state } from '../../core/state.js';
 import {
   setTool, selectColor, updateStrokeWidth, updateSmoothing,
   toggleAutoShape, toggleTheme, toggleCompactMode, toggleSubbar,
-  initCompactFullscreenSync
+  initCompactFullscreenSync, loadEraserSize, showEraserSizeMenu,
+  hideEraserSizeMenu, selectEraserLevel
 } from './toolbar.js';
 import { openSettingsModal } from '../settings/settings.js';
 import { exportToPDF } from './export.js';
@@ -24,10 +26,14 @@ import {
 } from './lasso.js';
 
 export function bindEditorUI() {
-  // --- Toolbar: tool buttons ---
+  // --- Toolbar: tool buttons (eraser gestito separatamente) ---
   document.querySelectorAll('[id^="btnTool-"]').forEach(btn => {
+    if (btn.id === 'btnTool-eraser') return;
     btn.addEventListener('click', () => setTool(btn.id.replace('btnTool-', '')));
   });
+
+  // --- Toolbar: eraser con long-press / contextmenu per il menu spessori ---
+  setupEraserButton();
 
   // --- Toolbar: auto-shape ---
   document.getElementById('btnToggleAutoShape')
@@ -102,4 +108,77 @@ export function bindEditorUI() {
 
   // --- Sync fullscreen ↔ compact ---
   initCompactFullscreenSync();
+
+  // --- Eraser: carica livello salvato + setup menu ---
+  state.eraserSize = loadEraserSize();
+}
+
+// ============================================================
+// ERASER LONG-PRESS (popup scelta spessore)
+// ============================================================
+
+function setupEraserButton() {
+  const btn = document.getElementById('btnTool-eraser');
+  const menu = document.getElementById('eraserSizeMenu');
+  if (!btn || !menu) return;
+
+  let pressTimer = null;
+  let skipNextClick = false;
+
+  const cancelTimer = () => {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  };
+
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return; // solo sinistro
+    skipNextClick = false;
+    cancelTimer();
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      skipNextClick = true;
+      showEraserSizeMenu();
+      if (navigator.vibrate) { try { navigator.vibrate(10); } catch (err) {} }
+    }, 500);
+  });
+
+  btn.addEventListener('pointerup', cancelTimer);
+  btn.addEventListener('pointercancel', () => {
+    cancelTimer();
+    skipNextClick = true;
+  });
+  btn.addEventListener('pointerleave', cancelTimer);
+
+  btn.addEventListener('click', (e) => {
+    if (skipNextClick) {
+      skipNextClick = false;
+      e.preventDefault();
+      return;
+    }
+    setTool('eraser');
+  });
+
+  // Tasto destro (desktop) → menu
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    cancelTimer();
+    showEraserSizeMenu();
+  });
+
+  // Click sui livelli
+  menu.querySelectorAll('[data-eraser-level]').forEach(levelBtn => {
+    levelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const lvl = parseInt(levelBtn.dataset.eraserLevel);
+      if (lvl >= 1 && lvl <= 5) selectEraserLevel(lvl);
+      // Se non stiamo già usando l'eraser, attivalo
+      if (state.activeTool !== 'eraser') setTool('eraser');
+    });
+  });
+
+  // Click fuori → chiude
+  document.addEventListener('pointerdown', (e) => {
+    if (menu.classList.contains('hidden')) return;
+    if (menu.contains(e.target) || btn.contains(e.target)) return;
+    hideEraserSizeMenu();
+  });
 }

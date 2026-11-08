@@ -8,6 +8,9 @@ import { saveSettings, loadSettings } from '../../services/preferences.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './render.js';
 import { clearSelection } from './lasso.js';
 
+const ERASER_LEVELS = [1, 4, 8, 14, 22]; // size slider equivalente per livello 1..5
+const ERASER_KEY = 'inknote_eraser_size';
+
 const RECENT_COLORS_MAX = 4;
 const RECENT_COLORS_KEY = 'inknote_recent_colors';
 const DEFAULT_COLORS = ['#000000', '#2563eb', '#059669', '#e11d48', '#d97706'];
@@ -229,4 +232,72 @@ export function initCompactFullscreenSync() {
       }, 50);
     }
   });
+}
+
+// ============================================================
+// ERASER SIZE MENU (long-press / contextmenu sull'icona gomma)
+// ============================================================
+
+export function loadEraserSize() {
+  try {
+    const raw = localStorage.getItem(ERASER_KEY);
+    const n = parseInt(raw);
+    return (n >= 1 && n <= 5) ? n : 3;
+  } catch (e) { return 3; }
+}
+
+function _saveEraserSize(level) {
+  const n = Math.max(1, Math.min(5, level));
+  state.eraserSize = n;
+  try { localStorage.setItem(ERASER_KEY, String(n)); } catch (e) {}
+}
+
+// Mappatura livello → size per il rendering della gomma
+export function getEraserSliderSize() {
+  const lvl = Math.max(1, Math.min(5, state.eraserSize || 3));
+  return ERASER_LEVELS[lvl - 1];
+}
+
+function _updateEraserMenuUI() {
+  const menu = document.getElementById('eraserSizeMenu');
+  if (!menu) return;
+  const lvl = state.eraserSize || 3;
+  menu.querySelectorAll('[data-eraser-level]').forEach(btn => {
+    const isActive = parseInt(btn.dataset.eraserLevel) === lvl;
+    btn.classList.toggle('ring-2', isActive);
+    btn.classList.toggle('ring-indigo-500', isActive);
+    btn.classList.toggle('bg-indigo-50', isActive);
+    btn.classList.toggle('dark:bg-indigo-900/40', isActive);
+  });
+}
+
+export function showEraserSizeMenu() {
+  const menu = document.getElementById('eraserSizeMenu');
+  const btn = document.getElementById('btnTool-eraser');
+  if (!menu || !btn) return;
+  menu.classList.remove('hidden');
+  const r = btn.getBoundingClientRect();
+  const mw = menu.offsetWidth || 220;
+  const mh = menu.offsetHeight || 56;
+  let left = r.left + r.width / 2 - mw / 2;
+  let top = r.top - mh - 10;
+  left = Math.max(8, Math.min(window.innerWidth - mw - 8, left));
+  top = Math.max(8, top);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  _updateEraserMenuUI();
+}
+
+export function hideEraserSizeMenu() {
+  const menu = document.getElementById('eraserSizeMenu');
+  if (menu) menu.classList.add('hidden');
+}
+
+export function selectEraserLevel(level) {
+  _saveEraserSize(level);
+  _updateEraserMenuUI();
+  hideEraserSizeMenu();
+  // Feedback visivo opzionale
+  const labels = ['Piccola', 'Medio-piccola', 'Media', 'Medio-grande', 'Grande'];
+  showToast(`Gomma: ${labels[level - 1] || 'Media'}`, '🧹');
 }

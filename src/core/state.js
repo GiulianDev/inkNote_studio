@@ -78,6 +78,8 @@ export const state = {
   currentColor: '#000000',
   /** @type {number} 1..25 */
   strokeWidth: 3,
+  /** @type {number} 1..5 livello dimensione gomma (1=piccola, 5=grande) */
+  eraserSize: 3,
   /** @type {boolean} */
   autoShapeEnabled: true,
   /** @type {number} 0..1 (frazione dello slider 0..100) */
