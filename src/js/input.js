@@ -9,7 +9,6 @@ let _debugEl = null;
 // Numero massimo di punti processati per batch. Se il buffer si riempie,
 // il flush avviene subito (sync) per non accumulare latenza.
 const MAX_BATCH_POINTS = 8;
-const FORCE_FLUSH_MAX = 30;  // cap al pointerup: più alto, per non perdere il finale
 
 const _flushState = {
     points: [],
@@ -197,7 +196,7 @@ function _scheduleFlush(pageData) {
 function _doFlush() {
     _flushState.rafId = null;
     const pageData = _flushState.pageData;
-    let batch = _flushState.points;
+    const batch = _flushState.points;
     _flushState.points = [];
     _flushState.pageData = null;
 
@@ -205,13 +204,11 @@ function _doFlush() {
     if (!appState.currentStroke || !appState.isDrawing) return;
     if (appState.pendingShape) return;
 
-    // Cap al batch size: se il browser ha accumulato troppi punti,
-    // processa solo gli ultimi. I punti vecchi sarebbero "vecchi"
-    // visivamente comunque, e processarli rallenterebbe il frame.
-    if (batch.length > MAX_BATCH_POINTS) {
-        batch = batch.slice(-MAX_BATCH_POINTS);
-    }
-
+    // Processa TUTTI i punti del batch, in ordine cronologico.
+    // NON tagliare: punti scartati = gap visivi (la "v" perde il vertice,
+    // la "o" si chiude prematuramente).
+    // Il buffer non cresce mai troppo perché _scheduleFlush fa flush sync
+    // quando raggiunge MAX_BATCH_POINTS.
     for (const rawPoint of batch) {
         if (appState.pendingShape) break;
         if (!appState.currentStroke || !appState.isDrawing) break;
@@ -235,7 +232,7 @@ function _forceFlushNow(pageData) {
         cancelAnimationFrame(_flushState.rafId);
         _flushState.rafId = null;
     }
-    let batch = _flushState.points;
+    const batch = _flushState.points;
     _flushState.points = [];
     _flushState.pageData = null;
 
@@ -243,20 +240,13 @@ function _forceFlushNow(pageData) {
     if (!appState.currentStroke || !appState.isDrawing) return;
     if (appState.pendingShape) return;
 
-    // Al pointerup cap più alto (30): vogliamo la massima accuratezza
-    // del punto finale, ma evitiamo freeze con buffer enormi.
-    if (batch.length > FORCE_FLUSH_MAX) {
-        batch = batch.slice(-FORCE_FLUSH_MAX);
-    }
-
+    // Stessa logica: processa tutti i punti, nessun taglio.
     for (const rawPoint of batch) {
         if (appState.pendingShape) break;
         if (!appState.currentStroke || !appState.isDrawing) break;
         _processPointerPoint(rawPoint, pageData);
     }
 
-    // Post-check solo scribble: lo snap al rilascio è gestito
-    // separatamente in handlePointerUp (trySnapToLine statico).
     if (!appState.currentStroke || !appState.isDrawing) return;
     checkForScribble(pageData);
 }
