@@ -21,7 +21,8 @@ function createNewPageDOM(pageIndex, initialStrokes = []) {
     const canvas = document.createElement('canvas');
     canvas.className = 'page-canvas';
 
-    // Canvas 2: overlay per stato transitorio (FASE A: non ancora usato)
+    // Canvas 2: overlay per stato transitorio (stroke in corso, pendingShape,
+    // lasso, bbox selezione, path scribble). Non tocca il page canvas.
     const overlayCanvas = document.createElement('canvas');
     overlayCanvas.className = 'overlay-canvas';
 

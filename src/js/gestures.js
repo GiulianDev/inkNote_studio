@@ -146,6 +146,8 @@ function abortCurrentDrawing() {
         appState.currentPageForPointer = null;
         appState.scribbleMode = false;
         appState.scribbleTargets = [];
+        appState.lassoPath = [];
+        appState.selectedStrokes = [];
         const currPage = appState.pages[appState.activePageIndex];
         if (currPage) {
             redrawPageCanvas(currPage);

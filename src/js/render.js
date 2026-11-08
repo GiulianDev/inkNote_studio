@@ -5,7 +5,6 @@
 const SCRIBBLE_ERASE_COLOR = 'rgba(220, 38, 38, 0.6)';
 const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';
 
-let _drawBackupCanvas = null;
 let _bgCache = { key: null, canvas: null };
 
 // Buffer riutilizzabili per evitare allocazioni per punto
@@ -209,36 +208,6 @@ function redrawPageCanvas(pageData, forceTargetDark = appState.isDarkMode) {
         renderFullStroke(ctx, stroke, forceTargetDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
     });
 
-    ctx.restore();
-}
-
-function saveCanvasBackup(pageData) {
-    if (!_drawBackupCanvas) {
-        _drawBackupCanvas = document.createElement('canvas');
-    }
-    _drawBackupCanvas.width = pageData.canvas.width;
-    _drawBackupCanvas.height = pageData.canvas.height;
-    const bctx = _drawBackupCanvas.getContext('2d');
-    bctx.setTransform(1, 0, 0, 1, 0, 0);
-    bctx.drawImage(pageData.canvas, 0, 0);
-}
-
-function restoreCanvasFromBackup(pageData) {
-    if (!_drawBackupCanvas) return;
-    const ctx = pageData.ctx;
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, pageData.canvas.width, pageData.canvas.height);
-    ctx.drawImage(_drawBackupCanvas, 0, 0);
-    ctx.restore();
-}
-
-function renderPendingShapeOnly(pageData) {
-    const ctx = pageData.ctx;
-    const dpr = pageData.dpr || 1;
-    ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawPendingShape(ctx, appState.isDarkMode);
     ctx.restore();
 }
 
@@ -750,12 +719,6 @@ function clearOverlay(pageData) {
     octx.restore();
 }
 
-function redrawOverlay(pageData) {
-    // FASE A: no-op. Da Fase B: disegnerà pendingShape, lasso, selezione,
-    // scribble path e stroke in corso sull'overlay.
-    clearOverlay(pageData);
-}
-
 // FASE B: disegna solo pendingShape sull'overlay.
 // Sostituisce renderPendingShapeOnly (che disegnava sul page canvas).
 function renderPendingShapeOnOverlay(pageData) {
@@ -797,30 +760,6 @@ function drawScribblePathOnOverlay(pageData) {
 // ============================================================
 // FASE C: rendering lasso e bbox di selezione sull'overlay
 // ============================================================
-
-// Disegna l'intero path del lasso sull'overlay (non incrementale).
-// Chiamata quando il path cambia per motivi esterni al move
-// (es. inizio lasso, undo/redo, cambio tema).
-function drawLassoPathOnOverlay(pageData) {
-    if (!pageData.overlayCtx) return;
-    if (appState.activeTool !== 'lasso') return;
-    if (appState.lassoPath.length < 2) return;
-
-    const octx = pageData.overlayCtx;
-    const dpr = pageData.dpr || 1;
-    octx.save();
-    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    octx.strokeStyle = '#2563eb';
-    octx.lineWidth = 1.5;
-    octx.setLineDash([5, 5]);
-    octx.beginPath();
-    appState.lassoPath.forEach((pt, idx) => {
-        if (idx === 0) octx.moveTo(pt.x, pt.y);
-        else octx.lineTo(pt.x, pt.y);
-    });
-    octx.stroke();
-    octx.restore();
-}
 
 // Disegna solo l'ultimo segmento del lasso sull'overlay (incrementale).
 // Molto più economico di drawLassoPathOnOverlay per i pointermove:

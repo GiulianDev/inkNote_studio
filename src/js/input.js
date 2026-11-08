@@ -417,7 +417,6 @@ function handlePointerUp(e, pageData) {
 
     if (appState.pendingShape) {
         finalizePendingShape();
-        _drawBackupCanvas = null;
         try { pageData.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
         appState.isDrawing = false;
         appState.currentPointerId = null;
@@ -429,7 +428,6 @@ function handlePointerUp(e, pageData) {
 
     if (appState.scribbleMode) {
         finalizeScribble(pageData);
-        _drawBackupCanvas = null;
         appState.isDrawing = false;
         appState.currentPointerId = null;
         appState.currentPageForPointer = null;
@@ -455,7 +453,6 @@ function handlePointerUp(e, pageData) {
             pushHistory();
             autoSaveTrigger();
         }
-        _drawBackupCanvas = null;
         return;
     }
 
@@ -470,12 +467,10 @@ function handlePointerUp(e, pageData) {
         pageData.canvas.style.cursor = 'crosshair';
         if (wasMoved) pushHistory();
         autoSaveTrigger();
-        _drawBackupCanvas = null;
         return;
     }
 
     if (!appState.isDrawing) {
-        _drawBackupCanvas = null;
         return;
     }
     appState.isDrawing = false;
@@ -490,7 +485,6 @@ function handlePointerUp(e, pageData) {
             appState.lassoPath = [];
             clearOverlay(pageData);
         }
-        _drawBackupCanvas = null;
         return;
     }
 

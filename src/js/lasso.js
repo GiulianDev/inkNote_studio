@@ -8,16 +8,24 @@ function selectStrokesInsideLasso(pageData) {
         stroke.points.some(pt => isPointInPolygon(pt, polygon))
     );
 
-    // FASE C: il path del lasso non serve più, va rimosso dall'overlay
     appState.lassoPath = [];
 
     if (appState.selectedStrokes.length > 0) {
         showSelectionMenu();
         showToast(`${appState.selectedStrokes.length} elementi selezionati`, '✂️');
-        // FASE C: bbox su overlay
         redrawSelectionOverlay(pageData);
     } else {
-        clearSelection();
+        // FASE C fix: nessun target trovato. Pulisci esplicitamente overlay
+        // (il path del lasso è ancora visibile) e stato selezione.
+        appState.selectedStrokes = [];
+        appState.isDraggingSelection = false;
+        appState.isResizingSelection = false;
+        appState.resizePivot = null;
+        appState.resizeAnchor = null;
+        appState.resizeOffset = null;
+        appState.initialStrokesSnapshot = null;
+        hideSelectionMenu();
+        redrawSelectionOverlay(pageData);
     }
 }
 
