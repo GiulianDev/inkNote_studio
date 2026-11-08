@@ -41,7 +41,17 @@ const _baseSizeCache = { raw: -1, size: 0 };
 export function sliderToBaseSize(rawSliderValue) {
   const v = Math.max(1, Math.min(25, rawSliderValue || 3));
   if (_baseSizeCache.raw === v) return _baseSizeCache.size;
-  const s = 0.5 * Math.pow(v, 0.75);
+  // Mappatura: più granularità nella parte bassa dello slider.
+  //   v=1 → size(1)    (invariato)
+  //   v=2 → size(1.5)  (nuovo livello intermedio)
+  //   v=3 → size(2)    (ex size del 2)
+  //   v>=4 → size(v)   (invariato)
+  let mapped;
+  if (v === 1) mapped = 1;
+  else if (v === 2) mapped = 1.5;
+  else if (v === 3) mapped = 2;
+  else mapped = v;
+  const s = 0.5 * Math.pow(mapped, 0.75);
   _baseSizeCache.raw = v;
   _baseSizeCache.size = s;
   return s;
