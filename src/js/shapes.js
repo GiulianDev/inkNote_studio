@@ -72,8 +72,8 @@ function trySnapToLineDuringDraw(pageData, currentPoint) {
     };
     appState.currentStroke = null;
 
-    restoreCanvasFromBackup(pageData);
-    renderPendingShapeOnly(pageData);
+    clearOverlay(pageData);
+    renderPendingShapeOnOverlay(pageData);
 
     showToast('Linea agganciata — muovi per aggiustare, rilascia per confermare', '📏');
     return true;
@@ -213,7 +213,19 @@ function finalizePendingShape() {
             points: straightPts
         };
         currPage.strokes.push(newStroke);
-        redrawPageCanvas(currPage);
+
+        // FASE B: lo stroke è sull'overlay, il page canvas è pulito (nessuna
+        // curva live è mai stata disegnata qui). Basta aggiungere il nuovo
+        // stroke sul page canvas e pulire l'overlay.
+        const pctx = currPage.ctx;
+        const dpr = currPage.dpr || 1;
+        pctx.save();
+        pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        renderFullStroke(pctx, newStroke, appState.isDarkMode);
+        pctx.restore();
+
+        clearOverlay(currPage);
+
         autoSaveTrigger();
         pushHistory();
         triggerSnapAnimation(currPage);

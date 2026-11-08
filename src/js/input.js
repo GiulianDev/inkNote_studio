@@ -150,9 +150,15 @@ function _processPointerPoint(rawPoint, pageData) {
     }
 
     if (appState.scribbleMode) {
+        // Scribble path resta sul page canvas per ora (Fase C lo sposta)
         drawScribbleSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
-    } else {
+    } else if (appState.activeTool === 'highlighter') {
+        // Highlighter: multiply/screen non funziona su overlay trasparente.
+        // Continua su page canvas diretto.
         drawIncrementalSegment(pageData.ctx, appState.currentStroke, pageData.dpr);
+    } else {
+        // Pen, pencil, marker: scrittura su overlay
+        drawIncrementalSegment(pageData.overlayCtx, appState.currentStroke, pageData.dpr);
     }
 
     _updateDebugOverlay(smoothedPoint);
@@ -308,10 +314,6 @@ function handlePointerDown(e, pageData) {
         return;
     }
 
-    if (appState.autoShapeEnabled && SHAPE_CAPABLE_TOOLS.includes(appState.activeTool)) {
-        saveCanvasBackup(pageData);
-    }
-
     appState.currentStroke = {
         tool: appState.activeTool,
         color: appState.currentColor,
@@ -349,8 +351,8 @@ function handlePointerMove(e, pageData) {
         } else {
             ps.start = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
         }
-        restoreCanvasFromBackup(pageData);
-        renderPendingShapeOnly(pageData);
+        clearOverlay(pageData);
+        renderPendingShapeOnOverlay(pageData);
         return;
     }
 
@@ -504,18 +506,37 @@ function handlePointerUp(e, pageData) {
         pageData.strokes.push(appState.currentStroke);
 
         if (snapped) {
-            redrawPageCanvas(pageData);
+            // Snappato: i punti sono cambiati, ridisegna tutto sul page canvas
+            // (l'overlay contiene la curva live pre-snap, inutile copiarla)
+            const pctx = pageData.ctx;
+            const dpr = pageData.dpr || 1;
+            pctx.save();
+            pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            renderFullStroke(pctx, appState.currentStroke, appState.isDarkMode);
+            pctx.restore();
         } else if (appState.currentStroke.points.length === 1) {
+            // Dot: disegna direttamente sul page canvas
             drawDotOnly(pageData, appState.currentStroke);
+        } else if (appState.activeTool === 'highlighter') {
+            // Highlighter: il grosso è già sul page canvas, chiudi l'ultimo pezzo
+            drawFinalSegmentOnly(pageData, appState.currentStroke);
         } else {
+            // Pen, pencil, marker: lo stroke è sull'overlay, copialo 1:1 sul page canvas
+            // e chiudi l'ultimo segmento (che con smoothness > 0 non era disegnato)
+            const pctx = pageData.ctx;
+            pctx.save();
+            pctx.setTransform(1, 0, 0, 1, 0, 0);
+            pctx.drawImage(pageData.overlayCanvas, 0, 0);
+            pctx.restore();
             drawFinalSegmentOnly(pageData, appState.currentStroke);
         }
+
+        clearOverlay(pageData);
 
         autoSaveTrigger();
         pushHistory();
     }
     appState.currentStroke = null;
-    _drawBackupCanvas = null;
 }
 
 function performEraserAt(pageData, point) {

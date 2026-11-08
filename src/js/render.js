@@ -806,3 +806,15 @@ function redrawOverlay(pageData) {
     // scribble path e stroke in corso sull'overlay.
     clearOverlay(pageData);
 }
+
+// FASE B: disegna solo pendingShape sull'overlay.
+// Sostituisce renderPendingShapeOnly (che disegnava sul page canvas).
+function renderPendingShapeOnOverlay(pageData) {
+    if (!pageData.overlayCtx) return;
+    const octx = pageData.overlayCtx;
+    const dpr = pageData.dpr || 1;
+    octx.save();
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawPendingShape(octx, appState.isDarkMode);
+    octx.restore();
+}
