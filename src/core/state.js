@@ -90,6 +90,8 @@ export const state = {
   // --- Disegno in corso (hot path) ---
   /** @type {boolean} */
   isDrawing: false,
+  /** @type {boolean} true quando l'utente preme il tasto eraser della penna */
+  _penEraserActive: false,
   /** @type {Stroke|null} */
   currentStroke: null,
   /** @type {number|null} */

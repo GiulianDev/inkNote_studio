@@ -30,6 +30,17 @@ import { updatePageCounterUI } from './header.js';
 const MAX_BATCH_POINTS = 16;
 const _useRawPointerUpdate = typeof window !== 'undefined' && 'onpointerrawupdate' in window;
 
+// Riconosce il tasto eraser della penna (Surface Pen, Wacom, ecc.).
+// Su Windows/Chromium: pointerType 'pen' + button 5 / buttons bit 32.
+// Su alcuni browser: pointerType 'eraser'.
+function isPenEraser(e) {
+  if (!e) return false;
+  if (e.pointerType === 'eraser') return true;
+  if (e.button === 5) return true;
+  if (typeof e.buttons === 'number' && (e.buttons & 32) !== 0) return true;
+  return false;
+}
+
 const _flushState = { points: [], rafId: null, pageData: null };
 
 // --- Priorità 4+8: cache rect + pool oggetti ---
@@ -263,6 +274,7 @@ export function abortCurrentDrawing() {
     const curr = state.pages[state.activePageIndex];
     if (curr) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
   }
+  state._penEraserActive = false;
   _dragStartPoint = null;
   _dragStartBBox = null;
   _dragAccX = 0;
@@ -274,8 +286,10 @@ export function abortCurrentDrawing() {
 // --- pointer handlers ---
 
 export function handlePointerDown(e, pageData) {
+  const penEraser = isPenEraser(e);
   const palmCheck = document.getElementById('palmRejectionCheck').checked;
-  if (palmCheck && e.pointerType !== 'pen') return;
+  const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || penEraser;
+  if (palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
 
@@ -302,12 +316,15 @@ export function handlePointerDown(e, pageData) {
   if (pageChanged) resetHistory();
   state.currentPointerId = e.pointerId;
   state.currentPageForPointer = pageData;
+  state._penEraserActive = penEraser;
   updatePageCounterUI();
 
   const point = getCanvasCoords(e, pageData.canvas);
   if (point.pointerType === 'pen') point.pressure = Math.max(point.pressure, 0.2);
 
-  if (state.activeTool === 'lasso') {
+  const effectiveTool = penEraser ? 'eraser' : state.activeTool;
+
+  if (effectiveTool === 'lasso') {
     const visualBBox = getVisualBoundingBox();
     if (visualBBox) {
       const handle = hitTestHandle(point, visualBBox);
@@ -334,7 +351,7 @@ export function handlePointerDown(e, pageData) {
 
   clearSelection();
   state.isDrawing = true;
-  if (state.activeTool === 'eraser') { performEraserAt(pageData, point); return; }
+  if (effectiveTool === 'eraser') { performEraserAt(pageData, point); return; }
 
   state.currentStroke = {
     tool: state.activeTool, color: state.currentColor, size: state.strokeWidth,
@@ -348,7 +365,8 @@ export function handlePointerDown(e, pageData) {
 
 export function handlePointerMove(e, pageData) {
   const palmCheck = document.getElementById('palmRejectionCheck').checked;
-  if (palmCheck && e.pointerType !== 'pen') return;
+  const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
+  if (palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
 
   if (!state.isDrawing && state.activeTool === 'lasso' && e.pointerType !== 'touch') {
@@ -402,7 +420,7 @@ export function handlePointerMove(e, pageData) {
     return;
   }
 
-  if (state.activeTool === 'eraser') {
+  if (state.activeTool === 'eraser' || state._penEraserActive) {
     performEraserAt(pageData, getCanvasCoords(e, pageData.canvas));
     return;
   }
@@ -423,9 +441,11 @@ export function handlePointerMove(e, pageData) {
 
 export function handlePointerUp(e, pageData) {
   const palmCheck = document.getElementById('palmRejectionCheck').checked;
-  if (palmCheck && e.pointerType !== 'pen') return;
+  const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
+  if (palmCheck && !isPenLike) return;
   if (e.pointerId !== state.currentPointerId) return;
 
+  state._penEraserActive = false;
   _forceFlushNow(pageData);
   clearPredictions(pageData);
 
