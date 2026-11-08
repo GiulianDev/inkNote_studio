@@ -5,7 +5,7 @@
 import { drawPredictions, clearPredictions, isPredictionSupported } from './prediction.js';
 import { invalidateStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
-import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
+import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast, sliderToBaseSize } from '../../core/utils.js';
 import {
   drawIncrementalSegment, drawScribbleSegment, clearOverlay,
   redrawPageCanvas, redrawSelectionOverlay,
@@ -61,6 +61,11 @@ let _dragAccY = 0;
 // Consente di consolidare l'intero gesto in UN SOLO step di history
 // a pointerup, indipendentemente dal numero di move intermedi.
 let _gestureUsedEraser = false;
+
+// Traccia se l'ULTIMA gesture conclusa era un eraser. Serve a distinguere
+// micro-down/up spuri del driver Windows Ink durante una singola gesture
+// continua (che altrimenti creerebbero più step di history).
+let _lastGestureWasEraser = false;
 
 function resetPointPool() { _pointPoolIdx = 0; }
 function invalidateStrokeRect() {
@@ -265,6 +270,12 @@ export function abortCurrentDrawing() {
   if (state.pendingShape) finalizePendingShape();
   _cancelFlush();
   if (state.isDrawing || state.currentStroke) {
+    // FIX CRONOLOGIA: se c'era un eraser in corso, pusha prima di
+    // resettare, altrimenti le cancellazioni fatte fino a qui non
+    // sarebbero annullabili con undo (es. pinch durante erase).
+    if (_gestureUsedEraser) {
+      pushHistory();
+    }
     if (state.currentPointerId !== null && state.currentPageForPointer) {
       try { state.currentPageForPointer.canvas.releasePointerCapture(state.currentPointerId); } catch (err) {}
     }
@@ -281,6 +292,7 @@ export function abortCurrentDrawing() {
   }
   state._penEraserActive = false;
   _gestureUsedEraser = false;
+  _lastGestureWasEraser = false;
   _dragStartPoint = null;
   _dragStartBBox = null;
   _dragAccX = 0;
@@ -300,12 +312,16 @@ export function handlePointerDown(e, pageData) {
   if (viewport.activePointers.size > 1) return;
 
   // FIX CRONOLOGIA: flush del timer di pushHistory prima di iniziare
-  // qualsiasi nuovo gesto. Senza questo, il debounce di 500ms fonde
-  // gesti rapidi consecutivi (es. stroke + scribble immediato) in un
-  // unico snapshot → undo annulla due azioni insieme.
-  // Con penna gli utenti concatenano i gesti rapidamente, quindi il
-  // bug si manifesta quasi sempre; con mouse raramente.
-  flushHistory();
+  // qualsiasi nuovo gesto. MA: se questo gesto è un eraser e anche
+  // l'ultimo era un eraser, non flushiamo. Il driver Windows Ink può
+  // mandare micro-down/up spuri durante un eraser continuo: senza
+  // questa eccezione, ogni micro-gesto creerebbe uno step separato.
+  // Lasciando attivo il debounce di pushHistory, i micro-gesti si
+  // fondono in un unico step.
+  const isEraserGesture = penEraser || state.activeTool === 'eraser';
+  if (!(isEraserGesture && _lastGestureWasEraser)) {
+    flushHistory();
+  }
   _gestureUsedEraser = false;
 
   resetPointPool();
@@ -368,7 +384,7 @@ export function handlePointerDown(e, pageData) {
   state.isDrawing = true;
   if (effectiveTool === 'eraser') {
     _gestureUsedEraser = true;
-    performEraserAt(pageData, point);
+    performEraserBatch(pageData, [point]);
     return;
   }
 
@@ -441,7 +457,16 @@ export function handlePointerMove(e, pageData) {
 
   if (state.activeTool === 'eraser' || state._penEraserActive) {
     _gestureUsedEraser = true;
-    performEraserAt(pageData, getCanvasCoords(e, pageData.canvas));
+    // FIX CANCELLAZIONE: con penna Surface + Windows Ink, pointermove
+    // porta molti coalesced events (5-20 punti). Processarli TUTTI
+    // in batch evita i buchi di campionamento che facevano sembrare
+    // la gomma "debole". Limito agli ultimi 15 per non sprecare CPU.
+    const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
+    const evs = (coalesced && coalesced.length > 0) ? coalesced.slice(-15) : [e];
+    resetPointPool();
+    const points = [];
+    for (const ev of evs) points.push(getCanvasCoords(ev, pageData.canvas));
+    performEraserBatch(pageData, points);
     return;
   }
 
@@ -470,12 +495,12 @@ export function handlePointerUp(e, pageData) {
   clearPredictions(pageData);
 
   // FIX CRONOLOGIA: consolida il gesto eraser in UN SOLO step.
-  // performEraserAt non chiama più pushHistory durante i move,
-  // quindi qui è l'unico punto in cui l'intero drag viene pushato.
-  // Dock e penna ora producono entrambi 1 step per gesto.
   if (_gestureUsedEraser) {
     pushHistory();
     _gestureUsedEraser = false;
+    _lastGestureWasEraser = true;
+  } else {
+    _lastGestureWasEraser = false;
   }
 
   if (state.pendingShape) {
@@ -584,29 +609,69 @@ export function handlePointerUp(e, pageData) {
   invalidateStrokeRect();
 }
 
-function performEraserAt(pageData, point) {
+function performEraserBatch(pageData, points) {
+  if (!points || points.length === 0) return;
   const mode = document.getElementById('eraserModeSelect').value;
-  const radius = (0.5 * Math.pow(Math.max(1, Math.min(25, state.strokeWidth || 3)), 0.75)) * 12;
+  // Raggio basato sulla mappatura corrente dello slider (coerente col rendering).
+  // +8 base, +12 per unità di slider. Extra ×1.3 con penna eraser (gomma fisica).
+  // Cap a 80px sul canvas per evitare raggi abnormi a slider alti.
+  const baseRadius = 8 + sliderToBaseSize(state.strokeWidth) * 12;
+  const extraFactor = state._penEraserActive ? 1.3 : 1.0;
+  const radius = Math.max(12, Math.min(baseRadius * extraFactor, 80));
+  const radiusSq = radius * radius;
+
+  // Pre-calcolo bounding box del batch per early reject
+  let batchMinX = Infinity, batchMaxX = -Infinity, batchMinY = Infinity, batchMaxY = -Infinity;
+  for (const p of points) {
+    if (p.x < batchMinX) batchMinX = p.x; if (p.x > batchMaxX) batchMaxX = p.x;
+    if (p.y < batchMinY) batchMinY = p.y; if (p.y > batchMaxY) batchMaxY = p.y;
+  }
+  batchMinX -= radius; batchMaxX += radius;
+  batchMinY -= radius; batchMaxY += radius;
+
   const modified = new Set();
+
   if (mode === 'stroke') {
     pageData.strokes = pageData.strokes.filter(stroke => {
-      const hit = stroke.points.some(p => Math.hypot(p.x - point.x, p.y - point.y) < radius);
+      // Early bbox reject
+      let stMinX = Infinity, stMaxX = -Infinity, stMinY = Infinity, stMaxY = -Infinity;
+      for (const p of stroke.points) {
+        if (p.x < stMinX) stMinX = p.x; if (p.x > stMaxX) stMaxX = p.x;
+        if (p.y < stMinY) stMinY = p.y; if (p.y > stMaxY) stMaxY = p.y;
+      }
+      if (stMaxX < batchMinX || stMinX > batchMaxX || stMaxY < batchMinY || stMinY > batchMaxY) {
+        return true;
+      }
+      let hit = false;
+      for (const sp of stroke.points) {
+        for (const bp of points) {
+          const dx = sp.x - bp.x, dy = sp.y - bp.y;
+          if (dx * dx + dy * dy < radiusSq) { hit = true; break; }
+        }
+        if (hit) break;
+      }
       if (hit) modified.add(stroke);
       return !hit;
     });
   } else {
     pageData.strokes.forEach(stroke => {
       const before = stroke.points.length;
-      stroke.points = stroke.points.filter(p => Math.hypot(p.x - point.x, p.y - point.y) >= radius);
+      stroke.points = stroke.points.filter(p => {
+        for (const bp of points) {
+          const dx = p.x - bp.x, dy = p.y - bp.y;
+          if (dx * dx + dy * dy < radiusSq) return false;
+        }
+        return true;
+      });
       if (stroke.points.length !== before) modified.add(stroke);
     });
     pageData.strokes = pageData.strokes.filter(s => s.points.length > 1);
   }
+
   if (modified.size > 0) {
     modified.forEach(invalidateStrokeBitmap);
     redrawPageCanvas(pageData);
     scheduleSave();
-    // pushHistory() SPOSTATO a handlePointerUp: un intero gesto
-    // (drag con dock o penna) = 1 solo step di history.
+    // pushHistory() resta a handlePointerUp (1 step per gesto).
   }
 }
