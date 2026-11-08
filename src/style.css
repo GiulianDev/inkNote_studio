@@ -76,6 +76,17 @@ body.dark .page-wrapper {
   left: 0;
 }
 
+.overlay-canvas {
+    border-radius: 4px;
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 1;
+}
+
 .notebook-card {
   transition: transform .2s, box-shadow .2s;
 }

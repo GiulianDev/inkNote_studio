@@ -788,3 +788,21 @@ function drawSelectionBadge(ctx, bbox, label) {
     ctx.fillText(label, midX, by + badgeH / 2 + 0.5 / scale);
     ctx.restore();
 }
+
+// FASE A: struttura overlay pronta ma non ancora usata.
+// Da Fase B: qui sposteremo pendingShape, lassoPath, selectedStrokes,
+// scribble path e stroke in corso.
+function clearOverlay(pageData) {
+    if (!pageData.overlayCtx) return;
+    const octx = pageData.overlayCtx;
+    octx.save();
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(0, 0, pageData.overlayCanvas.width, pageData.overlayCanvas.height);
+    octx.restore();
+}
+
+function redrawOverlay(pageData) {
+    // FASE A: no-op. Da Fase B: disegnerà pendingShape, lasso, selezione,
+    // scribble path e stroke in corso sull'overlay.
+    clearOverlay(pageData);
+}

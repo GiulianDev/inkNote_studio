@@ -17,14 +17,29 @@ function createNewPageDOM(pageIndex, initialStrokes = []) {
     pageWrapper.className = 'page-wrapper';
     pageWrapper.dataset.index = pageIndex;
 
+    // Canvas 1: inchiostro consolidato (cambia solo su commit/undo/tema)
     const canvas = document.createElement('canvas');
     canvas.className = 'page-canvas';
-    
+
+    // Canvas 2: overlay per stato transitorio (FASE A: non ancora usato)
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.className = 'overlay-canvas';
+
     pageWrapper.appendChild(canvas);
+    pageWrapper.appendChild(overlayCanvas);
     container.appendChild(pageWrapper);
 
     const ctx = canvas.getContext('2d');
-    const pageData = { index: pageIndex, wrapper: pageWrapper, canvas: canvas, ctx: ctx, strokes: initialStrokes };
+    const overlayCtx = overlayCanvas.getContext('2d');
+    const pageData = {
+        index: pageIndex,
+        wrapper: pageWrapper,
+        canvas: canvas,
+        ctx: ctx,
+        overlayCanvas: overlayCanvas,
+        overlayCtx: overlayCtx,
+        strokes: initialStrokes
+    };
 
     resizeCanvasForHDPI(pageData);
     appState.pages.push(pageData);
@@ -87,20 +102,30 @@ function isPageVisible(pageData) {
              pRect.bottom < vpRect.top || pRect.top > vpRect.bottom);
 }
 
-// Ridimensiona il backing store del canvas al DPR richiesto.
-// Ritorna true se è stato effettivamente ridimensionato (→ serve redraw).
+// Ridimensiona ENTRAMBI i canvas (page + overlay) allo stesso DPR.
+// Ritorna true se almeno uno è stato effettivamente ridimensionato.
 function resizeCanvasForHDPI(pageData, dprOverride) {
     const dpr = dprOverride || getCurrentRenderDpr(pageData);
     const newW = Math.floor(PAGE_WIDTH * dpr);
     const newH = Math.floor(PAGE_HEIGHT * dpr);
-    if (pageData.canvas.width === newW && pageData.canvas.height === newH) {
-        pageData.dpr = dpr;
-        return false;
+
+    let changed = false;
+
+    if (pageData.canvas.width !== newW || pageData.canvas.height !== newH) {
+        pageData.canvas.width = newW;
+        pageData.canvas.height = newH;
+        changed = true;
     }
-    pageData.canvas.width = newW;
-    pageData.canvas.height = newH;
+
+    if (pageData.overlayCanvas &&
+        (pageData.overlayCanvas.width !== newW || pageData.overlayCanvas.height !== newH)) {
+        pageData.overlayCanvas.width = newW;
+        pageData.overlayCanvas.height = newH;
+        changed = true;
+    }
+
     pageData.dpr = dpr;
-    return true;
+    return changed;
 }
 
 // Ridisegna le pagine solo se dpr o visibilità sono cambiati.
