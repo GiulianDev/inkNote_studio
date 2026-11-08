@@ -8,6 +8,40 @@ import { abortCurrentDrawing } from './input.js';
 import { addNewPage, scheduleResolutionRefresh } from './pages.js';
 import { applyTransform, applyPinchTransform } from './transform.js';
 
+// Margine minimo di contenuto sempre visibile durante il pan.
+const MIN_VISIBLE = 150;
+// Fattore di resistenza elastica oltre il bordo.
+const ELASTIC_FACTOR = 0.25;
+
+function _computeClampBounds() {
+  const vpEl = document.getElementById('viewport');
+  const container = document.getElementById('canvasContainer');
+  if (!vpEl || !container) return null;
+  const vw = vpEl.clientWidth;
+  const vh = vpEl.clientHeight;
+  const contentW = container.offsetWidth * viewport.scale;
+  const contentH = container.offsetHeight * viewport.scale;
+  if (contentW <= 0 || contentH <= 0) return null;
+  const m = Math.min(MIN_VISIBLE, contentW * 0.3, contentH * 0.3);
+  return {
+    minX: m - contentW,
+    maxX: vw - m,
+    minY: m - contentH,
+    maxY: vh - m
+  };
+}
+
+function _clampXY(rawX, rawY, elastic) {
+  const b = _computeClampBounds();
+  if (!b) return { x: rawX, y: rawY };
+  let x = rawX, y = rawY;
+  if (x > b.maxX) x = elastic ? b.maxX + (x - b.maxX) * ELASTIC_FACTOR : b.maxX;
+  else if (x < b.minX) x = elastic ? b.minX + (x - b.minX) * ELASTIC_FACTOR : b.minX;
+  if (y > b.maxY) y = elastic ? b.maxY + (y - b.maxY) * ELASTIC_FACTOR : b.maxY;
+  else if (y < b.minY) y = elastic ? b.minY + (y - b.minY) * ELASTIC_FACTOR : b.minY;
+  return { x, y };
+}
+
 export function setupViewportGestures() {
   const viewportEl = document.getElementById('viewport');
 
@@ -42,8 +76,12 @@ export function setupViewportGestures() {
       e.preventDefault();
       const dx = e.clientX - viewport.panStart.x;
       const dy = e.clientY - viewport.panStart.y;
-      viewport.x = viewport.panStartTransform.x + dx;
-      viewport.y = viewport.panStartTransform.y + dy;
+      // Elastico: rawX/rawY sempre relativo all'inizio pan, mai accumulato
+      const rawX = viewport.panStartTransform.x + dx;
+      const rawY = viewport.panStartTransform.y + dy;
+      const c = _clampXY(rawX, rawY, true);
+      viewport.x = c.x;
+      viewport.y = c.y;
       applyTransform();
 
       const container = document.getElementById('canvasContainer');
@@ -69,6 +107,7 @@ export function setupViewportGestures() {
   };
 
   const onPointerEnd = (e) => {
+    const wasPanning = viewport.isPanning;
     viewport.activePointers.delete(e.pointerId);
     if (viewport.activePointers.size === 0) {
       if (state.pullOverscrollY >= PULL_THRESHOLD) {
@@ -79,6 +118,17 @@ export function setupViewportGestures() {
       hidePullIndicator();
       viewport.isPanning = false;
       viewport.isPinching = false;
+
+      // BOUNCE: se dopo il pan siamo fuori dal limite consentito,
+      // clampiamo al limite e animiamo il ritorno.
+      if (wasPanning) {
+        const c = _clampXY(viewport.x, viewport.y, false);
+        if (c.x !== viewport.x || c.y !== viewport.y) {
+          viewport.x = c.x;
+          viewport.y = c.y;
+          applyTransform(true);
+        }
+      }
       scheduleResolutionRefresh();
     } else if (viewport.activePointers.size === 1) {
       viewport.isPinching = false;
@@ -93,6 +143,7 @@ export function setupViewportGestures() {
   viewportEl.addEventListener('wheel', (e) => {
     e.preventDefault();
     if (e.ctrlKey) {
+      // ZOOM con Ctrl: nessun clamp (comportamento voluto)
       const clampedDelta = Math.max(-50, Math.min(50, e.deltaY));
       const zoomFactor = Math.exp(-clampedDelta * 0.01);
       const newScale = Math.min(
@@ -103,8 +154,12 @@ export function setupViewportGestures() {
       const pivot = { x: e.clientX, y: e.clientY };
       applyPinchTransform(pivot, { x: viewport.x, y: viewport.y, scale: viewport.scale }, pivot, newScale);
     } else {
+      // SCROLL: clamp duro (nessun overshoot, niente accumulo)
       viewport.x -= e.deltaX;
       viewport.y -= e.deltaY;
+      const c = _clampXY(viewport.x, viewport.y, false);
+      viewport.x = c.x;
+      viewport.y = c.y;
       applyTransform();
     }
   }, { passive: false });

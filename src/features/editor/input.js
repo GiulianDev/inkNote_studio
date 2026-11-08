@@ -40,6 +40,12 @@ let _strokeRectY = 0;
 const _pointPool = [];
 let _pointPoolIdx = 0;
 
+// --- Drag selezione: delta cumulativo per clipping pagina ---
+let _dragStartPoint = null;
+let _dragStartBBox = null;
+let _dragAccX = 0;
+let _dragAccY = 0;
+
 function resetPointPool() { _pointPoolIdx = 0; }
 function invalidateStrokeRect() {
   _strokeRect = null;
@@ -48,8 +54,19 @@ function invalidateStrokeRect() {
   _strokeRectY = 0;
 }
 
+function _getSelectedBBox() {
+  if (state.selectedStrokes.length === 0) return null;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const stroke of state.selectedStrokes) {
+    for (const p of stroke.points) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    }
+  }
+  return { minX, maxX, minY, maxY };
+}
+
 export function getCanvasCoords(e, canvas) {
-  // Priorità 4: cache rect, auto-invalidata se zoom/pan cambiano
   let rect;
   if (_strokeRect &&
       _strokeRectScale === viewport.scale &&
@@ -64,7 +81,6 @@ export function getCanvasCoords(e, canvas) {
     _strokeRectY = viewport.y;
   }
 
-  // Priorità 8: pooling oggetti (nessuna allocazione per punto)
   let p;
   if (_pointPoolIdx < _pointPool.length) {
     p = _pointPool[_pointPoolIdx++];
@@ -195,7 +211,6 @@ function _doFlush() {
     }
     _runPostBatchChecks(pageData);
   } finally {
-    // Priorità 8: il batch è stato processato, gli oggetti pool sono liberi
     resetPointPool();
   }
 }
@@ -248,6 +263,10 @@ export function abortCurrentDrawing() {
     const curr = state.pages[state.activePageIndex];
     if (curr) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
   }
+  _dragStartPoint = null;
+  _dragStartBBox = null;
+  _dragAccX = 0;
+  _dragAccY = 0;
   resetPointPool();
   invalidateStrokeRect();
 }
@@ -260,10 +279,15 @@ export function handlePointerDown(e, pageData) {
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
 
-  // Priorità 8: nuovo stroke, pool pulito
   resetPointPool();
-  // Priorità 4: nuova sessione, rect da rileggere
   invalidateStrokeRect();
+
+  // BUG FIX: se stiamo cambiando pagina con una selezione attiva,
+  // consolidiamo la selezione sulla pagina precedente (main canvas)
+  // PRIMA di cambiare activePageIndex.
+  if (state.activePageIndex !== pageData.index && state.selectedStrokes.length > 0) {
+    clearSelection();
+  }
 
   if (state.pendingShape) finalizePendingShape();
   state.scribbleMode = false;
@@ -288,8 +312,11 @@ export function handlePointerDown(e, pageData) {
       if (handle) { startResizeSelection(handle, point); return; }
       if (isPointInBBox(point, visualBBox)) {
         state.isDraggingSelection = true;
-        // Priorità 8: copia esplicita, non trattenere il pool
-        state.dragStartPoint = { x: point.x, y: point.y };
+        _dragStartPoint = { x: point.x, y: point.y };
+        _dragStartBBox = _getSelectedBBox();
+        _dragAccX = 0;
+        _dragAccY = 0;
+        state.dragStartPoint = _dragStartPoint;
         state.isDrawing = true;
         state.selectionMoved = false;
         pageData.canvas.style.cursor = 'grabbing';
@@ -298,7 +325,6 @@ export function handlePointerDown(e, pageData) {
     }
     clearSelection();
     state.isDrawing = true;
-    // Priorità 8: copia esplicita, non trattenere il pool
     state.lassoPath = [{ x: point.x, y: point.y, pressure: point.pressure }];
     clearOverlay(pageData);
     return;
@@ -341,25 +367,33 @@ export function handlePointerMove(e, pageData) {
 
   if (state.isResizingSelection) { applyResizeSelection(getCanvasCoords(e, pageData.canvas)); return; }
 
-  if (state.isDraggingSelection && state.dragStartPoint) {
+  if (state.isDraggingSelection && _dragStartPoint && _dragStartBBox) {
     const rawPoint = getCanvasCoords(e, pageData.canvas);
-    const dx = rawPoint.x - state.dragStartPoint.x;
-    const dy = rawPoint.y - state.dragStartPoint.y;
-    if (dx !== 0 || dy !== 0) {
+    let desiredX = rawPoint.x - _dragStartPoint.x;
+    let desiredY = rawPoint.y - _dragStartPoint.y;
+
+    // CLIPPING: gli oggetti selezionati non possono uscire dalla pagina
+    if (_dragStartBBox.maxX + desiredX > PAGE_WIDTH)  desiredX = PAGE_WIDTH  - _dragStartBBox.maxX;
+    if (_dragStartBBox.minX + desiredX < 0)           desiredX = -_dragStartBBox.minX;
+    if (_dragStartBBox.maxY + desiredY > PAGE_HEIGHT) desiredY = PAGE_HEIGHT - _dragStartBBox.maxY;
+    if (_dragStartBBox.minY + desiredY < 0)           desiredY = -_dragStartBBox.minY;
+
+    const incX = desiredX - _dragAccX;
+    const incY = desiredY - _dragAccY;
+    if (incX !== 0 || incY !== 0) {
       state.selectionMoved = true;
       state.selectedStrokes.forEach(stroke => {
-        stroke.points.forEach(p => { p.x += dx; p.y += dy; });
+        stroke.points.forEach(p => { p.x += incX; p.y += incY; });
       });
+      _dragAccX = desiredX;
+      _dragAccY = desiredY;
       redrawSelectionOverlay(pageData);
       updateSelectionMenuPosition();
     }
-    // Priorità 8: copia esplicita, non trattenere il pool
-    state.dragStartPoint = { x: rawPoint.x, y: rawPoint.y };
     return;
   }
 
   if (state.activeTool === 'lasso') {
-    // Priorità 8: copia esplicita, non trattenere il pool
     const lp = getCanvasCoords(e, pageData.canvas);
     state.lassoPath.push({ x: lp.x, y: lp.y, pressure: lp.pressure });
     drawLassoIncrementalOnOverlay(pageData);
@@ -397,6 +431,7 @@ export function handlePointerUp(e, pageData) {
     finalizePendingShape();
     try { pageData.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
+    _dragStartPoint = null; _dragStartBBox = null; _dragAccX = 0; _dragAccY = 0;
     resetPointPool(); invalidateStrokeRect();
     return;
   }
@@ -407,6 +442,7 @@ export function handlePointerUp(e, pageData) {
     finalizeScribble(pageData);
     state.isDrawing = false; state.currentPointerId = null;
     state.currentPageForPointer = null; state.currentStroke = null;
+    _dragStartPoint = null; _dragStartBBox = null; _dragAccX = 0; _dragAccY = 0;
     resetPointPool(); invalidateStrokeRect();
     return;
   }
@@ -421,6 +457,7 @@ export function handlePointerUp(e, pageData) {
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
     pageData.canvas.style.cursor = 'crosshair';
     if (wasMoved) { pushHistory(); scheduleSave(); }
+    _dragStartPoint = null; _dragStartBBox = null; _dragAccX = 0; _dragAccY = 0;
     resetPointPool(); invalidateStrokeRect();
     return;
   }
@@ -433,11 +470,13 @@ export function handlePointerUp(e, pageData) {
     pageData.canvas.style.cursor = 'crosshair';
     if (wasMoved) pushHistory();
     scheduleSave();
+    _dragStartPoint = null; _dragStartBBox = null; _dragAccX = 0; _dragAccY = 0;
     resetPointPool(); invalidateStrokeRect();
     return;
   }
 
   if (!state.isDrawing) {
+    _dragStartPoint = null; _dragStartBBox = null; _dragAccX = 0; _dragAccY = 0;
     resetPointPool(); invalidateStrokeRect();
     return;
   }
@@ -446,6 +485,7 @@ export function handlePointerUp(e, pageData) {
   if (state.activeTool === 'lasso') {
     if (state.lassoPath.length > 5) selectStrokesInsideLasso(pageData);
     else { state.lassoPath = []; clearOverlay(pageData); }
+    _dragStartPoint = null; _dragStartBBox = null; _dragAccX = 0; _dragAccY = 0;
     resetPointPool(); invalidateStrokeRect();
     return;
   }
@@ -488,6 +528,7 @@ export function handlePointerUp(e, pageData) {
     pushHistory();
   }
   state.currentStroke = null;
+  _dragStartPoint = null; _dragStartBBox = null; _dragAccX = 0; _dragAccY = 0;
   resetPointPool();
   invalidateStrokeRect();
 }

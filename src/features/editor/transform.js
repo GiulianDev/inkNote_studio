@@ -8,8 +8,18 @@ import { viewport } from '../../core/state.js';
 let _viewportChangeHandler = null;
 export function setViewportChangeHandler(fn) { _viewportChangeHandler = fn; }
 
-export function applyTransform() {
+export function applyTransform(animate = false) {
   const container = document.getElementById('canvasContainer');
+  if (!container) return;
+  clearTimeout(container._transTimer);
+  if (animate) {
+    container.classList.add('with-transition');
+    container._transTimer = setTimeout(() => {
+      container.classList.remove('with-transition');
+    }, 350);
+  } else {
+    container.classList.remove('with-transition');
+  }
   container.style.transform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`;
   const zoomText = document.getElementById('zoomText');
   if (zoomText) zoomText.innerText = `${Math.round(viewport.scale * 100)}%`;
