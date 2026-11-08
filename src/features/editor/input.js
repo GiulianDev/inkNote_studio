@@ -19,7 +19,7 @@ import {
   detectAndSnapShape, finalizePendingShape, trySnapHighlighter
 } from './shapes.js';
 import { scheduleSave } from './autosave.js';
-import { pushHistory, resetHistory } from './history.js';
+import { pushHistory, resetHistory, flushHistory } from './history.js';
 import {
   selectStrokesInsideLasso, clearSelection,
   startResizeSelection, applyResizeSelection,
@@ -292,6 +292,14 @@ export function handlePointerDown(e, pageData) {
   if (palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
+
+  // FIX CRONOLOGIA: flush del timer di pushHistory prima di iniziare
+  // qualsiasi nuovo gesto. Senza questo, il debounce di 500ms fonde
+  // gesti rapidi consecutivi (es. stroke + scribble immediato) in un
+  // unico snapshot → undo annulla due azioni insieme.
+  // Con penna gli utenti concatenano i gesti rapidamente, quindi il
+  // bug si manifesta quasi sempre; con mouse raramente.
+  flushHistory();
 
   resetPointPool();
   invalidateStrokeRect();
