@@ -1,0 +1,88 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag/versione da usare (es. v0.1.0-dev)'
+        required: true
+        default: 'v0.1.0-dev'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Build singlefile
+        run: npm run build:singlefileoffline
+
+      - name: Verifica output
+        run: |
+          if [ ! -f "dist/index.html" ]; then
+            echo "❌ dist/index.html non trovato dopo il build"
+            ls -la dist/ || true
+            exit 1
+          fi
+          SIZE=$(stat -c%s "dist/index.html")
+          echo "✅ dist/index.html presente (${SIZE} bytes)"
+          if [ "$SIZE" -lt 50000 ]; then
+            echo "⚠️  File troppo piccolo — singlefile non attivo nel mode?"
+            exit 1
+          fi
+
+      - name: Prepara asset
+        id: prep
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          OUT="inknote-studio-${TAG}.html"
+          mkdir -p release
+          cp dist/index.html "release/${OUT}"
+          echo "tag=${TAG}"  >> $GITHUB_OUTPUT
+          echo "file=${OUT}" >> $GITHUB_OUTPUT
+          ls -la release/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: inknote-html-${{ steps.prep.outputs.tag }}
+          path: release/*.html
+          retention-days: 30
+
+      - name: Crea/aggiorna release + allega HTML
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.prep.outputs.tag }}
+          name: InkNote Studio ${{ steps.prep.outputs.tag }}
+          body: |
+            Build singlefile offline di InkNote Studio.
+
+            **Download**: `${{ steps.prep.outputs.file }}` — file HTML autonomo, apri con doppio click.
+            Per il salvataggio (IndexedDB) usa **Firefox**, oppure servilo via HTTP (es. `npx serve`).
+          files: release/*.html
+          draft: false
+          prerelease: ${{ contains(steps.prep.outputs.tag, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
