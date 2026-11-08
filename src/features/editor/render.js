@@ -605,7 +605,7 @@ export function clearOverlay(pageData) {
 export function renderPendingShapeOnOverlay(pageData) {
   if (!pageData.overlayCtx) return;
   const octx = pageData.overlayCtx;
-  const dpr = pageData.dpr || 1;
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;   // ← mod
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawPendingShape(octx, state.isDarkMode);
@@ -620,7 +620,7 @@ export function drawLassoIncrementalOnOverlay(pageData) {
   const p1 = state.lassoPath[n - 2];
   const p2 = state.lassoPath[n - 1];
   const octx = pageData.overlayCtx;
-  const dpr = pageData.dpr || 1;
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;   // ← mod
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   octx.strokeStyle = '#2563eb';
@@ -636,7 +636,7 @@ export function drawSelectionBBoxOnOverlay(pageData) {
   const visualBBox = getVisualBoundingBox();
   if (!visualBBox) return;
   const octx = pageData.overlayCtx;
-  const dpr = pageData.dpr || 1;
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;   // ← mod
   const scale = viewport.scale;
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -656,7 +656,7 @@ export function redrawSelectionOverlay(pageData) {
   if (state.selectedStrokes.length === 0) return;
   const octx = pageData.overlayCtx;
   if (octx) {
-    const dpr = pageData.dpr || 1;
+    const dpr = pageData.overlayDpr || pageData.dpr || 1;   // ← mod
     octx.save();
     octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     state.selectedStrokes.forEach(stroke => {

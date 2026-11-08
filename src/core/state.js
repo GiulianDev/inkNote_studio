@@ -22,6 +22,7 @@
  * @property {number} [startTime]  performance.now() al pointerdown
  * @property {Object} [_styleCache] Cache rendering (invalicata da cambio tema)
  * @property {number} [_pathLen]   Lunghezza cumulativa del path (cache forme)
+ * @property {number} [overlayDpr]  DPR usata per l'overlay (limitata a 2)
  */
 
 /**

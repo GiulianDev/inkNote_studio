@@ -101,11 +101,13 @@ function _processPointerPoint(rawPoint, pageData) {
     state.currentStroke._pathLen += Math.hypot(smoothedPoint.x - prev.x, smoothedPoint.y - prev.y);
   }
   if (state.scribbleMode) {
-    drawScribbleSegment(pageData.overlayCtx, state.currentStroke, pageData.dpr);
+    drawScribbleSegment(pageData.overlayCtx, state.currentStroke,
+                        pageData.overlayDpr || pageData.dpr);   // ← mod
   } else if (state.activeTool === 'highlighter') {
-    drawIncrementalSegment(pageData.ctx, state.currentStroke, pageData.dpr);
+    drawIncrementalSegment(pageData.ctx, state.currentStroke, pageData.dpr);  // main: OK invariato
   } else {
-    drawIncrementalSegment(pageData.overlayCtx, state.currentStroke, pageData.dpr);
+    drawIncrementalSegment(pageData.overlayCtx, state.currentStroke,
+                           pageData.overlayDpr || pageData.dpr);   // ← mod
   }
 }
 
@@ -394,11 +396,13 @@ export function handlePointerUp(e, pageData) {
     } else if (state.activeTool === 'highlighter') {
       drawFinalSegmentOnly(pageData, state.currentStroke);
     } else {
-      const pctx = pageData.ctx;
-      pctx.save(); pctx.setTransform(1, 0, 0, 1, 0, 0);
-      pctx.drawImage(pageData.overlayCanvas, 0, 0);
+      // Overlay è a DPR ridotta: niente drawImage, ridisegna l'intero stroke
+      // sul main. Costo O(n) una volta per stroke, compensato dai fill
+      // incrementali più leggeri durante il disegno.
+      const pctx = pageData.ctx, dpr = pageData.dpr || 1;
+      pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      renderFullStroke(pctx, state.currentStroke, state.isDarkMode);
       pctx.restore();
-      drawFinalSegmentOnly(pageData, state.currentStroke);
     }
     clearOverlay(pageData);
     scheduleSave();

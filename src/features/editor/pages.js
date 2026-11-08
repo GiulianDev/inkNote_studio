@@ -96,15 +96,22 @@ export function resizeCanvasForHDPI(pageData, dprOverride) {
   const newH = Math.floor(PAGE_HEIGHT * dpr);
   let changed = false;
   if (pageData.canvas.width !== newW || pageData.canvas.height !== newH) {
-    pageData.canvas.width = newW; pageData.canvas.height = newH; changed = true;
+    pageData.canvas.width = newW;
+    pageData.canvas.height = newH;
+    changed = true;
   }
+  // Overlay: DPR limitata a 2 (è solo anteprima temporanea)
+  const overlayDpr = Math.min(dpr, 2);
+  const oW = Math.floor(PAGE_WIDTH * overlayDpr);
+  const oH = Math.floor(PAGE_HEIGHT * overlayDpr);
   if (pageData.overlayCanvas &&
-      (pageData.overlayCanvas.width !== newW || pageData.overlayCanvas.height !== newH)) {
-    pageData.overlayCanvas.width = newW;
-    pageData.overlayCanvas.height = newH;
+      (pageData.overlayCanvas.width !== oW || pageData.overlayCanvas.height !== oH)) {
+    pageData.overlayCanvas.width = oW;
+    pageData.overlayCanvas.height = oH;
     changed = true;
   }
   pageData.dpr = dpr;
+  pageData.overlayDpr = overlayDpr;
   return changed;
 }
 
