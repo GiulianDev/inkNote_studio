@@ -61,8 +61,6 @@
 
 // ------------------------------------------------------------
 // Stato applicativo principale
-// Mutabile direttamente (no reactivity), chi muta è responsabile
-// di far seguire le conseguenze (redraw, emit, ecc.).
 // ------------------------------------------------------------
 export const state = {
   // --- Editor ---
@@ -164,10 +162,12 @@ export const viewport = {
   x: 0,
   /** @type {number} */
   y: 0,
+  // Limiti di zoom fissi (in stile GoodNotes/OneNote):
+  // 25% minimo, 200% massimo.
   /** @type {number} */
-  minScale: 0.5,
+  minScale: 0.25,
   /** @type {number} */
-  maxScale: 4.0,
+  maxScale: 2.0,
 
   /** @type {Map<number, {x:number, y:number, pointerType:string}>} */
   activePointers: new Map(),

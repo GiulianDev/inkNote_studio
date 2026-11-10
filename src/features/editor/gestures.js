@@ -3,6 +3,8 @@
 // Palm rejection: contact size + finestra post-penna + 3+ dita.
 // Scroll con inerzia + axis lock one-shot (solo scroll verticale
 // riconosciuto all'inizio del gesto).
+// Clamp rigoroso: il foglio non esce mai dai bordi del viewport.
+// Pull-to-add-page: overscroll virtuale (clampY < 0 al fondo).
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -10,11 +12,13 @@ import { PULL_THRESHOLD, showToast } from '../../core/utils.js';
 import { getScrollSensitivity } from '../../services/preferences.js';
 import { abortCurrentDrawing } from './input.js';
 import { addNewPage, scheduleResolutionRefresh } from './pages.js';
-import { applyTransform, applyPinchTransform } from './transform.js';
+import {
+  applyTransform, applyPinchTransform,
+  clampViewport, invalidateClampCache
+} from './transform.js';
 
-// Margine minimo di contenuto sempre visibile durante il pan.
-const MIN_VISIBLE = 150;
-// Fattore di resistenza elastica oltre il bordo.
+// Fattore di resistenza elastica: non più usato (clamp rigoroso),
+// lasciato per compatibilità con eventuali richiami esterni.
 const ELASTIC_FACTOR = 0.25;
 
 // ------------------------------------------------------------
@@ -61,11 +65,9 @@ const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 let _lastPenActivityTime = 0;
 let _panStartTime = 0;
 
-// Stato scroll
-let _scrollDecisionMade = false;   // true quando la finestra di decisione è scaduta (o è stato deciso scroll)
-let _scrollAxisLocked = false;     // true se è stato riconosciuto come scroll verticale
+let _scrollDecisionMade = false;
+let _scrollAxisLocked = false;
 
-// Stato momentum
 let _momentumRaf = null;
 let _momentumVelX = 0;
 let _momentumVelY = 0;
@@ -170,7 +172,7 @@ function _momentumStep(now) {
   if (Math.abs(_momentumVelX) < MOMENTUM_STOP_VELOCITY &&
       Math.abs(_momentumVelY) < MOMENTUM_STOP_VELOCITY) {
     _cancelMomentum();
-    const c = _clampXY(viewport.x, viewport.y, false);
+    const c = clampViewport(viewport.x, viewport.y);
     if (c.x !== viewport.x || c.y !== viewport.y) {
       viewport.x = c.x;
       viewport.y = c.y;
@@ -183,7 +185,7 @@ function _momentumStep(now) {
   viewport.x += _momentumVelX * dt;
   viewport.y += _momentumVelY * dt;
 
-  const c = _clampXY(viewport.x, viewport.y, true);
+  const c = clampViewport(viewport.x, viewport.y);
   if (c.x !== viewport.x) _momentumVelX = 0;
   if (c.y !== viewport.y) _momentumVelY = 0;
   viewport.x = c.x;
@@ -191,47 +193,6 @@ function _momentumStep(now) {
   applyTransform();
 
   _momentumRaf = requestAnimationFrame(_momentumStep);
-}
-
-// ------------------------------------------------------------
-// CLAMP BOUNDS
-// ------------------------------------------------------------
-
-let _clampCache = null;
-export function invalidateClampCache() { _clampCache = null; }
-
-function _computeClampBounds() {
-  const cacheKey = `${viewport.scale}|${state.pages.length}|${window.innerWidth}|${window.innerHeight}`;
-  if (_clampCache && _clampCache.key === cacheKey) return _clampCache.bounds;
-
-  const vpEl = document.getElementById('viewport');
-  const container = document.getElementById('canvasContainer');
-  if (!vpEl || !container) return null;
-  const vw = vpEl.clientWidth;
-  const vh = vpEl.clientHeight;
-  const contentW = container.offsetWidth * viewport.scale;
-  const contentH = container.offsetHeight * viewport.scale;
-  if (contentW <= 0 || contentH <= 0) return null;
-  const m = Math.min(MIN_VISIBLE, contentW * 0.3, contentH * 0.3);
-  const bounds = {
-    minX: m - contentW,
-    maxX: vw - m,
-    minY: m - contentH,
-    maxY: vh - m
-  };
-  _clampCache = { key: cacheKey, bounds };
-  return bounds;
-}
-
-function _clampXY(rawX, rawY, elastic) {
-  const b = _computeClampBounds();
-  if (!b) return { x: rawX, y: rawY };
-  let x = rawX, y = rawY;
-  if (x > b.maxX) x = elastic ? b.maxX + (x - b.maxX) * ELASTIC_FACTOR : b.maxX;
-  else if (x < b.minX) x = elastic ? b.minX + (x - b.minX) * ELASTIC_FACTOR : b.minX;
-  if (y > b.maxY) y = elastic ? b.maxY + (y - b.maxY) * ELASTIC_FACTOR : b.maxY;
-  else if (y < b.minY) y = elastic ? b.minY + (y - b.minY) * ELASTIC_FACTOR : b.minY;
-  return { x, y };
 }
 
 // ------------------------------------------------------------
@@ -352,7 +313,7 @@ export function setupViewportGestures() {
       e.preventDefault();
       _pushVelocitySample(e.clientX, e.clientY);
 
-      // ---- Finestra di decisione (one-shot) ----
+      // ---- Finestra di decisione scroll (one-shot) ----
       if (!_scrollDecisionMade) {
         const { vx, vy } = _computeFlingVelocity();
         const speed = Math.hypot(vx, vy);
@@ -362,28 +323,23 @@ export function setupViewportGestures() {
         if (speed >= SCROLL_ENTER_SPEED &&
             absVy > absVx * SCROLL_AXIS_DOMINANCE &&
             absVx < SCROLL_MAX_CROSS_SPEED) {
-          // Scroll verticale riconosciuto: attiva lock e congela X
           _scrollAxisLocked = true;
           _scrollDecisionMade = true;
-          // Congela X nel punto attuale: da ora in poi la componente
-          // orizzontale del dito viene ignorata
           viewport.panStartTransform.x = viewport.x;
           viewport.panStart.x = e.clientX;
         } else {
-          // Verifica se la finestra di decisione è scaduta
           const elapsed = performance.now() - _panStartTime;
           const dist = Math.hypot(
             e.clientX - viewport.panStart.x,
             e.clientY - viewport.panStart.y
           );
           if (elapsed > SCROLL_DECISION_WINDOW_MS || dist > SCROLL_DECISION_WINDOW_PX) {
-            // Decisione presa: pan libero per il resto del gesto
             _scrollDecisionMade = true;
           }
         }
       }
 
-      // ---- Applica la trasformazione ----
+      // ---- Applica la trasformazione + clamp ----
       const dx = e.clientX - viewport.panStart.x;
       const dy = e.clientY - viewport.panStart.y;
       const effectiveDx = _scrollAxisLocked ? 0 : dx;
@@ -391,17 +347,25 @@ export function setupViewportGestures() {
 
       const rawX = viewport.panStartTransform.x + effectiveDx;
       const rawY = viewport.panStartTransform.y + effectiveDy;
-      const c = _clampXY(rawX, rawY, true);
+      const c = clampViewport(rawX, rawY);
       viewport.x = c.x;
       viewport.y = c.y;
       applyTransform();
 
-      const container = document.getElementById('canvasContainer');
-      const bottomBoundary = viewportEl.clientHeight - (viewport.y + container.getBoundingClientRect().height);
-      if (bottomBoundary > 0 && dy < 0) {
-        state.pullOverscrollY = bottomBoundary;
-        showPullIndicator(state.pullOverscrollY >= PULL_THRESHOLD);
-      } else hidePullIndicator();
+      // ---- Pull-to-add-page (overscroll virtuale) ----
+      // Caso 1: contenuto più alto del viewport → clampY < 0 significa
+      //         che l'utente sta spingendo oltre il fondo.
+      // Caso 2: contenuto più corto del viewport → uso dy diretto
+      //         (contenuto centrato, ogni push verso l'alto è "oltre").
+      let pullY = 0;
+      if (c.bounds && c.bounds.minY !== c.bounds.maxY) {
+        if (c.clampY < 0) pullY = -c.clampY;
+      } else {
+        if (dy < 0) pullY = -dy;
+      }
+      state.pullOverscrollY = pullY;
+      showPullIndicator(pullY >= PULL_THRESHOLD);
+
     } else if (viewport.isPinching && viewport.activePointers.size === 2) {
       e.preventDefault();
       const pts = Array.from(viewport.activePointers.values());
@@ -443,18 +407,23 @@ export function setupViewportGestures() {
       viewport.isPanning = false;
       viewport.isPinching = false;
 
+      if (shouldAddPage) {
+        addNewPage();
+        showToast('Nuova pagina aggiunta!', '➕');
+        _resetVelocitySamples();
+        _scrollAxisLocked = false;
+        _scrollDecisionMade = false;
+        return;
+      }
+
       if (wasPanning) {
         const { vx, vy } = _computeFlingVelocity();
         const speed = Math.hypot(vx, vy);
 
-        if (!shouldAddPage && speed >= MOMENTUM_MIN_FLING_VELOCITY) {
+        if (speed >= MOMENTUM_MIN_FLING_VELOCITY) {
           _startMomentum(vx, vy);
         } else {
-          if (shouldAddPage) {
-            addNewPage();
-            showToast('Nuova pagina aggiunta!', '➕');
-          }
-          const c = _clampXY(viewport.x, viewport.y, false);
+          const c = clampViewport(viewport.x, viewport.y);
           if (c.x !== viewport.x || c.y !== viewport.y) {
             viewport.x = c.x;
             viewport.y = c.y;
@@ -463,10 +432,6 @@ export function setupViewportGestures() {
           scheduleResolutionRefresh();
         }
       } else {
-        if (shouldAddPage) {
-          addNewPage();
-          showToast('Nuova pagina aggiunta!', '➕');
-        }
         scheduleResolutionRefresh();
       }
       _resetVelocitySamples();
@@ -503,7 +468,7 @@ export function setupViewportGestures() {
     } else {
       viewport.x -= e.deltaX;
       viewport.y -= e.deltaY;
-      const c = _clampXY(viewport.x, viewport.y, false);
+      const c = clampViewport(viewport.x, viewport.y);
       viewport.x = c.x;
       viewport.y = c.y;
       applyTransform();
