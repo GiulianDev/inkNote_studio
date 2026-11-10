@@ -259,8 +259,17 @@ function _runPostBatchChecks(pageData) {
   checkForScribble(pageData);
   if (!state.currentStroke || !state.isDrawing) return;
   if (state.pendingShape) return;
+  // Fix C: trySnapToLineDuringDraw è O(n) sul numero di punti dello
+  // stroke corrente (validateLineShape fa RMS + sign changes su tutti
+  // i punti). Se l'utente scrive un tratto lungo 500+ punti senza
+  // staccare la penna, la check diventa pesante ad ogni batch.
+  // Limite: dopo 200 punti, se non è ancora scattato lo snap, non
+  // scatterà più (o è già in pendingShape, o non è una linea).
+  // Il limite non cambia il comportamento visivo: le linee rette
+  // vengono riconosciute entro i primi 100-150 punti.
   if (!state.scribbleMode && state.autoShapeEnabled &&
-      SHAPE_CAPABLE_TOOLS.includes(state.activeTool) && pts.length >= 6) {
+      SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
+      pts.length >= 6 && pts.length < 200) {
     trySnapToLineDuringDraw(pageData, pts[pts.length - 1]);
   }
 }

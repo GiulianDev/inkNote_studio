@@ -1,5 +1,7 @@
 // ============================================================
 // PAGINE: createNewPageDOM, addNewPage, resize, resolution
+// - Fix B: nessun redraw delle pagine invisibili
+// - Fix D: throttle aggiornamento pagina attiva a 100ms
 // ============================================================
 
 import { ensurePredictionCanvas } from './prediction.js';
@@ -20,7 +22,6 @@ const MAX_ZOOM_DPR_BOOST = 1.3;
 const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 1.5);
 
 let _resolutionRefreshTimer = null;
-let _activePageRaf = null;
 
 let _viewportResizeObserver = null;
 let _lastVpW = 0;
@@ -155,10 +156,21 @@ export function getMostCenteredPage() {
   return bestPage;
 }
 
+// Fix D: throttle a 100ms. Prima questa funzione scattava ad ogni
+// frame (60fps) via requestAnimationFrame, e ogni chiamata eseguiva
+// getMostCenteredPage() che itera su TUTTE le pagine chiamando
+// getBoundingClientRect() (forza layout). Con 100 pagine = 6000
+// reflow/s durante lo scroll.
+//
+// Il "cambio pagina attiva" non è time-critical: 10 chiamate/s sono
+// più che sufficienti e riducono di 6× il costo.
+let _activePageCheckTimer = null;
+const ACTIVE_PAGE_CHECK_INTERVAL = 100;
+
 export function updateActivePageFromViewport() {
-  if (_activePageRaf !== null) return;
-  _activePageRaf = requestAnimationFrame(() => {
-    _activePageRaf = null;
+  if (_activePageCheckTimer !== null) return;
+  _activePageCheckTimer = setTimeout(() => {
+    _activePageCheckTimer = null;
     const page = getMostCenteredPage();
     if (!page || page.index === state.activePageIndex) return;
     if (state.selectedStrokes.length > 0) {
@@ -167,7 +179,7 @@ export function updateActivePageFromViewport() {
     state.activePageIndex = page.index;
     updatePageCounterUI();
     resetHistory();
-  });
+  }, ACTIVE_PAGE_CHECK_INTERVAL);
 }
 
 function getCurrentRenderDpr(pageData) {
@@ -211,20 +223,39 @@ export function resizeCanvasForHDPI(pageData, dprOverride) {
   return changed;
 }
 
+// Fix B: nessun redraw delle pagine invisibili.
+// Prima il codice faceva resizeCanvasForHDPI (che cancella il
+// contenuto del canvas) + redrawPageCanvas completo OGNI volta
+// che una pagina usciva dallo schermo. Con molte pagine piene,
+// scrollare di una pagina causava il ridisegno completo di due
+// pagine (quella che esce + quella che entra), ognuna con 500+
+// stroke → lag evidente.
+//
+// Ora: se la pagina è invisibile, marchiamo _wasVisible = false
+// e non facciamo niente. Quando torna visibile, il branch
+// "!wasVisible" qui sotto si occupa di ridisegnarla al DPR
+// corretto.
 export function refreshCanvasResolution(force = false) {
   state.pages.forEach(p => {
     const visible = isPageVisible(p);
+
+    if (!visible) {
+      p._wasVisible = false;
+      return;
+    }
+
     const targetDpr = getCurrentRenderDpr(p);
     const dprChanged = Math.abs((p.dpr || 1) - targetDpr) > 0.01;
-    const visibilityChanged = p._wasVisible !== visible;
-    if (force || dprChanged || visibilityChanged) {
+    const wasVisible = p._wasVisible !== false;
+
+    if (force || dprChanged || !wasVisible) {
       resizeCanvasForHDPI(p, targetDpr);
       redrawPageCanvas(p);
       if (p.index === state.activePageIndex && state.selectedStrokes.length > 0) {
         redrawSelectionOverlay(p);
       }
-      p._wasVisible = visible;
     }
+    p._wasVisible = true;
   });
 }
 

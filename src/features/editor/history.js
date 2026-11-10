@@ -2,13 +2,20 @@
 // UNDO/REDO: snapshot per-pagina, debounced 500ms
 // - Fix 2: forzatura snapshot ogni 3s di scrittura continua
 // - Fix 3: clone manuale degli stroke (2-3x più veloce di structuredClone)
+// - Fix 4: maxSteps 20 (bilanciamento memoria/undo disponibili)
 // ============================================================
 
 import { state } from '../../core/state.js';
 import { emit } from '../../core/utils.js';
 import { scheduleSave } from './autosave.js';
 
-const historyState = { stack: [], index: -1, maxSteps: 50, isRestoring: false };
+// Fix 4: maxSteps 20.
+// Memoria stimata: 20 snapshot × ~500 stroke × 100 punti × ~32 byte
+// ≈ 32 MB. Riduce la pressione sul GC rispetto ai 50 originali
+// (~80 MB) mantenendo 20 undo disponibili, più che sufficienti
+// per l'uso tipico. Se servono più undo, alzare questo valore
+// comporta un costo lineare in memoria.
+const historyState = { stack: [], index: -1, maxSteps: 20, isRestoring: false };
 let _pushHistoryTimer = null;
 let _lastSnapshotTime = 0;
 
