@@ -466,6 +466,118 @@ export function drawIncrementalSegment(ctx, stroke, dpr = 1) {
   ctx.restore();
 }
 
+// ------------------------------------------------------------
+// Batch di segmenti incrementali su un unico path.
+// Riduce N chiamate a drawIncrementalSegment (1 per punto) a
+// 2 fill() per batch (poligoni + cerchi ai giunti).
+// fromIdx = indice dell'ultimo punto già disegnato sul target;
+// i segmenti da pts[fromIdx-1]→pts[fromIdx] fino a
+// pts[n-2]→pts[n-1] vengono tutti accumulati in un solo path.
+// ------------------------------------------------------------
+export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
+  const pts = stroke.points;
+  const n = pts.length;
+  if (n < 2) return;
+  const firstSegEnd = Math.max(fromIdx || 0, 1);
+  if (firstSegEnd >= n) return;
+
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  setupStrokeStyle(ctx, stroke, state.isDarkMode);
+
+  const smoothness = state.smoothing;
+  const baseSize = sliderToBaseSize(stroke.size);
+  const unified = canUnifyFillIncremental(stroke.tool);
+
+  if (unified) {
+    // Path 1: tutti i poligoni dei segmenti
+    ctx.beginPath();
+    for (let i = firstSegEnd; i < n; i++) {
+      const p0 = pts[i >= 2 ? i - 2 : 0];
+      const p1 = pts[i - 1];
+      const p2 = pts[i];
+      const p3 = pts[i + 1 < n ? i + 1 : n - 1];
+      const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
+        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
+      const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
+        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
+      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
+      const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
+      for (let s = 0; s < steps; s++) {
+        const t0 = s / steps, t1 = (s + 1) / steps;
+        interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
+        interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
+        addTaperedSegmentPolygon(ctx, _ptA, _ptB,
+          w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
+      }
+    }
+    ctx.fill();
+
+    // Path 2: tutti i cerchi ai giunti
+    ctx.beginPath();
+    for (let i = firstSegEnd; i < n; i++) {
+      const p0 = pts[i >= 2 ? i - 2 : 0];
+      const p1 = pts[i - 1];
+      const p2 = pts[i];
+      const p3 = pts[i + 1 < n ? i + 1 : n - 1];
+      const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
+        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
+      const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
+        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
+      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
+      const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
+      for (let s = 0; s < steps; s++) {
+        const t0 = s / steps;
+        interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
+        addTaperedSegmentCircle(ctx, _ptA, w1 + (w2 - w1) * t0);
+      }
+    }
+    ctx.fill();
+
+    // Tip finale senza taper (solo con smoothness=0, fedeltà al comportamento originale)
+    if (smoothness <= 0.01 && n >= 2) {
+      const tipP1 = pts[n - 2], tipP2 = pts[n - 1];
+      const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure,
+        getTiltNorm(tipP1), getSpeedNorm(tipP1), 1.0, baseSize);
+      const tipW2 = computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure,
+        getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize);
+      ctx.beginPath();
+      addTaperedSegmentPolygon(ctx, tipP1, tipP2, tipW1, tipW2);
+      ctx.fill();
+      ctx.beginPath();
+      addTaperedSegmentCircle(ctx, tipP1, tipW1);
+      ctx.fill();
+    }
+  } else {
+    // Ramo non-unified (per ora non usato dai tool in overlay, ma
+    // mantenuto per simmetria con drawIncrementalSegment)
+    for (let i = firstSegEnd; i < n; i++) {
+      const p0 = pts[i >= 2 ? i - 2 : 0];
+      const p1 = pts[i - 1];
+      const p2 = pts[i];
+      const p3 = pts[i + 1 < n ? i + 1 : n - 1];
+      const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
+        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
+      const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
+        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
+      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
+      const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
+      for (let s = 0; s < steps; s++) {
+        const t0 = s / steps, t1 = (s + 1) / steps;
+        interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
+        interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
+        drawTaperedSegment(ctx, _ptA, _ptB,
+          w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
+      }
+    }
+  }
+
+  ctx.restore();
+}
+
 export function drawScribbleSegment(ctx, stroke, dpr = 1) {
   const pts = stroke.points;
   const n = pts.length;

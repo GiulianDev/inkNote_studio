@@ -7,8 +7,8 @@ import { invalidateStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
-  drawIncrementalSegment, drawScribbleSegment, clearOverlay,
-  redrawPageCanvas, redrawSelectionOverlay,
+  drawIncrementalSegment, drawIncrementalBatch, drawScribbleSegment,
+  clearOverlay, redrawPageCanvas, redrawSelectionOverlay,
   renderPendingShapeOnOverlay, drawLassoIncrementalOnOverlay,
   drawFinalSegmentOnly, drawDotOnly, renderFullStroke,
   getVisualBoundingBox, hitTestHandle, isPointInBBox
@@ -242,14 +242,12 @@ function _processPointerPoint(rawPoint, pageData) {
     const prev = state.currentStroke.points[state.currentStroke.points.length - 2];
     state.currentStroke._pathLen += Math.hypot(smoothedPoint.x - prev.x, smoothedPoint.y - prev.y);
   }
+  // Il disegno incrementale avviene in blocco a fine batch (drawIncrementalBatch).
+  // Fa eccezione lo scribble-to-erase: usa un path separato sull'overlay,
+  // cambia stile (rosso) e va disegnato per-punto.
   if (state.scribbleMode) {
     drawScribbleSegment(pageData.overlayCtx, state.currentStroke,
                         pageData.overlayDpr || pageData.dpr);
-  } else if (state.activeTool === 'highlighter') {
-    drawIncrementalSegment(pageData.ctx, state.currentStroke, pageData.dpr);
-  } else {
-    drawIncrementalSegment(pageData.overlayCtx, state.currentStroke,
-                           pageData.overlayDpr || pageData.dpr);
   }
 }
 
@@ -288,11 +286,25 @@ function _doFlush() {
     if (!state.currentStroke || !state.isDrawing) return;
     if (state.pendingShape) return;
     clearPredictions(pageData);
+
+    const drawnIdx = state.currentStroke._drawnIdx || 0;
+
     for (const rawPoint of batch) {
       if (state.pendingShape) break;
       if (!state.currentStroke || !state.isDrawing) break;
       _processPointerPoint(rawPoint, pageData);
     }
+
+    // Batch draw: un unico disegno per tutti i punti del batch
+    if (state.currentStroke && state.isDrawing &&
+        !state.pendingShape && !state.scribbleMode) {
+      const isHL = state.currentStroke.tool === 'highlighter';
+      const targetCtx = isHL ? pageData.ctx : pageData.overlayCtx;
+      const dpr = isHL ? pageData.dpr : (pageData.overlayDpr || pageData.dpr);
+      drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+      state.currentStroke._drawnIdx = state.currentStroke.points.length;
+    }
+
     _runPostBatchChecks(pageData);
   } finally {
     resetPointPool();
@@ -315,11 +327,24 @@ function _forceFlushNow(pageData) {
     if (!pageData || batch.length === 0) return;
     if (!state.currentStroke || !state.isDrawing) return;
     if (state.pendingShape) return;
+
+    const drawnIdx = state.currentStroke._drawnIdx || 0;
+
     for (const rawPoint of batch) {
       if (state.pendingShape) break;
       if (!state.currentStroke || !state.isDrawing) break;
       _processPointerPoint(rawPoint, pageData);
     }
+
+    if (state.currentStroke && state.isDrawing &&
+        !state.pendingShape && !state.scribbleMode) {
+      const isHL = state.currentStroke.tool === 'highlighter';
+      const targetCtx = isHL ? pageData.ctx : pageData.overlayCtx;
+      const dpr = isHL ? pageData.dpr : (pageData.overlayDpr || pageData.dpr);
+      drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+      state.currentStroke._drawnIdx = state.currentStroke.points.length;
+    }
+
     if (!state.currentStroke || !state.isDrawing) return;
     checkForScribble(pageData);
   } finally {
@@ -445,6 +470,7 @@ export function handlePointerDown(e, pageData) {
   state.currentStroke = {
     tool: state.activeTool, color: state.currentColor, size: state.strokeWidth,
     startTime: performance.now(),
+    _drawnIdx: 0,
     points: [{
       x: point.x, y: point.y, pressure: point.pressure,
       tiltX: point.tiltX, tiltY: point.tiltY, speed: 0, pointerType: point.pointerType
