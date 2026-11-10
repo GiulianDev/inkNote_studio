@@ -1,7 +1,6 @@
 // ============================================================
 // PAN / PINCH / WHEEL / PULL-TO-ADD-PAGE
-// Con palm rejection multi-livello (contact size + pen hover
-// + blocco a 3+ dita).
+// Palm rejection: contact size + finestra post-penna + 3+ dita.
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -20,30 +19,28 @@ const ELASTIC_FACTOR = 0.25;
 // ------------------------------------------------------------
 // Soglia contact size (px CSS): un dito è ~10-20, un palmo 40-80+.
 const PALM_CONTACT_SIZE = 40;
-// Finestra dopo l'ultimo evento penna in cui i touch restano bloccati.
-// Copre hardware senza hover persistente e micro-ritardi del driver.
-const PEN_ACTIVITY_WINDOW_MS = 1200;
+// Finestra dopo l'ultima SCRITTURA (penna che tocca) in cui i touch
+// restano bloccati. L'hover NON aggiorna questo timer.
+const PEN_ACTIVITY_WINDOW_MS = 500;
 // Se la penna arriva entro questa finestra dall'inizio di un pan da
 // palmo, il pan viene annullato e la vista torna alla posizione
-// pre-pan. Oltre questa soglia il pan si presume volontario e viene
-// lasciato (la penna scrive dove ha toccato).
+// pre-pan. Oltre, si presume un pan volontario e lo si lascia.
 const PALM_PAN_CANCEL_WINDOW_MS = 400;
 
-let _penHovering = false;
 let _lastPenActivityTime = 0;
 let _panStartTime = 0;
+
+function _isPenEvent(e) {
+  return e.pointerType === 'pen' || e.pointerType === 'eraser';
+}
 
 function _isPalmContact(e) {
   return (e.width || 0) > PALM_CONTACT_SIZE || (e.height || 0) > PALM_CONTACT_SIZE;
 }
 
 function _isPenBlockingTouches() {
-  if (_penHovering) return true;
+  if (_lastPenActivityTime === 0) return false;
   return (performance.now() - _lastPenActivityTime) < PEN_ACTIVITY_WINDOW_MS;
-}
-
-function _isPenEvent(e) {
-  return e.pointerType === 'pen' || e.pointerType === 'eraser';
 }
 
 // Cache bounds per evitare reflow ad ogni pointermove durante il pan.
@@ -90,44 +87,17 @@ export function setupViewportGestures() {
   window.addEventListener('resize', invalidateClampCache);
 
   // ----------------------------------------------------------
-  // Tracking penna (hover / down / move / up / leave)
-  // Registrato PRIMA dei gesture handler (capture phase) così
-  // _penHovering / _lastPenActivityTime sono aggiornati in tempo.
+  // Tracking penna
+  // Aggiorna _lastPenActivityTime SOLO quando la penna tocca il
+  // vetro (buttons > 0). L'hover non conta.
   // ----------------------------------------------------------
   viewportEl.addEventListener('pointerdown', (e) => {
-    if (_isPenEvent(e)) {
-      _lastPenActivityTime = performance.now();
-      _penHovering = false;
-    }
+    if (_isPenEvent(e)) _lastPenActivityTime = performance.now();
   }, { capture: true, passive: true });
 
   viewportEl.addEventListener('pointermove', (e) => {
-    if (_isPenEvent(e)) {
+    if (_isPenEvent(e) && e.buttons > 0) {
       _lastPenActivityTime = performance.now();
-      // buttons === 0 durante pointermove = hover (non tocca il vetro)
-      _penHovering = (e.buttons === 0);
-    }
-  }, { capture: true, passive: true });
-
-  viewportEl.addEventListener('pointerup', (e) => {
-    if (_isPenEvent(e)) {
-      _lastPenActivityTime = performance.now();
-      // dopo il rilascio, se la penna resta in hover il prossimo
-      // pointermove rimetterà _penHovering = true
-    }
-  }, { capture: true, passive: true });
-
-  viewportEl.addEventListener('pointerleave', (e) => {
-    if (_isPenEvent(e)) {
-      _lastPenActivityTime = performance.now();
-      _penHovering = false;
-    }
-  }, { capture: true, passive: true });
-
-  viewportEl.addEventListener('pointercancel', (e) => {
-    if (_isPenEvent(e)) {
-      _lastPenActivityTime = performance.now();
-      _penHovering = false;
     }
   }, { capture: true, passive: true });
 
@@ -136,10 +106,9 @@ export function setupViewportGestures() {
   // ----------------------------------------------------------
   const onPointerDown = (e) => {
     // ---- PENNA ----
-    // Non partecipa mai al tracking gesture. Se c'era un pan da
-    // palmo in corso, lo annulla e ripristina la posizione.
+    // La penna non partecipa mai al tracking gesture.
     if (_isPenEvent(e)) {
-      // Rimuovi ogni touch eventualmente in corso (era il palmo)
+      // Rimuovi eventuali touch tracciati (erano il palmo)
       for (const [id, ptr] of [...viewport.activePointers]) {
         if (ptr.pointerType !== 'pen' && ptr.pointerType !== 'eraser') {
           viewport.activePointers.delete(id);
@@ -151,8 +120,6 @@ export function setupViewportGestures() {
         const panDuration = performance.now() - _panStartTime;
         if (viewport.panStartTransform && panDuration < PALM_PAN_CANCEL_WINDOW_MS) {
           // Pan appena iniziato: quasi certamente causato dal palmo.
-          // Torna alla posizione pre-pan, no animazione (la penna deve
-          // scrivere subito, senza coordinate intermedie).
           viewport.x = viewport.panStartTransform.x;
           viewport.y = viewport.panStartTransform.y;
           applyTransform(false);
@@ -169,10 +136,8 @@ export function setupViewportGestures() {
     // ---- TOCCO ----
     const palmCheck = document.getElementById('palmRejectionCheck').checked;
     if (palmCheck) {
-      // Penna in hover (o appena usata) → touch è palmo
-      if (_isPenBlockingTouches()) return;
-      // Contatto troppo largo → palmo
-      if (_isPalmContact(e)) return;
+      if (_isPenBlockingTouches()) return;   // penna attiva di recente
+      if (_isPalmContact(e)) return;         // contatto troppo largo
     }
 
     viewport.activePointers.set(e.pointerId, {
@@ -270,7 +235,7 @@ export function setupViewportGestures() {
   // POINTER END
   // ----------------------------------------------------------
   const onPointerEnd = (e) => {
-    // Penna: mai gestita qui
+    // Penna: mai gestita qui (il suo pointerup è gestito da input.js)
     if (_isPenEvent(e)) return;
 
     const wasPanning = viewport.isPanning;
