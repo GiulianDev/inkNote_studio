@@ -16,7 +16,8 @@ import {
 import { checkForScribble, finalizeScribble } from './scribble.js';
 import {
   trySnapToLine, trySnapToLineDuringDraw,
-  detectAndSnapShape, finalizePendingShape, trySnapHighlighter
+  detectAndSnapShape, finalizePendingShape, trySnapHighlighter,
+  applyAngleSnap
 } from './shapes.js';
 import { scheduleSave } from './autosave.js';
 import { pushHistory, resetHistory, flushHistory } from './history.js';
@@ -31,9 +32,6 @@ import { getEraserRadius } from './toolbar.js';
 const MAX_BATCH_POINTS = 16;
 const _useRawPointerUpdate = typeof window !== 'undefined' && 'onpointerrawupdate' in window;
 
-// Riconosce il tasto eraser della penna (Surface Pen, Wacom, ecc.).
-// Su Windows/Chromium: pointerType 'pen' + button 5 / buttons bit 32.
-// Su alcuni browser: pointerType 'eraser'.
 function isPenEraser(e) {
   if (!e) return false;
   if (e.pointerType === 'eraser') return true;
@@ -44,7 +42,6 @@ function isPenEraser(e) {
 
 const _flushState = { points: [], rafId: null, pageData: null };
 
-// --- Priorità 4+8: cache rect + pool oggetti ---
 let _strokeRect = null;
 let _strokeRectScale = 0;
 let _strokeRectX = 0;
@@ -52,20 +49,12 @@ let _strokeRectY = 0;
 const _pointPool = [];
 let _pointPoolIdx = 0;
 
-// --- Drag selezione: delta cumulativo per clipping pagina ---
 let _dragStartPoint = null;
 let _dragStartBBox = null;
 let _dragAccX = 0;
 let _dragAccY = 0;
 
-// Traccia se il gesto corrente è stato un eraser (dock o penna).
-// Consente di consolidare l'intero gesto in UN SOLO step di history
-// a pointerup, indipendentemente dal numero di move intermedi.
 let _gestureUsedEraser = false;
-
-// Traccia se l'ULTIMA gesture conclusa era un eraser. Serve a distinguere
-// micro-down/up spuri del driver Windows Ink durante una singola gesture
-// continua (che altrimenti creerebbero più step di history).
 let _lastGestureWasEraser = false;
 
 function resetPointPool() { _pointPoolIdx = 0; }
@@ -76,10 +65,6 @@ function invalidateStrokeRect() {
   _strokeRectY = 0;
 }
 
-// ------------------------------------------------------------
-// Cursore gomma: cerchio che mostra l'area di cancellazione.
-// Elemento DOM (non canvas) per zero costo di rendering.
-// ------------------------------------------------------------
 let _eraserCursorEl = null;
 let _eraserCursorRaf = null;
 let _eraserCursorLastX = 0;
@@ -105,7 +90,6 @@ function _applyEraserCursorFrame() {
   const pageData = _eraserCursorPageData;
   if (!el || !pageData) return;
 
-  // Riusa la cache rect di getCanvasCoords se valida, altrimenti ricalcola.
   let rect = _strokeRect;
   if (!rect ||
       _strokeRectScale !== viewport.scale ||
@@ -120,8 +104,6 @@ function _applyEraserCursorFrame() {
 
   const radiusCanvas = getEraserRadius();
   const radiusScreen = radiusCanvas * (rect.width / PAGE_WIDTH);
-  // Diametro visivo = 2 × raggio. Nessun minimo forzato: deve mostrare la
-  // vera area di cancellazione. Solo un floor 3px per evitare che sparisca.
   const diameter = Math.max(3, radiusScreen * 2);
 
   el.style.width = `${diameter}px`;
@@ -235,11 +217,8 @@ export function attachPointerListeners(pageData) {
   canvas.addEventListener('pointerup', (e) => handlePointerUp(e, pageData));
   canvas.addEventListener('pointercancel', (e) => handlePointerUp(e, pageData));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  // Nasconde il cursore gomma quando la penna esce dal canvas
   canvas.addEventListener('pointerleave', () => { hideEraserCursor(); });
 }
-
-// --- batch pipeline ---
 
 function _processPointerPoint(rawPoint, pageData) {
   if (state.pendingShape) return;
@@ -348,16 +327,11 @@ function _forceFlushNow(pageData) {
   }
 }
 
-// --- abort ---
-
 export function abortCurrentDrawing() {
   if (state.pendingShape) finalizePendingShape();
   hideEraserCursor();
   _cancelFlush();
   if (state.isDrawing || state.currentStroke) {
-    // FIX CRONOLOGIA: se c'era un eraser in corso, pusha prima di
-    // resettare, altrimenti le cancellazioni fatte fino a qui non
-    // sarebbero annullabili con undo (es. pinch durante erase).
     if (_gestureUsedEraser) {
       pushHistory();
     }
@@ -386,12 +360,9 @@ export function abortCurrentDrawing() {
   invalidateStrokeRect();
 }
 
-// --- pointer handlers ---
-
 export function handlePointerDown(e, pageData) {
   const penEraser = isPenEraser(e);
 
-  // Cursore gomma: mostra subito (copre il caso "tap senza hover precedente")
   if (penEraser || state.activeTool === 'eraser') {
     updateEraserCursor(e, pageData);
   } else {
@@ -404,13 +375,6 @@ export function handlePointerDown(e, pageData) {
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
 
-  // FIX CRONOLOGIA: flush del timer di pushHistory prima di iniziare
-  // qualsiasi nuovo gesto. MA: se questo gesto è un eraser e anche
-  // l'ultimo era un eraser, non flushiamo. Il driver Windows Ink può
-  // mandare micro-down/up spuri durante un eraser continuo: senza
-  // questa eccezione, ogni micro-gesto creerebbe uno step separato.
-  // Lasciando attivo il debounce di pushHistory, i micro-gesti si
-  // fondono in un unico step.
   const isEraserGesture = penEraser || state.activeTool === 'eraser';
   if (!(isEraserGesture && _lastGestureWasEraser)) {
     flushHistory();
@@ -420,9 +384,6 @@ export function handlePointerDown(e, pageData) {
   resetPointPool();
   invalidateStrokeRect();
 
-  // BUG FIX: se stiamo cambiando pagina con una selezione attiva,
-  // consolidiamo la selezione sulla pagina precedente (main canvas)
-  // PRIMA di cambiare activePageIndex.
   const pageChanged = state.activePageIndex !== pageData.index;
   if (pageChanged && state.selectedStrokes.length > 0) {
     clearSelection();
@@ -492,8 +453,6 @@ export function handlePointerDown(e, pageData) {
 }
 
 export function handlePointerMove(e, pageData) {
-  // Cursore gomma: aggiorna SEMPRE prima delle guardie, così funziona
-  // anche con penna in hover (non tocca ancora il foglio) e con mouse.
   if (_shouldShowEraserCursor(e)) {
     updateEraserCursor(e, pageData);
   } else {
@@ -514,8 +473,17 @@ export function handlePointerMove(e, pageData) {
   if (state.pendingShape) {
     const rawPoint = getCanvasCoords(e, pageData.canvas);
     const ps = state.pendingShape;
-    if (ps.activeHandle === 'end') ps.end = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
-    else ps.start = { x: rawPoint.x, y: rawPoint.y, pressure: 0.5 };
+    if (ps.activeHandle === 'end') {
+      const snapRes = applyAngleSnap(ps.start, rawPoint, ps._snapAxis, ps._snapRejected);
+      ps.end = { x: snapRes.x, y: snapRes.y, pressure: 0.5 };
+      ps._snapAxis = snapRes.axis;
+      ps._snapRejected = snapRes.rejected;
+    } else {
+      const snapRes = applyAngleSnap(ps.end, rawPoint, ps._snapAxis, ps._snapRejected);
+      ps.start = { x: snapRes.x, y: snapRes.y, pressure: 0.5 };
+      ps._snapAxis = snapRes.axis;
+      ps._snapRejected = snapRes.rejected;
+    }
     clearOverlay(pageData);
     renderPendingShapeOnOverlay(pageData);
     return;
@@ -528,7 +496,6 @@ export function handlePointerMove(e, pageData) {
     let desiredX = rawPoint.x - _dragStartPoint.x;
     let desiredY = rawPoint.y - _dragStartPoint.y;
 
-    // CLIPPING: gli oggetti selezionati non possono uscire dalla pagina
     if (_dragStartBBox.maxX + desiredX > PAGE_WIDTH)  desiredX = PAGE_WIDTH  - _dragStartBBox.maxX;
     if (_dragStartBBox.minX + desiredX < 0)           desiredX = -_dragStartBBox.minX;
     if (_dragStartBBox.maxY + desiredY > PAGE_HEIGHT) desiredY = PAGE_HEIGHT - _dragStartBBox.maxY;
@@ -558,10 +525,6 @@ export function handlePointerMove(e, pageData) {
 
   if (state.activeTool === 'eraser' || state._penEraserActive) {
     _gestureUsedEraser = true;
-    // FIX CANCELLAZIONE: con penna Surface + Windows Ink, pointermove
-    // porta molti coalesced events (5-20 punti). Processarli TUTTI
-    // in batch evita i buchi di campionamento che facevano sembrare
-    // la gomma "debole". Limito agli ultimi 15 per non sprecare CPU.
     const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
     const evs = (coalesced && coalesced.length > 0) ? coalesced.slice(-15) : [e];
     resetPointPool();
@@ -591,16 +554,12 @@ export function handlePointerUp(e, pageData) {
   if (palmCheck && !isPenLike) return;
   if (e.pointerId !== state.currentPointerId) return;
 
-  // Nasconde il cursore se non siamo più in eraser mode (il prossimo hover
-  // lo ri-mostrerà se serve). Se la penna è ancora in hover, è il prossimo
-  // pointermove a decidere.
   if (!_shouldShowEraserCursor(e)) hideEraserCursor();
 
   state._penEraserActive = false;
   _forceFlushNow(pageData);
   clearPredictions(pageData);
 
-  // FIX CRONOLOGIA: consolida il gesto eraser in UN SOLO step.
   if (_gestureUsedEraser) {
     pushHistory();
     _gestureUsedEraser = false;
@@ -718,13 +677,9 @@ export function handlePointerUp(e, pageData) {
 function performEraserBatch(pageData, points) {
   if (!points || points.length === 0) return;
   const mode = document.getElementById('eraserModeSelect').value;
-  // Raggio in pixel canvas basato sul livello del popup eraser (1..5).
-  // Nessun extra factor per la penna: il livello scelto vale identico
-  // per dock e penna. Chi vuole più grande, seleziona livello più alto.
   const radius = getEraserRadius();
   const radiusSq = radius * radius;
 
-  // Pre-calcolo bounding box del batch per early reject
   let batchMinX = Infinity, batchMaxX = -Infinity, batchMinY = Infinity, batchMaxY = -Infinity;
   for (const p of points) {
     if (p.x < batchMinX) batchMinX = p.x; if (p.x > batchMaxX) batchMaxX = p.x;
@@ -737,7 +692,6 @@ function performEraserBatch(pageData, points) {
 
   if (mode === 'stroke') {
     pageData.strokes = pageData.strokes.filter(stroke => {
-      // Early bbox reject
       let stMinX = Infinity, stMaxX = -Infinity, stMinY = Infinity, stMaxY = -Infinity;
       for (const p of stroke.points) {
         if (p.x < stMinX) stMinX = p.x; if (p.x > stMaxX) stMaxX = p.x;
@@ -776,12 +730,9 @@ function performEraserBatch(pageData, points) {
     modified.forEach(invalidateStrokeBitmap);
     redrawPageCanvas(pageData);
     scheduleSave();
-    // pushHistory() resta a handlePointerUp (1 step per gesto).
   }
 }
 
-// Nasconde il cursore gomma quando si cambia tool (evita ciclo di import:
-// toolbar.js emette, input.js ascolta)
 document.addEventListener('inknote:tool-changed', () => {
   if (state.activeTool !== 'eraser' && !state._penEraserActive) {
     hideEraserCursor();

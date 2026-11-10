@@ -162,9 +162,6 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
 
 function canUnifyFill(tool) { return tool === 'pen' || tool === 'marker'; }
 
-// Variante per il rendering INCREMENTALE: include pencil per velocità
-// durante la scrittura. Al pointerup si usa renderFullStroke (che NON
-// usa questa variante) per ripristinare il darkening corretto.
 function canUnifyFillIncremental(tool) {
   return tool === 'pen' || tool === 'marker' || tool === 'pencil';
 }
@@ -242,7 +239,7 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
   ctx.scale(dpr, dpr);
 
   drawPaperBackground(ctx, forceTargetDark);
-  
+
   const targetSet = (state.scribbleMode && state.scribbleTargets)
     ? new Set(state.scribbleTargets) : null;
   const selectedSet = (state.selectedStrokes && state.selectedStrokes.length > 0)
@@ -252,9 +249,6 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
     if (selectedSet && selectedSet.has(stroke)) return;
     const isTarget = targetSet && targetSet.has(stroke);
 
-    // Cache bitmap per pencil (unico tool che beneficia:
-    // gli altri sono già veloci con unify).
-    // Skippa se lo stroke è un target scribble (deve mostrare override rosso).
     if (stroke.tool === 'pencil' && !isTarget) {
       let cached = getStrokeBitmap(stroke, dpr, forceTargetDark);
       if (!cached) cached = buildStrokeBitmap(stroke, dpr, forceTargetDark);
@@ -535,8 +529,9 @@ export function drawPendingShape(ctx, forceTargetDark) {
   const textW = ctx.measureText(label).width;
   const padX = 8, badgeW = textW + padX * 2, badgeH = 22;
   const bx = midX - badgeW / 2, by = midY - 36;
+  const isSnapped = ps._snapAxis != null;
   ctx.save();
-  ctx.fillStyle = 'rgba(79, 70, 229, 0.95)';
+  ctx.fillStyle = isSnapped ? 'rgba(16, 185, 129, 0.95)' : 'rgba(79, 70, 229, 0.95)';
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
   ctx.lineWidth = 1.5;
   roundRect(ctx, bx, by, badgeW, badgeH, 11);
@@ -648,7 +643,7 @@ export function clearOverlay(pageData) {
 export function renderPendingShapeOnOverlay(pageData) {
   if (!pageData.overlayCtx) return;
   const octx = pageData.overlayCtx;
-  const dpr = pageData.overlayDpr || pageData.dpr || 1;   // ← mod
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawPendingShape(octx, state.isDarkMode);
@@ -663,7 +658,7 @@ export function drawLassoIncrementalOnOverlay(pageData) {
   const p1 = state.lassoPath[n - 2];
   const p2 = state.lassoPath[n - 1];
   const octx = pageData.overlayCtx;
-  const dpr = pageData.overlayDpr || pageData.dpr || 1;   // ← mod
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   octx.strokeStyle = '#2563eb';
@@ -679,7 +674,7 @@ export function drawSelectionBBoxOnOverlay(pageData) {
   const visualBBox = getVisualBoundingBox();
   if (!visualBBox) return;
   const octx = pageData.overlayCtx;
-  const dpr = pageData.overlayDpr || pageData.dpr || 1;   // ← mod
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;
   const scale = viewport.scale;
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -699,7 +694,7 @@ export function redrawSelectionOverlay(pageData) {
   if (state.selectedStrokes.length === 0) return;
   const octx = pageData.overlayCtx;
   if (octx) {
-    const dpr = pageData.overlayDpr || pageData.dpr || 1;   // ← mod
+    const dpr = pageData.overlayDpr || pageData.dpr || 1;
     octx.save();
     octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     state.selectedStrokes.forEach(stroke => {
