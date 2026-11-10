@@ -5,7 +5,7 @@
 import { drawPredictions, clearPredictions, isPredictionSupported } from './prediction.js';
 import { invalidateStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
-import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
+import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, showToast, fastHypot } from '../../core/utils.js';
 import {
   drawIncrementalSegment, drawIncrementalBatch, drawScribbleSegment,
   clearOverlay, redrawPageCanvas, redrawSelectionOverlay,
@@ -198,7 +198,7 @@ function smoothRawPoint(rawPoint, prevSmoothed) {
   if (!prevSmoothed || smoothness <= 0.01) return rawPoint;
   const dx = rawPoint.x - prevSmoothed.x;
   const dy = rawPoint.y - prevSmoothed.y;
-  const speed = Math.hypot(dx, dy);
+  const speed = fastHypot(dx, dy);
   const minAlpha = 0.85 - smoothness * 0.55;
   const alpha = Math.min(1.0, minAlpha + speed * 0.05);
   rawPoint.x = prevSmoothed.x + dx * alpha;
@@ -230,8 +230,8 @@ function _processPointerPoint(rawPoint, pageData) {
     smoothedPressure = smoothPressure(state.currentStroke.points, rawPoint.pressure);
   }
   const minDist = state.smoothing <= 0.01 ? 0.01 : 0.4;
-  if (prevSmoothed && Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) < minDist) return;
-  const speedPx = prevSmoothed ? Math.hypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) : 0;
+  if (prevSmoothed && fastHypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) < minDist) return;
+  const speedPx = prevSmoothed ? fastHypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) : 0;
   const smoothedPoint = {
     x: smoothedPos.x, y: smoothedPos.y, pressure: smoothedPressure,
     tiltX: rawPoint.tiltX, tiltY: rawPoint.tiltY, speed: speedPx, pointerType: rawPoint.pointerType
@@ -240,7 +240,7 @@ function _processPointerPoint(rawPoint, pageData) {
   if (state.currentStroke._pathLen === undefined) state.currentStroke._pathLen = 0;
   if (state.currentStroke.points.length >= 2) {
     const prev = state.currentStroke.points[state.currentStroke.points.length - 2];
-    state.currentStroke._pathLen += Math.hypot(smoothedPoint.x - prev.x, smoothedPoint.y - prev.y);
+    state.currentStroke._pathLen += fastHypot(smoothedPoint.x - prev.x, smoothedPoint.y - prev.y);
   }
   // Il disegno incrementale avviene in blocco a fine batch (drawIncrementalBatch).
   // Fa eccezione lo scribble-to-erase: usa un path separato sull'overlay,

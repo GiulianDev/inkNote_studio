@@ -57,6 +57,12 @@ export function sliderToBaseSize(rawSliderValue) {
   return s;
 }
 
+// Distanza euclidea 2D veloce. Math.hypot in V8 è 2-4× più lento
+// per gestire overflow/NaN che qui non servono (coordinate < 10000).
+export function fastHypot(dx, dy) {
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
 // --- Event bus (solo per broadcast UI, mai sul hot path) ---
 const _bus = new EventTarget();
 export const emit = (name, detail) => _bus.dispatchEvent(new CustomEvent(name, { detail }));

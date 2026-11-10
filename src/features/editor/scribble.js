@@ -3,7 +3,7 @@
 // ============================================================
 
 import { state } from '../../core/state.js';
-import { showToast, sliderToBaseSize } from '../../core/utils.js';
+import { showToast, sliderToBaseSize, fastHypot } from '../../core/utils.js';
 import { redrawPageCanvas, clearOverlay, drawScribbleStroke } from './render.js';
 import { pushHistory } from './history.js';
 import { scheduleSave } from './autosave.js';
@@ -37,7 +37,7 @@ function resamplePoints(pts) {
   let last = pts[0];
   for (let i = 1; i < pts.length; i++) {
     const p = pts[i];
-    if (Math.hypot(p.x - last.x, p.y - last.y) >= SCRIBBLE_RESAMPLE_DIST) {
+    if (fastHypot(p.x - last.x, p.y - last.y) >= SCRIBBLE_RESAMPLE_DIST) {
       out.push(p); last = p;
     }
   }
@@ -95,9 +95,9 @@ function computeNetRatio2D(sampled) {
   const start = sampled[0], end = sampled[sampled.length - 1];
   let pathLen = 0;
   for (let i = 1; i < sampled.length; i++)
-    pathLen += Math.hypot(sampled[i].x - sampled[i - 1].x, sampled[i].y - sampled[i - 1].y);
+    pathLen += fastHypot(sampled[i].x - sampled[i - 1].x, sampled[i].y - sampled[i - 1].y);
   if (pathLen < 1) return 1;
-  return Math.hypot(end.x - start.x, end.y - start.y) / pathLen;
+  return fastHypot(end.x - start.x, end.y - start.y) / pathLen;
 }
 
 function isScribbleShape(pts, durationMs) {
@@ -111,7 +111,7 @@ function isScribbleShape(pts, durationMs) {
     const p = sampled[i];
     if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
     if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-    if (i > 0) pathLen += Math.hypot(p.x - sampled[i - 1].x, p.y - sampled[i - 1].y);
+    if (i > 0) pathLen += fastHypot(p.x - sampled[i - 1].x, p.y - sampled[i - 1].y);
     if (i >= 2) {
       const v1x = sampled[i - 1].x - sampled[i - 2].x;
       const v1y = sampled[i - 1].y - sampled[i - 2].y;
@@ -121,7 +121,7 @@ function isScribbleShape(pts, durationMs) {
     }
   }
   const bboxW = maxX - minX, bboxH = maxY - minY;
-  const bboxDiag = Math.hypot(bboxW, bboxH);
+  const bboxDiag = fastHypot(bboxW, bboxH);
   const avgSpeed = pathLen / (durationMs / 1000);
   const returnRatio = computeReturnRatio(sampled, SCRIBBLE_RETURN_RADIUS, SCRIBBLE_RETURN_SKIP);
   const multiReturnRatio = computeMultiReturnRatio(sampled, SCRIBBLE_RETURN_RADIUS, SCRIBBLE_RETURN_SKIP);
@@ -222,7 +222,7 @@ function findStrokesIntersectingScribble(scribblePoints, pageData) {
         const a = scribblePoints[i - 1];
         const b = scribblePoints[i];
         // Quick reject: bounding circle del segmento
-        const abLen = Math.hypot(b.x - a.x, b.y - a.y);
+        const abLen = fastHypot(b.x - a.x, b.y - a.y);
         const midX = (a.x + b.x) * 0.5;
         const midY = (a.y + b.y) * 0.5;
         const quickR = abLen * 0.5 + threshold;

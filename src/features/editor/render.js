@@ -6,7 +6,7 @@ import { getStrokeBitmap, buildStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import {
   PAGE_WIDTH, PAGE_HEIGHT, hexToRgbA, getEffectiveColor,
-  roundRect, sliderToBaseSize
+  roundRect, sliderToBaseSize, fastHypot
 } from '../../core/utils.js';
 import { getPressureParams } from '../../services/preferences.js';
 
@@ -94,7 +94,7 @@ export function findClosestPointInSelection(target) {
 
 function getTiltNorm(pt) {
   if (!pt || (!pt.tiltX && !pt.tiltY)) return 0;
-  return Math.min(1, Math.hypot(pt.tiltX || 0, pt.tiltY || 0) / 30);
+  return Math.min(1, fastHypot(pt.tiltX || 0, pt.tiltY || 0) / 30);
 }
 function getSpeedNorm(pt) {
   if (!pt || !pt.speed) return 0;
@@ -168,7 +168,7 @@ function canUnifyFillIncremental(tool) {
 
 function addTaperedSegmentPolygon(ctx, p0, p1, w0, w1) {
   const dx = p1.x - p0.x, dy = p1.y - p0.y;
-  const len = Math.hypot(dx, dy);
+  const len = fastHypot(dx, dy);
   if (len < 0.01) return;
   const nx = -dy / len, ny = dx / len;
   const hw0 = Math.max(w0, 0.5) / 2, hw1 = Math.max(w1, 0.5) / 2;
@@ -208,7 +208,7 @@ function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
 
 function drawTaperedSegment(ctx, p0, p1, w0, w1) {
   const dx = p1.x - p0.x, dy = p1.y - p0.y;
-  const len = Math.hypot(dx, dy);
+  const len = fastHypot(dx, dy);
   if (len < 0.01) {
     const w = Math.max((w0 + w1) / 2, 0.5);
     ctx.beginPath(); ctx.arc(p0.x, p0.y, w / 2, 0, Math.PI * 2); ctx.fill();
@@ -283,7 +283,7 @@ export function drawFinalSegmentOnly(pageData, stroke) {
   const p0 = pts[Math.max(0, i1 - 1)], p1 = pts[i1], p2 = pts[i2], p3 = pts[i2];
   const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure, getTiltNorm(p1), getSpeedNorm(p1), getTaper(i1, stroke.tool), baseSize);
   const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, getTiltNorm(p2), getSpeedNorm(p2), getTaper(i2, stroke.tool), baseSize);
-  const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
   const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
   const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
   for (let s = 0; s < steps; s++) {
@@ -357,7 +357,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
       const w1 = widths[i - 1], w2 = widths[i];
-      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
       const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
       for (let s = 0; s < steps; s++) {
@@ -375,7 +375,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
       const w1 = widths[i - 1], w2 = widths[i];
-      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
       const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
       for (let s = 0; s < steps; s++) {
@@ -392,7 +392,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
       const w1 = widths[i - 1], w2 = widths[i];
-      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
       const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
       for (let s = 0; s < steps; s++) {
@@ -422,7 +422,7 @@ export function drawIncrementalSegment(ctx, stroke, dpr = 1) {
   const baseSize = sliderToBaseSize(stroke.size);
   const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure, getTiltNorm(p1), getSpeedNorm(p1), getTaper(i1, stroke.tool), baseSize);
   const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, getTiltNorm(p2), getSpeedNorm(p2), getTaper(i2, stroke.tool), baseSize);
-  const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
   const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
   const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
   const unified = canUnifyFillIncremental(stroke.tool);
@@ -455,7 +455,7 @@ export function drawIncrementalSegment(ctx, stroke, dpr = 1) {
     const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure, getTiltNorm(tipP1), getSpeedNorm(tipP1), 1.0, baseSize);
     const tipW2 = computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure, getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize);
     if (canUnifyFillIncremental(stroke.tool)) {
-    ctx.beginPath();
+      ctx.beginPath();
       addTaperedSegmentPolygon(ctx, tipP1, tipP2, tipW1, tipW2);
       ctx.fill();
       ctx.beginPath();
@@ -501,7 +501,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
         getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
       const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
         getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
-      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
       const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
       for (let s = 0; s < steps; s++) {
@@ -525,7 +525,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
         getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
       const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
         getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
-      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
       const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
       for (let s = 0; s < steps; s++) {
@@ -536,7 +536,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
     }
     ctx.fill();
 
-    // Tip finale senza taper (solo con smoothness=0, fedeltà al comportamento originale)
+    // Tip finale senza taper (fedeltà al comportamento con smoothness=0)
     if (smoothness <= 0.01 && n >= 2) {
       const tipP1 = pts[n - 2], tipP2 = pts[n - 1];
       const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure,
@@ -551,8 +551,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       ctx.fill();
     }
   } else {
-    // Ramo non-unified (per ora non usato dai tool in overlay, ma
-    // mantenuto per simmetria con drawIncrementalSegment)
+    // Ramo non-unified (simmetrico a drawIncrementalSegment)
     for (let i = firstSegEnd; i < n; i++) {
       const p0 = pts[i >= 2 ? i - 2 : 0];
       const p1 = pts[i - 1];
@@ -562,7 +561,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
         getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
       const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
         getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
-      const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
       const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
       for (let s = 0; s < steps; s++) {
@@ -633,7 +632,7 @@ export function drawPendingShape(ctx, forceTargetDark) {
   });
   const midX = (startPt.x + endPt.x) / 2;
   const midY = (startPt.y + endPt.y) / 2;
-  const len = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+  const len = fastHypot(endPt.x - startPt.x, endPt.y - startPt.y);
   const angle = Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x);
   const angleDeg = Math.round((angle * 180 / Math.PI + 360) % 360);
   const label = `${Math.round(len)}px · ${angleDeg}°`;
