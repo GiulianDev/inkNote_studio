@@ -1,7 +1,8 @@
 // ============================================================
 // PAN / PINCH / WHEEL / PULL-TO-ADD-PAGE
 // Palm rejection: contact size + finestra post-penna + 3+ dita.
-// Scroll con inerzia + axis lock dinamico (solo scroll verticale vero).
+// Scroll con inerzia + axis lock one-shot (solo scroll verticale
+// riconosciuto all'inizio del gesto).
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -24,24 +25,24 @@ const PEN_ACTIVITY_WINDOW_MS = 100;
 const PALM_PAN_CANCEL_WINDOW_MS = 400;
 
 // ------------------------------------------------------------
-// SCROLL AXIS LOCK DINAMICO
+// SCROLL AXIS LOCK ONE-SHOT
 // ------------------------------------------------------------
-// Il pan a 1 dito è LIBERO. Il blocco sull'asse Y si attiva SOLO
-// quando il gesto è inequivocabilmente uno "scroll verticale":
+// La decisione "è scroll verticale o pan libero?" si prende UNA
+// SOLA VOLTA, nei primissimi movimenti del gesto (entro la
+// finestra di decisione). Se passa la finestra senza che sia
+// stato riconosciuto uno scroll, il gesto resta un pan libero
+// fino al rilascio, anche se poi il dito accelera in verticale.
+//
+// Condizioni per il riconoscimento scroll (tutte vere):
 //   1. velocità totale ≥ SCROLL_ENTER_SPEED
-//   2. |vy| > |vx| × SCROLL_AXIS_DOMINANCE  (quasi solo verticale)
-//   3. |vx| < SCROLL_MAX_CROSS_SPEED         (X trascurabile in assoluto)
-//
-// Il vincolo (3) è quello che evita i falsi positivi: un movimento
-// diagonale veloce ha vx significativo, quindi NON attiva il lock
-// anche se vy è predominante.
-//
-// Uscita (isteresi): speed < SCROLL_EXIT_SPEED.
+//   2. |vy| > |vx| * SCROLL_AXIS_DOMINANCE  (quasi verticale)
+//   3. |vx| < SCROLL_MAX_CROSS_SPEED         (X trascurabile)
 // ------------------------------------------------------------
-const SCROLL_ENTER_SPEED = 1.5;        // px/ms (~1500 px/s)
-const SCROLL_EXIT_SPEED  = 0.4;        // px/ms (~400 px/s)
-const SCROLL_AXIS_DOMINANCE = 4.0;     // |vy| > |vx| × 4
-const SCROLL_MAX_CROSS_SPEED = 0.5;    // |vx| < 0.5 px/ms in assoluto
+const SCROLL_DECISION_WINDOW_MS = 150;  // ms entro cui decidere
+const SCROLL_DECISION_WINDOW_PX = 40;   // px di movimento entro cui decidere
+const SCROLL_ENTER_SPEED = 1.5;         // px/ms (~1500 px/s)
+const SCROLL_AXIS_DOMINANCE = 4.0;      // |vy| > |vx| * 4
+const SCROLL_MAX_CROSS_SPEED = 0.5;     // |vx| < 0.5 px/ms in assoluto
 
 // ------------------------------------------------------------
 // MOMENTUM / FLICK SCROLLING
@@ -60,8 +61,11 @@ const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 let _lastPenActivityTime = 0;
 let _panStartTime = 0;
 
-let _scrollAxisLocked = false;
+// Stato scroll
+let _scrollDecisionMade = false;   // true quando la finestra di decisione è scaduta (o è stato deciso scroll)
+let _scrollAxisLocked = false;     // true se è stato riconosciuto come scroll verticale
 
+// Stato momentum
 let _momentumRaf = null;
 let _momentumVelX = 0;
 let _momentumVelY = 0;
@@ -258,6 +262,7 @@ export function setupViewportGestures() {
       _cancelMomentum();
       _resetVelocitySamples();
       _scrollAxisLocked = false;
+      _scrollDecisionMade = false;
 
       for (const [id, ptr] of [...viewport.activePointers]) {
         if (ptr.pointerType !== 'pen' && ptr.pointerType !== 'eraser') {
@@ -292,6 +297,7 @@ export function setupViewportGestures() {
     _cancelMomentum();
     _resetVelocitySamples();
     _scrollAxisLocked = false;
+    _scrollDecisionMade = false;
 
     viewport.activePointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, pointerType: e.pointerType
@@ -346,25 +352,38 @@ export function setupViewportGestures() {
       e.preventDefault();
       _pushVelocitySample(e.clientX, e.clientY);
 
-      const { vx, vy } = _computeFlingVelocity();
-      const speed = Math.hypot(vx, vy);
-      const absVx = Math.abs(vx);
-      const absVy = Math.abs(vy);
+      // ---- Finestra di decisione (one-shot) ----
+      if (!_scrollDecisionMade) {
+        const { vx, vy } = _computeFlingVelocity();
+        const speed = Math.hypot(vx, vy);
+        const absVx = Math.abs(vx);
+        const absVy = Math.abs(vy);
 
-      if (!_scrollAxisLocked) {
-        // Attivazione: scroll verticale "vero"
         if (speed >= SCROLL_ENTER_SPEED &&
             absVy > absVx * SCROLL_AXIS_DOMINANCE &&
             absVx < SCROLL_MAX_CROSS_SPEED) {
+          // Scroll verticale riconosciuto: attiva lock e congela X
           _scrollAxisLocked = true;
-        }
-      } else {
-        // Uscita (isteresi)
-        if (speed < SCROLL_EXIT_SPEED) {
-          _scrollAxisLocked = false;
+          _scrollDecisionMade = true;
+          // Congela X nel punto attuale: da ora in poi la componente
+          // orizzontale del dito viene ignorata
+          viewport.panStartTransform.x = viewport.x;
+          viewport.panStart.x = e.clientX;
+        } else {
+          // Verifica se la finestra di decisione è scaduta
+          const elapsed = performance.now() - _panStartTime;
+          const dist = Math.hypot(
+            e.clientX - viewport.panStart.x,
+            e.clientY - viewport.panStart.y
+          );
+          if (elapsed > SCROLL_DECISION_WINDOW_MS || dist > SCROLL_DECISION_WINDOW_PX) {
+            // Decisione presa: pan libero per il resto del gesto
+            _scrollDecisionMade = true;
+          }
         }
       }
 
+      // ---- Applica la trasformazione ----
       const dx = e.clientX - viewport.panStart.x;
       const dy = e.clientY - viewport.panStart.y;
       const effectiveDx = _scrollAxisLocked ? 0 : dx;
@@ -452,6 +471,7 @@ export function setupViewportGestures() {
       }
       _resetVelocitySamples();
       _scrollAxisLocked = false;
+      _scrollDecisionMade = false;
     } else if (viewport.activePointers.size === 1) {
       viewport.isPinching = false;
     }
