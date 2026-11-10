@@ -401,7 +401,13 @@ export function handlePointerDown(e, pageData) {
   if (viewport.activePointers.size > 1) return;
 
   const isEraserGesture = penEraser || state.activeTool === 'eraser';
-  if (!(isEraserGesture && _lastGestureWasEraser)) {
+  // Fix 1: flushHistory() solo per l'eraser. Per pen/marker/pencil/
+  // highlighter il pointerup chiama già pushHistory() (debounced 500ms).
+  // Il flush al pointerdown era O(n stroke) e cresceva linearmente con
+  // la pagina, causando il rallentamento progressivo.
+  // L'eraser ha bisogno del flush perché i micro-down/up del driver
+  // Windows Ink devono consolidarsi in un unico step di history.
+  if (isEraserGesture && !_lastGestureWasEraser) {
     flushHistory();
   }
   _gestureUsedEraser = false;

@@ -1,7 +1,7 @@
 // ============================================================
 // UNDO/REDO: snapshot per-pagina, debounced 500ms
-// Priorità 7: hash leggero per evitare deepClone + stringify
-// inutili quando lo stato non è cambiato.
+// - Fix 2: forzatura snapshot ogni 3s di scrittura continua
+// - Fix 3: clone manuale degli stroke (2-3x più veloce di structuredClone)
 // ============================================================
 
 import { state } from '../../core/state.js';
@@ -10,12 +10,42 @@ import { scheduleSave } from './autosave.js';
 
 const historyState = { stack: [], index: -1, maxSteps: 50, isRestoring: false };
 let _pushHistoryTimer = null;
+let _lastSnapshotTime = 0;
 
-function deepClone(obj) {
-  if (typeof structuredClone === 'function') {
-    try { return structuredClone(obj); } catch (e) {}
+// Fix 2: se durante una scrittura continua (stacco/riattacco rapido
+// < 500ms) il timer debounced viene continuamente resettato, senza
+// questo limite il primo undo cancellerebbe TUTTI gli stroke fatti
+// in una sessione, potenzialmente centinaia. Con 3s, il "blocco di
+// undo" massimo copre al più 3 secondi di scrittura.
+const MAX_CONTINUOUS_DRAW_MS = 3000;
+
+// Fix 3: clone manuale degli stroke.
+// structuredClone fa reflection, gestisce cicli, tipi esotici — costoso
+// e con overhead per ogni campo. Il nostro Stroke ha struttura fissa:
+// copiamo solo i campi che servono (x, y, pressure, tilt, speed,
+// pointerType). I campi di cache (_styleCache, _pathLen, _drawnIdx,
+// _cacheCanvas, _cacheKey) non vengono clonati: verranno ricreati al
+// prossimo redraw/draw.
+function cloneStrokeFast(s) {
+  const pts = s.points;
+  const n = pts.length;
+  const clonedPts = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    clonedPts[i] = {
+      x: p.x, y: p.y,
+      pressure: p.pressure,
+      tiltX: p.tiltX, tiltY: p.tiltY,
+      speed: p.speed,
+      pointerType: p.pointerType
+    };
   }
-  return JSON.parse(JSON.stringify(obj));
+  return {
+    tool: s.tool,
+    color: s.color,
+    size: s.size,
+    points: clonedPts
+  };
 }
 
 // ------------------------------------------------------------
@@ -58,8 +88,7 @@ function _computeStateHash() {
 function captureSnapshot() {
   const page = state.pages[state.activePageIndex];
   if (!page) return null;
-  const strokesClone = deepClone(page.strokes);
-  strokesClone.forEach(s => { delete s._styleCache; delete s._pathLen; });
+  const strokesClone = page.strokes.map(cloneStrokeFast);
   return {
     pageIndex: state.activePageIndex,
     strokes: strokesClone,
@@ -70,6 +99,16 @@ function captureSnapshot() {
 export function pushHistory() {
   if (historyState.isRestoring) return;
   if (_pushHistoryTimer) clearTimeout(_pushHistoryTimer);
+
+  // Fix 2: se sono passati più di MAX_CONTINUOUS_DRAW_MS dall'ultimo
+  // snapshot effettivo, forza subito lo snapshot. Così una sessione
+  // di scrittura continua non accumula più di 3s in un unico step.
+  if (performance.now() - _lastSnapshotTime > MAX_CONTINUOUS_DRAW_MS) {
+    _pushHistoryTimer = null;
+    _doPushHistory();
+    return;
+  }
+
   _pushHistoryTimer = setTimeout(() => {
     _pushHistoryTimer = null;
     _doPushHistory();
@@ -96,6 +135,11 @@ function _doPushHistory() {
   historyState.stack.push(newSnap);
   if (historyState.stack.length > historyState.maxSteps) historyState.stack.shift();
   historyState.index = historyState.stack.length - 1;
+
+  // Fix 2: aggiorna il timestamp SOLO quando lo snapshot è
+  // effettivamente avvenuto (non quando è stato skippato per hash).
+  _lastSnapshotTime = performance.now();
+
   updateUndoRedoUI();
 }
 
@@ -112,6 +156,7 @@ export function resetHistory() {
   historyState.stack = [];
   historyState.index = -1;
   const snap = captureSnapshot();
+  _lastSnapshotTime = performance.now();
   if (!snap) { updateUndoRedoUI(); return; }
   snap._hash = _computeStateHash();
   historyState.stack.push(snap);
@@ -159,6 +204,7 @@ function _applySnapshot(snap) {
   emit('history:restore', snap);
 
   historyState.isRestoring = false;
+  _lastSnapshotTime = performance.now();
   updateUndoRedoUI();
   scheduleSave();
 }
