@@ -1,7 +1,7 @@
 // ============================================================
 // PAN / PINCH / WHEEL / PULL-TO-ADD-PAGE
 // Palm rejection: contact size + finestra post-penna + 3+ dita.
-// Scroll con inerzia (flick scrolling) per un feeling naturale.
+// Scroll con inerzia (flick scrolling) + axis lock sul pan 1 dito.
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -29,10 +29,17 @@ const PEN_ACTIVITY_WINDOW_MS = 100;
 const PALM_PAN_CANCEL_WINDOW_MS = 400;
 
 // ------------------------------------------------------------
+// AXIS LOCK (pan a 1 dito)
+// ------------------------------------------------------------
+// Soglia di movimento (px) prima di decidere l'asse dominante.
+// Sotto questa soglia l'asse resta indeciso e il pan non parte.
+const AXIS_LOCK_THRESHOLD = 8;
+
+// ------------------------------------------------------------
 // MOMENTUM / FLICK SCROLLING
 // ------------------------------------------------------------
 // Friction per millisecondo: decay esponenziale della velocità.
-// 0.996 → ~500px di "corsa" partendo da 2 px/ms (2000 px/s).
+// 0.997 → ~333px di "corsa" per ogni px/ms di velocità iniziale.
 const MOMENTUM_FRICTION_PER_MS = 0.997;
 // Amplifica la velocità calcolata dal gesto (feeling iOS-like).
 const MOMENTUM_VELOCITY_BOOST = 1.15;
@@ -48,13 +55,17 @@ const VELOCITY_SAMPLE_WINDOW_MS = 100;
 // speed ≤ 2 px/ms → 1.0x
 // speed 5 px/ms  → 1.9x
 // speed 8+ px/ms → 2.8x
-const MOMENTUM_SPEED_BASE = 2.0;        // px/ms sotto cui boost = 1
-const MOMENTUM_SPEED_SLOPE = 0.30;      // incremento per px/ms sopra la base
-const MOMENTUM_SPEED_MAX = 8.0;         // px/ms oltre cui boost satura
-const MOMENTUM_SPEED_BOOST_MAX = 2.8;   // tetto del boost
+const MOMENTUM_SPEED_BASE = 2.0;
+const MOMENTUM_SPEED_SLOPE = 0.30;
+const MOMENTUM_SPEED_MAX = 8.0;
+const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 
 let _lastPenActivityTime = 0;
 let _panStartTime = 0;
+
+// Asse bloccato del pan a 1 dito: null | 'x' | 'y'
+// Deciso al primo movimento oltre soglia, resta fisso fino al rilascio.
+let _panAxis = null;
 
 // Stato momentum
 let _momentumRaf = null;
@@ -100,10 +111,6 @@ function _resetVelocitySamples() {
   _velocitySamples.length = 0;
 }
 
-/**
- * Stima la velocità del dito (px/ms) sull'ultima finestra utile.
- * Ritorna { vx, vy } nella direzione del movimento del dito.
- */
 function _computeFlingVelocity() {
   if (_velocitySamples.length < 2) return { vx: 0, vy: 0 };
   const now = performance.now();
@@ -131,6 +138,10 @@ function _computeSpeedBoost(speed) {
 }
 
 function _startMomentum(vx, vy) {
+  // Axis lock: azzera la componente perpendicolare all'asse del gesto
+  if (_panAxis === 'y') vx = 0;
+  else if (_panAxis === 'x') vy = 0;
+
   const speed = Math.hypot(vx, vy);
   const speedBoost = _computeSpeedBoost(speed);
   const userSensitivity = getScrollSensitivity();   // 0.2x - 2.0x
@@ -154,16 +165,13 @@ function _momentumStep(now) {
   _momentumRaf = null;
 
   if (_momentumLastTime === 0) _momentumLastTime = now;
-  // Clamp del delta per evitare salti enormi dopo un tab in background
   const dt = Math.min(now - _momentumLastTime, 32);
   _momentumLastTime = now;
 
-  // Decay indipendente dal framerate: friction^dt
   const decay = Math.pow(MOMENTUM_FRICTION_PER_MS, dt);
   _momentumVelX *= decay;
   _momentumVelY *= decay;
 
-  // Sotto soglia → stop e snap finale al clamp
   if (Math.abs(_momentumVelX) < MOMENTUM_STOP_VELOCITY &&
       Math.abs(_momentumVelY) < MOMENTUM_STOP_VELOCITY) {
     _cancelMomentum();
@@ -177,12 +185,9 @@ function _momentumStep(now) {
     return;
   }
 
-  // Muovi il viewport (stessa direzione del dito: drag-naturale)
   viewport.x += _momentumVelX * dt;
   viewport.y += _momentumVelY * dt;
 
-  // Applica i limiti elastici. Se ho sbattuto contro un bordo,
-  // azzera la componente di velocità corrispondente.
   const c = _clampXY(viewport.x, viewport.y, true);
   if (c.x !== viewport.x) _momentumVelX = 0;
   if (c.y !== viewport.y) _momentumVelY = 0;
@@ -243,7 +248,6 @@ export function setupViewportGestures() {
 
   window.addEventListener('resize', invalidateClampCache);
 
-  // Tracking penna (solo scrittura, hover non conta)
   viewportEl.addEventListener('pointerdown', (e) => {
     if (_isPenEvent(e)) _lastPenActivityTime = performance.now();
   }, { capture: true, passive: true });
@@ -262,8 +266,8 @@ export function setupViewportGestures() {
     if (_isPenEvent(e)) {
       _cancelMomentum();
       _resetVelocitySamples();
+      _panAxis = null;
 
-      // Rimuovi eventuali touch tracciati (erano il palmo)
       for (const [id, ptr] of [...viewport.activePointers]) {
         if (ptr.pointerType !== 'pen' && ptr.pointerType !== 'eraser') {
           viewport.activePointers.delete(id);
@@ -294,7 +298,6 @@ export function setupViewportGestures() {
       if (_isPalmContact(e)) return;
     }
 
-    // Nuovo gesto touch: ferma momentum e resetta i campioni
     _cancelMomentum();
     _resetVelocitySamples();
 
@@ -306,6 +309,7 @@ export function setupViewportGestures() {
     if (viewport.activePointers.size > 2) {
       viewport.isPanning = false;
       viewport.isPinching = false;
+      _panAxis = null;
       state.pullOverscrollY = 0;
       hidePullIndicator();
       return;
@@ -317,11 +321,13 @@ export function setupViewportGestures() {
         viewport.panStart = { x: e.clientX, y: e.clientY };
         viewport.panStartTransform = { x: viewport.x, y: viewport.y };
         _panStartTime = performance.now();
+        _panAxis = null;
         _pushVelocitySample(e.clientX, e.clientY);
         try { viewportEl.setPointerCapture(e.pointerId); } catch (err) {}
       }
     } else if (viewport.activePointers.size === 2) {
       if (viewport.isPanning) viewport.isPanning = false;
+      _panAxis = null;
       abortCurrentDrawing();
       viewport.isPinching = true;
       const pts = Array.from(viewport.activePointers.values());
@@ -350,23 +356,42 @@ export function setupViewportGestures() {
 
     if (viewport.isPanning && viewport.activePointers.size === 1) {
       e.preventDefault();
-      // Registra il campione per la stima di velocità
       _pushVelocitySample(e.clientX, e.clientY);
 
       const dx = e.clientX - viewport.panStart.x;
       const dy = e.clientY - viewport.panStart.y;
-      const rawX = viewport.panStartTransform.x + dx;
-      const rawY = viewport.panStartTransform.y + dy;
+
+      // Axis lock: decidi l'asse dominante al primo movimento significativo
+      if (_panAxis === null) {
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        if (absDx > AXIS_LOCK_THRESHOLD || absDy > AXIS_LOCK_THRESHOLD) {
+          _panAxis = absDy >= absDx ? 'y' : 'x';
+        } else {
+          // Movimento ancora troppo piccolo: non muovere la vista
+          return;
+        }
+      }
+
+      // Applica il filtro sull'asse bloccato
+      const effectiveDx = _panAxis === 'y' ? 0 : dx;
+      const effectiveDy = _panAxis === 'x' ? 0 : dy;
+
+      const rawX = viewport.panStartTransform.x + effectiveDx;
+      const rawY = viewport.panStartTransform.y + effectiveDy;
       const c = _clampXY(rawX, rawY, true);
       viewport.x = c.x;
       viewport.y = c.y;
       applyTransform();
 
-      const container = document.getElementById('canvasContainer');
-      const bottomBoundary = viewportEl.clientHeight - (viewport.y + container.getBoundingClientRect().height);
-      if (bottomBoundary > 0 && dy < 0) {
-        state.pullOverscrollY = bottomBoundary;
-        showPullIndicator(state.pullOverscrollY >= PULL_THRESHOLD);
+      // Pull-to-add-page solo su asse Y
+      if (_panAxis === 'y') {
+        const container = document.getElementById('canvasContainer');
+        const bottomBoundary = viewportEl.clientHeight - (viewport.y + container.getBoundingClientRect().height);
+        if (bottomBoundary > 0 && effectiveDy < 0) {
+          state.pullOverscrollY = bottomBoundary;
+          showPullIndicator(state.pullOverscrollY >= PULL_THRESHOLD);
+        } else hidePullIndicator();
       } else hidePullIndicator();
     } else if (viewport.isPinching && viewport.activePointers.size === 2) {
       e.preventDefault();
@@ -410,17 +435,15 @@ export function setupViewportGestures() {
       viewport.isPinching = false;
 
       if (wasPanning) {
-        // Verifica se c'è abbastanza velocità per avviare il momentum
         const { vx, vy } = _computeFlingVelocity();
-        const speed = Math.hypot(vx, vy);
+        // Filtra la velocità sull'asse bloccato prima di decidere il fling
+        const effVx = _panAxis === 'y' ? 0 : vx;
+        const effVy = _panAxis === 'x' ? 0 : vy;
+        const speed = Math.hypot(effVx, effVy);
 
         if (!shouldAddPage && speed >= MOMENTUM_MIN_FLING_VELOCITY) {
-          // Fling: il momentum prende il controllo (lo snap finale
-          // e la chiamata a scheduleResolutionRefresh avvengono
-          // quando il momentum si esaurisce)
           _startMomentum(vx, vy);
         } else {
-          // Nessun fling: snap immediato al clamp se necessario
           if (shouldAddPage) {
             addNewPage();
             showToast('Nuova pagina aggiunta!', '➕');
@@ -441,6 +464,7 @@ export function setupViewportGestures() {
         scheduleResolutionRefresh();
       }
       _resetVelocitySamples();
+      _panAxis = null;
     } else if (viewport.activePointers.size === 1) {
       viewport.isPinching = false;
     }
@@ -453,7 +477,6 @@ export function setupViewportGestures() {
 
   viewportEl.addEventListener('wheel', (e) => {
     e.preventDefault();
-    // Wheel (mouse): cancella momentum, non lo genera.
     _cancelMomentum();
     if (e.ctrlKey) {
       const clampedDelta = Math.max(-50, Math.min(50, e.deltaY));
