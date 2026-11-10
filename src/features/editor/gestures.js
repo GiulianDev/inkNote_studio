@@ -3,8 +3,9 @@
 // Palm rejection: contact size + finestra post-penna + 3+ dita.
 // Scroll con inerzia + axis lock one-shot (solo scroll verticale
 // riconosciuto all'inizio del gesto).
-// Clamp rigoroso: il foglio non esce mai dai bordi del viewport.
-// Pull-to-add-page: overscroll virtuale (clampY < 0 al fondo).
+// Clamp rigoroso: il foglio non esce mai dai bordi del viewport
+// ma può essere spostato fino ai bordi anche se più stretto.
+// Pull-to-add-page: overscroll virtuale (clampY < 0).
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -17,10 +18,6 @@ import {
   clampViewport, invalidateClampCache
 } from './transform.js';
 
-// Fattore di resistenza elastica: non più usato (clamp rigoroso),
-// lasciato per compatibilità con eventuali richiami esterni.
-const ELASTIC_FACTOR = 0.25;
-
 // ------------------------------------------------------------
 // PALM REJECTION
 // ------------------------------------------------------------
@@ -31,22 +28,11 @@ const PALM_PAN_CANCEL_WINDOW_MS = 400;
 // ------------------------------------------------------------
 // SCROLL AXIS LOCK ONE-SHOT
 // ------------------------------------------------------------
-// La decisione "è scroll verticale o pan libero?" si prende UNA
-// SOLA VOLTA, nei primissimi movimenti del gesto (entro la
-// finestra di decisione). Se passa la finestra senza che sia
-// stato riconosciuto uno scroll, il gesto resta un pan libero
-// fino al rilascio, anche se poi il dito accelera in verticale.
-//
-// Condizioni per il riconoscimento scroll (tutte vere):
-//   1. velocità totale ≥ SCROLL_ENTER_SPEED
-//   2. |vy| > |vx| * SCROLL_AXIS_DOMINANCE  (quasi verticale)
-//   3. |vx| < SCROLL_MAX_CROSS_SPEED         (X trascurabile)
-// ------------------------------------------------------------
-const SCROLL_DECISION_WINDOW_MS = 150;  // ms entro cui decidere
-const SCROLL_DECISION_WINDOW_PX = 40;   // px di movimento entro cui decidere
-const SCROLL_ENTER_SPEED = 1.5;         // px/ms (~1500 px/s)
-const SCROLL_AXIS_DOMINANCE = 4.0;      // |vy| > |vx| * 4
-const SCROLL_MAX_CROSS_SPEED = 0.5;     // |vx| < 0.5 px/ms in assoluto
+const SCROLL_DECISION_WINDOW_MS = 150;
+const SCROLL_DECISION_WINDOW_PX = 40;
+const SCROLL_ENTER_SPEED = 1.5;
+const SCROLL_AXIS_DOMINANCE = 4.0;
+const SCROLL_MAX_CROSS_SPEED = 0.5;
 
 // ------------------------------------------------------------
 // MOMENTUM / FLICK SCROLLING
@@ -353,16 +339,8 @@ export function setupViewportGestures() {
       applyTransform();
 
       // ---- Pull-to-add-page (overscroll virtuale) ----
-      // Caso 1: contenuto più alto del viewport → clampY < 0 significa
-      //         che l'utente sta spingendo oltre il fondo.
-      // Caso 2: contenuto più corto del viewport → uso dy diretto
-      //         (contenuto centrato, ogni push verso l'alto è "oltre").
-      let pullY = 0;
-      if (c.bounds && c.bounds.minY !== c.bounds.maxY) {
-        if (c.clampY < 0) pullY = -c.clampY;
-      } else {
-        if (dy < 0) pullY = -dy;
-      }
+      // clampY < 0: spingendo oltre il bordo superiore → pull attivo
+      const pullY = c.clampY < 0 ? -c.clampY : 0;
       state.pullOverscrollY = pullY;
       showPullIndicator(pullY >= PULL_THRESHOLD);
 

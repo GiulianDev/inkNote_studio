@@ -8,21 +8,27 @@ let _viewportChangeHandler = null;
 export function setViewportChangeHandler(fn) { _viewportChangeHandler = fn; }
 
 // ------------------------------------------------------------
-// CLAMP RIGOROSO
+// CLAMP RIGOROSO (bounded, spostabile fino ai bordi)
 // ------------------------------------------------------------
-// Regole:
-//   - contentW <= viewportW  →  x fissato a (vw - contentW) / 2  (centrato)
-//   - contentW >  viewportW  →  x ∈ [vw - contentW, 0]
-//   - stessa logica su Y
-// In nessun caso il contenuto può "uscire" dai bordi del viewport:
-// spingendo a destra si ferma quando il bordo sinistro del foglio
-// tocca il bordo sinistro dello schermo, e viceversa.
+// Il contenuto può essere spostato liberamente, ma il suo bordo
+// sinistro non può superare il bordo sinistro del viewport, e il
+// suo bordo destro non può superare il bordo destro.
+//
+// Formula unificata (vale per contenuto stretto E largo):
+//   minX = min(0, vw - contentW)
+//   maxX = max(0, vw - contentW)
+//
+// Casi:
+//   contentW <= vw → minX = 0, maxX = vw - contentW ≥ 0
+//                    il foglio può andare da bordo sx schermo
+//                    a bordo dx schermo (completamente spostabile)
+//   contentW >  vw → minX = vw - contentW < 0, maxX = 0
+//                    il foglio può andare da "bordo dx al bordo dx schermo"
+//                    a "bordo sx al bordo sx schermo"
 //
 // Il valore di ritorno include clampX/clampY (overscroll respinto):
-//   clampX < 0  →  stava spingendo oltre il bordo sinistro
-//   clampX > 0  →  stava spingendo oltre il bordo destro
-//   clampY < 0  →  stava spingendo oltre il bordo inferiore (fondo)
-//   clampY > 0  →  stava spingendo oltre il bordo superiore (cima)
+//   clampY < 0  →  spingendo oltre il bordo superiore (fondo contenuto)
+//   clampY > 0  →  spingendo oltre il bordo inferiore
 // Usato da gestures.js per il pull-to-add-page.
 // ------------------------------------------------------------
 
@@ -42,23 +48,14 @@ function _computeClampBounds() {
   const contentH = container.offsetHeight * viewport.scale;
   if (contentW <= 0 || contentH <= 0) return null;
 
-  let minX, maxX, minY, maxY;
-  if (contentW <= vw) {
-    // Contenuto più stretto del viewport: centrato, pan orizzontale disabilitato
-    minX = maxX = (vw - contentW) / 2;
-  } else {
-    // Contenuto più largo: bounds rigorosi
-    minX = vw - contentW;
-    maxX = 0;
-  }
-  if (contentH <= vh) {
-    minY = maxY = (vh - contentH) / 2;
-  } else {
-    minY = vh - contentH;
-    maxY = 0;
-  }
-
-  const bounds = { minX, maxX, minY, maxY };
+  const deltaX = vw - contentW;
+  const deltaY = vh - contentH;
+  const bounds = {
+    minX: Math.min(0, deltaX),
+    maxX: Math.max(0, deltaX),
+    minY: Math.min(0, deltaY),
+    maxY: Math.max(0, deltaY)
+  };
   _clampCache = { key: cacheKey, bounds };
   return bounds;
 }
@@ -74,11 +71,7 @@ export function clampViewport(rawX, rawY) {
   let x = rawX, y = rawY;
   let clampX = 0, clampY = 0;
 
-  if (b.maxX === b.minX) {
-    // Asse bloccato (contenuto più stretto): centrato, overscroll = offset dal centro
-    x = b.minX;
-    clampX = rawX - x;
-  } else if (rawX > b.maxX) {
+  if (rawX > b.maxX) {
     x = b.maxX;
     clampX = rawX - x;
   } else if (rawX < b.minX) {
@@ -86,10 +79,7 @@ export function clampViewport(rawX, rawY) {
     clampX = rawX - x;
   }
 
-  if (b.maxY === b.minY) {
-    y = b.minY;
-    clampY = rawY - y;
-  } else if (rawY > b.maxY) {
+  if (rawY > b.maxY) {
     y = b.maxY;
     clampY = rawY - y;
   } else if (rawY < b.minY) {
@@ -124,8 +114,8 @@ export function applyTransform(animate = false) {
 
 // ------------------------------------------------------------
 // APPLY PINCH TRANSFORM
-// Dopo aver applicato lo zoom, clampo la posizione per evitare
-// che il foglio fuori esca dai bordi del viewport.
+// Dopo lo zoom, clampo la posizione per evitare che il foglio
+// fuori esca dai bordi del viewport.
 // ------------------------------------------------------------
 
 export function applyPinchTransform(startCenter, startTransform, newCenter, targetScale) {
@@ -135,8 +125,6 @@ export function applyPinchTransform(startCenter, startTransform, newCenter, targ
   viewport.y = newCenter.y - contentY * targetScale;
   viewport.scale = targetScale;
 
-  // Clamp post-zoom: la cache bounds è già invalidata dal cambio di scale
-  // (cacheKey include viewport.scale), quindi il clamp usa i nuovi bounds.
   const c = clampViewport(viewport.x, viewport.y);
   viewport.x = c.x;
   viewport.y = c.y;
