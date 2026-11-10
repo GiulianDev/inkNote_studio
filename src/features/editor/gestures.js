@@ -1,7 +1,7 @@
 // ============================================================
 // PAN / PINCH / WHEEL / PULL-TO-ADD-PAGE
 // Palm rejection: contact size + finestra post-penna + 3+ dita.
-// Scroll con inerzia (flick scrolling) + axis lock sul pan 1 dito.
+// Scroll con inerzia + axis lock dinamico durante lo scrolling veloce.
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -20,41 +20,36 @@ const ELASTIC_FACTOR = 0.25;
 // PALM REJECTION
 // ------------------------------------------------------------
 const PALM_CONTACT_SIZE = 40;
-// Finestra dopo l'ultima SCRITTURA (penna che tocca) in cui i touch
-// restano bloccati. Volutamente breve. L'hover NON aggiorna il timer.
 const PEN_ACTIVITY_WINDOW_MS = 100;
-// Se la penna arriva entro questa finestra dall'inizio di un pan da
-// palmo, il pan viene annullato e la vista torna alla posizione
-// pre-pan. Oltre, si presume un pan volontario e lo si lascia.
 const PALM_PAN_CANCEL_WINDOW_MS = 400;
 
 // ------------------------------------------------------------
-// AXIS LOCK (pan a 1 dito)
+// SCROLL AXIS LOCK DINAMICO
 // ------------------------------------------------------------
-// Soglia di movimento (px) prima di decidere l'asse dominante.
-// Sotto questa soglia l'asse resta indeciso e il pan non parte.
-const AXIS_LOCK_THRESHOLD = 8;
+// Il pan a 1 dito è LIBERO. Il blocco sull'asse Y si attiva solo
+// quando il gesto diventa "veloce e prevalentemente verticale".
+//
+// ENTER_SPEED:   velocità (px/ms) sopra cui si può attivare il lock.
+// EXIT_SPEED:    velocità sotto cui si disattiva (isteresi).
+// DOMINANCE:     |vy| deve essere > |vx| * DOMINANCE per attivare.
+//                (1.5 = gesto "abbastanza verticale", tollera piccole
+//                deviazioni orizzontali ma non diagonali marcate)
+//
+// Una volta attivo, il blocco resta finché la velocità non scende
+// sotto EXIT_SPEED. Se l'utente rallenta, torna libero.
+const SCROLL_ENTER_SPEED = 1.2;    // px/ms → ~1200 px/s
+const SCROLL_EXIT_SPEED  = 0.4;    // px/ms → ~400 px/s
+const SCROLL_AXIS_DOMINANCE = 1.5;
 
 // ------------------------------------------------------------
 // MOMENTUM / FLICK SCROLLING
 // ------------------------------------------------------------
-// Friction per millisecondo: decay esponenziale della velocità.
-// 0.997 → ~333px di "corsa" per ogni px/ms di velocità iniziale.
 const MOMENTUM_FRICTION_PER_MS = 0.997;
-// Amplifica la velocità calcolata dal gesto (feeling iOS-like).
 const MOMENTUM_VELOCITY_BOOST = 1.15;
-// Sotto questa soglia (px/ms) il gesto non genera momentum.
-const MOMENTUM_MIN_FLING_VELOCITY = 0.08;  // ~80 px/s
-// Sotto questa soglia (px/ms) il momentum si ferma.
-const MOMENTUM_STOP_VELOCITY = 0.02;       // ~20 px/s
-// Quanti campioni di posizione del dito tenere per stimare la velocità.
+const MOMENTUM_MIN_FLING_VELOCITY = 0.08;
+const MOMENTUM_STOP_VELOCITY = 0.02;
 const VELOCITY_SAMPLE_COUNT = 6;
-// Finestra temporale (ms) entro cui i campioni sono validi.
 const VELOCITY_SAMPLE_WINDOW_MS = 100;
-// Boost dinamico in base alla velocità del flick:
-// speed ≤ 2 px/ms → 1.0x
-// speed 5 px/ms  → 1.9x
-// speed 8+ px/ms → 2.8x
 const MOMENTUM_SPEED_BASE = 2.0;
 const MOMENTUM_SPEED_SLOPE = 0.30;
 const MOMENTUM_SPEED_MAX = 8.0;
@@ -63,16 +58,14 @@ const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 let _lastPenActivityTime = 0;
 let _panStartTime = 0;
 
-// Asse bloccato del pan a 1 dito: null | 'x' | 'y'
-// Deciso al primo movimento oltre soglia, resta fisso fino al rilascio.
-let _panAxis = null;
+// Scroll axis lock dinamico
+let _scrollAxisLocked = false;
 
 // Stato momentum
 let _momentumRaf = null;
-let _momentumVelX = 0;    // px/ms
-let _momentumVelY = 0;    // px/ms
+let _momentumVelX = 0;
+let _momentumVelY = 0;
 let _momentumLastTime = 0;
-// Campioni di posizione del dito per stimare la velocità al rilascio
 const _velocitySamples = [];
 
 function _isPenEvent(e) {
@@ -138,13 +131,12 @@ function _computeSpeedBoost(speed) {
 }
 
 function _startMomentum(vx, vy) {
-  // Axis lock: azzera la componente perpendicolare all'asse del gesto
-  if (_panAxis === 'y') vx = 0;
-  else if (_panAxis === 'x') vy = 0;
+  // Se all'atto del rilascio il lock era attivo, azzera la componente X
+  if (_scrollAxisLocked) vx = 0;
 
   const speed = Math.hypot(vx, vy);
   const speedBoost = _computeSpeedBoost(speed);
-  const userSensitivity = getScrollSensitivity();   // 0.2x - 2.0x
+  const userSensitivity = getScrollSensitivity();
   const totalBoost = MOMENTUM_VELOCITY_BOOST * speedBoost * userSensitivity;
 
   _momentumVelX = vx * totalBoost;
@@ -266,7 +258,7 @@ export function setupViewportGestures() {
     if (_isPenEvent(e)) {
       _cancelMomentum();
       _resetVelocitySamples();
-      _panAxis = null;
+      _scrollAxisLocked = false;
 
       for (const [id, ptr] of [...viewport.activePointers]) {
         if (ptr.pointerType !== 'pen' && ptr.pointerType !== 'eraser') {
@@ -300,6 +292,7 @@ export function setupViewportGestures() {
 
     _cancelMomentum();
     _resetVelocitySamples();
+    _scrollAxisLocked = false;
 
     viewport.activePointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, pointerType: e.pointerType
@@ -309,7 +302,6 @@ export function setupViewportGestures() {
     if (viewport.activePointers.size > 2) {
       viewport.isPanning = false;
       viewport.isPinching = false;
-      _panAxis = null;
       state.pullOverscrollY = 0;
       hidePullIndicator();
       return;
@@ -321,13 +313,11 @@ export function setupViewportGestures() {
         viewport.panStart = { x: e.clientX, y: e.clientY };
         viewport.panStartTransform = { x: viewport.x, y: viewport.y };
         _panStartTime = performance.now();
-        _panAxis = null;
         _pushVelocitySample(e.clientX, e.clientY);
         try { viewportEl.setPointerCapture(e.pointerId); } catch (err) {}
       }
     } else if (viewport.activePointers.size === 2) {
       if (viewport.isPanning) viewport.isPanning = false;
-      _panAxis = null;
       abortCurrentDrawing();
       viewport.isPinching = true;
       const pts = Array.from(viewport.activePointers.values());
@@ -358,24 +348,29 @@ export function setupViewportGestures() {
       e.preventDefault();
       _pushVelocitySample(e.clientX, e.clientY);
 
-      const dx = e.clientX - viewport.panStart.x;
-      const dy = e.clientY - viewport.panStart.y;
+      // ---- Aggiorna lo stato di scroll axis lock ----
+      // Rileva se il gesto corrente è "scrollata veloce verticale".
+      const { vx, vy } = _computeFlingVelocity();
+      const speed = Math.hypot(vx, vy);
 
-      // Axis lock: decidi l'asse dominante al primo movimento significativo
-      if (_panAxis === null) {
-        const absDx = Math.abs(dx);
-        const absDy = Math.abs(dy);
-        if (absDx > AXIS_LOCK_THRESHOLD || absDy > AXIS_LOCK_THRESHOLD) {
-          _panAxis = absDy >= absDx ? 'y' : 'x';
-        } else {
-          // Movimento ancora troppo piccolo: non muovere la vista
-          return;
+      if (!_scrollAxisLocked) {
+        // Prova ad attivare il lock
+        if (speed >= SCROLL_ENTER_SPEED &&
+            Math.abs(vy) > Math.abs(vx) * SCROLL_AXIS_DOMINANCE) {
+          _scrollAxisLocked = true;
+        }
+      } else {
+        // Prova a disattivare il lock (isteresi)
+        if (speed < SCROLL_EXIT_SPEED) {
+          _scrollAxisLocked = false;
         }
       }
 
-      // Applica il filtro sull'asse bloccato
-      const effectiveDx = _panAxis === 'y' ? 0 : dx;
-      const effectiveDy = _panAxis === 'x' ? 0 : dy;
+      // Applica il filtro solo se il lock è attivo
+      const dx = e.clientX - viewport.panStart.x;
+      const dy = e.clientY - viewport.panStart.y;
+      const effectiveDx = _scrollAxisLocked ? 0 : dx;
+      const effectiveDy = dy;
 
       const rawX = viewport.panStartTransform.x + effectiveDx;
       const rawY = viewport.panStartTransform.y + effectiveDy;
@@ -384,14 +379,12 @@ export function setupViewportGestures() {
       viewport.y = c.y;
       applyTransform();
 
-      // Pull-to-add-page solo su asse Y
-      if (_panAxis === 'y') {
-        const container = document.getElementById('canvasContainer');
-        const bottomBoundary = viewportEl.clientHeight - (viewport.y + container.getBoundingClientRect().height);
-        if (bottomBoundary > 0 && effectiveDy < 0) {
-          state.pullOverscrollY = bottomBoundary;
-          showPullIndicator(state.pullOverscrollY >= PULL_THRESHOLD);
-        } else hidePullIndicator();
+      // Pull-to-add-page
+      const container = document.getElementById('canvasContainer');
+      const bottomBoundary = viewportEl.clientHeight - (viewport.y + container.getBoundingClientRect().height);
+      if (bottomBoundary > 0 && dy < 0) {
+        state.pullOverscrollY = bottomBoundary;
+        showPullIndicator(state.pullOverscrollY >= PULL_THRESHOLD);
       } else hidePullIndicator();
     } else if (viewport.isPinching && viewport.activePointers.size === 2) {
       e.preventDefault();
@@ -436,10 +429,7 @@ export function setupViewportGestures() {
 
       if (wasPanning) {
         const { vx, vy } = _computeFlingVelocity();
-        // Filtra la velocità sull'asse bloccato prima di decidere il fling
-        const effVx = _panAxis === 'y' ? 0 : vx;
-        const effVy = _panAxis === 'x' ? 0 : vy;
-        const speed = Math.hypot(effVx, effVy);
+        const speed = Math.hypot(vx, vy);
 
         if (!shouldAddPage && speed >= MOMENTUM_MIN_FLING_VELOCITY) {
           _startMomentum(vx, vy);
@@ -464,7 +454,7 @@ export function setupViewportGestures() {
         scheduleResolutionRefresh();
       }
       _resetVelocitySamples();
-      _panAxis = null;
+      _scrollAxisLocked = false;
     } else if (viewport.activePointers.size === 1) {
       viewport.isPinching = false;
     }
