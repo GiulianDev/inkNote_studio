@@ -658,10 +658,30 @@ export function handlePointerUp(e, pageData) {
       drawDotOnly(pageData, state.currentStroke);
     } else if (state.activeTool === 'highlighter') {
       drawFinalSegmentOnly(pageData, state.currentStroke);
-    } else {
+    } else if (state.activeTool === 'pencil') {
+      // Pencil: overlay usa unify (tinta uniforme), renderFullStroke
+      // usa drawTaperedSegment per-step (darkening). Blit causerebbe
+      // regressione visiva. Teniamo il render completo.
       const pctx = pageData.ctx, dpr = pageData.dpr || 1;
       pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       renderFullStroke(pctx, state.currentStroke, state.isDarkMode);
+      pctx.restore();
+    } else {
+      // Pen e marker: l'overlay contiene già lo stroke completo e con
+      // lo stesso stile del renderFullStroke (entrambi usano unify).
+      // Basta copiarlo sulla main canvas con un solo drawImage: nessun
+      // resample visibile, costo O(1) invece di O(punti).
+      const pctx = pageData.ctx;
+      pctx.save();
+      pctx.setTransform(1, 0, 0, 1, 0, 0);
+      pctx.globalCompositeOperation = 'source-over';
+      pctx.globalAlpha = 1;
+      pctx.drawImage(
+        pageData.overlayCanvas,
+        0, 0,
+        pageData.canvas.width,
+        pageData.canvas.height
+      );
       pctx.restore();
     }
     clearOverlay(pageData);
