@@ -39,11 +39,11 @@ const PALM_PAN_CANCEL_WINDOW_MS = 400;
 // Se entro la finestra (400ms / 80px) non si riconosce scroll,
 // il gesto resta pan libero fino al rilascio.
 // ------------------------------------------------------------
-const SCROLL_DECISION_WINDOW_MS = 200;   // ms entro cui decidere
-const SCROLL_DECISION_WINDOW_PX = 50;    // px di movimento entro cui decidere
-const SCROLL_ENTER_SPEED = 1.5;          // px/ms (~1000 px/s)
-const SCROLL_AXIS_DOMINANCE = 4;       // |vy| > |vx| * 2.5
-const SCROLL_MAX_CROSS_SPEED = 0.6;      // |vx| < 0.8 px/ms in assoluto
+const SCROLL_DECISION_WINDOW_MS = 400;   // ms entro cui decidere
+const SCROLL_DECISION_WINDOW_PX = 80;    // px di movimento entro cui decidere
+const SCROLL_ENTER_SPEED = 1.0;          // px/ms (~1000 px/s)
+const SCROLL_AXIS_DOMINANCE = 2.5;       // |vy| > |vx| * 2.5
+const SCROLL_MAX_CROSS_SPEED = 0.8;      // |vx| < 0.8 px/ms in assoluto
 
 // ------------------------------------------------------------
 // MOMENTUM / FLICK SCROLLING
