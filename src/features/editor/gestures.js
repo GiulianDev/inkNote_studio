@@ -21,7 +21,7 @@ const ELASTIC_FACTOR = 0.25;
 const PALM_CONTACT_SIZE = 40;
 // Finestra dopo l'ultima SCRITTURA (penna che tocca) in cui i touch
 // restano bloccati. L'hover NON aggiorna questo timer.
-const PEN_ACTIVITY_WINDOW_MS = 500;
+const PEN_ACTIVITY_WINDOW_MS = 100;
 // Se la penna arriva entro questa finestra dall'inizio di un pan da
 // palmo, il pan viene annullato e la vista torna alla posizione
 // pre-pan. Oltre, si presume un pan volontario e lo si lascia.
