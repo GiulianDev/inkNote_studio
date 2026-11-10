@@ -17,7 +17,7 @@ import {
 
 const MAX_RENDER_DPR = 4;
 const MAX_ZOOM_DPR_BOOST = 1.3;
-const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 2);
+const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 1.5);
 
 let _resolutionRefreshTimer = null;
 let _activePageRaf = null;
