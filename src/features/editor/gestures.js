@@ -1,11 +1,10 @@
 // ============================================================
 // PAN / PINCH / WHEEL / PULL-TO-ADD-PAGE
 // Palm rejection: contact size + finestra post-penna + 3+ dita.
-// Scroll con inerzia + axis lock one-shot (solo scroll verticale
-// riconosciuto all'inizio del gesto).
-// Clamp rigoroso: il foglio non esce mai dai bordi del viewport
-// ma può essere spostato fino ai bordi anche se più stretto.
-// Pull-to-add-page: overscroll virtuale (clampY < 0).
+// Scroll con inerzia + axis lock one-shot.
+// Clamp rigoroso: il foglio non esce mai dai bordi.
+// Pull-to-add-page: overscroll virtuale, SOLO se il gesto è
+// iniziato quando la vista era già al fondo (pull volontario).
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -28,22 +27,11 @@ const PALM_PAN_CANCEL_WINDOW_MS = 400;
 // ------------------------------------------------------------
 // SCROLL AXIS LOCK ONE-SHOT
 // ------------------------------------------------------------
-// La decisione "è scroll verticale o pan libero?" si prende UNA
-// SOLA VOLTA, nei primi movimenti del gesto.
-//
-// Condizioni per il riconoscimento scroll (tutte vere):
-//   1. velocità totale ≥ SCROLL_ENTER_SPEED
-//   2. |vy| > |vx| * SCROLL_AXIS_DOMINANCE
-//   3. |vx| < SCROLL_MAX_CROSS_SPEED
-//
-// Se entro la finestra (400ms / 80px) non si riconosce scroll,
-// il gesto resta pan libero fino al rilascio.
-// ------------------------------------------------------------
-const SCROLL_DECISION_WINDOW_MS = 400;   // ms entro cui decidere
-const SCROLL_DECISION_WINDOW_PX = 80;    // px di movimento entro cui decidere
-const SCROLL_ENTER_SPEED = 1.0;          // px/ms (~1000 px/s)
-const SCROLL_AXIS_DOMINANCE = 2.5;       // |vy| > |vx| * 2.5
-const SCROLL_MAX_CROSS_SPEED = 0.8;      // |vx| < 0.8 px/ms in assoluto
+const SCROLL_DECISION_WINDOW_MS = 400;
+const SCROLL_DECISION_WINDOW_PX = 80;
+const SCROLL_ENTER_SPEED = 1.0;
+const SCROLL_AXIS_DOMINANCE = 2.5;
+const SCROLL_MAX_CROSS_SPEED = 0.8;
 
 // ------------------------------------------------------------
 // MOMENTUM / FLICK SCROLLING
@@ -64,6 +52,13 @@ let _panStartTime = 0;
 
 let _scrollDecisionMade = false;
 let _scrollAxisLocked = false;
+
+// True se al pointerdown la vista era già clampata al fondo del
+// contenuto. Il pull-to-add-page si attiva solo in questo caso:
+// se l'utente è arrivato al fondo durante lo scroll (o con il
+// momentum), il pull NON scatta nello stesso gesto. Deve prima
+// rilasciare, poi fare un nuovo gesto dal fondo verso l'alto.
+let _startedAtBottom = false;
 
 let _momentumRaf = null;
 let _momentumVelX = 0;
@@ -221,6 +216,7 @@ export function setupViewportGestures() {
       _resetVelocitySamples();
       _scrollAxisLocked = false;
       _scrollDecisionMade = false;
+      _startedAtBottom = false;
 
       for (const [id, ptr] of [...viewport.activePointers]) {
         if (ptr.pointerType !== 'pen' && ptr.pointerType !== 'eraser') {
@@ -264,6 +260,7 @@ export function setupViewportGestures() {
     if (viewport.activePointers.size > 2) {
       viewport.isPanning = false;
       viewport.isPinching = false;
+      _startedAtBottom = false;
       state.pullOverscrollY = 0;
       hidePullIndicator();
       return;
@@ -276,10 +273,18 @@ export function setupViewportGestures() {
         viewport.panStartTransform = { x: viewport.x, y: viewport.y };
         _panStartTime = performance.now();
         _pushVelocitySample(e.clientX, e.clientY);
+
+        // Determina se siamo già clampati al fondo: solo in quel caso
+        // il pull-to-add-page è considerato "volontario".
+        const c0 = clampViewport(viewport.x, viewport.y);
+        _startedAtBottom = !!(c0.bounds &&
+          Math.abs(viewport.y - c0.bounds.minY) < 2);
+
         try { viewportEl.setPointerCapture(e.pointerId); } catch (err) {}
       }
     } else if (viewport.activePointers.size === 2) {
       if (viewport.isPanning) viewport.isPanning = false;
+      _startedAtBottom = false;
       abortCurrentDrawing();
       viewport.isPinching = true;
       const pts = Array.from(viewport.activePointers.values());
@@ -350,9 +355,16 @@ export function setupViewportGestures() {
       applyTransform();
 
       // ---- Pull-to-add-page (overscroll virtuale) ----
-      const pullY = c.clampY < 0 ? -c.clampY : 0;
-      state.pullOverscrollY = pullY;
-      showPullIndicator(pullY >= PULL_THRESHOLD);
+      // Solo se: (a) il gesto è iniziato al fondo, (b) stiamo
+      // spingendo oltre il bordo superiore del contenuto.
+      if (_startedAtBottom && c.clampY < 0) {
+        const pullY = -c.clampY;
+        state.pullOverscrollY = pullY;
+        showPullIndicator(pullY >= PULL_THRESHOLD);
+      } else {
+        state.pullOverscrollY = 0;
+        hidePullIndicator();
+      }
 
     } else if (viewport.isPinching && viewport.activePointers.size === 2) {
       e.preventDefault();
@@ -388,7 +400,9 @@ export function setupViewportGestures() {
     viewport.activePointers.delete(e.pointerId);
 
     if (viewport.activePointers.size === 0) {
-      const shouldAddPage = state.pullOverscrollY >= PULL_THRESHOLD;
+      // Pull-to-add-page: solo se il gesto è iniziato al fondo
+      // e la soglia è stata superata.
+      const shouldAddPage = _startedAtBottom && state.pullOverscrollY >= PULL_THRESHOLD;
 
       state.pullOverscrollY = 0;
       hidePullIndicator();
@@ -401,6 +415,7 @@ export function setupViewportGestures() {
         _resetVelocitySamples();
         _scrollAxisLocked = false;
         _scrollDecisionMade = false;
+        _startedAtBottom = false;
         return;
       }
 
@@ -425,6 +440,7 @@ export function setupViewportGestures() {
       _resetVelocitySamples();
       _scrollAxisLocked = false;
       _scrollDecisionMade = false;
+      _startedAtBottom = false;
     } else if (viewport.activePointers.size === 1) {
       viewport.isPinching = false;
     }

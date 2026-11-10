@@ -11,7 +11,9 @@ import { pushHistory, resetHistory } from './history.js';
 import { scheduleSave } from './autosave.js';
 import { clearSelection } from './lasso.js';
 import { updatePageCounterUI } from './header.js';
-import { applyTransform } from './transform.js';
+import {
+  applyTransform, clampViewport, invalidateClampCache
+} from './transform.js';
 
 const MAX_RENDER_DPR = 4;
 const MAX_ZOOM_DPR_BOOST = 1.3;
@@ -62,8 +64,22 @@ export function addNewPage() {
   updatePageCounterUI();
   scheduleSave();
   pushHistory();
-  newPage.wrapper.scrollIntoView({ behavior: 'smooth' });
   scheduleResolutionRefresh();
+  // Il contenuto è cresciuto: i bounds sono cambiati
+  invalidateClampCache();
+
+  // Porta in vista la nuova pagina via transform (no scrollIntoView:
+  // sposta #viewport.scrollTop in modo indipendente dal nostro
+  // transform, causando disallineamenti successivi).
+  requestAnimationFrame(() => {
+    const pageTop = newPage.wrapper.offsetTop;
+    const targetY = -pageTop * viewport.scale + 20;
+    viewport.y = targetY;
+    const c = clampViewport(viewport.x, viewport.y);
+    viewport.x = c.x;
+    viewport.y = c.y;
+    applyTransform(true);
+  });
 }
 
 export function centerViewport() {
@@ -92,11 +108,9 @@ export function installViewportResizeObserver() {
     const newH = vp.clientHeight;
     if (newW === _lastVpW && newH === _lastVpH) return;
 
-    // Punto canvas al centro del vecchio viewport (con scale/pan correnti)
     const canvasCX = (_lastVpW / 2 - viewport.x) / viewport.scale;
     const canvasCY = (_lastVpH / 2 - viewport.y) / viewport.scale;
 
-    // Riposiziona in modo che lo stesso punto resti al centro
     viewport.x = newW / 2 - canvasCX * viewport.scale;
     viewport.y = newH / 2 - canvasCY * viewport.scale;
 
@@ -148,12 +162,10 @@ export function updateActivePageFromViewport() {
     const page = getMostCenteredPage();
     if (!page || page.index === state.activePageIndex) return;
     if (state.selectedStrokes.length > 0) {
-      // Consolida la selezione sulla pagina precedente prima di cambiare
       clearSelection();
     }
     state.activePageIndex = page.index;
     updatePageCounterUI();
-    // Cambio pagina = stack history della pagina precedente non è più coerente
     resetHistory();
   });
 }
@@ -232,9 +244,6 @@ export function changeBackgroundPattern(pattern) {
 }
 
 export function clearCurrentPage() {
-  // Usa la pagina attiva (sincronizzata da updateActivePageFromViewport
-  // durante lo scroll). Non cambio activePageIndex qui: la history è
-  // per-pagina e un cambio forzato invaliderebbe lo stack.
   const page = state.pages[state.activePageIndex];
   if (!page || page.strokes.length === 0) return;
   if (!confirm('Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Ctrl+Z.')) return;
@@ -258,6 +267,7 @@ function restorePageFromSnapshot(snap) {
   wrappers.sort((a, b) => parseInt(a.dataset.index) - parseInt(b.dataset.index));
   wrappers.forEach(w => container.appendChild(w));
   updatePageCounterUI();
+  invalidateClampCache();
   const newPage = state.pages[state.activePageIndex];
   if (newPage) redrawSelectionOverlay(newPage);
 }
