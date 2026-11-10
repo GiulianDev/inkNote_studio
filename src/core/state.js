@@ -167,7 +167,7 @@ export const viewport = {
   /** @type {number} */
   minScale: 0.25,
   /** @type {number} */
-  maxScale: 2.0,
+  maxScale: 4.0,
 
   /** @type {Map<number, {x:number, y:number, pointerType:string}>} */
   activePointers: new Map(),
