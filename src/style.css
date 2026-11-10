@@ -22,14 +22,14 @@
 
 body {
   color: #0f172a;
-  background-color: #cbd5e1;
+  background-color: #f1f5f9; /* slate-100, coerente con #libraryView */
   font-family: Inter, system-ui, -apple-system, sans-serif;
   overflow: hidden;
 }
 
 body.dark {
   color: #f8fafc;
-  background-color: #0f172a;
+  background-color: #020617; /* slate-950, coerente con #libraryView dark */
 }
 
 #viewport {
@@ -179,30 +179,51 @@ body.handed-left #zoomBadge {
   transform: translateY(-100%);
 }
 
-body.compact-mode #mainHeader {
-  padding: 8px 12px;
-  box-shadow: none !important;
-  background: transparent !important;
-  border-bottom-color: transparent !important;
-}
-
 body.compact-mode #headerLeft,
 body.compact-mode #headerRight,
-body.compact-mode #subbar {
-  display: none !important;
-}
-
-body.compact-mode #drawingToolbar {
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 10px 30px -10px #00000059;
-}
-
-body.compact-mode #viewport {
-  height: calc(100vh - 56px);
-}
-
+body.compact-mode #subbar,
 body.compact-mode #subbarExpandContainer {
   display: none !important;
+}
+
+/* Header flottante stile macOS dock: non occupa la fascia superiore,
+   galleggia sopra il viewport, centrato, con blur e ombra morbida. */
+body.compact-mode #mainHeader {
+  display: inline-flex;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: calc(100vw - 24px);
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.10);
+  z-index: 100;
+  gap: 0;
+}
+
+body.compact-mode.dark #mainHeader {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Il dock interno diventa trasparente: il contenitore visivo è l'header */
+body.compact-mode #drawingToolbar {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Il viewport occupa tutto lo schermo; il dock flottante ci sta sopra */
+body.compact-mode #viewport {
+  height: 100vh;
+  width: 100vw;
 }
 
 @media print {
