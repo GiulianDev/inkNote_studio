@@ -15,7 +15,8 @@ const DEFAULT_SETTINGS = {
   dockSize: 'medium',
   pressureLight: 10,
   pressureHeavy: 340,
-  pressureCurve: 60
+  pressureCurve: 60,
+  scrollSensitivity: 50
 };
 
 let _pressureParamsCache = null;
@@ -48,6 +49,21 @@ export function getPressureParams() {
     curve: 0.5 + (s.pressureCurve / 100) * 2.5
   };
   return _pressureParamsCache;
+}
+
+/**
+ * Moltiplicatore di sensibilità scroll.
+ * Slider 0-100 → moltiplicatore 0.2x - 2.0x.
+ *   0   → 0.2x (scroll quasi disabilitato)
+ *   25  → 0.5x
+ *   50  → 1.0x (default, comportamento base)
+ *   75  → 1.5x
+ *   100 → 2.0x
+ */
+export function getScrollSensitivity() {
+  const s = loadSettings();
+  const val = (typeof s.scrollSensitivity === 'number') ? s.scrollSensitivity : 50;
+  return Math.max(0.2, val / 50);
 }
 
 export function applySettings(settings) {

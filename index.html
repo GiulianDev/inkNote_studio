@@ -132,6 +132,19 @@
                         </select>
                     </div>
 
+                    <!-- sensibilità scroll -->
+                    <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
+                        <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3">👆 Scrolling</h4>
+                        <div>
+                            <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                <span>Sensibilità scroll</span>
+                                <span id="scrollSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
+                            </label>
+                            <input type="range" id="scrollSensitivitySlider" min="0" max="100" value="50" class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+                            <p class="text-[10px] text-slate-500 mt-0.5">Più alto = flick più lunghi. 50 = default.</p>
+                        </div>
+                    </div>
+
                     <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
                         <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3">✒️ Inchiostro</h4>
                         <div class="space-y-3">

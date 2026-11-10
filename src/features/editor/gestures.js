@@ -6,6 +6,7 @@
 
 import { state, viewport } from '../../core/state.js';
 import { PULL_THRESHOLD, showToast } from '../../core/utils.js';
+import { getScrollSensitivity } from '../../services/preferences.js';
 import { abortCurrentDrawing } from './input.js';
 import { addNewPage, scheduleResolutionRefresh } from './pages.js';
 import { applyTransform, applyPinchTransform } from './transform.js';
@@ -32,7 +33,7 @@ const PALM_PAN_CANCEL_WINDOW_MS = 400;
 // ------------------------------------------------------------
 // Friction per millisecondo: decay esponenziale della velocità.
 // 0.996 → ~500px di "corsa" partendo da 2 px/ms (2000 px/s).
-const MOMENTUM_FRICTION_PER_MS = 0.996;
+const MOMENTUM_FRICTION_PER_MS = 0.997;
 // Amplifica la velocità calcolata dal gesto (feeling iOS-like).
 const MOMENTUM_VELOCITY_BOOST = 1.15;
 // Sotto questa soglia (px/ms) il gesto non genera momentum.
@@ -43,6 +44,14 @@ const MOMENTUM_STOP_VELOCITY = 0.02;       // ~20 px/s
 const VELOCITY_SAMPLE_COUNT = 6;
 // Finestra temporale (ms) entro cui i campioni sono validi.
 const VELOCITY_SAMPLE_WINDOW_MS = 100;
+// Boost dinamico in base alla velocità del flick:
+// speed ≤ 2 px/ms → 1.0x
+// speed 5 px/ms  → 1.9x
+// speed 8+ px/ms → 2.8x
+const MOMENTUM_SPEED_BASE = 2.0;        // px/ms sotto cui boost = 1
+const MOMENTUM_SPEED_SLOPE = 0.30;      // incremento per px/ms sopra la base
+const MOMENTUM_SPEED_MAX = 8.0;         // px/ms oltre cui boost satura
+const MOMENTUM_SPEED_BOOST_MAX = 2.8;   // tetto del boost
 
 let _lastPenActivityTime = 0;
 let _panStartTime = 0;
@@ -115,10 +124,20 @@ function _computeFlingVelocity() {
   };
 }
 
+function _computeSpeedBoost(speed) {
+  if (speed <= MOMENTUM_SPEED_BASE) return 1.0;
+  const over = Math.min(speed, MOMENTUM_SPEED_MAX) - MOMENTUM_SPEED_BASE;
+  return Math.min(MOMENTUM_SPEED_BOOST_MAX, 1 + over * MOMENTUM_SPEED_SLOPE);
+}
+
 function _startMomentum(vx, vy) {
-  // Boost + clamp direzionale
-  _momentumVelX = vx * MOMENTUM_VELOCITY_BOOST;
-  _momentumVelY = vy * MOMENTUM_VELOCITY_BOOST;
+  const speed = Math.hypot(vx, vy);
+  const speedBoost = _computeSpeedBoost(speed);
+  const userSensitivity = getScrollSensitivity();   // 0.2x - 2.0x
+  const totalBoost = MOMENTUM_VELOCITY_BOOST * speedBoost * userSensitivity;
+
+  _momentumVelX = vx * totalBoost;
+  _momentumVelY = vy * totalBoost;
   _momentumLastTime = 0;
 
   if (Math.hypot(_momentumVelX, _momentumVelY) < MOMENTUM_MIN_FLING_VELOCITY) {

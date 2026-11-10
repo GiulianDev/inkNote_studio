@@ -26,6 +26,12 @@ export function openSettingsModal() {
   if (lightSlider) lightSlider.value = s.pressureLight;
   if (heavySlider) heavySlider.value = s.pressureHeavy;
   if (curveSlider) curveSlider.value = s.pressureCurve;
+  // Scroll sensitivity
+  const scrollSlider = document.getElementById('scrollSensitivitySlider');
+  const scrollLabel = document.getElementById('scrollSensitivityValue');
+  const scrollVal = (typeof s.scrollSensitivity === 'number') ? s.scrollSensitivity : 50;
+  if (scrollSlider) scrollSlider.value = scrollVal;
+  if (scrollLabel) scrollLabel.innerText = scrollVal;
   _updatePressureLabels();
   _bindPressureSliders();
 
@@ -65,12 +71,33 @@ export function confirmSettings() {
     dockSize: elDock ? elDock.value : (current.dockSize || 'medium'),
     pressureLight: lightSlider ? parseInt(lightSlider.value) : current.pressureLight,
     pressureHeavy: heavySlider ? parseInt(heavySlider.value) : current.pressureHeavy,
-    pressureCurve: curveSlider ? parseInt(curveSlider.value) : current.pressureCurve
+    pressureCurve: curveSlider ? parseInt(curveSlider.value) : current.pressureCurve,
+    scrollSensitivity: document.getElementById('scrollSensitivitySlider')
+      ? parseInt(document.getElementById('scrollSensitivitySlider').value)
+      : (current.scrollSensitivity ?? 50)
   };
   saveSettings(settings);
   applySettings(settings);
   closeSettingsModal();
   showToast('Impostazioni salvate', '⚙️');
+}
+
+// --- scroll sensitivity ---
+
+let _scrollSliderBound = false;
+function _bindScrollSensitivitySlider() {
+  if (_scrollSliderBound) return;
+  _scrollSliderBound = true;
+  const slider = document.getElementById('scrollSensitivitySlider');
+  const label = document.getElementById('scrollSensitivityValue');
+  if (!slider) return;
+  slider.addEventListener('input', () => {
+    if (label) label.innerText = slider.value;
+    // Salva in tempo reale: così il prossimo flick usa già il nuovo valore
+    const s = loadSettings();
+    s.scrollSensitivity = parseInt(slider.value);
+    saveSettings(s);
+  });
 }
 
 // --- calibrazione pressione ---
@@ -228,6 +255,7 @@ export function clearPressureTest() {
 
 export function initSettingsModal() {
   _bindPressureSliders();
+  _bindScrollSensitivitySlider();
 }
 
 // ============================================================
