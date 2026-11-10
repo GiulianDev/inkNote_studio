@@ -28,11 +28,22 @@ const PALM_PAN_CANCEL_WINDOW_MS = 400;
 // ------------------------------------------------------------
 // SCROLL AXIS LOCK ONE-SHOT
 // ------------------------------------------------------------
-const SCROLL_DECISION_WINDOW_MS = 150;
-const SCROLL_DECISION_WINDOW_PX = 40;
-const SCROLL_ENTER_SPEED = 1.5;
-const SCROLL_AXIS_DOMINANCE = 4.0;
-const SCROLL_MAX_CROSS_SPEED = 0.5;
+// La decisione "è scroll verticale o pan libero?" si prende UNA
+// SOLA VOLTA, nei primi movimenti del gesto.
+//
+// Condizioni per il riconoscimento scroll (tutte vere):
+//   1. velocità totale ≥ SCROLL_ENTER_SPEED
+//   2. |vy| > |vx| * SCROLL_AXIS_DOMINANCE
+//   3. |vx| < SCROLL_MAX_CROSS_SPEED
+//
+// Se entro la finestra (400ms / 80px) non si riconosce scroll,
+// il gesto resta pan libero fino al rilascio.
+// ------------------------------------------------------------
+const SCROLL_DECISION_WINDOW_MS = 200;   // ms entro cui decidere
+const SCROLL_DECISION_WINDOW_PX = 50;    // px di movimento entro cui decidere
+const SCROLL_ENTER_SPEED = 1.5;          // px/ms (~1000 px/s)
+const SCROLL_AXIS_DOMINANCE = 4;       // |vy| > |vx| * 2.5
+const SCROLL_MAX_CROSS_SPEED = 0.6;      // |vx| < 0.8 px/ms in assoluto
 
 // ------------------------------------------------------------
 // MOMENTUM / FLICK SCROLLING
@@ -339,7 +350,6 @@ export function setupViewportGestures() {
       applyTransform();
 
       // ---- Pull-to-add-page (overscroll virtuale) ----
-      // clampY < 0: spingendo oltre il bordo superiore → pull attivo
       const pullY = c.clampY < 0 ? -c.clampY : 0;
       state.pullOverscrollY = pullY;
       showPullIndicator(pullY >= PULL_THRESHOLD);
