@@ -1,7 +1,7 @@
 // ============================================================
 // PAN / PINCH / WHEEL / PULL-TO-ADD-PAGE
 // Palm rejection: contact size + finestra post-penna + 3+ dita.
-// Scroll con inerzia + axis lock dinamico durante lo scrolling veloce.
+// Scroll con inerzia + axis lock dinamico (solo scroll verticale vero).
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -26,20 +26,22 @@ const PALM_PAN_CANCEL_WINDOW_MS = 400;
 // ------------------------------------------------------------
 // SCROLL AXIS LOCK DINAMICO
 // ------------------------------------------------------------
-// Il pan a 1 dito è LIBERO. Il blocco sull'asse Y si attiva solo
-// quando il gesto diventa "veloce e prevalentemente verticale".
+// Il pan a 1 dito è LIBERO. Il blocco sull'asse Y si attiva SOLO
+// quando il gesto è inequivocabilmente uno "scroll verticale":
+//   1. velocità totale ≥ SCROLL_ENTER_SPEED
+//   2. |vy| > |vx| × SCROLL_AXIS_DOMINANCE  (quasi solo verticale)
+//   3. |vx| < SCROLL_MAX_CROSS_SPEED         (X trascurabile in assoluto)
 //
-// ENTER_SPEED:   velocità (px/ms) sopra cui si può attivare il lock.
-// EXIT_SPEED:    velocità sotto cui si disattiva (isteresi).
-// DOMINANCE:     |vy| deve essere > |vx| * DOMINANCE per attivare.
-//                (1.5 = gesto "abbastanza verticale", tollera piccole
-//                deviazioni orizzontali ma non diagonali marcate)
+// Il vincolo (3) è quello che evita i falsi positivi: un movimento
+// diagonale veloce ha vx significativo, quindi NON attiva il lock
+// anche se vy è predominante.
 //
-// Una volta attivo, il blocco resta finché la velocità non scende
-// sotto EXIT_SPEED. Se l'utente rallenta, torna libero.
-const SCROLL_ENTER_SPEED = 1.2;    // px/ms → ~1200 px/s
-const SCROLL_EXIT_SPEED  = 0.4;    // px/ms → ~400 px/s
-const SCROLL_AXIS_DOMINANCE = 1.5;
+// Uscita (isteresi): speed < SCROLL_EXIT_SPEED.
+// ------------------------------------------------------------
+const SCROLL_ENTER_SPEED = 1.5;        // px/ms (~1500 px/s)
+const SCROLL_EXIT_SPEED  = 0.4;        // px/ms (~400 px/s)
+const SCROLL_AXIS_DOMINANCE = 4.0;     // |vy| > |vx| × 4
+const SCROLL_MAX_CROSS_SPEED = 0.5;    // |vx| < 0.5 px/ms in assoluto
 
 // ------------------------------------------------------------
 // MOMENTUM / FLICK SCROLLING
@@ -58,10 +60,8 @@ const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 let _lastPenActivityTime = 0;
 let _panStartTime = 0;
 
-// Scroll axis lock dinamico
 let _scrollAxisLocked = false;
 
-// Stato momentum
 let _momentumRaf = null;
 let _momentumVelX = 0;
 let _momentumVelY = 0;
@@ -131,7 +131,6 @@ function _computeSpeedBoost(speed) {
 }
 
 function _startMomentum(vx, vy) {
-  // Se all'atto del rilascio il lock era attivo, azzera la componente X
   if (_scrollAxisLocked) vx = 0;
 
   const speed = Math.hypot(vx, vy);
@@ -298,7 +297,6 @@ export function setupViewportGestures() {
       x: e.clientX, y: e.clientY, pointerType: e.pointerType
     });
 
-    // 3+ dita → nessun gesto
     if (viewport.activePointers.size > 2) {
       viewport.isPanning = false;
       viewport.isPinching = false;
@@ -348,25 +346,25 @@ export function setupViewportGestures() {
       e.preventDefault();
       _pushVelocitySample(e.clientX, e.clientY);
 
-      // ---- Aggiorna lo stato di scroll axis lock ----
-      // Rileva se il gesto corrente è "scrollata veloce verticale".
       const { vx, vy } = _computeFlingVelocity();
       const speed = Math.hypot(vx, vy);
+      const absVx = Math.abs(vx);
+      const absVy = Math.abs(vy);
 
       if (!_scrollAxisLocked) {
-        // Prova ad attivare il lock
+        // Attivazione: scroll verticale "vero"
         if (speed >= SCROLL_ENTER_SPEED &&
-            Math.abs(vy) > Math.abs(vx) * SCROLL_AXIS_DOMINANCE) {
+            absVy > absVx * SCROLL_AXIS_DOMINANCE &&
+            absVx < SCROLL_MAX_CROSS_SPEED) {
           _scrollAxisLocked = true;
         }
       } else {
-        // Prova a disattivare il lock (isteresi)
+        // Uscita (isteresi)
         if (speed < SCROLL_EXIT_SPEED) {
           _scrollAxisLocked = false;
         }
       }
 
-      // Applica il filtro solo se il lock è attivo
       const dx = e.clientX - viewport.panStart.x;
       const dy = e.clientY - viewport.panStart.y;
       const effectiveDx = _scrollAxisLocked ? 0 : dx;
@@ -379,7 +377,6 @@ export function setupViewportGestures() {
       viewport.y = c.y;
       applyTransform();
 
-      // Pull-to-add-page
       const container = document.getElementById('canvasContainer');
       const bottomBoundary = viewportEl.clientHeight - (viewport.y + container.getBoundingClientRect().height);
       if (bottomBoundary > 0 && dy < 0) {
