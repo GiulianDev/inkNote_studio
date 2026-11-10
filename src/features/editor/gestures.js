@@ -1,6 +1,7 @@
 // ============================================================
 // PAN / PINCH / WHEEL / PULL-TO-ADD-PAGE
 // Palm rejection: contact size + finestra post-penna + 3+ dita.
+// Scroll con inerzia (flick scrolling) per un feeling naturale.
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -17,18 +18,42 @@ const ELASTIC_FACTOR = 0.25;
 // ------------------------------------------------------------
 // PALM REJECTION
 // ------------------------------------------------------------
-// Soglia contact size (px CSS): un dito è ~10-20, un palmo 40-80+.
 const PALM_CONTACT_SIZE = 40;
 // Finestra dopo l'ultima SCRITTURA (penna che tocca) in cui i touch
-// restano bloccati. L'hover NON aggiorna questo timer.
+// restano bloccati. Volutamente breve. L'hover NON aggiorna il timer.
 const PEN_ACTIVITY_WINDOW_MS = 100;
 // Se la penna arriva entro questa finestra dall'inizio di un pan da
 // palmo, il pan viene annullato e la vista torna alla posizione
 // pre-pan. Oltre, si presume un pan volontario e lo si lascia.
 const PALM_PAN_CANCEL_WINDOW_MS = 400;
 
+// ------------------------------------------------------------
+// MOMENTUM / FLICK SCROLLING
+// ------------------------------------------------------------
+// Friction per millisecondo: decay esponenziale della velocità.
+// 0.996 → ~500px di "corsa" partendo da 2 px/ms (2000 px/s).
+const MOMENTUM_FRICTION_PER_MS = 0.996;
+// Amplifica la velocità calcolata dal gesto (feeling iOS-like).
+const MOMENTUM_VELOCITY_BOOST = 1.15;
+// Sotto questa soglia (px/ms) il gesto non genera momentum.
+const MOMENTUM_MIN_FLING_VELOCITY = 0.08;  // ~80 px/s
+// Sotto questa soglia (px/ms) il momentum si ferma.
+const MOMENTUM_STOP_VELOCITY = 0.02;       // ~20 px/s
+// Quanti campioni di posizione del dito tenere per stimare la velocità.
+const VELOCITY_SAMPLE_COUNT = 6;
+// Finestra temporale (ms) entro cui i campioni sono validi.
+const VELOCITY_SAMPLE_WINDOW_MS = 100;
+
 let _lastPenActivityTime = 0;
 let _panStartTime = 0;
+
+// Stato momentum
+let _momentumRaf = null;
+let _momentumVelX = 0;    // px/ms
+let _momentumVelY = 0;    // px/ms
+let _momentumLastTime = 0;
+// Campioni di posizione del dito per stimare la velocità al rilascio
+const _velocitySamples = [];
 
 function _isPenEvent(e) {
   return e.pointerType === 'pen' || e.pointerType === 'eraser';
@@ -43,7 +68,116 @@ function _isPenBlockingTouches() {
   return (performance.now() - _lastPenActivityTime) < PEN_ACTIVITY_WINDOW_MS;
 }
 
-// Cache bounds per evitare reflow ad ogni pointermove durante il pan.
+// ------------------------------------------------------------
+// MOMENTUM
+// ------------------------------------------------------------
+
+function _cancelMomentum() {
+  if (_momentumRaf !== null) {
+    cancelAnimationFrame(_momentumRaf);
+    _momentumRaf = null;
+  }
+  _momentumVelX = 0;
+  _momentumVelY = 0;
+  _momentumLastTime = 0;
+}
+
+function _pushVelocitySample(x, y) {
+  _velocitySamples.push({ x, y, t: performance.now() });
+  while (_velocitySamples.length > VELOCITY_SAMPLE_COUNT) _velocitySamples.shift();
+}
+
+function _resetVelocitySamples() {
+  _velocitySamples.length = 0;
+}
+
+/**
+ * Stima la velocità del dito (px/ms) sull'ultima finestra utile.
+ * Ritorna { vx, vy } nella direzione del movimento del dito.
+ */
+function _computeFlingVelocity() {
+  if (_velocitySamples.length < 2) return { vx: 0, vy: 0 };
+  const now = performance.now();
+  let firstIdx = 0;
+  for (let i = 0; i < _velocitySamples.length; i++) {
+    if (now - _velocitySamples[i].t <= VELOCITY_SAMPLE_WINDOW_MS) {
+      firstIdx = i;
+      break;
+    }
+  }
+  const first = _velocitySamples[firstIdx];
+  const last = _velocitySamples[_velocitySamples.length - 1];
+  const dt = last.t - first.t;
+  if (dt < 1) return { vx: 0, vy: 0 };
+  return {
+    vx: (last.x - first.x) / dt,
+    vy: (last.y - first.y) / dt
+  };
+}
+
+function _startMomentum(vx, vy) {
+  // Boost + clamp direzionale
+  _momentumVelX = vx * MOMENTUM_VELOCITY_BOOST;
+  _momentumVelY = vy * MOMENTUM_VELOCITY_BOOST;
+  _momentumLastTime = 0;
+
+  if (Math.hypot(_momentumVelX, _momentumVelY) < MOMENTUM_MIN_FLING_VELOCITY) {
+    _cancelMomentum();
+    return;
+  }
+
+  if (_momentumRaf === null) {
+    _momentumRaf = requestAnimationFrame(_momentumStep);
+  }
+}
+
+function _momentumStep(now) {
+  _momentumRaf = null;
+
+  if (_momentumLastTime === 0) _momentumLastTime = now;
+  // Clamp del delta per evitare salti enormi dopo un tab in background
+  const dt = Math.min(now - _momentumLastTime, 32);
+  _momentumLastTime = now;
+
+  // Decay indipendente dal framerate: friction^dt
+  const decay = Math.pow(MOMENTUM_FRICTION_PER_MS, dt);
+  _momentumVelX *= decay;
+  _momentumVelY *= decay;
+
+  // Sotto soglia → stop e snap finale al clamp
+  if (Math.abs(_momentumVelX) < MOMENTUM_STOP_VELOCITY &&
+      Math.abs(_momentumVelY) < MOMENTUM_STOP_VELOCITY) {
+    _cancelMomentum();
+    const c = _clampXY(viewport.x, viewport.y, false);
+    if (c.x !== viewport.x || c.y !== viewport.y) {
+      viewport.x = c.x;
+      viewport.y = c.y;
+      applyTransform(true);
+    }
+    scheduleResolutionRefresh();
+    return;
+  }
+
+  // Muovi il viewport (stessa direzione del dito: drag-naturale)
+  viewport.x += _momentumVelX * dt;
+  viewport.y += _momentumVelY * dt;
+
+  // Applica i limiti elastici. Se ho sbattuto contro un bordo,
+  // azzera la componente di velocità corrispondente.
+  const c = _clampXY(viewport.x, viewport.y, true);
+  if (c.x !== viewport.x) _momentumVelX = 0;
+  if (c.y !== viewport.y) _momentumVelY = 0;
+  viewport.x = c.x;
+  viewport.y = c.y;
+  applyTransform();
+
+  _momentumRaf = requestAnimationFrame(_momentumStep);
+}
+
+// ------------------------------------------------------------
+// CLAMP BOUNDS
+// ------------------------------------------------------------
+
 let _clampCache = null;
 export function invalidateClampCache() { _clampCache = null; }
 
@@ -81,16 +215,16 @@ function _clampXY(rawX, rawY, elastic) {
   return { x, y };
 }
 
+// ------------------------------------------------------------
+// SETUP
+// ------------------------------------------------------------
+
 export function setupViewportGestures() {
   const viewportEl = document.getElementById('viewport');
 
   window.addEventListener('resize', invalidateClampCache);
 
-  // ----------------------------------------------------------
-  // Tracking penna
-  // Aggiorna _lastPenActivityTime SOLO quando la penna tocca il
-  // vetro (buttons > 0). L'hover non conta.
-  // ----------------------------------------------------------
+  // Tracking penna (solo scrittura, hover non conta)
   viewportEl.addEventListener('pointerdown', (e) => {
     if (_isPenEvent(e)) _lastPenActivityTime = performance.now();
   }, { capture: true, passive: true });
@@ -106,8 +240,10 @@ export function setupViewportGestures() {
   // ----------------------------------------------------------
   const onPointerDown = (e) => {
     // ---- PENNA ----
-    // La penna non partecipa mai al tracking gesture.
     if (_isPenEvent(e)) {
+      _cancelMomentum();
+      _resetVelocitySamples();
+
       // Rimuovi eventuali touch tracciati (erano il palmo)
       for (const [id, ptr] of [...viewport.activePointers]) {
         if (ptr.pointerType !== 'pen' && ptr.pointerType !== 'eraser') {
@@ -119,7 +255,6 @@ export function setupViewportGestures() {
       if (viewport.isPanning) {
         const panDuration = performance.now() - _panStartTime;
         if (viewport.panStartTransform && panDuration < PALM_PAN_CANCEL_WINDOW_MS) {
-          // Pan appena iniziato: quasi certamente causato dal palmo.
           viewport.x = viewport.panStartTransform.x;
           viewport.y = viewport.panStartTransform.y;
           applyTransform(false);
@@ -136,9 +271,13 @@ export function setupViewportGestures() {
     // ---- TOCCO ----
     const palmCheck = document.getElementById('palmRejectionCheck').checked;
     if (palmCheck) {
-      if (_isPenBlockingTouches()) return;   // penna attiva di recente
-      if (_isPalmContact(e)) return;         // contatto troppo largo
+      if (_isPenBlockingTouches()) return;
+      if (_isPalmContact(e)) return;
     }
+
+    // Nuovo gesto touch: ferma momentum e resetta i campioni
+    _cancelMomentum();
+    _resetVelocitySamples();
 
     viewport.activePointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, pointerType: e.pointerType
@@ -159,6 +298,7 @@ export function setupViewportGestures() {
         viewport.panStart = { x: e.clientX, y: e.clientY };
         viewport.panStartTransform = { x: viewport.x, y: viewport.y };
         _panStartTime = performance.now();
+        _pushVelocitySample(e.clientX, e.clientY);
         try { viewportEl.setPointerCapture(e.pointerId); } catch (err) {}
       }
     } else if (viewport.activePointers.size === 2) {
@@ -182,7 +322,6 @@ export function setupViewportGestures() {
   // POINTER MOVE
   // ----------------------------------------------------------
   const onPointerMove = (e) => {
-    // Penna: mai movimentare il foglio
     if (_isPenEvent(e)) return;
 
     if (!viewport.activePointers.has(e.pointerId)) return;
@@ -192,6 +331,9 @@ export function setupViewportGestures() {
 
     if (viewport.isPanning && viewport.activePointers.size === 1) {
       e.preventDefault();
+      // Registra il campione per la stima di velocità
+      _pushVelocitySample(e.clientX, e.clientY);
+
       const dx = e.clientX - viewport.panStart.x;
       const dy = e.clientY - viewport.panStart.y;
       const rawX = viewport.panStartTransform.x + dx;
@@ -235,30 +377,51 @@ export function setupViewportGestures() {
   // POINTER END
   // ----------------------------------------------------------
   const onPointerEnd = (e) => {
-    // Penna: mai gestita qui (il suo pointerup è gestito da input.js)
     if (_isPenEvent(e)) return;
 
     const wasPanning = viewport.isPanning;
     viewport.activePointers.delete(e.pointerId);
+
     if (viewport.activePointers.size === 0) {
-      if (state.pullOverscrollY >= PULL_THRESHOLD) {
-        addNewPage();
-        showToast('Nuova pagina aggiunta!', '➕');
-      }
+      const shouldAddPage = state.pullOverscrollY >= PULL_THRESHOLD;
+
       state.pullOverscrollY = 0;
       hidePullIndicator();
       viewport.isPanning = false;
       viewport.isPinching = false;
 
       if (wasPanning) {
-        const c = _clampXY(viewport.x, viewport.y, false);
-        if (c.x !== viewport.x || c.y !== viewport.y) {
-          viewport.x = c.x;
-          viewport.y = c.y;
-          applyTransform(true);
+        // Verifica se c'è abbastanza velocità per avviare il momentum
+        const { vx, vy } = _computeFlingVelocity();
+        const speed = Math.hypot(vx, vy);
+
+        if (!shouldAddPage && speed >= MOMENTUM_MIN_FLING_VELOCITY) {
+          // Fling: il momentum prende il controllo (lo snap finale
+          // e la chiamata a scheduleResolutionRefresh avvengono
+          // quando il momentum si esaurisce)
+          _startMomentum(vx, vy);
+        } else {
+          // Nessun fling: snap immediato al clamp se necessario
+          if (shouldAddPage) {
+            addNewPage();
+            showToast('Nuova pagina aggiunta!', '➕');
+          }
+          const c = _clampXY(viewport.x, viewport.y, false);
+          if (c.x !== viewport.x || c.y !== viewport.y) {
+            viewport.x = c.x;
+            viewport.y = c.y;
+            applyTransform(true);
+          }
+          scheduleResolutionRefresh();
         }
+      } else {
+        if (shouldAddPage) {
+          addNewPage();
+          showToast('Nuova pagina aggiunta!', '➕');
+        }
+        scheduleResolutionRefresh();
       }
-      scheduleResolutionRefresh();
+      _resetVelocitySamples();
     } else if (viewport.activePointers.size === 1) {
       viewport.isPinching = false;
     }
@@ -271,6 +434,8 @@ export function setupViewportGestures() {
 
   viewportEl.addEventListener('wheel', (e) => {
     e.preventDefault();
+    // Wheel (mouse): cancella momentum, non lo genera.
+    _cancelMomentum();
     if (e.ctrlKey) {
       const clampedDelta = Math.max(-50, Math.min(50, e.deltaY));
       const zoomFactor = Math.exp(-clampedDelta * 0.01);
