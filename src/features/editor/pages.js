@@ -2,6 +2,7 @@
 // PAGINE: createNewPageDOM, addNewPage, resize, resolution
 // - Fix B: nessun redraw delle pagine invisibili
 // - Fix D: throttle aggiornamento pagina attiva a 100ms
+// - Fix 3: getMostCenteredPage limitato alle pagine vicine
 // ============================================================
 
 import { ensurePredictionCanvas } from './prediction.js';
@@ -69,9 +70,6 @@ export function addNewPage() {
   // Il contenuto è cresciuto: i bounds sono cambiati
   invalidateClampCache();
 
-  // Porta in vista la nuova pagina via transform (no scrollIntoView:
-  // sposta #viewport.scrollTop in modo indipendente dal nostro
-  // transform, causando disallineamenti successivi).
   requestAnimationFrame(() => {
     const pageTop = newPage.wrapper.offsetTop;
     const targetY = -pageTop * viewport.scale + 20;
@@ -128,6 +126,18 @@ export function installViewportResizeObserver() {
 // Pagina attiva basata sul viewport
 // ------------------------------------------------------------
 
+// Fix 3: limita la scansione a un range di pagine intorno a quella
+// attualmente attiva. Con 100 pagine, iterare su tutte chiamando
+// getBoundingClientRect() per ognuna forza 100 reflow. Con ±3 pagine
+// sono 7 reflow: ~14× più veloce.
+//
+// Il fallback a full scan copre il caso limite in cui l'utente fa un
+// flick molto veloce e salta oltre il range: in quel caso il primo
+// tick throttle non trova pagine visibili nel range, allora scansiona
+// tutto una volta e riallinea activePageIndex. Dal tick successivo il
+// range sarà corretto.
+const ACTIVE_PAGE_SCAN_RADIUS = 3;
+
 export function getMostCenteredPage() {
   if (state.pages.length === 0) return null;
   const vp = document.getElementById('viewport');
@@ -135,35 +145,44 @@ export function getMostCenteredPage() {
   const vpRect = vp.getBoundingClientRect();
   const vpCenterX = vpRect.left + vpRect.width / 2;
   const vpCenterY = vpRect.top + vpRect.height / 2;
-  let bestPage = null;
-  let bestVisibleArea = 0;
-  let bestDist = Infinity;
-  for (const page of state.pages) {
-    const rect = page.wrapper.getBoundingClientRect();
-    const visibleW = Math.max(0, Math.min(rect.right, vpRect.right) - Math.max(rect.left, vpRect.left));
-    const visibleH = Math.max(0, Math.min(rect.bottom, vpRect.bottom) - Math.max(rect.top, vpRect.top));
-    const visibleArea = visibleW * visibleH;
-    if (visibleArea <= 0) continue;
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const dist = Math.hypot(cx - vpCenterX, cy - vpCenterY);
-    if (visibleArea > bestVisibleArea || (visibleArea === bestVisibleArea && dist < bestDist)) {
-      bestVisibleArea = visibleArea;
-      bestDist = dist;
-      bestPage = page;
+
+  const tryRange = (start, end) => {
+    let bestPage = null;
+    let bestVisibleArea = 0;
+    let bestDist = Infinity;
+    for (let i = start; i < end; i++) {
+      const page = state.pages[i];
+      if (!page) continue;
+      const rect = page.wrapper.getBoundingClientRect();
+      const visibleW = Math.max(0, Math.min(rect.right, vpRect.right) - Math.max(rect.left, vpRect.left));
+      const visibleH = Math.max(0, Math.min(rect.bottom, vpRect.bottom) - Math.max(rect.top, vpRect.top));
+      const visibleArea = visibleW * visibleH;
+      if (visibleArea <= 0) continue;
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dist = Math.hypot(cx - vpCenterX, cy - vpCenterY);
+      if (visibleArea > bestVisibleArea || (visibleArea === bestVisibleArea && dist < bestDist)) {
+        bestVisibleArea = visibleArea;
+        bestDist = dist;
+        bestPage = page;
+      }
     }
-  }
-  return bestPage;
+    return bestPage;
+  };
+
+  // Prima scansione: range ristretto intorno all'attiva
+  const start = Math.max(0, state.activePageIndex - ACTIVE_PAGE_SCAN_RADIUS);
+  const end = Math.min(state.pages.length, state.activePageIndex + ACTIVE_PAGE_SCAN_RADIUS + 1);
+  const ranged = tryRange(start, end);
+  if (ranged) return ranged;
+
+  // Fallback: full scan (solo se il range ristretto non ha trovato
+  // pagine visibili, tipicamente dopo un salto grande)
+  return tryRange(0, state.pages.length);
 }
 
 // Fix D: throttle a 100ms. Prima questa funzione scattava ad ogni
-// frame (60fps) via requestAnimationFrame, e ogni chiamata eseguiva
-// getMostCenteredPage() che itera su TUTTE le pagine chiamando
-// getBoundingClientRect() (forza layout). Con 100 pagine = 6000
-// reflow/s durante lo scroll.
-//
-// Il "cambio pagina attiva" non è time-critical: 10 chiamate/s sono
-// più che sufficienti e riducono di 6× il costo.
+// frame (60fps) via requestAnimationFrame.
 let _activePageCheckTimer = null;
 const ACTIVE_PAGE_CHECK_INTERVAL = 100;
 
@@ -224,17 +243,6 @@ export function resizeCanvasForHDPI(pageData, dprOverride) {
 }
 
 // Fix B: nessun redraw delle pagine invisibili.
-// Prima il codice faceva resizeCanvasForHDPI (che cancella il
-// contenuto del canvas) + redrawPageCanvas completo OGNI volta
-// che una pagina usciva dallo schermo. Con molte pagine piene,
-// scrollare di una pagina causava il ridisegno completo di due
-// pagine (quella che esce + quella che entra), ognuna con 500+
-// stroke → lag evidente.
-//
-// Ora: se la pagina è invisibile, marchiamo _wasVisible = false
-// e non facciamo niente. Quando torna visibile, il branch
-// "!wasVisible" qui sotto si occupa di ridisegnarla al DPR
-// corretto.
 export function refreshCanvasResolution(force = false) {
   state.pages.forEach(p => {
     const visible = isPageVisible(p);

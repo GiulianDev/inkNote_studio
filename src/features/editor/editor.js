@@ -1,8 +1,9 @@
 // ============================================================
 // EDITOR: apri/chiudi quaderno + orchestrazione
+// Fix 2: durante il pinch non aggiorniamo DPR né pagina attiva.
 // ============================================================
 
-import { state } from '../../core/state.js';
+import { state, viewport } from '../../core/state.js';
 import { showToast, emit } from '../../core/utils.js';
 import { loadAllNotebooksFromDB } from '../../services/db.js';
 import { setCurrentNotebook, getCurrentNotebook, syncCurrentState, saveCurrentNotebook } from './session.js';
@@ -16,9 +17,18 @@ import { finalizePendingShape } from './shapes.js';
 
 export function initEditorHandlers() {
   setViewportChangeHandler(() => {
-    scheduleResolutionRefresh();
+    // Fix 2: durante il pinch, il redraw completo della pagina (che
+    // avviene in scheduleResolutionRefresh se il DPR è cambiato) e la
+    // scansione di tutte le pagine per determinare quella attiva sono
+    // operazioni pesanti che rendono il pinch a scatti. Le sopprimiamo
+    // durante il pinch: il refresh viene fatto al pointerup (gestito
+    // da gestures.js, che chiama scheduleResolutionRefresh quando il
+    // pinch termina).
+    if (!viewport.isPinching) {
+      scheduleResolutionRefresh();
+      updateActivePageFromViewport();
+    }
     updateSelectionMenuPosition();
-    updateActivePageFromViewport();
   });
   // Anche al resize della finestra (cambia la centratura)
   window.addEventListener('resize', () => updateActivePageFromViewport());

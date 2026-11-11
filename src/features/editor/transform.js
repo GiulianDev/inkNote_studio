@@ -1,5 +1,7 @@
 // ============================================================
 // VIEWPORT TRANSFORM + CLAMP RIGOROSO + PINCH
+// Fix 1: cache clamp bounds a scale=1 per evitare reflow ad ogni
+// frame di pinch.
 // ============================================================
 
 import { viewport, state } from '../../core/state.js';
@@ -18,35 +20,43 @@ export function setViewportChangeHandler(fn) { _viewportChangeHandler = fn; }
 //   minX = min(0, vw - contentW)
 //   maxX = max(0, vw - contentW)
 //
-// Casi:
-//   contentW <= vw → minX = 0, maxX = vw - contentW ≥ 0
-//                    il foglio può andare da bordo sx schermo
-//                    a bordo dx schermo (completamente spostabile)
-//   contentW >  vw → minX = vw - contentW < 0, maxX = 0
-//                    il foglio può andare da "bordo dx al bordo dx schermo"
-//                    a "bordo sx al bordo sx schermo"
-//
-// Il valore di ritorno include clampX/clampY (overscroll respinto):
-//   clampY < 0  →  spingendo oltre il bordo superiore (fondo contenuto)
-//   clampY > 0  →  spingendo oltre il bordo inferiore
-// Usato da gestures.js per il pull-to-add-page.
+// Fix 1: contentW e contentH sono calcolati UNA VOLTA a scale=1
+// (cachati in _clampCache) e moltiplicati per viewport.scale ad
+// ogni chiamata. Così offsetWidth/offsetHeight (che forzano
+// reflow) vengono letti solo quando cambiano pagine o window size,
+// NON ad ogni frame di pinch/zoom.
 // ------------------------------------------------------------
 
 let _clampCache = null;
 export function invalidateClampCache() { _clampCache = null; }
 
 function _computeClampBounds() {
-  const cacheKey = `${viewport.scale}|${state.pages.length}|${window.innerWidth}|${window.innerHeight}`;
-  if (_clampCache && _clampCache.key === cacheKey) return _clampCache.bounds;
-
   const vpEl = document.getElementById('viewport');
   const container = document.getElementById('canvasContainer');
   if (!vpEl || !container) return null;
-  const vw = vpEl.clientWidth;
-  const vh = vpEl.clientHeight;
-  const contentW = container.offsetWidth * viewport.scale;
-  const contentH = container.offsetHeight * viewport.scale;
-  if (contentW <= 0 || contentH <= 0) return null;
+
+  // Cache key SENZA viewport.scale: la base (viewport size + content
+  // size a scale 1) cambia solo al resize o al cambio pagine.
+  const cacheKey = `${state.pages.length}|${window.innerWidth}|${window.innerHeight}`;
+
+  let base;
+  if (_clampCache && _clampCache.key === cacheKey) {
+    base = _clampCache;
+  } else {
+    const vw = vpEl.clientWidth;
+    const vh = vpEl.clientHeight;
+    const contentW1 = container.offsetWidth;
+    const contentH1 = container.offsetHeight;
+    if (contentW1 <= 0 || contentH1 <= 0) return null;
+    base = { key: cacheKey, vw, vh, contentW1, contentH1 };
+    _clampCache = base;
+  }
+
+  // Scala al volo, senza reflow
+  const vw = base.vw;
+  const vh = base.vh;
+  const contentW = base.contentW1 * viewport.scale;
+  const contentH = base.contentH1 * viewport.scale;
 
   const deltaX = vw - contentW;
   const deltaY = vh - contentH;
@@ -56,7 +66,6 @@ function _computeClampBounds() {
     minY: Math.min(0, deltaY),
     maxY: Math.max(0, deltaY)
   };
-  _clampCache = { key: cacheKey, bounds };
   return bounds;
 }
 
