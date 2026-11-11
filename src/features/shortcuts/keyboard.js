@@ -5,12 +5,12 @@
 import { state, viewport } from '../../core/state.js';
 import { showToast } from '../../core/utils.js';
 import { setTool } from '../toolbar/toolbar.js';
-import { flushAutoSave } from './autosave.js';
-import { flushHistory, handleHistoryKeyboard } from './history.js';
-import { toggleFullscreen } from './export.js';
-import { applyTransform } from './transform.js';
-import { resetZoom } from './pages.js';
-import { closeSettingsModal } from '../settings/settings.js';
+import { flushAutoSave } from '../persistence/autosave.js';
+import { flushHistory, handleHistoryKeyboard } from '../history/history.js';
+import { toggleFullscreen } from '../editor/export-pdf.js';
+import { applyTransform } from '../viewport/transform.js';
+import { resetZoom } from '../editor/pages.js';
+import { closeSettingsModal } from '../settings/settings-modal.js';
 import { closeNewNotebookModal } from '../library/library.js';
 import { clearSelection } from '../tools/lazo.js';
 

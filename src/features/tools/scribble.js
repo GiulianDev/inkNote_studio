@@ -4,9 +4,9 @@
 
 import { state } from '../../core/state.js';
 import { showToast, sliderToBaseSize, fastHypot } from '../../core/utils.js';
-import { redrawPageCanvas, clearOverlay, drawScribbleStroke } from './render.js';
-import { pushHistory } from './history.js';
-import { scheduleSave } from './autosave.js';
+import { redrawPageCanvas, clearOverlay, drawScribbleStroke } from '../render/render.js';
+import { pushHistory } from '../history/history.js';
+import { scheduleSave } from '../persistence/autosave.js';
 
 const SCRIBBLE_MIN_POINTS = 12;
 const SCRIBBLE_MIN_REVERSALS = 7;

@@ -7,21 +7,22 @@ import { state, viewport } from '../../core/state.js';
 import {
   getCanvasCoords, invalidateStrokeRect, resetPointPool,
   forceFlushNow, cancelFlush, isPenEraser, _useRawPointerUpdate
-} from './common.js';
+} from './tool-shared.js';
 import { updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
          beginEraserStroke, moveEraserStroke } from './eraser.js';
-import { clearPredictions } from '../editor/prediction.js';
-import { flushHistory, pushHistory, resetHistory } from '../editor/history.js';
-import { updatePageCounterUI } from '../editor/header.js';
-import { finalizePendingShape } from '../editor/shapes.js';
+import { clearPredictions } from '../render/prediction.js';
+import { flushHistory, pushHistory, resetHistory } from '../history/history.js';
+import { refreshPageCounter } from '../toolbar/toolbar.js';
+import { finalizePendingShape } from './shapes.js';
 import {
   clearSelection, applyResizeSelection,
   beginLasso, moveLasso, endLasso,
   beginSelectionDrag, moveSelectionDrag, endSelectionDrag,
   resetSelectionDragState, updateCursorForSelection
 } from './lazo.js';
-import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from '../editor/render.js';
+import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from '../render/render.js';
 import { beginInkStroke, moveInkStroke, endInkStroke } from './ink.js';
+import { scheduleSave } from '../persistence/autosave.js';
 
 let _gestureUsedEraser = false;
 let _lastGestureWasEraser = false;
@@ -57,7 +58,6 @@ export function handlePointerDown(e, pageData) {
     hideEraserCursor();
   }
 
-  // Palm rejection (letto dallo store cache, non dal DOM)
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || penEraser;
   if (palmCheck && !isPenLike) return;
@@ -65,12 +65,6 @@ export function handlePointerDown(e, pageData) {
   if (viewport.activePointers.size > 1) return;
 
   const isEraserGesture = penEraser || state.activeTool === 'eraser';
-  // Fix 1: flushHistory() solo per l'eraser. Per pen/marker/pencil/
-  // highlighter il pointerup chiama già pushHistory() (debounced 500ms).
-  // Il flush al pointerdown era O(n stroke) e cresceva linearmente con
-  // la pagina, causando il rallentamento progressivo.
-  // L'eraser ha bisogno del flush perché i micro-down/up del driver
-  // Windows Ink devono consolidarsi in un unico step di history.
   if (isEraserGesture && !_lastGestureWasEraser) {
     flushHistory();
   }
@@ -97,7 +91,7 @@ export function handlePointerDown(e, pageData) {
   state.currentPointerId = e.pointerId;
   state.currentPageForPointer = pageData;
   state._penEraserActive = penEraser;
-  updatePageCounterUI();
+  refreshPageCounter();
 
   const point = getCanvasCoords(e, pageData.canvas);
   if (point.pointerType === 'pen') point.pressure = Math.max(point.pressure, 0.2);
@@ -130,7 +124,6 @@ export function handlePointerMove(e, pageData) {
     hideEraserCursor();
   }
 
-  // Palm rejection (fix: da state, non dal DOM)
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
   if (palmCheck && !isPenLike) return;
@@ -177,7 +170,6 @@ export function handlePointerMove(e, pageData) {
 // ============================================================
 
 export function handlePointerUp(e, pageData) {
-  // Palm rejection (fix: da state, non dal DOM)
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
   if (palmCheck && !isPenLike) return;

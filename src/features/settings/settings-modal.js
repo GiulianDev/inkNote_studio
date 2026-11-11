@@ -8,9 +8,9 @@ import {
   DEFAULT_SETTINGS, getSettings, updateSettings,
   onSettingsChanged
 } from '../../core/app-settings.js';
-import { computeStrokeWidth } from '../editor/render.js';
+import { computeStrokeWidth } from '../render/render.js';
 
-import settingsHtml from './settings.html?raw';
+import settingsHtml from './settings-modal.html?raw';
 
 // ------------------------------------------------------------
 // MOUNT — inietta il markup una volta sola (idempotente)

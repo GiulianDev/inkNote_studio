@@ -3,12 +3,12 @@
 // coordinate, smoothing, batching rAF, prediction clear.
 // ============================================================
 
-import { drawPredictions, clearPredictions, isPredictionSupported } from '../editor/prediction.js';
+import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../core/utils.js';
-import { drawIncrementalBatch, drawScribbleSegment } from '../editor/render.js';
-import { checkForScribble } from '../editor/scribble.js';
-import { trySnapToLineDuringDraw } from '../editor/shapes.js';
+import { drawIncrementalBatch, drawScribbleSegment } from '../render/render.js';
+import { checkForScribble } from './scribble.js';
+import { trySnapToLineDuringDraw } from './shapes.js';
 
 const MAX_BATCH_POINTS = 16;
 

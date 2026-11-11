@@ -9,18 +9,18 @@ import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
   drawFinalSegmentOnly, drawDotOnly, renderFullStroke
-} from '../editor/render.js';
+} from '../render/render.js';
 import {
   finalizePendingShape, applyAngleSnap,
   trySnapToLine, detectAndSnapShape, trySnapHighlighter
-} from '../editor/shapes.js';
-import { finalizeScribble } from '../editor/scribble.js';
-import { pushHistory } from '../editor/history.js';
-import { scheduleSave } from '../editor/autosave.js';
+} from './shapes.js';
+import { finalizeScribble } from './scribble.js';
+import { pushHistory } from '../history/history.js';
+import { scheduleSave } from '../persistence/autosave.js';
 import {
   getCanvasCoords, pushPointsToBatch, scheduleFlush,
   isPredictionSupported, drawPredictions
-} from './common.js';
+} from './tool-shared.js';
 
 export function beginInkStroke(point) {
   state.currentStroke = {

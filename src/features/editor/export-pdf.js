@@ -4,8 +4,8 @@
 
 import { state } from '../../core/state.js';
 import { getSettings } from '../../core/app-settings.js';
-import { finalizePendingShape } from './shapes.js';
-import { clearOverlay, redrawPageCanvas } from './render.js';
+import { finalizePendingShape } from '../tools/shapes.js';
+import { clearOverlay, redrawPageCanvas } from '../render/render.js';
 import { resizeCanvasForHDPI, refreshCanvasResolution } from './pages.js';
 
 export function toggleFullscreen() {

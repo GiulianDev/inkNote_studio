@@ -5,11 +5,11 @@
 
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH } from '../../core/utils.js';
-import { invalidateStrokeBitmap } from '../editor/stroke-cache.js';
-import { redrawPageCanvas } from '../editor/render.js';
-import { scheduleSave } from '../editor/autosave.js';
-import { getEraserRadius } from '../toolbar/toolbar-state.js';
-import { getCanvasCoords, isPenEraser, resetPointPool } from './common.js';
+import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
+import { redrawPageCanvas } from '../render/render.js';
+import { scheduleSave } from '../persistence/autosave.js';
+import { getEraserRadius } from '../toolbar/toolbar-settings.js';
+import { getCanvasCoords, isPenEraser, resetPointPool } from './tool-shared.js';
 
 // ============================================================
 // CURSORE GOMMA

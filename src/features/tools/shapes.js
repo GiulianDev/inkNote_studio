@@ -4,9 +4,9 @@
 
 import { state } from '../../core/state.js';
 import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
-import { clearOverlay, renderPendingShapeOnOverlay, renderFullStroke } from './render.js';
-import { pushHistory } from './history.js';
-import { scheduleSave } from './autosave.js';
+import { clearOverlay, renderPendingShapeOnOverlay, renderFullStroke } from '../render/render.js';
+import { pushHistory } from '../history/history.js';
+import { scheduleSave } from '../persistence/autosave.js';
 
 // ------------------------------------------------------------
 // Soglie rilevamento linea retta

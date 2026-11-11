@@ -6,7 +6,7 @@
 
 import { state } from '../../core/state.js';
 import { saveNotebookToDB } from '../../services/db.js';
-import { getToolbarSettingsForSave } from '../toolbar/toolbar-state.js';
+import { getToolbarSettingsForSave } from '../toolbar/toolbar-settings.js';
 
 let _currentNotebook = null;
 

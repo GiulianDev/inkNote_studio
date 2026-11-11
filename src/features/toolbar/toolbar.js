@@ -1,6 +1,6 @@
 // ============================================================
 // TOOLBAR FEATURE — mount() + logica UI/azioni.
-// Lo stato vive in ./toolbar-state.js (per-notebook).
+// Lo stato vive in ./toolbar-settings.js (per-notebook).
 // Le impostazioni globali (tema, palm rejection) vivono in
 // core/app-settings.js.
 // ============================================================
@@ -14,7 +14,7 @@ import { updateSettings } from '../../core/app-settings.js';
 import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
   updateToolbarSettings, getEraserRadius
-} from './toolbar-state.js';
+} from './toolbar-settings.js';
 import { clearSelection } from '../tools/lazo.js';
 
 let _mounted = false;
@@ -52,6 +52,20 @@ export function mountToolbar() {
 }
 
 // ============================================================
+// PAGE COUNTER (ex editor/header.js)
+// ============================================================
+
+/**
+ * Aggiorna il testo "Pagina X di Y" nell'header.
+ * Vive qui perché #pageCounterText è un elemento della toolbar.
+ * Chiamata da editor, pages, tools/dispatcher.
+ */
+export function refreshPageCounter() {
+  const el = document.getElementById('pageCounterText');
+  if (el) el.innerText = `Pagina ${state.activePageIndex + 1} di ${state.pages.length}`;
+}
+
+// ============================================================
 // TOOL
 // ============================================================
 
@@ -66,13 +80,12 @@ export function setTool(toolName) {
   if (activeBtn) activeBtn.classList.add('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
 
   applyActiveToolToUI();
-  // Notifica input.js di nascondere il cursore gomma (evita ciclo di import)
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
 }
 
 /**
  * Sincronizza slider colore/spessore della toolbar con il tool
- * attivo corrente. Da chiamare dopo cambio tool o cambio colore/spessore.
+ * attivo corrente.
  */
 export function applyActiveToolToUI() {
   if (state.activeTool === 'eraser' || state.activeTool === 'lasso') return;
@@ -198,7 +211,7 @@ export function updateAutoShapeButtonUI() {
 }
 
 // ============================================================
-// SMOOTHING / SUBBAR / COMPACT (toolbar-state)
+// SMOOTHING / SUBBAR / COMPACT
 // ============================================================
 
 export function updateSmoothing(val) {
@@ -210,15 +223,12 @@ export function updateSmoothing(val) {
 
 export function toggleSubbar() {
   updateToolbarSettings({ subbarVisible: !state.subbarVisible });
-  // Il subbar ha una transizione di 300ms: ricalcola il viewport a fine animazione
   setTimeout(() => window.dispatchEvent(new Event('resize')), 320);
 }
 
 export function toggleCompactMode() {
   const next = !state.compactMode;
   updateToolbarSettings({ compactMode: next });
-
-  // Sync fullscreen browser con compact (richiede user gesture)
   try {
     if (next && !document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
@@ -226,7 +236,6 @@ export function toggleCompactMode() {
       document.exitFullscreen().catch(() => {});
     }
   } catch {}
-
   showToast(
     next ? 'Schermo intero attivo' : 'Modalità completa ripristinata',
     next ? '⛶' : '↩️'
@@ -234,10 +243,6 @@ export function toggleCompactMode() {
   setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
 }
 
-/**
- * Se l'utente esce da fullscreen (Esc, F11, gesture OS),
- * riallineiamo lo store (e quindi compactMode) per coerenza.
- */
 export function initCompactFullscreenSync() {
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && state.compactMode) {
@@ -251,24 +256,16 @@ export function initCompactFullscreenSync() {
 // THEME (globale, app-settings)
 // ============================================================
 
-/**
- * Toggle tema chiaro/scuro. Se eravamo su 'auto' con tema scuro
- * effettivo, andiamo a 'light'; altrimenti 'dark'.
- * La preferenza viene persistita in localStorage; il tema effettivo
- * lo calcola lo store (_computeIsDark) e lo applica via _applyThemeToDOM.
- */
 export function toggleTheme() {
   const next = state.isDarkMode ? 'light' : 'dark';
   updateSettings({ theme: next });
 }
 
 // ============================================================
-// ERASER SIZE MENU (long-press / contextmenu sull'icona gomma)
+// ERASER SIZE MENU
 // ============================================================
 
 export function loadEraserSize() {
-  // Retrocompatibilità: lo stato vive in toolbar-settings.
-  // Il livello è letto da `state.eraserSize` (cache sincronizzata).
   return state.eraserSize || 3;
 }
 
@@ -326,12 +323,6 @@ export function selectEraserLevel(level) {
 // ERASER BUTTON WIRING (interno alla feature)
 // ============================================================
 
-/**
- * Binda gli eventi del bottone gomma e del menu livelli.
- * Chiamato una sola volta da mountToolbar() dopo l'iniezione del
- * markup, perché `#eraserSizeMenu` e `#btnTool-eraser` esistono solo
- * dopo insertAdjacentHTML.
- */
 function _setupEraserButton() {
   const btn = document.getElementById('btnTool-eraser');
   const menu = document.getElementById('eraserSizeMenu');
@@ -344,9 +335,8 @@ function _setupEraserButton() {
     if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
   };
 
-  // Long-press (500ms) → mostra menu
   btn.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return; // solo sinistro
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
     skipNextClick = false;
     cancelTimer();
     pressTimer = setTimeout(() => {
@@ -358,31 +348,20 @@ function _setupEraserButton() {
   });
 
   btn.addEventListener('pointerup', cancelTimer);
-  btn.addEventListener('pointercancel', () => {
-    cancelTimer();
-    skipNextClick = true;
-  });
+  btn.addEventListener('pointercancel', () => { cancelTimer(); skipNextClick = true; });
   btn.addEventListener('pointerleave', cancelTimer);
 
-  // Click normale → attiva eraser (a meno che non sia il click
-  // che termina un long-press, in quel caso skip)
   btn.addEventListener('click', (e) => {
-    if (skipNextClick) {
-      skipNextClick = false;
-      e.preventDefault();
-      return;
-    }
+    if (skipNextClick) { skipNextClick = false; e.preventDefault(); return; }
     setTool('eraser');
   });
 
-  // Tasto destro (desktop) → menu
   btn.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     cancelTimer();
     showEraserSizeMenu();
   });
 
-  // Click sui livelli del menu
   menu.querySelectorAll('[data-eraser-level]').forEach(levelBtn => {
     levelBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -392,7 +371,6 @@ function _setupEraserButton() {
     });
   });
 
-  // Click fuori dal menu → chiude
   document.addEventListener('pointerdown', (e) => {
     if (menu.classList.contains('hidden')) return;
     if (menu.contains(e.target) || btn.contains(e.target)) return;

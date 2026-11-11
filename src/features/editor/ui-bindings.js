@@ -16,15 +16,15 @@ import {
   toggleAutoShape, toggleTheme, toggleCompactMode, toggleSubbar,
   initCompactFullscreenSync, applyActiveToolToUI
 } from '../toolbar/toolbar.js';
-import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-state.js';
-import { openSettingsModal } from '../settings/settings.js';
-import { exportToPDF } from './export.js';
-import { undo, redo } from './history.js';
+import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-settings.js';
+import { openSettingsModal } from '../settings/settings-modal.js';
+import { exportToPDF } from '../editor/export-pdf.js';
+import { undo, redo } from '../history/history.js';
 import { returnToLibrary, updateCurrentNotebookTitle } from './editor.js';
 import {
   addNewPage, clearCurrentPage, changeBackgroundPattern, resetZoom
 } from './pages.js';
-import { togglePalmRejection } from './gestures.js';
+import { togglePalmRejection } from '../viewport/gestures.js';
 import {
   clearSelection, deleteSelectedStrokes,
   previewSelectionColor, changeSelectionColor,

@@ -4,23 +4,23 @@
 
 import { initDB } from './services/db.js';
 import { initSettings, onSettingsChanged } from './core/app-settings.js';
-import { initToolbarSettings, onToolbarSettingsChanged } from './features/toolbar/toolbar-state.js';
+import { initToolbarSettings, onToolbarSettingsChanged } from './features/toolbar/toolbar-settings.js';
 import { state } from './core/state.js';
 import {
   centerViewport, refreshCanvasResolution
 } from './features/editor/pages.js';
-import { redrawPageCanvas, redrawSelectionOverlay } from './features/editor/render.js';
-import { setupViewportGestures } from './features/editor/gestures.js';
-import { setupKeyboardShortcuts } from './features/editor/keyboard.js';
+import { redrawPageCanvas, redrawSelectionOverlay } from './features/render/render.js';
+import { setupViewportGestures } from './features/viewport/gestures.js';
+import { setupKeyboardShortcuts } from './features/shortcuts/keyboard.js';
 import {
   updateAutoShapeButtonUI, renderRecentColors, applyActiveToolToUI,
   mountToolbar
 } from './features/toolbar/toolbar.js';
-import { flushHistory } from './features/editor/history.js';
-import { flushAutoSave, scheduleSave } from './features/editor/autosave.js';
+import { flushHistory } from './features/history/history.js';
+import { flushAutoSave } from './features/persistence/autosave.js';
 import { initEditorHandlers } from './features/editor/editor.js';
-import { bindEditorUI } from './features/editor/bindings.js';
-import { mountSettingsModal } from './features/settings/settings.js';
+import { bindEditorUI } from './features/editor/ui-bindings.js';
+import { mountSettingsModal } from './features/settings/settings-modal.js';
 import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
 
 window.addEventListener('load', async () => {
@@ -33,8 +33,6 @@ window.addEventListener('load', async () => {
   initSettings();
 
   // 3. Store toolbar: default all'avvio (nessun notebook aperto).
-  //    Verrà re-inizializzato all'apertura di un notebook con i dati
-  //    del notebook.
   initToolbarSettings(null);
 
   // 4. Init IndexedDB.
@@ -60,18 +58,13 @@ window.addEventListener('load', async () => {
 
   // 7. All'init/reset toolbar-settings (openNotebook, resetToolbarSettings)
   //    riallinea la UI della toolbar ai nuovi valori.
-onToolbarSettingsChanged(({ changed }) => {
-  if (changed.includes('init') || changed.includes('reset')) {
-    applyActiveToolToUI();
-    updateAutoShapeButtonUI();
-    renderRecentColors();
-    return;
-  }
-  // Cambio preferenza toolbar (colore, spessore, smoothing, auto-shape,
-  // subbar, compact, eraserSize, eraserMode, recentColors):
-  // persisti nel notebook tramite il flusso di autosave esistente.
-  scheduleSave();
-});
+  onToolbarSettingsChanged(({ changed }) => {
+    if (changed.includes('init') || changed.includes('reset')) {
+      applyActiveToolToUI();
+      updateAutoShapeButtonUI();
+      renderRecentColors();
+    }
+  });
 
   // 8. Vista iniziale e setup gesti / tastiera.
   renderLibraryView();

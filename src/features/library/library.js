@@ -7,9 +7,8 @@ import {
   loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB
 } from '../../services/db.js';
 import { handleGoogleLogin } from '../../services/auth.js';
-import { openNotebook } from '../editor/editor.js';
-import { openSettingsModal } from '../settings/settings.js';
-import { closeNotebookIfOpen } from '../editor/editor.js';
+import { openNotebook, closeNotebookIfOpen } from '../editor/editor.js';
+import { openSettingsModal } from '../settings/settings-modal.js';
 
 let selectedCoverColor = '#4f46e5';
 

@@ -7,7 +7,7 @@
 
 import { state } from '../../core/state.js';
 import { emit } from '../../core/utils.js';
-import { scheduleSave } from './autosave.js';
+import { scheduleSave } from '../persistence/autosave.js';
 
 // Fix 4: maxSteps 20.
 // Memoria stimata: 20 snapshot × ~500 stroke × 100 punti × ~32 byte

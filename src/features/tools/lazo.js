@@ -5,7 +5,7 @@
 // della selezione.
 // ============================================================
 
-import { invalidateStrokeBitmap } from '../editor/stroke-cache.js';
+import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import { showToast, PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
 import {
@@ -14,10 +14,10 @@ import {
   getSelectionBoundingBox, getVisualBoundingBox, getHandlePositions,
   isPointInBBox, hitTestHandle, findClosestPointInSelection,
   drawLassoIncrementalOnOverlay
-} from '../editor/render.js';
-import { pushHistory } from '../editor/history.js';
-import { scheduleSave } from '../editor/autosave.js';
-import { getCanvasCoords } from './common.js';
+} from '../render/render.js';
+import { pushHistory } from '../history/history.js';
+import { scheduleSave } from '../persistence/autosave.js';
+import { getCanvasCoords } from './tool-shared.js';
 
 // ============================================================
 // SELEZIONE (editing)

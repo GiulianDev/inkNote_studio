@@ -1,22 +1,19 @@
 // ============================================================
 // PAGINE: createNewPageDOM, addNewPage, resize, resolution
-// - Fix B: nessun redraw delle pagine invisibili
-// - Fix D: throttle aggiornamento pagina attiva a 100ms
-// - Fix 3: getMostCenteredPage limitato alle pagine vicine
 // ============================================================
 
-import { ensurePredictionCanvas } from './prediction.js';
+import { ensurePredictionCanvas } from '../render/prediction.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, showToast, on } from '../../core/utils.js';
-import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from './render.js';
-import { attachPointerListeners } from '../tools/index.js';
-import { pushHistory, resetHistory } from './history.js';
-import { scheduleSave } from './autosave.js';
+import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from '../render/render.js';
+import { attachPointerListeners } from '../tools/dispatcher.js';
+import { pushHistory, resetHistory } from '../history/history.js';
+import { scheduleSave } from '../persistence/autosave.js';
 import { clearSelection } from '../tools/lazo.js';
-import { updatePageCounterUI } from './header.js';
+import { refreshPageCounter } from '../toolbar/toolbar.js';
 import {
   applyTransform, clampViewport, invalidateClampCache
-} from './transform.js';
+} from '../viewport/transform.js';
 
 const MAX_RENDER_DPR = 4;
 const MAX_ZOOM_DPR_BOOST = 1.3;
@@ -63,11 +60,10 @@ export function addNewPage() {
   const newIndex = state.pages.length;
   const newPage = createNewPageDOM(newIndex, []);
   state.activePageIndex = newIndex;
-  updatePageCounterUI();
+  refreshPageCounter();
   scheduleSave();
   pushHistory();
   scheduleResolutionRefresh();
-  // Il contenuto è cresciuto: i bounds sono cambiati
   invalidateClampCache();
 
   requestAnimationFrame(() => {
@@ -125,17 +121,6 @@ export function installViewportResizeObserver() {
 // ------------------------------------------------------------
 // Pagina attiva basata sul viewport
 // ------------------------------------------------------------
-
-// Fix 3: limita la scansione a un range di pagine intorno a quella
-// attualmente attiva. Con 100 pagine, iterare su tutte chiamando
-// getBoundingClientRect() per ognuna forza 100 reflow. Con ±3 pagine
-// sono 7 reflow: ~14× più veloce.
-//
-// Il fallback a full scan copre il caso limite in cui l'utente fa un
-// flick molto veloce e salta oltre il range: in quel caso il primo
-// tick throttle non trova pagine visibili nel range, allora scansiona
-// tutto una volta e riallinea activePageIndex. Dal tick successivo il
-// range sarà corretto.
 const ACTIVE_PAGE_SCAN_RADIUS = 3;
 
 export function getMostCenteredPage() {
@@ -170,19 +155,14 @@ export function getMostCenteredPage() {
     return bestPage;
   };
 
-  // Prima scansione: range ristretto intorno all'attiva
   const start = Math.max(0, state.activePageIndex - ACTIVE_PAGE_SCAN_RADIUS);
   const end = Math.min(state.pages.length, state.activePageIndex + ACTIVE_PAGE_SCAN_RADIUS + 1);
   const ranged = tryRange(start, end);
   if (ranged) return ranged;
 
-  // Fallback: full scan (solo se il range ristretto non ha trovato
-  // pagine visibili, tipicamente dopo un salto grande)
   return tryRange(0, state.pages.length);
 }
 
-// Fix D: throttle a 100ms. Prima questa funzione scattava ad ogni
-// frame (60fps) via requestAnimationFrame.
 let _activePageCheckTimer = null;
 const ACTIVE_PAGE_CHECK_INTERVAL = 100;
 
@@ -196,7 +176,7 @@ export function updateActivePageFromViewport() {
       clearSelection();
     }
     state.activePageIndex = page.index;
-    updatePageCounterUI();
+    refreshPageCounter();
     resetHistory();
   }, ACTIVE_PAGE_CHECK_INTERVAL);
 }
@@ -242,16 +222,13 @@ export function resizeCanvasForHDPI(pageData, dprOverride) {
   return changed;
 }
 
-// Fix B: nessun redraw delle pagine invisibili.
 export function refreshCanvasResolution(force = false) {
   state.pages.forEach(p => {
     const visible = isPageVisible(p);
-
     if (!visible) {
       p._wasVisible = false;
       return;
     }
-
     const targetDpr = getCurrentRenderDpr(p);
     const dprChanged = Math.abs((p.dpr || 1) - targetDpr) > 0.01;
     const wasVisible = p._wasVisible !== false;
@@ -305,7 +282,7 @@ function restorePageFromSnapshot(snap) {
   const wrappers = Array.from(container.querySelectorAll('.page-wrapper'));
   wrappers.sort((a, b) => parseInt(a.dataset.index) - parseInt(b.dataset.index));
   wrappers.forEach(w => container.appendChild(w));
-  updatePageCounterUI();
+  refreshPageCounter();
   invalidateClampCache();
   const newPage = state.pages[state.activePageIndex];
   if (newPage) redrawSelectionOverlay(newPage);
