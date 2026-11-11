@@ -27,7 +27,7 @@ import {
   updateCursorForSelection, updateSelectionMenuPosition
 } from './lasso.js';
 import { updatePageCounterUI } from './header.js';
-import { getEraserRadius } from './toolbar.js';
+import { getEraserRadius } from '../toolbar/toolbar-state.js';
 
 const MAX_BATCH_POINTS = 16;
 const _useRawPointerUpdate = typeof window !== 'undefined' && 'onpointerrawupdate' in window;
@@ -403,7 +403,7 @@ export function handlePointerDown(e, pageData) {
     hideEraserCursor();
   }
 
-  const palmCheck = document.getElementById('palmRejectionCheck').checked;
+  const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || penEraser;
   if (palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
@@ -737,7 +737,7 @@ export function handlePointerUp(e, pageData) {
 
 function performEraserBatch(pageData, points) {
   if (!points || points.length === 0) return;
-  const mode = document.getElementById('eraserModeSelect').value;
+  const mode = state.eraserMode;
   const radius = getEraserRadius();
   const radiusSq = radius * radius;
 

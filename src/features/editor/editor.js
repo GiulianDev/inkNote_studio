@@ -8,12 +8,20 @@ import { showToast, emit } from '../../core/utils.js';
 import { loadAllNotebooksFromDB } from '../../services/db.js';
 import { setCurrentNotebook, getCurrentNotebook, syncCurrentState, saveCurrentNotebook } from './session.js';
 import { scheduleSave, flushAutoSave } from './autosave.js';
-import { createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport, installViewportResizeObserver } from './pages.js';
+import {
+  createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
+  installViewportResizeObserver
+} from './pages.js';
 import { updatePageCounterUI } from './header.js';
 import { resetHistory, pushHistory } from './history.js';
 import { setViewportChangeHandler } from './transform.js';
 import { updateSelectionMenuPosition } from './lasso.js';
 import { finalizePendingShape } from './shapes.js';
+import {
+  initToolbarSettings, resetToolbarSettings, getToolbarSettings
+} from '../toolbar/toolbar-state.js';
+import { applyActiveToolToUI } from '../toolbar/toolbar.js';
+import { getSettings } from '../../core/app-settings.js';
 
 export function initEditorHandlers() {
   setViewportChangeHandler(() => {
@@ -41,6 +49,13 @@ export async function openNotebook(id) {
   if (!nb) return;
 
   setCurrentNotebook(nb);
+
+  // Applica impostazioni toolbar del notebook (o default se mancanti:
+  // notebook creati prima dell'introduzione di toolbarSettings).
+  initToolbarSettings(nb.toolbarSettings || null);
+  applyActiveToolToUI();
+  applyToolbarControlsToUI();
+
   document.getElementById('docTitle').value = nb.title;
   state.bgPattern = nb.pattern || 'ruled';
   document.getElementById('bgPatternSelect').value = state.bgPattern;
@@ -68,6 +83,7 @@ export function returnToLibrary() {
     syncCurrentState();
     saveCurrentNotebook();
   }
+  resetToolbarSettings();
   resetHistory();
   document.getElementById('libraryView').classList.remove('hidden');
   emit('library:refresh');
@@ -79,4 +95,32 @@ export function updateCurrentNotebookTitle(newTitle) {
   nb.title = newTitle;
   scheduleSave();
   pushHistory();
+}
+
+/**
+ * Chiamata da library al delete di un notebook.
+ * Se il notebook cancellato è quello aperto, resetta lo store
+ * toolbar ai default (evita che l'app mostri le impostazioni di
+ * un quaderno cancellato).
+ */
+export function closeNotebookIfOpen(id) {
+  const nb = getCurrentNotebook();
+  if (nb && nb.id === id) {
+    resetToolbarSettings();
+    setCurrentNotebook(null);
+  }
+}
+
+function applyToolbarControlsToUI() {
+  const s = getToolbarSettings();
+  const slider = document.getElementById('smoothingSlider');
+  const label  = document.getElementById('smoothingValue');
+  if (slider) slider.value = s.smoothing;
+  if (label)  label.innerText = s.smoothing;
+
+  const eraserModeSel = document.getElementById('eraserModeSelect');
+  if (eraserModeSel) eraserModeSel.value = s.eraserMode;
+
+  const palmCheck = document.getElementById('palmRejectionCheck');
+  if (palmCheck) palmCheck.checked = getSettings().palmRejection !== false;
 }

@@ -6,6 +6,7 @@
 
 import { state } from '../../core/state.js';
 import { saveNotebookToDB } from '../../services/db.js';
+import { getToolbarSettingsForSave } from '../toolbar/toolbar-state.js';
 
 let _currentNotebook = null;
 
@@ -16,6 +17,7 @@ export function setCurrentNotebook(nb) { _currentNotebook = nb; }
 export function syncCurrentState() {
   if (!_currentNotebook) return;
   _currentNotebook.pattern = state.bgPattern;
+  _currentNotebook.toolbarSettings = getToolbarSettingsForSave();
   _currentNotebook.pages = state.pages.map(p => ({
     pageIndex: p.index,
     strokes: p.strokes

@@ -9,6 +9,7 @@ import {
 import { handleGoogleLogin } from '../../services/auth.js';
 import { openNotebook } from '../editor/editor.js';
 import { openSettingsModal } from '../settings/settings.js';
+import { closeNotebookIfOpen } from '../editor/editor.js';
 
 let selectedCoverColor = '#4f46e5';
 
@@ -109,6 +110,8 @@ export async function confirmCreateNotebook() {
 export async function deleteNotebook(e, id) {
   if (confirm('Sei sicuro di voler eliminare questo quaderno e tutte le sue pagine?')) {
     await deleteNotebookFromDB(id);
+    // Reset dello store toolbar se il notebook cancellato era aperto
+    closeNotebookIfOpen(id);
     renderLibraryView();
     showToast('Quaderno eliminato', '🗑️');
   }

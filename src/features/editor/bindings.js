@@ -5,12 +5,14 @@
 // ============================================================
 
 import { state } from '../../core/state.js';
+import { updateSettings, getSettings } from '../../core/app-settings.js';
 import {
   setTool, selectColor, updateStrokeWidth, updateSmoothing,
   toggleAutoShape, toggleTheme, toggleCompactMode, toggleSubbar,
-  initCompactFullscreenSync, loadEraserSize, showEraserSizeMenu,
-  hideEraserSizeMenu, selectEraserLevel
-} from './toolbar.js';
+  initCompactFullscreenSync, showEraserSizeMenu, hideEraserSizeMenu,
+  selectEraserLevel, applyActiveToolToUI
+} from '../toolbar/toolbar.js';
+import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-state.js';
 import { openSettingsModal } from '../settings/settings.js';
 import { exportToPDF } from './export.js';
 import { undo, redo } from './history.js';
@@ -77,8 +79,20 @@ export function bindEditorUI() {
     ?.addEventListener('click', clearCurrentPage);
   document.getElementById('bgPatternSelect')
     ?.addEventListener('change', (e) => changeBackgroundPattern(e.target.value));
+
+  // Palm rejection: globale (app-settings)
   document.getElementById('palmRejectionCheck')
-    ?.addEventListener('change', (e) => togglePalmRejection(e.target.checked));
+    ?.addEventListener('change', (e) => {
+      updateSettings({ palmRejection: e.target.checked });
+      togglePalmRejection(e.target.checked);
+    });
+
+  // Eraser mode: per-notebook (toolbar-settings)
+  document.getElementById('eraserModeSelect')
+    ?.addEventListener('change', (e) => {
+      updateToolbarSettings({ eraserMode: e.target.value });
+    });
+
   document.getElementById('subbarCollapseBtn')
     ?.addEventListener('click', toggleSubbar);
   document.getElementById('subbarExpandBtn')
@@ -109,8 +123,29 @@ export function bindEditorUI() {
   // --- Sync fullscreen ↔ compact ---
   initCompactFullscreenSync();
 
-  // --- Eraser: carica livello salvato + setup menu ---
-  state.eraserSize = loadEraserSize();
+  // --- Sincronizza controlli con lo stato corrente ---
+  applyActiveToolToUI();
+  applySmoothingToUI();
+  applyPalmRejectionToUI();
+  applyEraserModeToUI();
+}
+
+function applySmoothingToUI() {
+  const s = getToolbarSettings();
+  const slider = document.getElementById('smoothingSlider');
+  const label  = document.getElementById('smoothingValue');
+  if (slider) slider.value = s.smoothing;
+  if (label)  label.innerText = s.smoothing;
+}
+
+function applyPalmRejectionToUI() {
+  const check = document.getElementById('palmRejectionCheck');
+  if (check) check.checked = getSettings().palmRejection !== false;
+}
+
+function applyEraserModeToUI() {
+  const sel = document.getElementById('eraserModeSelect');
+  if (sel) sel.value = getToolbarSettings().eraserMode;
 }
 
 // ============================================================

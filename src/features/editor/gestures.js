@@ -242,7 +242,7 @@ export function setupViewportGestures() {
     }
 
     // ---- TOCCO ----
-    const palmCheck = document.getElementById('palmRejectionCheck').checked;
+    const palmCheck = state.palmRejection;
     if (palmCheck) {
       if (_isPenBlockingTouches()) return;
       if (_isPalmContact(e)) return;

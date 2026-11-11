@@ -1,9 +1,7 @@
 // ============================================================
-// APP SETTINGS STORE
-// Sorgente unica di verità per le impostazioni persistenti.
-// Carica da localStorage una sola volta all'avvio, mantiene
-// l'oggetto in memoria, propaga i cambiamenti via event bus,
-// sincronizza i valori "caldi" dello state runtime.
+// APP SETTINGS STORE — impostazioni GLOBALI (cross-notebook).
+// Le impostazioni per-notebook della toolbar vivono in
+// features/toolbar/toolbar-state.js.
 // ============================================================
 
 import { state } from './state.js';
@@ -15,14 +13,12 @@ export const DEFAULT_SETTINGS = {
   theme: 'auto',              // 'auto' | 'light' | 'dark'
   printTheme: 'light',        // 'light' | 'dark'
   handedness: 'right',        // 'right' | 'left'
-  smoothing: 50,              // 0..100
-  subbarVisible: true,
-  compactMode: false,
   dockSize: 'medium',         // 'small' | 'medium' | 'large'
   pressureLight: 10,          // 0..100
   pressureHeavy: 340,         // 100..500
   pressureCurve: 60,          // 0..100
-  scrollSensitivity: 50       // 0..100
+  scrollSensitivity: 50,      // 0..100
+  palmRejection: true         // palm rejection globale
 };
 
 /** @type {typeof DEFAULT_SETTINGS|null} */
@@ -45,7 +41,7 @@ function _writeToStorage() {
 }
 
 // ------------------------------------------------------------
-// Derivazioni (valori "caldi" dello state, DPR e tema effettivo)
+// Derivazioni (valori "caldi" dello state, tema effettivo)
 // ------------------------------------------------------------
 function _computeIsDark(settings) {
   if (settings.theme === 'dark')  return true;
@@ -56,15 +52,13 @@ function _computeIsDark(settings) {
 function _syncRuntime(settings) {
   // Cache in `state` per letture O(1) nel hot path (render/input).
   // `state.settings` è uno snapshot read-only dell'oggetto completo.
-  state.smoothing     = settings.smoothing / 100;
-  state.subbarVisible = settings.subbarVisible !== false;
-  state.compactMode   = !!settings.compactMode;
   state.isDarkMode    = _computeIsDark(settings);
+  state.palmRejection = settings.palmRejection !== false;
   state.settings      = settings;
 }
 
 // ------------------------------------------------------------
-// Applicazione effetti DOM (una funzione per concern)
+// Applicazione effetti DOM
 // ------------------------------------------------------------
 function _applyThemeToDOM(isDark) {
   document.body.classList.toggle('dark', isDark);
@@ -81,37 +75,6 @@ function _applyDockSizeToDOM(dockSize) {
   document.body.dataset.dockSize = size;
 }
 
-function _applySubbarToDOM(visible) {
-  const subbar = document.getElementById('subbar');
-  if (subbar) subbar.classList.toggle('collapsed', !visible);
-
-  const expandBtn   = document.getElementById('subbarExpandBtn');
-  const collapseBtn = document.getElementById('subbarCollapseBtn');
-  if (expandBtn)   expandBtn.classList.toggle('hidden',   visible || state.compactMode);
-  if (collapseBtn) collapseBtn.classList.toggle('hidden', !visible || state.compactMode);
-}
-
-function _applyCompactToDOM(compact) {
-  document.body.classList.toggle('compact-mode', compact);
-  const btn = document.getElementById('compactExitBtn');
-  if (btn) {
-    btn.classList.remove('hidden');
-    btn.title = compact ? 'Esci da schermo intero' : 'Schermo intero';
-  }
-  const expandIcon = document.getElementById('compactIconExpand');
-  const reduceIcon = document.getElementById('compactIconReduce');
-  if (expandIcon) expandIcon.style.display = compact ? '' : 'none';
-  if (reduceIcon) reduceIcon.style.display = compact ? 'none' : '';
-}
-
-function _applyAllToDOM(settings) {
-  _applyThemeToDOM(_computeIsDark(settings));
-  _applyHandednessToDOM(settings.handedness);
-  _applyDockSizeToDOM(settings.dockSize);
-  _applySubbarToDOM(settings.subbarVisible !== false);
-  _applyCompactToDOM(!!settings.compactMode);
-}
-
 // ------------------------------------------------------------
 // API pubblica
 // ------------------------------------------------------------
@@ -125,7 +88,9 @@ export function initSettings() {
 
   _current = _readFromStorage();
   _syncRuntime(_current);
-  _applyAllToDOM(_current);
+  _applyThemeToDOM(state.isDarkMode);
+  _applyHandednessToDOM(_current.handedness);
+  _applyDockSizeToDOM(_current.dockSize);
 
   // Segui prefers-color-scheme SOLO quando theme === 'auto'
   if (window.matchMedia) {
@@ -184,9 +149,6 @@ export function updateSettings(partial, opts = {}) {
   else if (wasDark !== state.isDarkMode)              _applyThemeToDOM(state.isDarkMode);
   if (changed.includes('handedness'))                 _applyHandednessToDOM(_current.handedness);
   if (changed.includes('dockSize'))                   _applyDockSizeToDOM(_current.dockSize);
-  if (changed.includes('subbarVisible') ||
-      changed.includes('compactMode'))                _applySubbarToDOM(_current.subbarVisible !== false);
-  if (changed.includes('compactMode'))                _applyCompactToDOM(!!_current.compactMode);
 
   if (!opts.silent) emit('settings:changed', { changed, settings: _current, before });
   return _current;

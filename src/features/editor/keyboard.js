@@ -4,7 +4,7 @@
 
 import { state, viewport } from '../../core/state.js';
 import { showToast } from '../../core/utils.js';
-import { setTool } from './toolbar.js';
+import { setTool } from '../toolbar/toolbar.js';
 import { flushAutoSave } from './autosave.js';
 import { flushHistory, handleHistoryKeyboard } from './history.js';
 import { toggleFullscreen } from './export.js';

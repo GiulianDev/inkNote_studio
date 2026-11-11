@@ -46,14 +46,28 @@
  */
 
 /**
- * Le impostazioni persistenti vivono in `core/app-settings.js`.
+ * Le impostazioni persistenti GLOBALI vivono in `core/app-settings.js`:
+ *   - theme, printTheme, handedness, dockSize
+ *   - pressureLight/Heavy/Curve, scrollSensitivity
+ *   - palmRejection
  * `state.settings` è uno snapshot read-only dell'oggetto corrente
  * (aggiornato dallo store ad ogni `updateSettings`).
  * NON scrivere direttamente su `state.settings`: usa `updateSettings`.
  *
- * I campi `smoothing`, `isDarkMode`, `subbarVisible`, `compactMode`
- * presenti in `state` sono cache di lettura veloce sincronizzate
- * dallo store: non vanno scritti da fuori.
+ * Le impostazioni per-notebook della TOOLBAR vivono in
+ * `features/toolbar/toolbar-state.js`:
+ *   - tools.{pen,pencil,marker,highlighter}.{color,width}
+ *   - eraserSize, eraserMode, autoShapeEnabled, smoothing
+ *   - subbarVisible, compactMode, recentColors
+ *   - activeTool (RUNTIME ONLY, non persistito)
+ *
+ * I campi seguenti di `state` sono CACHE di lettura veloce sincronizzate
+ * dagli store: NON vanno scritti da fuori.
+ *   - activeTool, currentColor, strokeWidth
+ *   - eraserSize, eraserMode, autoShapeEnabled
+ *   - smoothing, subbarVisible, compactMode   ← toolbar-state
+ *   - isDarkMode, palmRejection               ← app-settings
+ *   - settings                                ← app-settings (snapshot)
  */
 
 // ------------------------------------------------------------
@@ -66,11 +80,11 @@ export const state = {
   /** @type {number} */
   activePageIndex: 0,
 
-  // --- Impostazioni (snapshot read-only, vedi core/app-settings.js) ---
-  /** @type {import('./app-settings.js').DEFAULT_SETTINGS|null} */
+  // --- Impostazioni globali (snapshot read-only, vedi core/app-settings.js) ---
+  /** @type {import('../core/app-settings.js').DEFAULT_SETTINGS|null} */
   settings: null,
 
-  // --- Tool corrente ---
+  // --- Tool corrente (cache, vedi features/toolbar/toolbar-state.js) ---
   /** @type {'pen'|'pencil'|'marker'|'highlighter'|'lasso'|'eraser'} */
   activeTool: 'pen',
   /** @type {string} hex */
@@ -79,6 +93,8 @@ export const state = {
   strokeWidth: 3,
   /** @type {number} 1..5 livello dimensione gomma (1=piccola, 5=grande) */
   eraserSize: 3,
+  /** @type {'stroke'|'point'} modalità gomma */
+  eraserMode: 'stroke',
   /** @type {boolean} */
   autoShapeEnabled: true,
   /** @type {number} 0..1 (frazione dello slider 0..100) */
@@ -87,6 +103,8 @@ export const state = {
   bgPattern: 'ruled',
   /** @type {boolean} */
   isDarkMode: false,
+  /** @type {boolean} */
+  palmRejection: true,
 
   // --- Disegno in corso (hot path) ---
   /** @type {boolean} */
