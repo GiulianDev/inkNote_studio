@@ -53,7 +53,6 @@ export async function openNotebook(id) {
   // Applica impostazioni toolbar del notebook (o default se mancanti:
   // notebook creati prima dell'introduzione di toolbarSettings).
   initToolbarSettings(nb.toolbarSettings || null);
-  applyActiveToolToUI();
   applyToolbarControlsToUI();
 
   document.getElementById('docTitle').value = nb.title;

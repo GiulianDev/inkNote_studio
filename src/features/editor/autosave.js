@@ -23,7 +23,12 @@ export function flushAutoSave() {
 function _commit() {
   _timer = null;
   if (!getCurrentNotebook()) return;
-  syncCurrentState();
-  saveCurrentNotebook();
-  showStatusBadge('Salvato');
+  try {
+    syncCurrentState();
+    saveCurrentNotebook();
+    showStatusBadge('Salvato');
+  } catch (err) {
+    console.error('[autosave] commit failed:', err);
+    showStatusBadge('Errore salvataggio');
+  }
 }

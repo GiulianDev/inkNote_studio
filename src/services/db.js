@@ -22,7 +22,15 @@ export function saveNotebookToDB(notebook) {
   if (!db) return;
   notebook.updatedAt = new Date().toISOString();
   const tx = db.transaction('notebooks', 'readwrite');
-  tx.objectStore('notebooks').put(notebook);
+  try {
+    tx.objectStore('notebooks').put(notebook);
+  } catch (err) {
+    // DataCloneError (o altro errore sincrono del put)
+    console.error('[db] put failed:', err);
+    throw err;
+  }
+  tx.onerror  = () => console.error('[db] tx error:', tx.error);
+  tx.onabort  = () => console.error('[db] tx abort:', tx.error);
 }
 
 export function loadAllNotebooksFromDB() {

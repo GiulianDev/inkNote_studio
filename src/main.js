@@ -17,7 +17,7 @@ import {
   mountToolbar
 } from './features/toolbar/toolbar.js';
 import { flushHistory } from './features/editor/history.js';
-import { flushAutoSave } from './features/editor/autosave.js';
+import { flushAutoSave, scheduleSave } from './features/editor/autosave.js';
 import { initEditorHandlers } from './features/editor/editor.js';
 import { bindEditorUI } from './features/editor/bindings.js';
 import { mountSettingsModal } from './features/settings/settings.js';
@@ -60,13 +60,18 @@ window.addEventListener('load', async () => {
 
   // 7. All'init/reset toolbar-settings (openNotebook, resetToolbarSettings)
   //    riallinea la UI della toolbar ai nuovi valori.
-  onToolbarSettingsChanged(({ changed }) => {
-    if (changed.includes('init') || changed.includes('reset')) {
-      applyActiveToolToUI();
-      updateAutoShapeButtonUI();
-      renderRecentColors();
-    }
-  });
+onToolbarSettingsChanged(({ changed }) => {
+  if (changed.includes('init') || changed.includes('reset')) {
+    applyActiveToolToUI();
+    updateAutoShapeButtonUI();
+    renderRecentColors();
+    return;
+  }
+  // Cambio preferenza toolbar (colore, spessore, smoothing, auto-shape,
+  // subbar, compact, eraserSize, eraserMode, recentColors):
+  // persisti nel notebook tramite il flusso di autosave esistente.
+  scheduleSave();
+});
 
   // 8. Vista iniziale e setup gesti / tastiera.
   renderLibraryView();
