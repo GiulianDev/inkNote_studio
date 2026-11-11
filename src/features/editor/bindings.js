@@ -29,7 +29,7 @@ import {
   clearSelection, deleteSelectedStrokes,
   previewSelectionColor, changeSelectionColor,
   previewSelectionWidth, changeSelectionWidth
-} from './lasso.js';
+} from '../tools/lazo.js';
 
 export function bindEditorUI() {
   // --- Toolbar: tool buttons (eraser gestito separatamente in toolbar.js) ---

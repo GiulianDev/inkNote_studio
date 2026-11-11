@@ -15,7 +15,7 @@ import {
 import { updatePageCounterUI } from './header.js';
 import { resetHistory, pushHistory } from './history.js';
 import { setViewportChangeHandler } from './transform.js';
-import { updateSelectionMenuPosition } from './lasso.js';
+import { updateSelectionMenuPosition } from '../tools/lazo.js';
 import { finalizePendingShape } from './shapes.js';
 import {
   initToolbarSettings, resetToolbarSettings, getToolbarSettings

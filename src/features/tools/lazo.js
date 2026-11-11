@@ -1,18 +1,27 @@
 // ============================================================
-// LASSO + SELEZIONE + RESIZE + MENU CONTESTUALE
+// LAZO TOOL + SELEZIONE + RESIZE + MENU CONTESTUALE + SELECTION DRAG
+// Consolida il vecchio features/editor/lasso.js (logica di
+// selezione/editing) con il tool lazo (begin/move/end) e il drag
+// della selezione.
 // ============================================================
 
-import { invalidateStrokeBitmap } from './stroke-cache.js';
+import { invalidateStrokeBitmap } from '../editor/stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import { showToast, PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
 import {
   redrawPageCanvas, redrawSelectionOverlay, clearOverlay,
   renderFullStroke,
   getSelectionBoundingBox, getVisualBoundingBox, getHandlePositions,
-  isPointInBBox, hitTestHandle, findClosestPointInSelection
-} from './render.js';
-import { pushHistory } from './history.js';
-import { scheduleSave } from './autosave.js';
+  isPointInBBox, hitTestHandle, findClosestPointInSelection,
+  drawLassoIncrementalOnOverlay
+} from '../editor/render.js';
+import { pushHistory } from '../editor/history.js';
+import { scheduleSave } from '../editor/autosave.js';
+import { getCanvasCoords } from './common.js';
+
+// ============================================================
+// SELEZIONE (editing)
+// ============================================================
 
 export function selectStrokesInsideLasso(pageData) {
   const polygon = state.lassoPath;
@@ -241,4 +250,113 @@ export function updateCursorForSelection(e, pageData) {
   if (handle) pageData.canvas.style.cursor = 'nwse-resize';
   else if (isPointInBBox(point, visualBBox)) pageData.canvas.style.cursor = 'move';
   else pageData.canvas.style.cursor = 'crosshair';
+}
+
+// ============================================================
+// TOOL LAZO (begin / move / end)
+// ============================================================
+
+export function beginLasso(pageData, point) {
+  const visualBBox = getVisualBoundingBox();
+  if (visualBBox) {
+    const handle = hitTestHandle(point, visualBBox);
+    if (handle) {
+      startResizeSelection(handle, point);
+      return 'resize';
+    }
+    if (isPointInBBox(point, visualBBox)) {
+      beginSelectionDrag(point, pageData);
+      return 'drag';
+    }
+  }
+  clearSelection();
+  state.isDrawing = true;
+  state.lassoPath = [{ x: point.x, y: point.y, pressure: point.pressure }];
+  clearOverlay(pageData);
+  return 'lasso';
+}
+
+export function moveLasso(pageData, e) {
+  const lp = getCanvasCoords(e, pageData.canvas);
+  state.lassoPath.push({ x: lp.x, y: lp.y, pressure: lp.pressure });
+  drawLassoIncrementalOnOverlay(pageData);
+}
+
+export function endLasso(pageData) {
+  if (state.lassoPath.length > 5) selectStrokesInsideLasso(pageData);
+  else { state.lassoPath = []; clearOverlay(pageData); }
+}
+
+// ============================================================
+// SELECTION DRAG (spostamento della selezione)
+// ============================================================
+
+let _dragStartPoint = null;
+let _dragStartBBox = null;
+let _dragAccX = 0;
+let _dragAccY = 0;
+
+export function resetSelectionDragState() {
+  _dragStartPoint = null;
+  _dragStartBBox = null;
+  _dragAccX = 0;
+  _dragAccY = 0;
+}
+
+function _getSelectedBBox() {
+  if (state.selectedStrokes.length === 0) return null;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const stroke of state.selectedStrokes) {
+    for (const p of stroke.points) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    }
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+export function beginSelectionDrag(point, pageData) {
+  state.isDraggingSelection = true;
+  _dragStartPoint = { x: point.x, y: point.y };
+  _dragStartBBox = _getSelectedBBox();
+  _dragAccX = 0;
+  _dragAccY = 0;
+  state.dragStartPoint = _dragStartPoint;
+  state.isDrawing = true;
+  state.selectionMoved = false;
+  pageData.canvas.style.cursor = 'grabbing';
+}
+
+export function moveSelectionDrag(pageData, rawPoint) {
+  if (!_dragStartPoint || !_dragStartBBox) return;
+  let desiredX = rawPoint.x - _dragStartPoint.x;
+  let desiredY = rawPoint.y - _dragStartPoint.y;
+
+  if (_dragStartBBox.maxX + desiredX > PAGE_WIDTH)  desiredX = PAGE_WIDTH  - _dragStartBBox.maxX;
+  if (_dragStartBBox.minX + desiredX < 0)           desiredX = -_dragStartBBox.minX;
+  if (_dragStartBBox.maxY + desiredY > PAGE_HEIGHT) desiredY = PAGE_HEIGHT - _dragStartBBox.maxY;
+  if (_dragStartBBox.minY + desiredY < 0)           desiredY = -_dragStartBBox.minY;
+
+  const incX = desiredX - _dragAccX;
+  const incY = desiredY - _dragAccY;
+  if (incX !== 0 || incY !== 0) {
+    state.selectionMoved = true;
+    state.selectedStrokes.forEach(stroke => {
+      stroke.points.forEach(p => { p.x += incX; p.y += incY; });
+    });
+    _dragAccX = desiredX;
+    _dragAccY = desiredY;
+    redrawSelectionOverlay(pageData);
+    updateSelectionMenuPosition();
+  }
+}
+
+export function endSelectionDrag(pageData, wasMoved) {
+  state.isDraggingSelection = false;
+  state.dragStartPoint = null;
+  state.selectionMoved = false;
+  pageData.canvas.style.cursor = 'crosshair';
+  if (wasMoved) pushHistory();
+  scheduleSave();
+  resetSelectionDragState();
 }

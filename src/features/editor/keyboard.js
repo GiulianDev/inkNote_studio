@@ -12,7 +12,7 @@ import { applyTransform } from './transform.js';
 import { resetZoom } from './pages.js';
 import { closeSettingsModal } from '../settings/settings.js';
 import { closeNewNotebookModal } from '../library/library.js';
-import { clearSelection } from './lasso.js';
+import { clearSelection } from '../tools/lazo.js';
 
 export function setupKeyboardShortcuts() {
   document.addEventListener('keydown', handleHistoryKeyboard);

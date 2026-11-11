@@ -10,7 +10,7 @@
 import { state, viewport } from '../../core/state.js';
 import { PULL_THRESHOLD, showToast } from '../../core/utils.js';
 import { getScrollSensitivity } from '../../core/app-settings.js';
-import { abortCurrentDrawing } from './input.js';
+import { abortCurrentDrawing } from '../tools/index.js';
 import { addNewPage, scheduleResolutionRefresh } from './pages.js';
 import {
   applyTransform, applyPinchTransform,

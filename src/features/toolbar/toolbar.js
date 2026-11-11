@@ -15,7 +15,7 @@ import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
   updateToolbarSettings, getEraserRadius
 } from './toolbar-state.js';
-import { clearSelection } from '../editor/lasso.js';
+import { clearSelection } from '../tools/lazo.js';
 
 let _mounted = false;
 

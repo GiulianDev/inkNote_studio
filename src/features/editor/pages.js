@@ -9,10 +9,10 @@ import { ensurePredictionCanvas } from './prediction.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, showToast, on } from '../../core/utils.js';
 import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from './render.js';
-import { attachPointerListeners } from './input.js';
+import { attachPointerListeners } from '../tools/index.js';
 import { pushHistory, resetHistory } from './history.js';
 import { scheduleSave } from './autosave.js';
-import { clearSelection } from './lasso.js';
+import { clearSelection } from '../tools/lazo.js';
 import { updatePageCounterUI } from './header.js';
 import {
   applyTransform, clampViewport, invalidateClampCache
