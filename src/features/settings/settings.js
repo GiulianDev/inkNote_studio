@@ -16,6 +16,9 @@ import settingsHtml from './settings.html?raw';
 // MOUNT — inietta il markup una volta sola (idempotente)
 // ------------------------------------------------------------
 let _mounted = false;
+let _isOpen  = false;
+/** @type {typeof DEFAULT_SETTINGS|null} */
+let _draftSnapshot = null;
 
 export function mountSettingsModal() {
   if (_mounted || document.getElementById('settingsModal')) {
@@ -32,6 +35,13 @@ export function mountSettingsModal() {
 // ------------------------------------------------------------
 export function openSettingsModal() {
   mountSettingsModal();
+
+  // Snapshot all'apertura SOLO se non era già aperto:
+  // è il "punto di ripristino" per il bottone Annulla.
+  if (!_isOpen) {
+    _draftSnapshot = { ...getSettings() };
+    _isOpen = true;
+  }
 
   const s = getSettings();
   _setValue('settingTheme',            s.theme);
@@ -54,7 +64,23 @@ export function openSettingsModal() {
   requestAnimationFrame(() => _redrawPressureTest());
 }
 
-export function closeSettingsModal() {
+/**
+ * Chiude la modale.
+ * @param {{cancel?: boolean}} [opts]
+ *   - cancel: true  (default) → ripristina lo snapshot iniziale
+ *   - cancel: false           → mantiene lo stato corrente (commit)
+ */
+export function closeSettingsModal({ cancel = true } = {}) {
+  // Ripristino: rimette lo stato (e la persistenza) a com'era all'apertura.
+  // updateSettings emette `settings:changed`, quindi main.js ridisegna
+  // le pagine col tema corretto e _redrawPressureTest rifà il canvas.
+  if (cancel && _draftSnapshot) {
+    updateSettings(_draftSnapshot, { persist: true });
+  }
+
+  _draftSnapshot = null;
+  _isOpen = false;
+
   const modal = document.getElementById('settingsModal');
   if (!modal) return;
   modal.classList.add('hidden');
@@ -62,16 +88,20 @@ export function closeSettingsModal() {
 }
 
 /**
- * Commit dei select "non-live" (theme è live, gli altri no).
- * Gli slider pressione/scroll sono già persistiti dal loro `input`.
+ * Commit definitivo: raccoglie i select non-live (printTheme, handedness,
+ * dockSize) e persiste l'intero stato corrente (che include già le
+ * modifiche live a tema/pressione/scroll). Poi chiude senza ripristinare.
  */
 export function confirmSettings() {
-  updateSettings({
-    printTheme: _getValue('settingPrintTheme') ?? getSettings().printTheme,
-    handedness: _getValue('settingHandedness') ?? getSettings().handedness,
-    dockSize:   _getValue('settingDockSize')   ?? getSettings().dockSize
-  });
-  closeSettingsModal();
+  const printTheme = _getValue('settingPrintTheme') ?? getSettings().printTheme;
+  const handedness = _getValue('settingHandedness') ?? getSettings().handedness;
+  const dockSize   = _getValue('settingDockSize')   ?? getSettings().dockSize;
+
+  updateSettings({ printTheme, handedness, dockSize }, { persist: true });
+
+  _draftSnapshot = null;
+  _isOpen = false;
+  closeSettingsModal({ cancel: false });
   showToast('Impostazioni salvate', '⚙️');
 }
 
@@ -99,32 +129,33 @@ function _bindAll() {
   if (_bound) return;
   _bound = true;
 
-  // Select "live" (immediato, non attende "Salva")
+  // Select "live" del tema (immediato, ma non persistito finché Salva)
   document.getElementById('settingTheme')
-    ?.addEventListener('change', (e) => updateSettings({ theme: e.target.value }));
+    ?.addEventListener('change', (e) =>
+      updateSettings({ theme: e.target.value }, { persist: false }));
 
-  // Slider pressione: real-time + persist
+  // Slider pressione: anteprima live + persist:false
   ['pressureLightSlider', 'pressureHeavySlider', 'pressureCurveSlider'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', () => {
       updateSettings({
         pressureLight: parseInt(_getValue('pressureLightSlider')),
         pressureHeavy: parseInt(_getValue('pressureHeavySlider')),
         pressureCurve: parseInt(_getValue('pressureCurveSlider'))
-      });
+      }, { persist: false });
       _refreshLabels();
       _redrawPressureTest();
     });
   });
 
-  // Scroll sensitivity: real-time + persist
+  // Scroll sensitivity: anteprima live + persist:false
   document.getElementById('scrollSensitivitySlider')?.addEventListener('input', (e) => {
-    updateSettings({ scrollSensitivity: parseInt(e.target.value) });
+    updateSettings({ scrollSensitivity: parseInt(e.target.value) }, { persist: false });
     _setText('scrollSensitivityValue', e.target.value);
   });
 
   // Bottoni
   document.getElementById('confirmSettingsBtn')?.addEventListener('click', confirmSettings);
-  document.getElementById('cancelSettingsBtn') ?.addEventListener('click', closeSettingsModal);
+  document.getElementById('cancelSettingsBtn') ?.addEventListener('click', () => closeSettingsModal());
   document.getElementById('resetPressureBtn')  ?.addEventListener('click', _resetPressureDefaults);
   document.getElementById('clearPressureBtn')  ?.addEventListener('click', _clearPressureTest);
 
@@ -138,18 +169,37 @@ function _bindAll() {
     canvas.addEventListener('contextmenu',   (e) => e.preventDefault());
   }
 
-  // Ridisegna il test se il tema cambia mentre il modale è aperto
+  // ----------------------------------------------------------
+  // Click sul backdrop → chiude come "Annulla"
+  // Pattern: pointerdown+pointerup sullo STESSO target (backdrop)
+  // per evitare chiusure accidentali quando un drag iniziato dentro
+  // la modale (slider, canvas di test, ecc.) finisce oltre il bordo.
+  // ----------------------------------------------------------
+  const modal = document.getElementById('settingsModal');
+  let backdropDown = false;
+
+  modal?.addEventListener('pointerdown', (e) => {
+    // e.currentTarget è il modal; e.target è il figlio cliccato.
+    // Backdrop = click direttamente sul contenitore esterno.
+    backdropDown = (e.target === e.currentTarget);
+  });
+
+  modal?.addEventListener('pointerup', (e) => {
+    if (backdropDown && e.target === e.currentTarget) {
+      closeSettingsModal(); // default cancel: true → ripristina
+    }
+    backdropDown = false;
+  });
+
+  modal?.addEventListener('pointercancel', () => { backdropDown = false; });
+
+  // Ridisegna il test se cambia il tema mentre la modale è aperta
   onSettingsChanged(({ changed }) => {
-    if (!_isModalOpen()) return;
+    if (!_isOpen) return;
     if (changed.includes('theme') || changed.includes('theme.effective')) {
       _redrawPressureTest();
     }
   });
-}
-
-function _isModalOpen() {
-  const m = document.getElementById('settingsModal');
-  return m && !m.classList.contains('hidden');
 }
 
 // ------------------------------------------------------------
@@ -249,7 +299,7 @@ function _resetPressureDefaults() {
     pressureLight: DEFAULT_SETTINGS.pressureLight,
     pressureHeavy: DEFAULT_SETTINGS.pressureHeavy,
     pressureCurve: DEFAULT_SETTINGS.pressureCurve
-  });
+  }, { persist: false });
   _setValue('pressureLightSlider', DEFAULT_SETTINGS.pressureLight);
   _setValue('pressureHeavySlider', DEFAULT_SETTINGS.pressureHeavy);
   _setValue('pressureCurveSlider', DEFAULT_SETTINGS.pressureCurve);

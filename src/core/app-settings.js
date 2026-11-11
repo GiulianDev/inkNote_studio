@@ -157,10 +157,14 @@ export function getSettings() {
 }
 
 /**
- * Aggiorna una o più impostazioni. Persiste, sincronizza lo state
- * runtime, applica gli effetti DOM pertinenti, notifica i consumer.
+ * Aggiorna una o più impostazioni.
  * @param {Partial<typeof DEFAULT_SETTINGS>} partial
- * @param {{silent?: boolean}} [opts]
+ * @param {{silent?: boolean, persist?: boolean}} [opts]
+ *   - silent:  non emette `settings:changed` (raro; normalmente sempre false)
+ *   - persist: se `false`, NON scrive su localStorage. Usato dalla modale
+ *              impostazioni per l'anteprima live: `state` e DOM vengono
+ *              aggiornati, ma nessun commit finché l'utente non preme Salva.
+ *              Default: true.
  */
 export function updateSettings(partial, opts = {}) {
   if (!_current) initSettings();
@@ -170,7 +174,10 @@ export function updateSettings(partial, opts = {}) {
 
   const wasDark = state.isDarkMode;
   _syncRuntime(_current);
-  _writeToStorage();
+
+  // Persistenza (disattivabile per l'anteprima live nella modale)
+  const shouldPersist = opts.persist !== false;
+  if (shouldPersist) _writeToStorage();
 
   const changed = Object.keys(partial);
   if (changed.includes('theme'))                      _applyThemeToDOM(state.isDarkMode);
