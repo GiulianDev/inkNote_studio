@@ -33,8 +33,12 @@
                     </svg>
                     <span id="googleLoginText">Accedi con Google</span>
                 </button>
-                <button id="newNotebookBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">➕ Nuovo Quaderno</button>
-                <button id="openSettingsBtnLib" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95" title="Impostazioni">⚙️</button>
+                <button id="newNotebookBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
+                    ➕ Nuovo Quaderno
+                </button>
+                <button id="openSettingsBtnLib" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95" title="Impostazioni">
+                    ⚙️
+                </button>
             </div>
         </div>
         <div class="max-w-6xl w-full mx-auto flex-1">
@@ -87,108 +91,6 @@
             <div class="flex items-center justify-end space-x-2 px-6 py-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
                 <button id="cancelNewNbBtn" class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
                 <button id="confirmCreateNbBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Crea Quaderno</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- MODALE IMPOSTAZIONI -->
-    <div id="settingsModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col" style="max-height: 90vh;">
-
-            <div class="px-6 pt-6 pb-3 shrink-0">
-                <h3 class="text-lg font-bold text-slate-900 dark:text-white">⚙️ Impostazioni</h3>
-            </div>
-
-            <div class="px-6 overflow-y-auto flex-1 custom-scrollbar" style="touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;">
-                <div class="space-y-4 text-xs">
-                    <div>
-                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Visualizzazione</label>
-                        <select id="settingTheme" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                            <option value="auto">Automatico (segui sistema)</option>
-                            <option value="light">Chiaro</option>
-                            <option value="dark">Scuro</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Stampa / PDF</label>
-                        <select id="settingPrintTheme" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                            <option value="light">Chiaro (risparmia inchiostro)</option>
-                            <option value="dark">Scuro</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mano Dominante</label>
-                        <select id="settingHandedness" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                            <option value="right">Destro</option>
-                            <option value="left">Mancino (interfaccia specchiata)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Dimensione Dock</label>
-                        <select id="settingDockSize" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-                            <option value="small">Piccolo</option>
-                            <option value="medium">Medio (consigliato)</option>
-                            <option value="large">Grande</option>
-                        </select>
-                    </div>
-
-                    <!-- sensibilità scroll -->
-                    <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
-                        <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3">👆 Scrolling</h4>
-                        <div>
-                            <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                <span>Sensibilità scroll</span>
-                                <span id="scrollSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
-                            </label>
-                            <input type="range" id="scrollSensitivitySlider" min="0" max="100" value="50" class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-                            <p class="text-[10px] text-slate-500 mt-0.5">Più alto = flick più lunghi. 50 = default.</p>
-                        </div>
-                    </div>
-
-                    <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
-                        <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3">✒️ Inchiostro</h4>
-                        <div class="space-y-3">
-                            <div>
-                                <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                    <span>Tratto leggero</span>
-                                    <span id="pressureLightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">10</span>
-                                </label>
-                                <input type="range" id="pressureLightSlider" min="0" max="100" value="10" class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-                                <p class="text-[10px] text-slate-500 mt-0.5">Spessore minimo a pressione minima</p>
-                            </div>
-                            <div>
-                                <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                    <span>Tratto pesante</span>
-                                    <span id="pressureHeavyValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">340</span>
-                                </label>
-                                <input type="range" id="pressureHeavySlider" min="100" max="500" value="340" class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-                                <p class="text-[10px] text-slate-500 mt-0.5">Spessore massimo a pressione massima</p>
-                            </div>
-                            <div>
-                                <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                    <span>Curva</span>
-                                    <span id="pressureCurveValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">60</span>
-                                </label>
-                                <input type="range" id="pressureCurveSlider" min="0" max="100" value="60" class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-                                <p class="text-[10px] text-slate-500 mt-0.5">0 = lineare · 100 = crescita solo agli alti</p>
-                            </div>
-                            <div>
-                                <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui</label>
-                                <canvas id="pressureTestCanvas" class="w-full h-28 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" style="touch-action:none;cursor:crosshair;"></canvas>
-                                <p class="text-[10px] text-slate-500 mt-1">Disegna con la penna per vedere l'effetto.</p>
-                            </div>
-                            <div class="flex items-center justify-between pb-3">
-                                <button id="resetPressureBtn" class="text-xs text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold">Ripristina default</button>
-                                <button id="clearPressureBtn" class="text-xs text-slate-600 dark:text-slate-400 hover:text-rose-600 font-semibold">Pulisci area</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex items-center justify-end space-x-2 px-6 py-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
-                <button id="cancelSettingsBtn" class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
-                <button id="confirmSettingsBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Salva</button>
             </div>
         </div>
     </div>

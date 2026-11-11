@@ -3,7 +3,7 @@
 // ============================================================
 
 import { state } from '../../core/state.js';
-import { loadSettings } from '../../services/preferences.js';
+import { getSettings } from '../../core/app-settings.js';
 import { finalizePendingShape } from './shapes.js';
 import { clearOverlay, redrawPageCanvas } from './render.js';
 import { resizeCanvasForHDPI, refreshCanvasResolution } from './pages.js';
@@ -15,7 +15,7 @@ export function toggleFullscreen() {
 
 export function exportToPDF() {
   if (state.pendingShape) finalizePendingShape();
-  const settings = loadSettings();
+  const settings = getSettings();
   const printDark = settings.printTheme === 'dark';
   const PRINT_DPR = Math.min((window.devicePixelRatio || 1) * 2, 4);
 

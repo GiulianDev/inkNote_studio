@@ -46,17 +46,14 @@
  */
 
 /**
- * @typedef {Object} Settings
- * @property {'auto'|'light'|'dark'} theme
- * @property {'light'|'dark'} printTheme
- * @property {'right'|'left'} handedness
- * @property {'small'|'medium'|'large'} dockSize 
- * @property {number} smoothing      0..100
- * @property {boolean} subbarVisible
- * @property {boolean} compactMode
- * @property {number} pressureLight  0..100
- * @property {number} pressureHeavy  100..500
- * @property {number} pressureCurve  0..100
+ * Le impostazioni persistenti vivono in `core/app-settings.js`.
+ * `state.settings` è uno snapshot read-only dell'oggetto corrente
+ * (aggiornato dallo store ad ogni `updateSettings`).
+ * NON scrivere direttamente su `state.settings`: usa `updateSettings`.
+ *
+ * I campi `smoothing`, `isDarkMode`, `subbarVisible`, `compactMode`
+ * presenti in `state` sono cache di lettura veloce sincronizzate
+ * dallo store: non vanno scritti da fuori.
  */
 
 // ------------------------------------------------------------
@@ -68,6 +65,10 @@ export const state = {
   pages: [],
   /** @type {number} */
   activePageIndex: 0,
+
+  // --- Impostazioni (snapshot read-only, vedi core/app-settings.js) ---
+  /** @type {import('./app-settings.js').DEFAULT_SETTINGS|null} */
+  settings: null,
 
   // --- Tool corrente ---
   /** @type {'pen'|'pencil'|'marker'|'highlighter'|'lasso'|'eraser'} */

@@ -9,7 +9,7 @@
 
 import { state, viewport } from '../../core/state.js';
 import { PULL_THRESHOLD, showToast } from '../../core/utils.js';
-import { getScrollSensitivity } from '../../services/preferences.js';
+import { getScrollSensitivity } from '../../core/app-settings.js';
 import { abortCurrentDrawing } from './input.js';
 import { addNewPage, scheduleResolutionRefresh } from './pages.js';
 import {

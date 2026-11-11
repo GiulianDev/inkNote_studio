@@ -1,39 +1,49 @@
 // ============================================================
-// MODALE IMPOSTAZIONI + CALIBRAZIONE PRESSIONE
+// SETTINGS MODULE — si autogestisce (markup + binding + stato)
 // ============================================================
 
 import { state } from '../../core/state.js';
 import { showToast } from '../../core/utils.js';
 import {
-  loadSettings, saveSettings, applySettings, DEFAULT_SETTINGS
-} from '../../services/preferences.js';
+  DEFAULT_SETTINGS, getSettings, updateSettings,
+  onSettingsChanged
+} from '../../core/app-settings.js';
 import { computeStrokeWidth } from '../editor/render.js';
 
-export function openSettingsModal() {
-  const s = loadSettings();
-  const elTheme = document.getElementById('settingTheme');
-  const elPrint = document.getElementById('settingPrintTheme');
-  const elHand = document.getElementById('settingHandedness');
-  const elDock = document.getElementById('settingDockSize');
-  if (elTheme) elTheme.value = s.theme;
-  if (elPrint) elPrint.value = s.printTheme;
-  if (elHand) elHand.value = s.handedness;
-  if (elDock) elDock.value = s.dockSize || 'medium';
+import settingsHtml from './settings.html?raw';
 
-  const lightSlider = document.getElementById('pressureLightSlider');
-  const heavySlider = document.getElementById('pressureHeavySlider');
-  const curveSlider = document.getElementById('pressureCurveSlider');
-  if (lightSlider) lightSlider.value = s.pressureLight;
-  if (heavySlider) heavySlider.value = s.pressureHeavy;
-  if (curveSlider) curveSlider.value = s.pressureCurve;
-  // Scroll sensitivity
-  const scrollSlider = document.getElementById('scrollSensitivitySlider');
-  const scrollLabel = document.getElementById('scrollSensitivityValue');
-  const scrollVal = (typeof s.scrollSensitivity === 'number') ? s.scrollSensitivity : 50;
-  if (scrollSlider) scrollSlider.value = scrollVal;
-  if (scrollLabel) scrollLabel.innerText = scrollVal;
-  _updatePressureLabels();
-  _bindPressureSliders();
+// ------------------------------------------------------------
+// MOUNT — inietta il markup una volta sola (idempotente)
+// ------------------------------------------------------------
+let _mounted = false;
+
+export function mountSettingsModal() {
+  if (_mounted || document.getElementById('settingsModal')) {
+    _mounted = true;
+    return;
+  }
+  document.body.insertAdjacentHTML('beforeend', settingsHtml);
+  _bindAll();
+  _mounted = true;
+}
+
+// ------------------------------------------------------------
+// OPEN / CLOSE
+// ------------------------------------------------------------
+export function openSettingsModal() {
+  mountSettingsModal();
+
+  const s = getSettings();
+  _setValue('settingTheme',            s.theme);
+  _setValue('settingPrintTheme',       s.printTheme);
+  _setValue('settingHandedness',       s.handedness);
+  _setValue('settingDockSize',         s.dockSize);
+  _setValue('pressureLightSlider',     s.pressureLight);
+  _setValue('pressureHeavySlider',     s.pressureHeavy);
+  _setValue('pressureCurveSlider',     s.pressureCurve);
+  _setValue('scrollSensitivitySlider', s.scrollSensitivity);
+  _refreshLabels();
+  _redrawPressureTest();
 
   const modal = document.getElementById('settingsModal');
   if (!modal) return;
@@ -51,111 +61,115 @@ export function closeSettingsModal() {
   modal.classList.remove('flex');
 }
 
+/**
+ * Commit dei select "non-live" (theme è live, gli altri no).
+ * Gli slider pressione/scroll sono già persistiti dal loro `input`.
+ */
 export function confirmSettings() {
-  const current = loadSettings();
-  const elTheme = document.getElementById('settingTheme');
-  const elPrint = document.getElementById('settingPrintTheme');
-  const elHand = document.getElementById('settingHandedness');
-  const elDock = document.getElementById('settingDockSize');
-  const lightSlider = document.getElementById('pressureLightSlider');
-  const heavySlider = document.getElementById('pressureHeavySlider');
-  const curveSlider = document.getElementById('pressureCurveSlider');
-
-  const settings = {
-    theme: elTheme ? elTheme.value : current.theme,
-    printTheme: elPrint ? elPrint.value : current.printTheme,
-    handedness: elHand ? elHand.value : current.handedness,
-    smoothing: current.smoothing,
-    subbarVisible: current.subbarVisible,
-    compactMode: current.compactMode,
-    dockSize: elDock ? elDock.value : (current.dockSize || 'medium'),
-    pressureLight: lightSlider ? parseInt(lightSlider.value) : current.pressureLight,
-    pressureHeavy: heavySlider ? parseInt(heavySlider.value) : current.pressureHeavy,
-    pressureCurve: curveSlider ? parseInt(curveSlider.value) : current.pressureCurve,
-    scrollSensitivity: document.getElementById('scrollSensitivitySlider')
-      ? parseInt(document.getElementById('scrollSensitivitySlider').value)
-      : (current.scrollSensitivity ?? 50)
-  };
-  saveSettings(settings);
-  applySettings(settings);
+  updateSettings({
+    printTheme: _getValue('settingPrintTheme') ?? getSettings().printTheme,
+    handedness: _getValue('settingHandedness') ?? getSettings().handedness,
+    dockSize:   _getValue('settingDockSize')   ?? getSettings().dockSize
+  });
   closeSettingsModal();
   showToast('Impostazioni salvate', '⚙️');
 }
 
-// --- scroll sensitivity ---
+// ------------------------------------------------------------
+// HELPERS
+// ------------------------------------------------------------
+function _setValue(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
+function _getValue(id)    { const el = document.getElementById(id); return el ? el.value : null; }
+function _setText(id, v)  { const el = document.getElementById(id); if (el) el.innerText = v; }
 
-let _scrollSliderBound = false;
-function _bindScrollSensitivitySlider() {
-  if (_scrollSliderBound) return;
-  _scrollSliderBound = true;
-  const slider = document.getElementById('scrollSensitivitySlider');
-  const label = document.getElementById('scrollSensitivityValue');
-  if (!slider) return;
-  slider.addEventListener('input', () => {
-    if (label) label.innerText = slider.value;
-    // Salva in tempo reale: così il prossimo flick usa già il nuovo valore
-    const s = loadSettings();
-    s.scrollSensitivity = parseInt(slider.value);
-    saveSettings(s);
-  });
+function _refreshLabels() {
+  const s = getSettings();
+  _setText('pressureLightValue',     s.pressureLight);
+  _setText('pressureHeavyValue',     s.pressureHeavy);
+  _setText('pressureCurveValue',     s.pressureCurve);
+  _setText('scrollSensitivityValue', s.scrollSensitivity);
 }
 
-// --- calibrazione pressione ---
+// ------------------------------------------------------------
+// BINDING — una sola volta, alla prima mount
+// ------------------------------------------------------------
+let _bound = false;
 
-const _pressureTestState = { strokes: [], current: null, bound: false };
+function _bindAll() {
+  if (_bound) return;
+  _bound = true;
 
-function _updatePressureLabels() {
-  const light = document.getElementById('pressureLightSlider');
-  const heavy = document.getElementById('pressureHeavySlider');
-  const curve = document.getElementById('pressureCurveSlider');
-  const lightV = document.getElementById('pressureLightValue');
-  const heavyV = document.getElementById('pressureHeavyValue');
-  const curveV = document.getElementById('pressureCurveValue');
-  if (light && lightV) lightV.innerText = light.value;
-  if (heavy && heavyV) heavyV.innerText = heavy.value;
-  if (curve && curveV) curveV.innerText = curve.value;
-}
+  // Select "live" (immediato, non attende "Salva")
+  document.getElementById('settingTheme')
+    ?.addEventListener('change', (e) => updateSettings({ theme: e.target.value }));
 
-function _bindPressureSliders() {
-  if (_pressureTestState.bound) return;
-  _pressureTestState.bound = true;
-
+  // Slider pressione: real-time + persist
   ['pressureLightSlider', 'pressureHeavySlider', 'pressureCurveSlider'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('input', () => {
-      const s = loadSettings();
-      s.pressureLight = parseInt(document.getElementById('pressureLightSlider').value);
-      s.pressureHeavy = parseInt(document.getElementById('pressureHeavySlider').value);
-      s.pressureCurve = parseInt(document.getElementById('pressureCurveSlider').value);
-      saveSettings(s);
-      _updatePressureLabels();
+    document.getElementById(id)?.addEventListener('input', () => {
+      updateSettings({
+        pressureLight: parseInt(_getValue('pressureLightSlider')),
+        pressureHeavy: parseInt(_getValue('pressureHeavySlider')),
+        pressureCurve: parseInt(_getValue('pressureCurveSlider'))
+      });
+      _refreshLabels();
       _redrawPressureTest();
     });
   });
 
+  // Scroll sensitivity: real-time + persist
+  document.getElementById('scrollSensitivitySlider')?.addEventListener('input', (e) => {
+    updateSettings({ scrollSensitivity: parseInt(e.target.value) });
+    _setText('scrollSensitivityValue', e.target.value);
+  });
+
+  // Bottoni
+  document.getElementById('confirmSettingsBtn')?.addEventListener('click', confirmSettings);
+  document.getElementById('cancelSettingsBtn') ?.addEventListener('click', closeSettingsModal);
+  document.getElementById('resetPressureBtn')  ?.addEventListener('click', _resetPressureDefaults);
+  document.getElementById('clearPressureBtn')  ?.addEventListener('click', _clearPressureTest);
+
+  // Canvas di test pressione
   const canvas = document.getElementById('pressureTestCanvas');
   if (canvas) {
-    canvas.addEventListener('pointerdown', _onPressureTestDown);
-    canvas.addEventListener('pointermove', _onPressureTestMove);
-    canvas.addEventListener('pointerup', _onPressureTestUp);
+    canvas.addEventListener('pointerdown',   _onPressureTestDown);
+    canvas.addEventListener('pointermove',   _onPressureTestMove);
+    canvas.addEventListener('pointerup',     _onPressureTestUp);
     canvas.addEventListener('pointercancel', _onPressureTestUp);
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('contextmenu',   (e) => e.preventDefault());
   }
+
+  // Ridisegna il test se il tema cambia mentre il modale è aperto
+  onSettingsChanged(({ changed }) => {
+    if (!_isModalOpen()) return;
+    if (changed.includes('theme') || changed.includes('theme.effective')) {
+      _redrawPressureTest();
+    }
+  });
 }
+
+function _isModalOpen() {
+  const m = document.getElementById('settingsModal');
+  return m && !m.classList.contains('hidden');
+}
+
+// ------------------------------------------------------------
+// PRESSURE TEST CANVAS
+// ------------------------------------------------------------
+const _pressureTestState = { strokes: [], current: null };
 
 function _onPressureTestDown(e) {
   const canvas = document.getElementById('pressureTestCanvas');
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
   const tool = (state.activeTool === 'pen' || state.activeTool === 'pencil') ? state.activeTool : 'pen';
-  const pt = {
-    x: e.clientX - rect.left, y: e.clientY - rect.top,
-    pressure: Math.max(0.1, e.pressure || 0.5),
-    tiltX: e.tiltX || 0, tiltY: e.tiltY || 0, speed: 0
+  _pressureTestState.current = {
+    tool, size: state.strokeWidth, points: [{
+      x: e.clientX - rect.left, y: e.clientY - rect.top,
+      pressure: Math.max(0.1, e.pressure || 0.5),
+      tiltX: e.tiltX || 0, tiltY: e.tiltY || 0, speed: 0
+    }]
   };
-  _pressureTestState.current = { tool, size: state.strokeWidth, points: [pt] };
-  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
   _redrawPressureTest();
 }
 
@@ -165,13 +179,12 @@ function _onPressureTestMove(e) {
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
   const last = _pressureTestState.current.points[_pressureTestState.current.points.length - 1];
-  const pt = {
+  _pressureTestState.current.points.push({
     x: e.clientX - rect.left, y: e.clientY - rect.top,
     pressure: Math.max(0.1, e.pressure || 0.5),
     tiltX: e.tiltX || 0, tiltY: e.tiltY || 0,
     speed: Math.hypot(e.clientX - rect.left - last.x, e.clientY - rect.top - last.y)
-  };
-  _pressureTestState.current.points.push(pt);
+  });
   _redrawPressureTest();
 }
 
@@ -182,7 +195,7 @@ function _onPressureTestUp(e) {
   }
   _pressureTestState.current = null;
   const canvas = document.getElementById('pressureTestCanvas');
-  if (canvas) { try { canvas.releasePointerCapture(e.pointerId); } catch (err) {} }
+  if (canvas) { try { canvas.releasePointerCapture(e.pointerId); } catch {} }
   _redrawPressureTest();
 }
 
@@ -192,7 +205,8 @@ function _redrawPressureTest() {
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
-    canvas.width = Math.floor(cssW * dpr); canvas.height = Math.floor(cssH * dpr);
+    canvas.width  = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
   }
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -201,11 +215,11 @@ function _redrawPressureTest() {
   ctx.fillStyle = isDark ? '#1e293b' : '#ffffff';
   ctx.fillRect(0, 0, cssW, cssH);
 
-  const allStrokes = _pressureTestState.current
+  const all = _pressureTestState.current
     ? [..._pressureTestState.strokes, _pressureTestState.current]
     : _pressureTestState.strokes;
 
-  allStrokes.forEach(stroke => {
+  all.forEach(stroke => {
     const pts = stroke.points;
     if (pts.length < 2) return;
     ctx.save();
@@ -213,7 +227,7 @@ function _redrawPressureTest() {
     ctx.strokeStyle = isDark ? '#f8fafc' : '#0f172a';
     for (let i = 1; i < pts.length; i++) {
       const p1 = pts[i - 1], p2 = pts[i];
-      const tiltNorm = Math.min(1, Math.hypot(p2.tiltX, p2.tiltY) / 30);
+      const tiltNorm  = Math.min(1, Math.hypot(p2.tiltX, p2.tiltY) / 30);
       const speedNorm = Math.min(1, p2.speed / 8);
       const w = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, tiltNorm, speedNorm, 1.0);
       ctx.lineWidth = Math.max(0.3, w);
@@ -222,7 +236,7 @@ function _redrawPressureTest() {
     ctx.restore();
   });
 
-  if (allStrokes.length === 0) {
+  if (all.length === 0) {
     ctx.fillStyle = isDark ? '#475569' : '#94a3b8';
     ctx.font = '12px Inter, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -230,45 +244,22 @@ function _redrawPressureTest() {
   }
 }
 
-export function resetPressureDefaults() {
-  const s = loadSettings();
-  s.pressureLight = DEFAULT_SETTINGS.pressureLight;
-  s.pressureHeavy = DEFAULT_SETTINGS.pressureHeavy;
-  s.pressureCurve = DEFAULT_SETTINGS.pressureCurve;
-  saveSettings(s);
-  const light = document.getElementById('pressureLightSlider');
-  const heavy = document.getElementById('pressureHeavySlider');
-  const curve = document.getElementById('pressureCurveSlider');
-  if (light) light.value = s.pressureLight;
-  if (heavy) heavy.value = s.pressureHeavy;
-  if (curve) curve.value = s.pressureCurve;
-  _updatePressureLabels();
+function _resetPressureDefaults() {
+  updateSettings({
+    pressureLight: DEFAULT_SETTINGS.pressureLight,
+    pressureHeavy: DEFAULT_SETTINGS.pressureHeavy,
+    pressureCurve: DEFAULT_SETTINGS.pressureCurve
+  });
+  _setValue('pressureLightSlider', DEFAULT_SETTINGS.pressureLight);
+  _setValue('pressureHeavySlider', DEFAULT_SETTINGS.pressureHeavy);
+  _setValue('pressureCurveSlider', DEFAULT_SETTINGS.pressureCurve);
+  _refreshLabels();
   _redrawPressureTest();
   showToast('Valori di pressione ripristinati', '↩️');
 }
 
-export function clearPressureTest() {
+function _clearPressureTest() {
   _pressureTestState.strokes = [];
   _pressureTestState.current = null;
   _redrawPressureTest();
-}
-
-export function initSettingsModal() {
-  _bindPressureSliders();
-  _bindScrollSensitivitySlider();
-}
-
-// ============================================================
-// BINDINGS UI IMPOSTAZIONI
-// ============================================================
-
-export function bindSettingsUI() {
-  document.getElementById('confirmSettingsBtn')
-    ?.addEventListener('click', confirmSettings);
-  document.getElementById('cancelSettingsBtn')
-    ?.addEventListener('click', closeSettingsModal);
-  document.getElementById('resetPressureBtn')
-    ?.addEventListener('click', resetPressureDefaults);
-  document.getElementById('clearPressureBtn')
-    ?.addEventListener('click', clearPressureTest);
 }

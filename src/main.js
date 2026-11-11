@@ -3,45 +3,53 @@
 // ============================================================
 
 import { initDB } from './services/db.js';
-import {
-  loadSettings, applySettings, initSettingsListeners, setDarkModeHandler
-} from './services/preferences.js';
+import { initSettings, onSettingsChanged } from './core/app-settings.js';
+import { state } from './core/state.js';
 import {
   centerViewport, refreshCanvasResolution
 } from './features/editor/pages.js';
+import { redrawPageCanvas, redrawSelectionOverlay } from './features/editor/render.js';
 import { setupViewportGestures } from './features/editor/gestures.js';
 import { setupKeyboardShortcuts } from './features/editor/keyboard.js';
-import {
-  updateAutoShapeButtonUI, renderRecentColors, setDarkMode
-} from './features/editor/toolbar.js';
+import { updateAutoShapeButtonUI, renderRecentColors } from './features/editor/toolbar.js';
 import { flushHistory } from './features/editor/history.js';
 import { flushAutoSave } from './features/editor/autosave.js';
 import { initEditorHandlers } from './features/editor/editor.js';
 import { bindEditorUI } from './features/editor/bindings.js';
+import { mountSettingsModal } from './features/settings/settings.js';
 import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
-import { initSettingsModal, bindSettingsUI } from './features/settings/settings.js';
 
 window.addEventListener('load', async () => {
-  // Registra l'handler del tema PRIMA di applySettings
-  setDarkModeHandler(setDarkMode);
+  // 1. Inizializza lo store globale impostazioni (applica tema, dock,
+  //    subbar, compact; sincronizza state.smoothing / isDarkMode / …).
+  initSettings();
 
-  applySettings(loadSettings());
-  initSettingsListeners();
-  initSettingsModal();
+  // 2. Monta il modale impostazioni (markup + binding interni).
+  mountSettingsModal();
+
+  // 3. Init IndexedDB.
+  try { await initDB(); } catch (err) { console.error(err); }
+
+  // 4. Handler editor + binding UI.
   initEditorHandlers();
-
-  // Bind UI (una sola volta, dopo il load del DOM)
   bindEditorUI();
   bindLibraryUI();
-  bindSettingsUI();
 
-  try {
-    await initDB();
-    renderLibraryView();
-  } catch (err) {
-    console.error(err);
-  }
+  // 5. Al cambio tema effettivo (manuale o da sistema) ridisegna le pagine.
+  onSettingsChanged(({ changed }) => {
+    if (!changed.includes('theme') && !changed.includes('theme.effective')) return;
+    state.pages.forEach(p => {
+      if (p._wasVisible !== false) {
+        redrawPageCanvas(p);
+        if (p.index === state.activePageIndex && state.selectedStrokes.length > 0) {
+          redrawSelectionOverlay(p);
+        }
+      }
+    });
+  });
 
+  // 6. Vista iniziale e setup gesti / tastiera.
+  renderLibraryView();
   centerViewport();
   setupViewportGestures();
   setupKeyboardShortcuts();
@@ -51,7 +59,7 @@ window.addEventListener('load', async () => {
   window.addEventListener('resize', () => refreshCanvasResolution(true));
 });
 
-window.addEventListener('beforeunload', (e) => {
+window.addEventListener('beforeunload', () => {
   flushHistory();
   flushAutoSave();
 });
