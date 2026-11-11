@@ -6,7 +6,7 @@
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../core/utils.js';
-import { drawIncrementalBatch, drawScribbleSegment } from '../render/render.js';
+import { drawIncrementalBatch, drawScribbleSegment, renderHighlighterPreviewOnOverlay } from '../render/render.js';
 import { checkForScribble } from './scribble.js';
 import { trySnapToLineDuringDraw } from './shapes.js';
 
@@ -17,7 +17,6 @@ export const _useRawPointerUpdate =
 
 // ------------------------------------------------------------
 // Riconoscimento pen-eraser (tasto laterale penna)
-// Usato sia dal dispatcher (index.js) sia dal cursore (eraser.js).
 // ------------------------------------------------------------
 export function isPenEraser(e) {
   if (!e) return false;
@@ -37,7 +36,6 @@ export function resetPointPool() { _pointPoolIdx = 0; }
 
 // ------------------------------------------------------------
 // Cache rect canvas (per getBoundingClientRect).
-// Invalidata ad ogni pointerdown + ad ogni cambio di viewport.
 // ------------------------------------------------------------
 let _strokeRect = null;
 let _strokeRectScale = 0;
@@ -110,7 +108,7 @@ function smoothRawPoint(rawPoint, prevSmoothed) {
 }
 
 // ------------------------------------------------------------
-// Batching rAF: punti da pointermove → processati in blocco qui.
+// Batching rAF
 // ------------------------------------------------------------
 const _flushState = { points: [], rafId: null, pageData: null };
 
@@ -156,8 +154,6 @@ function _runPostBatchChecks(pageData) {
   checkForScribble(pageData);
   if (!state.currentStroke || !state.isDrawing) return;
   if (state.pendingShape) return;
-  // Limite a 200 punti: se lo snap non è scattato entro i primi
-  // 150 punti, non scatterà più (evita O(n) check su stroke lunghi).
   if (!state.scribbleMode && state.autoShapeEnabled &&
       SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
       pts.length >= 6 && pts.length < 200) {
@@ -198,9 +194,17 @@ function _doFlush() {
     if (state.currentStroke && state.isDrawing &&
         !state.pendingShape && !state.scribbleMode) {
       const isHL = state.currentStroke.tool === 'highlighter';
-      const targetCtx = isHL ? pageData.ctx : pageData.overlayCtx;
-      const dpr = isHL ? pageData.dpr : (pageData.overlayDpr || pageData.dpr);
-      drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+      if (isHL) {
+        // Highlighter: anteprima su overlay con path continuo (source-over).
+        // Ad ogni frame clearOverlay + stroke del path completo, così
+        // non si accumula alpha sulle sovrapposizioni.
+        renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
+      } else {
+        // Pen/pencil/marker: disegno incrementale su overlay con batch rAF.
+        const targetCtx = pageData.overlayCtx;
+        const dpr = pageData.overlayDpr || pageData.dpr;
+        drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+      }
       state.currentStroke._drawnIdx = state.currentStroke.points.length;
     }
 
@@ -238,9 +242,13 @@ export function forceFlushNow(pageData) {
     if (state.currentStroke && state.isDrawing &&
         !state.pendingShape && !state.scribbleMode) {
       const isHL = state.currentStroke.tool === 'highlighter';
-      const targetCtx = isHL ? pageData.ctx : pageData.overlayCtx;
-      const dpr = isHL ? pageData.dpr : (pageData.overlayDpr || pageData.dpr);
-      drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+      if (isHL) {
+        renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
+      } else {
+        const targetCtx = pageData.overlayCtx;
+        const dpr = pageData.overlayDpr || pageData.dpr;
+        drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+      }
       state.currentStroke._drawnIdx = state.currentStroke.points.length;
     }
 

@@ -32,7 +32,7 @@ import { state } from '../../core/state.js';
 import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
-  drawFinalSegmentOnly, drawDotOnly, renderFullStroke
+  drawDotOnly, renderFullStroke, redrawPageCanvas
 } from '../render/render.js';
 import {
   finalizePendingShape, applyAngleSnap,
@@ -87,7 +87,9 @@ export function moveInkStroke(pageData, e) {
   pushPointsToBatch(points);
   scheduleFlush(pageData);
 
-  if (isPredictionSupported(e)) {
+  // Prediction: solo per pen (masking latenza driver). Non ha senso
+  // per highlighter (l'anteprima su overlay è già fluida).
+  if (isPredictionSupported(e) && state.activeTool !== 'highlighter') {
     const predicted = e.getPredictedEvents();
     if (predicted && predicted.length > 0) {
       drawPredictions(pageData, predicted);
@@ -147,14 +149,28 @@ export function endInkStroke(pageData) {
 }
 
 /**
- * Render finale per tool. Preserva il comportamento originale:
- * - snapped: renderFullStroke (post-shape recognition)
- * - 1 punto: drawDotOnly
- * - highlighter: drawFinalSegmentOnly
- * - pencil: renderFullStroke (darkening per-step, no blit)
- * - pen/marker: blit overlay → main (O(1))
+ * Render finale per tool.
+ *
+ * Highlighter: redraw completo della pagina.
+ * Motivo: l'highlighter usa globalCompositeOperation='multiply' (o
+ * 'screen'), che non è idempotente. Disegnare incrementalmente
+ * accumulerebbe alpha sulle sovrapposizioni. Inoltre, con snap
+ * attivo, bisogna eliminare la vecchia traccia a mano libera
+ * (che è sull'overlay durante il draw, ma il redraw completo
+ * garantisce comunque lo stato pulito).
+ *
+ * Pen / pencil / marker: comportamento invariato.
+ *   - snapped: renderFullStroke
+ *   - 1 punto: drawDotOnly
+ *   - pencil: renderFullStroke (darkening per-step, no blit)
+ *   - pen/marker: blit overlay → main (O(1))
  */
 function _renderFinalStroke(pageData, stroke, snapped) {
+  if (state.activeTool === 'highlighter') {
+    redrawPageCanvas(pageData);
+    return;
+  }
+
   if (snapped) {
     const pctx = pageData.ctx, dpr = pageData.dpr || 1;
     pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -164,10 +180,6 @@ function _renderFinalStroke(pageData, stroke, snapped) {
   }
   if (stroke.points.length === 1) {
     drawDotOnly(pageData, stroke);
-    return;
-  }
-  if (state.activeTool === 'highlighter') {
-    drawFinalSegmentOnly(pageData, stroke);
     return;
   }
   if (state.activeTool === 'pencil') {

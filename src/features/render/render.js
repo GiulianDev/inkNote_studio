@@ -303,35 +303,6 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
   ctx.restore();
 }
 
-export function drawFinalSegmentOnly(pageData, stroke) {
-  const pts = stroke.points;
-  const n = pts.length;
-  if (n < 2) return;
-  const ctx = pageData.ctx;
-  const dpr = pageData.dpr || 1;
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  setupStrokeStyle(ctx, stroke, state.isDarkMode);
-  const smoothness = state.smoothing;
-  const baseSize = sliderToBaseSize(stroke.size);
-  const i1 = n - 2, i2 = n - 1;
-  const p0 = pts[Math.max(0, i1 - 1)], p1 = pts[i1], p2 = pts[i2], p3 = pts[i2];
-  const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure, getTiltNorm(p1), getSpeedNorm(p1), getTaper(i1, stroke.tool), baseSize);
-  const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, getTiltNorm(p2), getSpeedNorm(p2), getTaper(i2, stroke.tool), baseSize);
-  const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-  const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
-  const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
-  for (let s = 0; s < steps; s++) {
-    const t0 = s / steps, t1 = (s + 1) / steps;
-    const sp0 = interpolatePoint(p0, p1, p2, p3, t0, smoothness);
-    const sp1 = interpolatePoint(p0, p1, p2, p3, t1, smoothness);
-    drawTaperedSegment(ctx, sp0, sp1, w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
-  }
-  const lastW = Math.max(w2, 0.5);
-  ctx.beginPath(); ctx.arc(p2.x, p2.y, lastW / 2, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-}
-
 export function drawDotOnly(pageData, stroke) {
   const pts = stroke.points;
   if (pts.length === 0) return;
@@ -347,7 +318,108 @@ export function drawDotOnly(pageData, stroke) {
   ctx.restore();
 }
 
+/**
+ * Rendering highlighter con path continuo.
+ *
+ * Usa ctx.stroke() con lineWidth grosso invece di fill() per-segmento.
+ * Il canvas disegna un "nastro" continuo: nessun giunto visibile,
+ * nessun accumulo di alpha sulle sovrapposizioni poligono/cerchio.
+ *
+ * GlobalCompositeOperation = multiply (light) o screen (dark),
+ * per far trasparire il contenuto sottostante (testo, stroke).
+ */
+function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
+  const pts = stroke.points;
+  const n = pts.length;
+  if (n < 1) return;
+
+  const style = getStrokeStyle(stroke, forceTargetDark);
+  const baseSize = sliderToBaseSize(stroke.size);
+  const lineWidth = Math.max(1, baseSize * 4.0);
+
+  ctx.save();
+  ctx.globalCompositeOperation = style.gco;
+  ctx.strokeStyle = style.strokeStyle;
+  ctx.fillStyle = style.fillStyle;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = lineWidth;
+
+  if (n === 1) {
+    ctx.beginPath();
+    ctx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Rendering highlighter su overlay (anteprima durante il draw).
+ *
+ * Stesso path continuo, ma con globalCompositeOperation='source-over'
+ * (multiply su overlay trasparente non funziona come su pagina bianca).
+ * Il colore usa lo stesso rgba del render finale: leggermente più
+ * slavato del risultato multiply, ma visivamente coerente.
+ *
+ * Ad ogni chiamata pulisce e ridisegna il path completo (O(n) per frame,
+ * accettabile: l'highlighter si usa per righe, non per firme).
+ */
+export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
+  if (!pageData.overlayCtx || !stroke || stroke.points.length === 0) return;
+
+  const octx = pageData.overlayCtx;
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;
+  const pts = stroke.points;
+
+  // Pulisce overlay: ridisegna sempre il path completo, niente
+  // accumulo tra un frame e il successivo.
+  clearOverlay(pageData);
+
+  const isDark = state.isDarkMode;
+  const color = isDark
+    ? hexToRgbA(stroke.color, 0.55)
+    : hexToRgbA(stroke.color, 0.40);
+  const baseSize = sliderToBaseSize(stroke.size);
+  const lineWidth = Math.max(1, baseSize * 4.0);
+
+  octx.save();
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  octx.globalCompositeOperation = 'source-over';
+  octx.strokeStyle = color;
+  octx.fillStyle = color;
+  octx.lineCap = 'round';
+  octx.lineJoin = 'round';
+  octx.lineWidth = lineWidth;
+
+  if (pts.length === 1) {
+    octx.beginPath();
+    octx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
+    octx.fill();
+  } else {
+    octx.beginPath();
+    octx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) octx.lineTo(pts[i].x, pts[i].y);
+    octx.stroke();
+  }
+
+  octx.restore();
+}
+
 export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
+  // Highlighter senza override (es. scribble target): rendering dedicato
+  // con stroke() continuo. Con overrideColor (scribble target rosso)
+  // ricade nel ramo generico, così il colore override viene rispettato.
+  if (stroke.tool === 'highlighter' && !overrideColor) {
+    renderHighlighterFullStroke(ctx, stroke, forceTargetDark);
+    return;
+  }
+
   const pts = stroke.points;
   const n = pts.length;
   if (n < 1) return;
@@ -529,7 +601,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       ctx.fill();
     }
   } else {
-    // Ramo non-unified (simmetrico a drawIncrementalSegment rimosso)
+    // Ramo non-unified (simmetrico a renderFullStroke)
     for (let i = firstSegEnd; i < n; i++) {
       const p0 = pts[i >= 2 ? i - 2 : 0];
       const p1 = pts[i - 1];
