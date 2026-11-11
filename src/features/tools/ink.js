@@ -1,8 +1,32 @@
-// ============================================================
-// INK TOOLS — pen / pencil / marker / highlighter.
-// Logica condivisa: begin/move/end. Le differenze per tool sono
-// isolate in helper (_finalizeForTool).
-// ============================================================
+/**
+ * @module features/tools/ink
+ *
+ * TOOL INK — pen / pencil / marker / highlighter (logica condivisa).
+ *
+ * Ciclo di vita stroke:
+ *   1. beginInkStroke(point)  → crea state.currentStroke (tool/color/size
+ *                               dalla cache state.*, aggiornata da toolbar-settings)
+ *   2. moveInkStroke(pageData, e) → accumula punti (batch rAF) + prediction
+ *   3. endInkStroke(pageData) → snap forme + render finale + save + history
+ *
+ * Differenze tra tool (isolate in _renderFinalStroke):
+ *   - pencil:    renderFullStroke (darkening per-step, no blit O(1))
+ *   - highlighter: drawFinalSegmentOnly
+ *   - pen/marker: blit overlay → main (O(1))
+ *   - snapped:   renderFullStroke sempre
+ *
+ * Snap forme (solo se state.autoShapeEnabled):
+ *   - highlighter → trySnapHighlighter
+ *   - pen/pencil/marker → trySnapToLine + detectAndSnapShape
+ *
+ * Scribble-to-erase: rilevato durante il draw (in tool-shared.js), qui
+ * solo finalizzato in endInkStroke.
+ *
+ * @see core/types.js  — Stroke, Point
+ * @see tools/tool-shared.js
+ * @see tools/shapes.js
+ * @see tools/scribble.js
+ */
 
 import { state } from '../../core/state.js';
 import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';

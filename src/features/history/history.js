@@ -1,9 +1,33 @@
-// ============================================================
-// UNDO/REDO: snapshot per-pagina, debounced 500ms
-// - Fix 2: forzatura snapshot ogni 3s di scrittura continua
-// - Fix 3: clone manuale degli stroke (2-3x più veloce di structuredClone)
-// - Fix 4: maxSteps 20 (bilanciamento memoria/undo disponibili)
-// ============================================================
+/**
+ * @module features/history
+ *
+ * UNDO / REDO — snapshot per-pagina, debounced 500ms.
+ *
+ * Meccanica:
+ *   - pushHistory()       → debounce 500ms (o forza se > 3s dall'ultimo)
+ *   - flushHistory()      → forza push immediato
+ *   - resetHistory()      → svuota stack e cattura snapshot iniziale
+ *   - undo() / redo()     → applica snapshot via emit('history:restore')
+ *   - handleHistoryKeyboard(e) → Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y
+ *
+ * Snapshot = { pageIndex, strokes: cloneFast, bgPattern, _hash }.
+ * Lo stack è per-pagina: cambio pagina → resetHistory().
+ *
+ * Clone manuale (cloneStrokeFast):
+ *   copia solo i campi puri (x, y, pressure, tilt, speed, pointerType).
+ *   NON copia _styleCache, _cacheCanvas, _pathLen, _drawnIdx (runtime).
+ *
+ * Hash leggero (skip se identico all'ultimo snapshot):
+ *   - n° stroke, n° punti, size, colore, primo/ultimo punto, bgPattern.
+ *
+ * Max 20 step (~32 MB stimati). Configurabile via `maxSteps`.
+ *
+ * Emette: `history:restore` con lo snapshot (ascoltato da pages.js
+ * per ricreare il DOM della pagina).
+ *
+ * @see core/types.js  — Snapshot
+ * @see features/persistence/autosave.js  — scheduleSave al restore
+ */
 
 import { state } from '../../core/state.js';
 import { emit } from '../../core/utils.js';

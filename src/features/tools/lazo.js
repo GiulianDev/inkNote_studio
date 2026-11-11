@@ -1,9 +1,31 @@
-// ============================================================
-// LAZO TOOL + SELEZIONE + RESIZE + MENU CONTESTUALE + SELECTION DRAG
-// Consolida il vecchio features/editor/lasso.js (logica di
-// selezione/editing) con il tool lazo (begin/move/end) e il drag
-// della selezione.
-// ============================================================
+/**
+ * @module features/tools/lazo
+ *
+ * TOOL LAZO + SELEZIONE + EDITING + SELECTION DRAG.
+ *
+ * Tre responsabilità in un file (consolidamento intenzionale):
+ *
+ * 1. TOOL LAZO (begin/move/end durante il draw):
+ *    - beginLasso: decide resize / drag / nuovo lazo in base al click
+ *    - moveLasso: accumula punti su state.lassoPath + overlay
+ *    - endLasso: chiama selectStrokesInsideLasso
+ *
+ * 2. SELEZIONE (editing post-lazo, 20+ export):
+ *    - selectStrokesInsideLasso / clearSelection
+ *    - startResizeSelection / applyResizeSelection (con snap angolare 90°)
+ *    - previewSelectionColor/Width + changeSelectionColor/Width
+ *    - deleteSelectedStrokes
+ *    - updateSelectionMenuPosition / updateCursorForSelection
+ *
+ * 3. SELECTION DRAG (spostamento):
+ *    - begin/move/endSelectionDrag + resetSelectionDragState
+ *
+ * Split futuro (se cresce): lazo-tool.js / selection.js / selection-drag.js
+ *
+ * @see core/types.js  — Stroke, BBox
+ * @see features/render/render.js  — bbox, handlers, overlay
+ * @see features/history/history.js
+ */
 
 import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
 import { state, viewport } from '../../core/state.js';

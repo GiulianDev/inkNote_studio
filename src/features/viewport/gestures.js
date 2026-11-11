@@ -1,11 +1,34 @@
-// ============================================================
-// PAN / PINCH / WHEEL / PULL-TO-ADD-PAGE
-// Palm rejection: contact size + finestra post-penna + 3+ dita.
-// Scroll con inerzia + axis lock one-shot.
-// Clamp rigoroso: il foglio non esce mai dai bordi.
-// Pull-to-add-page: overscroll virtuale, SOLO se il gesto è
-// iniziato quando la vista era già al fondo (pull volontario).
-// ============================================================
+/**
+ * @module features/viewport/gestures
+ *
+ * GESTURE VIEWPORT — pan, pinch, wheel, pull-to-add-page.
+ *
+ * Palm rejection (se state.palmRejection):
+ *   - touch > 40px (contact size) → ignora (palm)
+ *   - touch entro 100ms da penna → ignora (post-pen dust)
+ *   - 1 dito = pan, 2 dita = pinch, 3+ = ignora
+ *
+ * Scroll momentum:
+ *   - velocity samples (ultimi 6 eventi in 100ms)
+ *   - axis lock one-shot (dominanza Y > 2.5× X entro 400ms)
+ *   - speed boost progressivo (2.0 → 8.0 px/ms)
+ *   - friction 0.997/ms, stop threshold 0.02
+ *
+ * Pull-to-add-page:
+ *   - solo se il gesto è INIZIATO al fondo (overscroll "volontario")
+ *   - soglia 80px
+ *
+ * Wheel:
+ *   - Ctrl+wheel = zoom (pivot al cursore)
+ *   - wheel = pan
+ *
+ * Chiama abortCurrentDrawing() (tools/dispatcher.js) al pinch per
+ * interrompere uno stroke in corso.
+ *
+ * @see core/types.js
+ * @see features/viewport/transform.js
+ * @see features/tools/dispatcher.js
+ */
 
 import { state, viewport } from '../../core/state.js';
 import { PULL_THRESHOLD, showToast } from '../../core/utils.js';

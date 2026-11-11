@@ -1,6 +1,25 @@
-// ============================================================
-// COMPOSITION ROOT
-// ============================================================
+/**
+ * @module main
+ *
+ * COMPOSITION ROOT. Unico entry point dell'app.
+ *
+ * Ordine di boot (non modificare — l'ordine conta):
+ *   1. mountToolbar() + mountSettingsModal()  → markup nel DOM
+ *   2. initSettings()                          → applica tema/dock al body
+ *   3. initToolbarSettings(null)               → default toolbar (no notebook)
+ *   4. initDB()                                → apre IndexedDB
+ *   5. initEditorHandlers() + bindEditorUI() + bindLibraryUI()
+ *   6. onSettingsChanged / onToolbarSettingsChanged (subscription)
+ *   7. renderLibraryView() + setupViewportGestures() + setupKeyboardShortcuts()
+ *
+ * Subscription attive:
+ *   - settings:changed → ridisegna pagine se cambia tema
+ *   - toolbar-settings:changed → riallinea UI + scheduleSave (escluso activeTool)
+ *
+ * Dipende da: quasi tutti i moduli (è il composition root).
+ *
+ * @see core/types.js
+ */
 
 import { initDB } from './services/db.js';
 import { initSettings, onSettingsChanged } from './core/app-settings.js';

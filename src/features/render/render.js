@@ -1,6 +1,41 @@
-// ============================================================
-// RENDERING CANVAS + geometry bbox selezione (unico file)
-// ============================================================
+/**
+ * @module features/render/render
+ *
+ * RENDERING CANVAS — stili stroke, tapered path, selection overlay,
+ * background patterns, pending shape.
+ *
+ * Pipeline di rendering di uno stroke:
+ *   1. computeStrokeWidth(tool, size, pressure, tilt, speed, taper) → spessore px
+ *   2. drawTaperedSegment / addTaperedSegmentPolygon + addTaperedSegmentCircle
+ *   3. interpolatePointInto (Catmull-Rom se smoothness > 0.01)
+ *
+ * Due modalità:
+ *   - unified (pen/marker/pencil): un unico path.fill() per tutti i segmenti
+ *   - non-unified (highlighter): fill per-segmento
+ *
+ * Cache pencil: buildStrokeBitmap (in stroke-cache.js) crea un canvas
+ * off-screen per pencil > 30 punti (evita ri-render delle stroke lunghe).
+ *
+ * Cache background: getBackgroundCanvas memoizza per pattern+tema.
+ *
+ * Cache stile: stroke._styleCache memoizza per chiave tema ('dark'|'light'),
+ * invalidata da previewSelectionColor / changeSelectionColor.
+ *
+ * Funzioni chiave:
+ *   - redrawPageCanvas(pageData, [forceDark])   — ridisegna intera pagina
+ *   - renderFullStroke(ctx, stroke, dark, [overrideColor])
+ *   - drawIncrementalBatch(ctx, stroke, fromIdx, dpr) — batch rAF
+ *   - drawFinalSegmentOnly / drawDotOnly — caso fine stroke
+ *   - drawPendingShape / renderPendingShapeOnOverlay — snap in corso
+ *   - drawScribbleSegment / drawScribbleStroke — feedback scribble-to-erase
+ *   - drawPaperBackground — pattern
+ *   - drawSelectionHandles / drawSelectionBBoxOnOverlay / redrawSelectionOverlay
+ *   - clearOverlay(pageData)
+ *
+ * @see core/types.js  — Stroke, PageData, BBox
+ * @see render/stroke-cache.js
+ * @see render/prediction.js
+ */
 
 import { getStrokeBitmap, buildStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';

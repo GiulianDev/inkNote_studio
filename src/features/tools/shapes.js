@@ -1,6 +1,31 @@
-// ============================================================
-// RICONOSCIMENTO FORME
-// ============================================================
+/**
+ * @module features/tools/shapes
+ *
+ * RICONOSCIMENTO FORME + snap angolare.
+ *
+ * Snap angolare (applyAngleSnap):
+ *   - ENGAGE 4° → aggancia all'asse H o V più vicino
+ *   - RELEASE 8° → sgancia (isteresi 2x)
+ *   - una volta sganciato, non riaggancia per quello stroke
+ *
+ * Riconoscimento linea (trySnapToLine / trySnapToLineDuringDraw):
+ *   - chord/path ratio > 0.965
+ *   - RMS deviazione < max(1.0, chordLen * 0.010)
+ *   - coerenza ultimi 3 punti (cos > 0.85)
+ *
+ * Riconoscimento cerchio/rettangolo (detectAndSnapShape):
+ *   - closure, aspect ratio, radius std/avg, corners touched
+ *
+ * Highlighter (trySnapHighlighter): raddrizza se l'angolo è entro ±17°
+ * da H o V (sin/cos < 0.3).
+ *
+ * finalizePendingShape(): chiude una forma in pendingShape (creata da
+ * trySnapToLineDuringDraw) e la committa come stroke.
+ *
+ * @see core/types.js  — Stroke, Point
+ * @see features/render/render.js
+ * @see features/history/history.js
+ */
 
 import { state } from '../../core/state.js';
 import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';

@@ -1,8 +1,33 @@
-// ============================================================
-// APP SETTINGS STORE — impostazioni GLOBALI (cross-notebook).
-// Le impostazioni per-notebook della toolbar vivono in
-// features/toolbar/toolbar-settings.js.
-// ============================================================
+/**
+ * @module core/app-settings
+ *
+ * STORE IMPOSTAZIONI GLOBALI (cross-notebook).
+ *
+ * Persistenza: localStorage, chiave `inknote_settings`.
+ * Contiene: theme, printTheme, handedness, dockSize, pressure*,
+ *           scrollSensitivity, palmRejection.
+ *
+ * NON contiene le impostazioni della toolbar (colore/spessore/
+ * smoothing/…): quelle vivono in `features/toolbar/toolbar-settings.js`
+ * perché sono per-notebook.
+ *
+ * API:
+ *   - initSettings()        — idempotente, applica tema/dock/handedness al DOM
+ *   - getSettings()         — accessor O(1), oggetto in memoria
+ *   - updateSettings(partial, {persist?: boolean}) — persiste + sync + emit
+ *   - onSettingsChanged(fn) — subscribe event bus
+ *   - getPressureParams()   — derivato puro (curve/light/heavy → moltiplicatori)
+ *   - getScrollSensitivity() — derivato puro (slider 0..100 → 0.2..2.0)
+ *
+ * Side effects di updateSettings():
+ *   - scrive localStorage (se persist !== false)
+ *   - scrive state.isDarkMode, state.palmRejection, state.settings (freeze)
+ *   - applica classi CSS al body (dark, handed-left, data-dock-size)
+ *   - emette `settings:changed`
+ *
+ * @see core/types.js  — AppSettings
+ * @see features/toolbar/toolbar-settings.js
+ */
 
 import { state } from './state.js';
 import { emit, on } from './utils.js';

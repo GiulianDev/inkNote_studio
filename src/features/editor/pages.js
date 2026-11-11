@@ -1,6 +1,32 @@
-// ============================================================
-// PAGINE: createNewPageDOM, addNewPage, resize, resolution
-// ============================================================
+/**
+ * @module features/editor/pages
+ *
+ * PAGINE — creazione DOM, gestione canvas, risoluzione HDPI, pagina attiva.
+ *
+ * createNewPageDOM(index, strokes):
+ *   crea wrapper + canvas principale + overlay canvas + prediction canvas,
+ *   aggancia pointer listeners, chiama redrawPageCanvas.
+ *
+ * addNewPage():
+ *   crea pagina, la rende attiva, scrolla in cima, resetta history.
+ *
+ * HDPI / DPR:
+ *   - DPR massimo 4 (perf)
+ *   - overlay limitato a 1.5 (bassa risoluzione basta per feedback)
+ *   - refreshCanvasResolution(): salta pagine invisibili (fix perf)
+ *
+ * Pagina attiva:
+ *   - getMostCenteredPage(): scansione ±3 pagine (fix perf: 7 reflow vs 100)
+ *   - updateActivePageFromViewport(): throttle 100ms
+ *
+ * Restore da history:
+ *   ascolta `history:restore` e ricrea il DOM della pagina.
+ *
+ * @see core/types.js  — PageData, BgPattern
+ * @see features/render/render.js
+ * @see features/tools/dispatcher.js  — attachPointerListeners
+ * @see features/history/history.js  — event history:restore
+ */
 
 import { ensurePredictionCanvas } from '../render/prediction.js';
 import { state, viewport } from '../../core/state.js';

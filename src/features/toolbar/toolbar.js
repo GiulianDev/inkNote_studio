@@ -1,9 +1,27 @@
-// ============================================================
-// TOOLBAR FEATURE — mount() + logica UI/azioni.
-// Lo stato vive in ./toolbar-settings.js (per-notebook).
-// Le impostazioni globali (tema, palm rejection) vivono in
-// core/app-settings.js.
-// ============================================================
+/**
+ * @module features/toolbar/toolbar
+ *
+ * FEATURE TOOLBAR — markup + UI + azioni utente.
+ *
+ * Responsabilità:
+ *   - mountToolbar()          — inietta toolbar.html + setup eraser menu
+ *   - refreshPageCounter()    — aggiorna "Pagina X di Y" nell'header
+ *   - setTool()               — cambia tool attivo + aggiorna UI + event
+ *   - selectColor / updateStrokeWidth — cambia config tool attivo
+ *   - toggleAutoShape / updateSmoothing / toggleSubbar / toggleCompactMode
+ *   - toggleTheme             — delega a updateSettings (tema è globale)
+ *   - eraser menu             — show/hide/selectEraserLevel + long-press wiring
+ *
+ * Non fa: gestire lo stato persistente (delega a toolbar-settings.js) né
+ * applicare effetti DOM su #subbar/#mainHeader (delega a toolbar-settings.js
+ * via _applySubbarToDOM/_applyCompactToDOM).
+ *
+ * Eventi emessi: `inknote:tool-changed` su document (per eraser cursor).
+ *
+ * @see features/toolbar/toolbar-settings.js
+ * @see features/toolbar/toolbar.html
+ * @see features/toolbar/toolbar.css
+ */
 
 import './toolbar.css';
 import toolbarHtml from './toolbar.html?raw';

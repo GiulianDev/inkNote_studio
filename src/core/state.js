@@ -1,6 +1,29 @@
-// ============================================================
-// STATO GLOBALE (plain object, mutabile, no Proxy/reactivity)
-// ============================================================
+/**
+ * @module core/state
+ *
+ * STATO GLOBALE mutabile (plain object, no Proxy/reactive).
+ *
+ * Due oggetti esportati:
+ *   - `state`    → stato applicativo (pagine, tool, selezione, cache runtime)
+ *   - `viewport` → stato pan/zoom (scale, x, y, gesture in corso)
+ *
+ * IMPORTANTE — ownership:
+ *   Alcuni campi di `state` sono CACHE scritte SOLO dai rispettivi store:
+ *     - activeTool, currentColor, strokeWidth, eraserSize, eraserMode,
+ *       autoShapeEnabled, smoothing, subbarVisible, compactMode
+ *       ← scritti da features/toolbar/toolbar-settings.js
+ *     - isDarkMode, palmRejection, settings
+ *       ← scritti da core/app-settings.js
+ *   NON scriverli direttamente da altri moduli: usare gli store.
+ *
+ *   Tutti gli altri campi (pages, activePageIndex, selectedStrokes,
+ *   lassoPath, currentStroke, pendingShape, …) sono stato runtime
+ *   dell'editor e vengono scritti dai tool e dalle gesture.
+ *
+ * @see core/types.js  — typedef di Point, Stroke, PageData, Snapshot
+ * @see core/app-settings.js
+ * @see features/toolbar/toolbar-settings.js
+ */
 
 /**
  * @typedef {Object} Point

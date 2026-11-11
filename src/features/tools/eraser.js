@@ -1,7 +1,29 @@
-// ============================================================
-// ERASER TOOL + CURSORE GOMMA
-// Cancellazione batch (stroke o point) + cursore tratteggiato.
-// ============================================================
+/**
+ * @module features/tools/eraser
+ *
+ * TOOL ERASER + CURSORE GOMMA.
+ *
+ * Due responsabilità separate nello stesso file:
+ *
+ * 1. CURSORE (cerchio tratteggiato che segue la penna):
+ *    - updateEraserCursor / hideEraserCursor / shouldShowEraserCursor
+ *    - vive in `#eraserCursor` (div fixed creato on-demand in body)
+ *    - dimensione derivata da state.eraserSize via getEraserRadius()
+ *
+ * 2. TOOL ERASER (cancellazione):
+ *    - beginEraserStroke / moveEraserStroke → performEraserBatch
+ *    - due modalità (state.eraserMode):
+ *        'stroke' → rimuove interi stroke che intersecano il raggio
+ *        'point'  → rimuove singoli punti dentro il raggio
+ *    - dopo cancellazione: redraw + scheduleSave
+ *
+ * Nota su history: flushHistory() al pointerdown è chiamato da dispatcher.js
+ * per consolidare i micro-up del driver Windows Ink in un unico step.
+ *
+ * @see core/types.js
+ * @see tools/tool-shared.js
+ * @see features/toolbar/toolbar-settings.js  — getEraserRadius
+ */
 
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH } from '../../core/utils.js';
