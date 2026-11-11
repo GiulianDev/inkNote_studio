@@ -1,0 +1,201 @@
+/* ============================================================
+   TOOLBAR FEATURE — stili del dock + subbar + modalità compact.
+   Importato da features/toolbar/toolbar.js.
+   Contiene SOLO regole che riguardano elementi della feature:
+   #mainHeader, #drawingToolbar, #subbar, #subbarCollapse/Expand.
+   Le regole su #viewport in compact mode restano in style.css.
+   ============================================================ */
+
+/* ============================================================
+   DOCK SCALABILE
+   Livelli: small / medium / large, controllati via
+   data-dock-size sul <body>.
+   ============================================================ */
+
+body[data-dock-size="small"] {
+  --dock-btn-h: 32px;
+  --dock-font-size: 14px;
+  --dock-px: 8px;
+  --dock-range-w: 48px;
+  --dock-swatch-size: 18px;
+  --dock-divider-h: 18px;
+  --dock-container-h: 32px;
+  --dock-icon-size: 18px;
+}
+
+body[data-dock-size="medium"] {
+  --dock-btn-h: 44px;
+  --dock-font-size: 18px;
+  --dock-px: 10px;
+  --dock-range-w: 60px;
+  --dock-swatch-size: 24px;
+  --dock-divider-h: 24px;
+  --dock-container-h: 44px;
+  --dock-icon-size: 20px;
+}
+
+body[data-dock-size="large"] {
+  --dock-btn-h: 52px;
+  --dock-font-size: 22px;
+  --dock-px: 14px;
+  --dock-range-w: 80px;
+  --dock-swatch-size: 28px;
+  --dock-divider-h: 28px;
+  --dock-container-h: 52px;
+  --dock-icon-size: 24px;
+}
+
+.dock-tool-btn {
+  min-height: var(--dock-btn-h);
+  padding-left: var(--dock-px);
+  padding-right: var(--dock-px);
+  font-size: var(--dock-font-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+}
+
+.dock-container {
+  min-height: var(--dock-container-h);
+  padding-left: var(--dock-px);
+  padding-right: var(--dock-px);
+}
+
+.dock-range {
+  width: var(--dock-range-w);
+}
+
+.dock-swatch {
+  width: var(--dock-swatch-size);
+  height: var(--dock-swatch-size);
+  flex-shrink: 0;
+}
+
+.dock-divider {
+  height: var(--dock-divider-h);
+}
+
+.dock-icon-btn {
+  width: var(--dock-btn-h);
+  height: var(--dock-btn-h);
+  font-size: var(--dock-font-size);
+}
+
+.dock-pill-btn {
+  height: var(--dock-btn-h);
+  font-size: calc(var(--dock-font-size) * 0.75);
+}
+
+#customColorPicker.dock-swatch {
+  width: var(--dock-swatch-size);
+  height: var(--dock-swatch-size);
+}
+
+/* ============================================================
+   AUTO-SHAPE TOGGLE (dentro il dock)
+   ============================================================ */
+#btnToggleAutoShape.auto-shape-off {
+  opacity: .6;
+  color: #94a3b8 !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+
+body.dark #btnToggleAutoShape.auto-shape-off {
+  color: #64748b !important;
+}
+
+#btnToggleAutoShape.auto-shape-on {
+  box-shadow: 0 0 0 2px #6366f140;
+  color: #4338ca !important;
+  background-color: #e0e7ff !important;
+  border-color: #a5b4fc !important;
+}
+
+body.dark #btnToggleAutoShape.auto-shape-on {
+  color: #c7d2fe !important;
+  background-color: #312e81cc !important;
+  border-color: #4338ca !important;
+}
+
+/* ============================================================
+   HANDEDNESS — elementi della toolbar che si specchiano
+   ============================================================ */
+body.handed-left header,
+body.handed-left #subbarContent {
+  flex-direction: row-reverse;
+}
+
+/* ============================================================
+   SUBBAR — collassamento
+   ============================================================ */
+#subbar {
+  max-height: 60px;
+  transition: max-height .3s, border-bottom-width .3s;
+}
+
+#subbar.collapsed {
+  border-bottom-width: 0;
+  max-height: 0;
+}
+
+#subbar.collapsed #subbarContent {
+  transform: translateY(-100%);
+}
+
+/* ============================================================
+   COMPACT MODE — transizione dock ↔ fullscreen.
+   L'header diventa un dock flottante stile macOS; headerLeft,
+   headerRight, subbar e subbarExpandContainer spariscono.
+   Il viewport che occupa tutto lo schermo è gestito in style.css.
+   ============================================================ */
+
+body.compact-mode #headerLeft,
+body.compact-mode #headerRight,
+body.compact-mode #subbar,
+body.compact-mode #subbarExpandContainer {
+  display: none !important;
+}
+
+body.compact-mode #mainHeader {
+  display: inline-flex;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: calc(100vw - 24px);
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.10);
+  z-index: 100;
+  gap: 0;
+}
+
+body.compact-mode.dark #mainHeader {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Il dock interno diventa trasparente: il contenitore visivo è l'header */
+body.compact-mode #drawingToolbar {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* ============================================================
+   PRINT — nascondi la feature in stampa/PDF
+   ============================================================ */
+@media print {
+  header, #subbar, #subbarExpandContainer {
+    display: none !important;
+  }
+}

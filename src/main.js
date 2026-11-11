@@ -17,20 +17,23 @@ import { flushAutoSave } from './features/editor/autosave.js';
 import { initEditorHandlers } from './features/editor/editor.js';
 import { bindEditorUI } from './features/editor/bindings.js';
 import { mountSettingsModal } from './features/settings/settings.js';
+import { mountToolbar } from './features/toolbar/toolbar.js';
 import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
 
 window.addEventListener('load', async () => {
-  // 1. Inizializza lo store globale impostazioni (applica tema, dock,
-  //    subbar, compact; sincronizza state.smoothing / isDarkMode / …).
-  initSettings();
-
-  // 2. Monta il modale impostazioni (markup + binding interni).
+  // 1. Componenti grafiche. Devono esistere PRIMA di initSettings():
+  //    lo store applica tema, subbar, compact, dock size al DOM e
+  //    cerca #themeToggleBtn, #subbar, #compactExitBtn, ecc.
+  mountToolbar();
   mountSettingsModal();
+
+  // 2. Store impostazioni (applica effetti DOM su toolbar e modale).
+  initSettings();
 
   // 3. Init IndexedDB.
   try { await initDB(); } catch (err) { console.error(err); }
 
-  // 4. Handler editor + binding UI.
+  // 4. Handler + binding (ora tutti gli id esistono).
   initEditorHandlers();
   bindEditorUI();
   bindLibraryUI();

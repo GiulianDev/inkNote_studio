@@ -1,0 +1,130 @@
+<!-- features/toolbar/toolbar.html
+     Markup della feature toolbar (dock + subbar).
+     Iniettato via `?raw` da toolbar.js tramite mountToolbar().
+     Gli id sono quelli storici: il resto del codice continua a funzionare. -->
+
+<header id="mainHeader" class="bg-white/95 dark:bg-slate-900/95 border-b border-slate-300 dark:border-slate-800 px-2 py-2.5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-sm transition-all duration-200">
+
+  <div id="headerLeft" class="flex items-center space-x-2 shrink-0">
+    <button id="backToLibraryBtn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition" title="Torna alla Libreria">
+      📚 <span class="hidden xl:inline">Libreria</span>
+    </button>
+    <div class="h-4 w-px bg-slate-300 dark:bg-slate-700"></div>
+    <div class="min-w-0">
+      <input type="text" id="docTitle" value="Appunti Surface Pen" class="font-semibold text-sm bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 rounded px-1.5 py-0.5 outline-none w-24 md:w-32 lg:w-auto" />
+      <div class="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+        <span id="pageCounterText">Pagina 1 di 1</span>
+        <span>•</span>
+        <span id="statusBadge" class="text-indigo-600 dark:text-indigo-400 font-medium">Salvato</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex-1 flex justify-center items-center min-w-0 overflow-hidden gap-2">
+    <div id="drawingToolbar" class="flex items-center flex-nowrap bg-slate-100 dark:bg-slate-800 p-0.5 rounded-2xl border border-slate-300 dark:border-slate-700 gap-0.5 transition-all">
+
+      <button id="btnTool-pen" class="dock-tool-btn tool-btn bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm shrink-0" title="Stilografica">🖊️<span class="hidden 2xl:inline ml-1">Stilografica</span></button>
+      <button id="btnTool-pencil" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Matita">✏️<span class="hidden 2xl:inline ml-1">Matita</span></button>
+      <button id="btnTool-marker" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Pennarello">🖋️<span class="hidden 2xl:inline ml-1">Pennarello</span></button>
+      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Evidenziatore">🖍️<span class="hidden 2xl:inline ml-1">Evidenziatore</span></button>
+      <button id="btnTool-lasso" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Lazo">✂️<span class="hidden 2xl:inline ml-1">Lazo</span></button>
+      <button id="btnTool-eraser" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Gomma">🧹<span class="hidden 2xl:inline ml-1">Gomma</span></button>
+
+      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
+
+      <button id="btnToggleAutoShape" class="dock-tool-btn auto-shape-on border transition-all shrink-0" title="Auto-Forme">
+        <span id="autoShapeIcon">✨</span><span class="hidden 2xl:inline ml-1" id="autoShapeLabel">Auto-Forme</span>
+      </button>
+
+      <div class="hidden sm:flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Levigatura del tratto: 0 = fedele all'input, 100 = curve molto morbide">
+        <span class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">〰️</span>
+        <input type="range" id="smoothingSlider" min="0" max="100" value="50" class="dock-range accent-indigo-600 cursor-pointer">
+        <span id="smoothingValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">50</span>
+      </div>
+
+      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
+
+      <div class="flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
+        <button class="color-swatch dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
+        <button class="color-swatch dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
+        <button class="color-swatch dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
+        <button class="color-swatch dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
+        <button class="color-swatch dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
+        <div id="recentColorsContainer" class="hidden items-center space-x-1"></div>
+        <input type="color" id="customColorPicker" class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent" title="Colore personalizzato">
+      </div>
+
+      <div class="hidden md:flex dock-container items-center space-x-1.5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Spessore tratto">
+        <input type="range" id="strokeWidthSlider" min="1" max="25" value="3" class="dock-range accent-indigo-600 cursor-pointer">
+        <span id="strokeWidthValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-3 text-center tabular-nums">3</span>
+      </div>
+
+      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
+
+      <button id="compactExitBtn"
+        class="dock-icon-btn inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors"
+        title="Schermo intero">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path id="compactIconExpand" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+          <path id="compactIconReduce" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9M20.25 20.25h-4.5m4.5 0v-4.5m0 4.5L15 15" style="display:none;" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="headerRight" class="relative z-10 flex items-center space-x-1 shrink-0">
+    <button id="openSettingsBtnHeader" class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95" title="Impostazioni">⚙️</button>
+    <button id="themeToggleBtn" class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95" title="Tema chiaro/scuro">🌙</button>
+    <button id="exportPdfBtn" class="dock-pill-btn inline-flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 rounded-xl shadow-md transition active:scale-95" title="Esporta PDF">📄<span class="hidden lg:inline ml-1">PDF</span></button>
+  </div>
+</header>
+
+<!-- SUBBAR -->
+<div id="subbar" class="bg-slate-50 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 shrink-0 z-20 overflow-hidden transition-all duration-300">
+  <div id="subbarContent" class="flex items-center justify-between px-6 py-1.5 w-full transition-transform duration-300">
+    <div class="flex items-center space-x-2">
+      <button id="addPageBtn" class="hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-lg font-medium">➕ Nuova Pagina</button>
+      <div class="h-3 w-px bg-slate-300 dark:bg-slate-700"></div>
+      <button id="clearPageBtn" class="hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 px-2 py-1 rounded-lg font-medium">🗑️ Pulisci Pagina</button>
+    </div>
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-1.5">
+        <span>Pattern:</span>
+        <select id="bgPatternSelect" class="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-medium">
+          <option value="ruled">A Righe</option>
+          <option value="grid">A Quadretti</option>
+          <option value="dots">Puntinato</option>
+          <option value="blank">Bianco / Scuro Pulito</option>
+        </select>
+      </div>
+      <div class="flex items-center space-x-1.5 border-l border-slate-300 dark:border-slate-700 pl-3">
+        <span>Gomma:</span>
+        <select id="eraserModeSelect" class="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-medium">
+          <option value="stroke">Tratto Intero</option>
+          <option value="point">Raggio Puntuale</option>
+        </select>
+      </div>
+      <div class="h-3 w-px bg-slate-300 dark:bg-slate-700"></div>
+      <label class="flex items-center gap-1.5 cursor-pointer font-medium select-none">
+        <input type="checkbox" id="palmRejectionCheck" checked class="rounded accent-indigo-600 w-3.5 h-3.5">
+        <span>Palm Rejection</span>
+      </label>
+    </div>
+  </div>
+</div>
+
+<div id="subbarCollapseContainer" class="relative h-0 z-40 pointer-events-none">
+  <button id="subbarCollapseBtn" class="pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-1 rounded-b-xl shadow-md border border-t-0 border-slate-300 dark:border-slate-700 transition" title="Nascondi barra strumenti">
+    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 15l-6-6-6 6"/>
+    </svg>
+  </button>
+</div>
+
+<div id="subbarExpandContainer" class="relative h-0 z-40 pointer-events-none">
+  <button id="subbarExpandBtn" class="hidden pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-1 rounded-b-xl shadow-md border border-t-0 border-slate-300 dark:border-slate-700 transition" title="Mostra barra strumenti">
+    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 9l6 6 6-6"/>
+    </svg>
+  </button>
+</div>

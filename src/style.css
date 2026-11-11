@@ -81,14 +81,14 @@ body.dark .page-wrapper {
 }
 
 .overlay-canvas {
-    border-radius: 4px;
-    width: 100%;
-    height: 100%;
-    position: absolute;
-    top: 0;
-    left: 0;
-    pointer-events: none;
-    z-index: 1;
+  border-radius: 4px;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .prediction-canvas {
@@ -125,36 +125,10 @@ body.dark .page-wrapper {
   animation: .2s ease-out snapEffect;
 }
 
-#btnToggleAutoShape.auto-shape-off {
-  opacity: .6;
-  color: #94a3b8 !important;
-  box-shadow: none !important;
-  background-color: transparent !important;
-  border-color: transparent !important;
-}
-
-body.dark #btnToggleAutoShape.auto-shape-off {
-  color: #64748b !important;
-}
-
-#btnToggleAutoShape.auto-shape-on {
-  box-shadow: 0 0 0 2px #6366f140;
-  color: #4338ca !important;
-  background-color: #e0e7ff !important;
-  border-color: #a5b4fc !important;
-}
-
-body.dark #btnToggleAutoShape.auto-shape-on {
-  color: #c7d2fe !important;
-  background-color: #312e81cc !important;
-  border-color: #4338ca !important;
-}
-
-body.handed-left header,
-body.handed-left #subbarContent {
-  flex-direction: row-reverse;
-}
-
+/* ============================================================
+   HANDEDNESS — elementi non-toolbar che si specchiano
+   (toolbar e subbar gestite in features/toolbar/toolbar.css)
+   ============================================================ */
 body.handed-left #undoRedoContainer {
   left: 1.5rem;
   right: auto;
@@ -165,62 +139,12 @@ body.handed-left #zoomBadge {
   right: 1.5rem;
 }
 
-#subbar {
-  max-height: 60px;
-  transition: max-height .3s, border-bottom-width .3s;
-}
-
-#subbar.collapsed {
-  border-bottom-width: 0;
-  max-height: 0;
-}
-
-#subbar.collapsed #subbarContent {
-  transform: translateY(-100%);
-}
-
-body.compact-mode #headerLeft,
-body.compact-mode #headerRight,
-body.compact-mode #subbar,
-body.compact-mode #subbarExpandContainer {
-  display: none !important;
-}
-
-/* Header flottante stile macOS dock: non occupa la fascia superiore,
-   galleggia sopra il viewport, centrato, con blur e ombra morbida. */
-body.compact-mode #mainHeader {
-  display: inline-flex;
-  position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: auto;
-  max-width: calc(100vw - 24px);
-  padding: 4px;
-  background: rgba(255, 255, 255, 0.9);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  border-radius: 18px;
-  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.10);
-  z-index: 100;
-  gap: 0;
-}
-
-body.compact-mode.dark #mainHeader {
-  background: rgba(15, 23, 42, 0.9);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
-}
-
-/* Il dock interno diventa trasparente: il contenitore visivo è l'header */
-body.compact-mode #drawingToolbar {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-
-/* Il viewport occupa tutto lo schermo; il dock flottante ci sta sopra */
+/* ============================================================
+   COMPACT MODE — comportamento del viewport.
+   La transizione dell'header verso il dock flottante e la
+   scomparsa di headerLeft/Right/subbar sono in
+   features/toolbar/toolbar.css.
+   ============================================================ */
 body.compact-mode #viewport {
   height: 100vh;
   width: 100vw;
@@ -230,7 +154,7 @@ body.compact-mode #viewport {
   body.print-light { color: #000 !important; background: #fff !important; }
   body.print-dark  { color: #f8fafc !important; background: #0f172a !important; }
 
-  header, #subbar, #subbarExpandContainer, #toastNotification, #zoomBadge,
+  #toastNotification, #zoomBadge,
   #selectionMenu, #pullPageIndicator, #libraryView, #newNotebookModal,
   #settingsModal, #undoRedoContainer {
     display: none !important;
@@ -267,146 +191,60 @@ body.compact-mode #viewport {
    diverso da "auto" e far ignorare completamente ::-webkit-scrollbar
    su Chrome/Edge Windows. */
 .custom-scrollbar {
-    scrollbar-color: auto;
-    scrollbar-width: auto;
+  scrollbar-color: auto;
+  scrollbar-width: auto;
 }
 
 /* 1. Stile per Chrome, Edge, Safari (WebKit/Blink) */
 .custom-scrollbar::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+  width: 8px;
+  height: 8px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-    border-radius: 9999px;
+  background: transparent;
+  border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: #cbd5e1; /* slate-300 */
-    border-radius: 9999px;
-    border: 2px solid transparent;
-    background-clip: content-box;
-    transition: background-color .15s ease;
+  background-color: #cbd5e1; /* slate-300 */
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color .15s ease;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: #94a3b8; /* slate-400 */
+  background-color: #94a3b8; /* slate-400 */
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:active {
-    background-color: #6366f1; /* indigo-500 */
+  background-color: #6366f1; /* indigo-500 */
 }
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: #475569; /* slate-600 */
+  background-color: #475569; /* slate-600 */
 }
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: #64748b; /* slate-500 */
+  background-color: #64748b; /* slate-500 */
 }
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:active {
-    background-color: #818cf8; /* indigo-400 */
+  background-color: #818cf8; /* indigo-400 */
 }
 
 /* 2. Fallback SOLO per Firefox (che ignora ::-webkit-scrollbar).
    Questo blocco non viene mai letto da Chrome/Edge. */
 @supports not selector(::-webkit-scrollbar) {
-    .custom-scrollbar {
-        scrollbar-width: thin;
-        scrollbar-color: #cbd5e1 transparent;
-    }
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
 
-    .dark .custom-scrollbar {
-        scrollbar-color: #475569 transparent;
-    }
-}
-
-/* ============================================================
-   DOCK SCALABILE
-   Livelli: small / medium / large, controllati via
-   data-dock-size sul <body>.
-   ============================================================ */
-
-body[data-dock-size="small"] {
-  --dock-btn-h: 32px;
-  --dock-font-size: 14px;
-  --dock-px: 8px;
-  --dock-range-w: 48px;
-  --dock-swatch-size: 18px;
-  --dock-divider-h: 18px;
-  --dock-container-h: 32px;
-  --dock-icon-size: 18px;
-}
-
-body[data-dock-size="medium"] {
-  --dock-btn-h: 44px;
-  --dock-font-size: 18px;
-  --dock-px: 10px;
-  --dock-range-w: 60px;
-  --dock-swatch-size: 24px;
-  --dock-divider-h: 24px;
-  --dock-container-h: 44px;
-  --dock-icon-size: 20px;
-}
-
-body[data-dock-size="large"] {
-  --dock-btn-h: 52px;
-  --dock-font-size: 22px;
-  --dock-px: 14px;
-  --dock-range-w: 80px;
-  --dock-swatch-size: 28px;
-  --dock-divider-h: 28px;
-  --dock-container-h: 52px;
-  --dock-icon-size: 24px;
-}
-
-.dock-tool-btn {
-  min-height: var(--dock-btn-h);
-  padding-left: var(--dock-px);
-  padding-right: var(--dock-px);
-  font-size: var(--dock-font-size);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.75rem;
-}
-
-.dock-container {
-  min-height: var(--dock-container-h);
-  padding-left: var(--dock-px);
-  padding-right: var(--dock-px);
-}
-
-.dock-range {
-  width: var(--dock-range-w);
-}
-
-.dock-swatch {
-  width: var(--dock-swatch-size);
-  height: var(--dock-swatch-size);
-  flex-shrink: 0;
-}
-
-.dock-divider {
-  height: var(--dock-divider-h);
-}
-
-.dock-icon-btn {
-  width: var(--dock-btn-h);
-  height: var(--dock-btn-h);
-  font-size: var(--dock-font-size);
-}
-
-.dock-pill-btn {
-  height: var(--dock-btn-h);
-  font-size: calc(var(--dock-font-size) * 0.75);
-}
-
-#customColorPicker.dock-swatch {
-  width: var(--dock-swatch-size);
-  height: var(--dock-swatch-size);
+  .dark .custom-scrollbar {
+    scrollbar-color: #475569 transparent;
+  }
 }
 
 /* ============================================================
