@@ -6,7 +6,9 @@
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../core/utils.js';
-import { drawIncrementalBatch, drawScribbleSegment, renderHighlighterPreviewOnOverlay } from '../render/render.js';
+import {
+  drawIncrementalBatch, drawScribbleSegment, renderHighlighterPreviewOnOverlay
+} from '../render/render.js';
 import { checkForScribble } from './scribble.js';
 import { trySnapToLineDuringDraw } from './shapes.js';
 
@@ -35,7 +37,7 @@ let _pointPoolIdx = 0;
 export function resetPointPool() { _pointPoolIdx = 0; }
 
 // ------------------------------------------------------------
-// Cache rect canvas (per getBoundingClientRect).
+// Cache rect canvas
 // ------------------------------------------------------------
 let _strokeRect = null;
 let _strokeRectScale = 0;
@@ -138,8 +140,6 @@ function _processPointerPoint(rawPoint, pageData) {
     const prev = state.currentStroke.points[state.currentStroke.points.length - 2];
     state.currentStroke._pathLen += fastHypot(smoothedPoint.x - prev.x, smoothedPoint.y - prev.y);
   }
-  // Scribble-to-erase: path separato sull'overlay, stile rosso,
-  // disegnato per-punto (non può usare il batch unify).
   if (state.scribbleMode) {
     drawScribbleSegment(pageData.overlayCtx, state.currentStroke,
                         pageData.overlayDpr || pageData.dpr);
@@ -159,6 +159,23 @@ function _runPostBatchChecks(pageData) {
       pts.length >= 6 && pts.length < 200) {
     trySnapToLineDuringDraw(pageData, pts[pts.length - 1]);
   }
+}
+
+function _renderBatchTarget(pageData, drawnIdx) {
+  if (!state.currentStroke) return;
+  const isHL = state.currentStroke.tool === 'highlighter';
+  if (isHL) {
+    // Highlighter: anteprima su overlay con path continuo.
+    // renderHighlighterPreviewOnOverlay fa clear bbox + stroke() del
+    // path completo (non accumula alpha sulle sovrapposizioni:
+    // niente palline). Non tocca la main canvas.
+    renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
+  } else {
+    const targetCtx = pageData.overlayCtx;
+    const dpr = pageData.overlayDpr || pageData.dpr;
+    drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+  }
+  state.currentStroke._drawnIdx = state.currentStroke.points.length;
 }
 
 export function scheduleFlush(pageData) {
@@ -193,19 +210,7 @@ function _doFlush() {
 
     if (state.currentStroke && state.isDrawing &&
         !state.pendingShape && !state.scribbleMode) {
-      const isHL = state.currentStroke.tool === 'highlighter';
-      if (isHL) {
-        // Highlighter: anteprima su overlay con path continuo (source-over).
-        // Ad ogni frame clearOverlay + stroke del path completo, così
-        // non si accumula alpha sulle sovrapposizioni.
-        renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
-      } else {
-        // Pen/pencil/marker: disegno incrementale su overlay con batch rAF.
-        const targetCtx = pageData.overlayCtx;
-        const dpr = pageData.overlayDpr || pageData.dpr;
-        drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
-      }
-      state.currentStroke._drawnIdx = state.currentStroke.points.length;
+      _renderBatchTarget(pageData, drawnIdx);
     }
 
     _runPostBatchChecks(pageData);
@@ -241,15 +246,7 @@ export function forceFlushNow(pageData) {
 
     if (state.currentStroke && state.isDrawing &&
         !state.pendingShape && !state.scribbleMode) {
-      const isHL = state.currentStroke.tool === 'highlighter';
-      if (isHL) {
-        renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
-      } else {
-        const targetCtx = pageData.overlayCtx;
-        const dpr = pageData.overlayDpr || pageData.dpr;
-        drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
-      }
-      state.currentStroke._drawnIdx = state.currentStroke.points.length;
+      _renderBatchTarget(pageData, drawnIdx);
     }
 
     if (!state.currentStroke || !state.isDrawing) return;

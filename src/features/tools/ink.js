@@ -32,7 +32,7 @@ import { state } from '../../core/state.js';
 import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
-  drawDotOnly, renderFullStroke, redrawPageCanvas
+  drawDotOnly, renderFullStroke, blitHighlighterFromOverlay
 } from '../render/render.js';
 import {
   finalizePendingShape, applyAngleSnap,
@@ -87,9 +87,9 @@ export function moveInkStroke(pageData, e) {
   pushPointsToBatch(points);
   scheduleFlush(pageData);
 
-  // Prediction: solo per pen (masking latenza driver). Non ha senso
-  // per highlighter (l'anteprima su overlay è già fluida).
-  if (isPredictionSupported(e) && state.activeTool !== 'highlighter') {
+  // Prediction: maschera latenza penna (pen-only). Vale anche per
+  // highlighter (canvas predittivo separato, costo trascurabile).
+  if (isPredictionSupported(e)) {
     const predicted = e.getPredictedEvents();
     if (predicted && predicted.length > 0) {
       drawPredictions(pageData, predicted);
@@ -151,23 +151,25 @@ export function endInkStroke(pageData) {
 /**
  * Render finale per tool.
  *
- * Highlighter: redraw completo della pagina.
- * Motivo: l'highlighter usa globalCompositeOperation='multiply' (o
- * 'screen'), che non è idempotente. Disegnare incrementalmente
- * accumulerebbe alpha sulle sovrapposizioni. Inoltre, con snap
- * attivo, bisogna eliminare la vecchia traccia a mano libera
- * (che è sull'overlay durante il draw, ma il redraw completo
- * garantisce comunque lo stato pulito).
+ * Highlighter: blit dell'overlay sulla main canvas (O(1) drawImage).
+ * Motivo: durante il draw l'highlighter è stato disegnato SOLO
+ * sull'overlay con source-over alpha 0.4. Al rilascio trasferiamo
+ * l'overlay sulla main con un singolo drawImage → costo O(1) rispetto
+ * al numero di stroke in pagina (redraw totale sarebbe O(n stroke)).
+ *
+ * Se snapped: il path è già stato modificato da trySnapHighlighter
+ * (linea dritta). L'overlay contiene la vecchia traccia a mano libera
+ * + il path dritto? No: renderHighlighterPreviewOnOverlay è stato
+ * chiamato durante il draw, e al pointerup _forceFlushNow (in
+ * dispatcher.js) chiama l'ultimo renderHighlighterPreviewOnOverlay
+ * con il path aggiornato. Quindi l'overlay contiene SOLO la linea
+ * dritta. La traccia a mano libera non è mai stata scritta su main.
  *
  * Pen / pencil / marker: comportamento invariato.
- *   - snapped: renderFullStroke
- *   - 1 punto: drawDotOnly
- *   - pencil: renderFullStroke (darkening per-step, no blit)
- *   - pen/marker: blit overlay → main (O(1))
  */
 function _renderFinalStroke(pageData, stroke, snapped) {
   if (state.activeTool === 'highlighter') {
-    redrawPageCanvas(pageData);
+    blitHighlighterFromOverlay(pageData);
     return;
   }
 

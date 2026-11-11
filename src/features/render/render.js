@@ -54,6 +54,12 @@ const BACKGROUND_DPR = 2;
 const _ptA = { x: 0, y: 0 };
 const _ptB = { x: 0, y: 0 };
 
+// Tracking del bbox dell'anteprima highlighter sull'overlay.
+// Serve per fare clear solo della regione disegnata, non di tutto
+// l'overlay (~1.5M pixel): su Surface Go 1 il clearOverlay completo
+// ad ogni flush costa ~5-10ms.
+let _lastHighlighterBBox = null;
+
 // ------------------------------------------------------------
 // Geometry pura (usata da render e lazo)
 // ------------------------------------------------------------
@@ -262,6 +268,168 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
 }
 
 // ------------------------------------------------------------
+// Highlighter rendering (path continuo)
+// ------------------------------------------------------------
+
+/**
+ * Highlighter full-stroke: path continuo con ctx.stroke(), invece
+ * di fill per-segmento.
+ *
+ * Usato nel redraw completo (cambio tema, undo/redo, PDF, selezione):
+ * ctx.stroke() su un unico path produce un nastro continuo, senza
+ * giunzioni visibili e senza accumulo di alpha sulle sovrapposizioni
+ * poligono/cerchio che causava l'effetto "palline con scie".
+ *
+ * Nota: in dark mode usa 'screen' (schiarisce), in light 'multiply'
+ * (preserva il testo nero sottostante).
+ */
+function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
+  const pts = stroke.points;
+  const n = pts.length;
+  if (n < 1) return;
+
+  const style = getStrokeStyle(stroke, forceTargetDark);
+  const baseSize = sliderToBaseSize(stroke.size);
+  const lineWidth = Math.max(1, baseSize * 4.0);
+
+  ctx.save();
+  ctx.globalCompositeOperation = style.gco;
+  ctx.strokeStyle = style.strokeStyle;
+  ctx.fillStyle = style.fillStyle;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = lineWidth;
+
+  if (n === 1) {
+    ctx.beginPath();
+    ctx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Anteprima highlighter sull'overlay durante il draw.
+ *
+ * Differenze rispetto a pen/marker:
+ *   - non usa drawIncrementalBatch (che accumula alpha sulle
+ *     sovrapposizioni: con source-over e alpha 0.4, due segmenti
+ *     sovrapposti diventano 0.64 → "palline")
+ *   - clear SOLO del bbox precedente (non di tutto l'overlay)
+ *   - stroke() del path completo aggiornato
+ *
+ * Costo per flush: O(N punti) + O(area bbox). Su un tratto di 500
+ * punti: ~1-2ms per flush su Surface Go 1. Accettabile.
+ */
+export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
+  if (!pageData.overlayCtx || !stroke || stroke.points.length === 0) return;
+
+  const octx = pageData.overlayCtx;
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;
+  const pts = stroke.points;
+
+  // Colore scelto per approssimare il risultato multiply/screen finale
+  // su source-over: alpha 0.4 (light) / 0.55 (dark), stesso colore.
+  const isDark = state.isDarkMode;
+  const color = isDark
+    ? hexToRgbA(stroke.color, 0.55)
+    : hexToRgbA(stroke.color, 0.40);
+  const baseSize = sliderToBaseSize(stroke.size);
+  const lineWidth = Math.max(1, baseSize * 4.0);
+
+  // Calcola bbox attuale del path (in coordinate canvas, poi scalate a dpr)
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+  }
+  const pad = lineWidth + 2; // margine per lineCap/join
+  const newBBox = {
+    x: Math.max(0, Math.floor((minX - pad) * dpr)),
+    y: Math.max(0, Math.floor((minY - pad) * dpr)),
+    w: Math.ceil((maxX - minX + pad * 2) * dpr),
+    h: Math.ceil((maxY - minY + pad * 2) * dpr)
+  };
+
+  // Clear del bbox precedente + del bbox attuale (il path si sposta,
+  // quindi unire le due aree per evitare residui)
+  octx.save();
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  if (_lastHighlighterBBox) {
+    octx.clearRect(
+      _lastHighlighterBBox.x, _lastHighlighterBBox.y,
+      _lastHighlighterBBox.w, _lastHighlighterBBox.h
+    );
+  }
+  octx.clearRect(newBBox.x, newBBox.y, newBBox.w, newBBox.h);
+  octx.restore();
+
+  // Disegna il path completo con source-over
+  octx.save();
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  octx.globalCompositeOperation = 'source-over';
+  octx.strokeStyle = color;
+  octx.fillStyle = color;
+  octx.lineCap = 'round';
+  octx.lineJoin = 'round';
+  octx.lineWidth = lineWidth;
+
+  if (pts.length === 1) {
+    octx.beginPath();
+    octx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
+    octx.fill();
+  } else {
+    octx.beginPath();
+    octx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) octx.lineTo(pts[i].x, pts[i].y);
+    octx.stroke();
+  }
+  octx.restore();
+
+  _lastHighlighterBBox = newBBox;
+}
+
+/**
+ * Blit dell'overlay highlighter sulla main canvas.
+ *
+ * Usato al pointerup dell'highlighter. Costo: 1× drawImage full-canvas
+ * (~10-15ms su Surface Go 1), una tantum al termine dello stroke.
+ *
+ * source-over (non multiply/screen): l'overlay contiene già il colore
+ * con alpha 0.4/0.55 disegnato in source-over. Il blit trasferisce
+ * quei pixel sulla main con la stessa alpha. Risultato visivo: identico
+ * all'anteprima live. Le sovrapposizioni di DUE highlighter diversi
+ * si scuriscono correttamente (perché sulla main l'alpha si compone).
+ *
+ * Reset _lastHighlighterBBox dopo il blit.
+ */
+export function blitHighlighterFromOverlay(pageData) {
+  if (!pageData.overlayCtx) return;
+
+  const pctx = pageData.ctx;
+  pctx.save();
+  pctx.setTransform(1, 0, 0, 1, 0, 0);
+  pctx.globalCompositeOperation = 'source-over';
+  pctx.globalAlpha = 1;
+  pctx.drawImage(
+    pageData.overlayCanvas,
+    0, 0,
+    pageData.canvas.width,
+    pageData.canvas.height
+  );
+  pctx.restore();
+
+  _lastHighlighterBBox = null;
+}
+
+// ------------------------------------------------------------
 // Rendering
 // ------------------------------------------------------------
 
@@ -318,103 +486,10 @@ export function drawDotOnly(pageData, stroke) {
   ctx.restore();
 }
 
-/**
- * Rendering highlighter con path continuo.
- *
- * Usa ctx.stroke() con lineWidth grosso invece di fill() per-segmento.
- * Il canvas disegna un "nastro" continuo: nessun giunto visibile,
- * nessun accumulo di alpha sulle sovrapposizioni poligono/cerchio.
- *
- * GlobalCompositeOperation = multiply (light) o screen (dark),
- * per far trasparire il contenuto sottostante (testo, stroke).
- */
-function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
-  const pts = stroke.points;
-  const n = pts.length;
-  if (n < 1) return;
-
-  const style = getStrokeStyle(stroke, forceTargetDark);
-  const baseSize = sliderToBaseSize(stroke.size);
-  const lineWidth = Math.max(1, baseSize * 4.0);
-
-  ctx.save();
-  ctx.globalCompositeOperation = style.gco;
-  ctx.strokeStyle = style.strokeStyle;
-  ctx.fillStyle = style.fillStyle;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = lineWidth;
-
-  if (n === 1) {
-    ctx.beginPath();
-    ctx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
-
-/**
- * Rendering highlighter su overlay (anteprima durante il draw).
- *
- * Stesso path continuo, ma con globalCompositeOperation='source-over'
- * (multiply su overlay trasparente non funziona come su pagina bianca).
- * Il colore usa lo stesso rgba del render finale: leggermente più
- * slavato del risultato multiply, ma visivamente coerente.
- *
- * Ad ogni chiamata pulisce e ridisegna il path completo (O(n) per frame,
- * accettabile: l'highlighter si usa per righe, non per firme).
- */
-export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
-  if (!pageData.overlayCtx || !stroke || stroke.points.length === 0) return;
-
-  const octx = pageData.overlayCtx;
-  const dpr = pageData.overlayDpr || pageData.dpr || 1;
-  const pts = stroke.points;
-
-  // Pulisce overlay: ridisegna sempre il path completo, niente
-  // accumulo tra un frame e il successivo.
-  clearOverlay(pageData);
-
-  const isDark = state.isDarkMode;
-  const color = isDark
-    ? hexToRgbA(stroke.color, 0.55)
-    : hexToRgbA(stroke.color, 0.40);
-  const baseSize = sliderToBaseSize(stroke.size);
-  const lineWidth = Math.max(1, baseSize * 4.0);
-
-  octx.save();
-  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  octx.globalCompositeOperation = 'source-over';
-  octx.strokeStyle = color;
-  octx.fillStyle = color;
-  octx.lineCap = 'round';
-  octx.lineJoin = 'round';
-  octx.lineWidth = lineWidth;
-
-  if (pts.length === 1) {
-    octx.beginPath();
-    octx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
-    octx.fill();
-  } else {
-    octx.beginPath();
-    octx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) octx.lineTo(pts[i].x, pts[i].y);
-    octx.stroke();
-  }
-
-  octx.restore();
-}
-
 export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
-  // Highlighter senza override (es. scribble target): rendering dedicato
-  // con stroke() continuo. Con overrideColor (scribble target rosso)
-  // ricade nel ramo generico, così il colore override viene rispettato.
+  // Highlighter senza override: rendering dedicato con stroke() continuo.
+  // Con overrideColor (scribble target rosso) ricade nel ramo generico,
+  // così il colore override viene rispettato.
   if (stroke.tool === 'highlighter' && !overrideColor) {
     renderHighlighterFullStroke(ctx, stroke, forceTargetDark);
     return;
@@ -517,12 +592,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
 }
 
 // ------------------------------------------------------------
-// Batch di segmenti incrementali su un unico path.
-// Riduce N chiamate a drawIncrementalSegment (1 per punto) a
-// 2 fill() per batch (poligoni + cerchi ai giunti).
-// fromIdx = indice dell'ultimo punto già disegnato sul target;
-// i segmenti da pts[fromIdx-1]→pts[fromIdx] fino a
-// pts[n-2]→pts[n-1] vengono tutti accumulati in un solo path.
+// Batch di segmenti incrementali (pen / pencil / marker)
 // ------------------------------------------------------------
 export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
   const pts = stroke.points;
@@ -540,7 +610,6 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
   const unified = canUnifyFillIncremental(stroke.tool);
 
   if (unified) {
-    // Path 1: tutti i poligoni dei segmenti
     ctx.beginPath();
     for (let i = firstSegEnd; i < n; i++) {
       const p0 = pts[i >= 2 ? i - 2 : 0];
@@ -564,7 +633,6 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
     }
     ctx.fill();
 
-    // Path 2: tutti i cerchi ai giunti
     ctx.beginPath();
     for (let i = firstSegEnd; i < n; i++) {
       const p0 = pts[i >= 2 ? i - 2 : 0];
@@ -586,7 +654,6 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
     }
     ctx.fill();
 
-    // Tip finale senza taper (fedeltà al comportamento con smoothness=0)
     if (smoothness <= 0.01 && n >= 2) {
       const tipP1 = pts[n - 2], tipP2 = pts[n - 1];
       const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure,
@@ -601,7 +668,6 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       ctx.fill();
     }
   } else {
-    // Ramo non-unified (simmetrico a renderFullStroke)
     for (let i = firstSegEnd; i < n; i++) {
       const p0 = pts[i >= 2 ? i - 2 : 0];
       const p1 = pts[i - 1];
@@ -799,6 +865,7 @@ export function clearOverlay(pageData) {
   octx.setTransform(1, 0, 0, 1, 0, 0);
   octx.clearRect(0, 0, pageData.overlayCanvas.width, pageData.overlayCanvas.height);
   octx.restore();
+  _lastHighlighterBBox = null;
 }
 
 export function renderPendingShapeOnOverlay(pageData) {
