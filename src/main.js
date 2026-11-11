@@ -17,11 +17,11 @@ import {
   mountToolbar
 } from './features/toolbar/toolbar.js';
 import { flushHistory } from './features/history/history.js';
-import { flushAutoSave } from './features/persistence/autosave.js';
 import { initEditorHandlers } from './features/editor/editor.js';
 import { bindEditorUI } from './features/editor/ui-bindings.js';
 import { mountSettingsModal } from './features/settings/settings-modal.js';
 import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
+import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
 
 window.addEventListener('load', async () => {
   // 1. Componenti grafiche. Devono esistere PRIMA di initSettings():
@@ -63,7 +63,12 @@ window.addEventListener('load', async () => {
       applyActiveToolToUI();
       updateAutoShapeButtonUI();
       renderRecentColors();
+      return;
     }
+    // Cambio preferenza toolbar (colore, spessore, smoothing,
+    // auto-shape, subbar, compact, eraserSize, eraserMode,
+    // recentColors, activeTool): persisti nel notebook.
+    scheduleSave();
   });
 
   // 8. Vista iniziale e setup gesti / tastiera.
