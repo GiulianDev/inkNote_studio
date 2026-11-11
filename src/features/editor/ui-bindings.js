@@ -18,7 +18,7 @@ import {
 } from '../toolbar/toolbar.js';
 import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
-import { exportToPDF } from '../editor/export-pdf.js';
+import { exportToPDF } from './export-pdf.js';
 import { undo, redo } from '../history/history.js';
 import { returnToLibrary, updateCurrentNotebookTitle } from './editor.js';
 import {
