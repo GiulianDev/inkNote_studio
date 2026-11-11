@@ -1,7 +1,7 @@
 // ============================================================
 // APP SETTINGS STORE — impostazioni GLOBALI (cross-notebook).
 // Le impostazioni per-notebook della toolbar vivono in
-// features/toolbar/toolbar-state.js.
+// features/toolbar/toolbar-settings.js.
 // ============================================================
 
 import { state } from './state.js';
@@ -51,10 +51,11 @@ function _computeIsDark(settings) {
 
 function _syncRuntime(settings) {
   // Cache in `state` per letture O(1) nel hot path (render/input).
-  // `state.settings` è uno snapshot read-only dell'oggetto completo.
+  // `state.settings` è uno snapshot read-only dell'oggetto completo:
+  // Object.freeze impedisce scritture accidentali (state.settings.x = ...).
   state.isDarkMode    = _computeIsDark(settings);
   state.palmRejection = settings.palmRejection !== false;
-  state.settings      = settings;
+  state.settings      = Object.freeze({ ...settings });
 }
 
 // ------------------------------------------------------------
@@ -140,7 +141,6 @@ export function updateSettings(partial, opts = {}) {
   const wasDark = state.isDarkMode;
   _syncRuntime(_current);
 
-  // Persistenza (disattivabile per l'anteprima live nella modale)
   const shouldPersist = opts.persist !== false;
   if (shouldPersist) _writeToStorage();
 

@@ -79,7 +79,9 @@ export function returnToLibrary() {
   flushAutoSave();
   if (getCurrentNotebook()) {
     syncCurrentState();
-    saveCurrentNotebook();
+    // Fire-and-forget: se fallisce, l'errore è loggato ma la
+    // navigazione verso la libreria procede comunque.
+    saveCurrentNotebook().catch(err => console.error('[editor] save before return failed:', err));
   }
   resetToolbarSettings();
   resetHistory();

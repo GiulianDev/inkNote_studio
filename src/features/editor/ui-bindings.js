@@ -14,7 +14,7 @@ import { updateSettings, getSettings } from '../../core/app-settings.js';
 import {
   setTool, selectColor, updateStrokeWidth, updateSmoothing,
   toggleAutoShape, toggleTheme, toggleCompactMode, toggleSubbar,
-  initCompactFullscreenSync, applyActiveToolToUI
+  initCompactFullscreenSync
 } from '../toolbar/toolbar.js';
 import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
@@ -125,7 +125,8 @@ export function bindEditorUI() {
   initCompactFullscreenSync();
 
   // --- Sincronizza controlli con lo stato corrente ---
-  applyActiveToolToUI();
+  // (applyActiveToolToUI è chiamato da setTool + toolbar-settings init;
+  // qui non serve ripeterlo.)
   applySmoothingToUI();
   applyPalmRejectionToUI();
   applyEraserModeToUI();

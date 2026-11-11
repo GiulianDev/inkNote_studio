@@ -18,19 +18,36 @@ export function initDB() {
   });
 }
 
+/**
+ * Salva (o aggiorna) un notebook. Ritorna una Promise che risolve
+ * quando la transazione è committata.
+ * Necessario per garantire che `openNotebook(id)` successivo trovi
+ * il notebook in IDB (readwrite → readonly sono serializzate ma
+ * serve il commit, non solo l'enqueue).
+ */
 export function saveNotebookToDB(notebook) {
-  if (!db) return;
-  notebook.updatedAt = new Date().toISOString();
-  const tx = db.transaction('notebooks', 'readwrite');
-  try {
-    tx.objectStore('notebooks').put(notebook);
-  } catch (err) {
-    // DataCloneError (o altro errore sincrono del put)
-    console.error('[db] put failed:', err);
-    throw err;
-  }
-  tx.onerror  = () => console.error('[db] tx error:', tx.error);
-  tx.onabort  = () => console.error('[db] tx abort:', tx.error);
+  return new Promise((resolve, reject) => {
+    if (!db) return resolve();
+    notebook.updatedAt = new Date().toISOString();
+    const tx = db.transaction('notebooks', 'readwrite');
+    try {
+      tx.objectStore('notebooks').put(notebook);
+    } catch (err) {
+      // DataCloneError (o altro errore sincrono del put)
+      console.error('[db] put failed:', err);
+      reject(err);
+      return;
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => {
+      console.error('[db] tx error:', tx.error);
+      reject(tx.error);
+    };
+    tx.onabort = () => {
+      console.error('[db] tx abort:', tx.error);
+      reject(tx.error);
+    };
+  });
 }
 
 export function loadAllNotebooksFromDB() {

@@ -265,16 +265,10 @@ export function toggleTheme() {
 // ERASER SIZE MENU
 // ============================================================
 
-export function loadEraserSize() {
-  return state.eraserSize || 3;
-}
-
 function _saveEraserSize(level) {
   const n = Math.max(1, Math.min(5, level));
   updateToolbarSettings({ eraserSize: n });
 }
-
-export { getEraserRadius };
 
 function _updateEraserMenuUI() {
   const menu = document.getElementById('eraserSizeMenu');

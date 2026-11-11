@@ -229,20 +229,6 @@ export function trySnapToLine(stroke) {
   return true;
 }
 
-function perpendicularRmsDeviation(points, A, B) {
-  const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
-  if (len < 1) return null;
-  const ux = dx / len, uy = dy / len;
-  let sumSq = 0;
-  for (const p of points) {
-    const px = p.x - A.x, py = p.y - A.y;
-    const along = px * ux + py * uy;
-    const perpX = px - along * ux, perpY = py - along * uy;
-    sumSq += perpX * perpX + perpY * perpY;
-  }
-  return Math.sqrt(sumSq / points.length);
-}
-
 export function finalizePendingShape() {
   if (!state.pendingShape) return;
   const ps = state.pendingShape;

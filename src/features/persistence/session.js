@@ -52,7 +52,12 @@ export function syncCurrentState() {
   }));
 }
 
+/**
+ * Ritorna una Promise che risolve quando il commit IDB è completato.
+ * Chi chiama deve gestire la Promise (then/catch o await) per evitare
+ * unhandled rejections.
+ */
 export function saveCurrentNotebook() {
-  if (!_currentNotebook) return;
-  saveNotebookToDB(_currentNotebook);
+  if (!_currentNotebook) return Promise.resolve();
+  return saveNotebookToDB(_currentNotebook);
 }

@@ -25,10 +25,15 @@ function _commit() {
   if (!getCurrentNotebook()) return;
   try {
     syncCurrentState();
-    saveCurrentNotebook();
-    showStatusBadge('Salvato');
   } catch (err) {
-    console.error('[autosave] commit failed:', err);
+    console.error('[autosave] sync failed:', err);
     showStatusBadge('Errore salvataggio');
+    return;
   }
+  saveCurrentNotebook()
+    .then(() => showStatusBadge('Salvato'))
+    .catch(err => {
+      console.error('[autosave] save failed:', err);
+      showStatusBadge('Errore salvataggio');
+    });
 }
