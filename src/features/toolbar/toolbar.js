@@ -24,7 +24,8 @@ let _mounted = false;
 // ============================================================
 
 /**
- * Inietta il markup della toolbar nel DOM. Idempotente.
+ * Inietta il markup della toolbar nel DOM e collega i suoi eventi
+ * interni (eraser menu). Idempotente.
  * Va chiamato PRIMA di initSettings() e dei bind degli editor handler,
  * perché initSettings applica tema/dock al DOM e i bind cercano gli
  * id della toolbar (#themeToggleBtn, #subbar, ecc.).
@@ -43,6 +44,10 @@ export function mountToolbar() {
   // senza modifiche.
   mount.insertAdjacentHTML('beforebegin', toolbarHtml);
   mount.remove();
+
+  // Setup eventi interni (il markup ora esiste nel DOM)
+  _setupEraserButton();
+
   _mounted = true;
 }
 
@@ -315,4 +320,82 @@ export function selectEraserLevel(level) {
   hideEraserSizeMenu();
   const labels = ['Piccola', 'Medio-piccola', 'Media', 'Medio-grande', 'Grande'];
   showToast(`Gomma: ${labels[level - 1] || 'Media'}`, '🧹');
+}
+
+// ============================================================
+// ERASER BUTTON WIRING (interno alla feature)
+// ============================================================
+
+/**
+ * Binda gli eventi del bottone gomma e del menu livelli.
+ * Chiamato una sola volta da mountToolbar() dopo l'iniezione del
+ * markup, perché `#eraserSizeMenu` e `#btnTool-eraser` esistono solo
+ * dopo insertAdjacentHTML.
+ */
+function _setupEraserButton() {
+  const btn = document.getElementById('btnTool-eraser');
+  const menu = document.getElementById('eraserSizeMenu');
+  if (!btn || !menu) return;
+
+  let pressTimer = null;
+  let skipNextClick = false;
+
+  const cancelTimer = () => {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  };
+
+  // Long-press (500ms) → mostra menu
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return; // solo sinistro
+    skipNextClick = false;
+    cancelTimer();
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      skipNextClick = true;
+      showEraserSizeMenu();
+      if (navigator.vibrate) { try { navigator.vibrate(10); } catch (err) {} }
+    }, 500);
+  });
+
+  btn.addEventListener('pointerup', cancelTimer);
+  btn.addEventListener('pointercancel', () => {
+    cancelTimer();
+    skipNextClick = true;
+  });
+  btn.addEventListener('pointerleave', cancelTimer);
+
+  // Click normale → attiva eraser (a meno che non sia il click
+  // che termina un long-press, in quel caso skip)
+  btn.addEventListener('click', (e) => {
+    if (skipNextClick) {
+      skipNextClick = false;
+      e.preventDefault();
+      return;
+    }
+    setTool('eraser');
+  });
+
+  // Tasto destro (desktop) → menu
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    cancelTimer();
+    showEraserSizeMenu();
+  });
+
+  // Click sui livelli del menu
+  menu.querySelectorAll('[data-eraser-level]').forEach(levelBtn => {
+    levelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const lvl = parseInt(levelBtn.dataset.eraserLevel);
+      if (lvl >= 1 && lvl <= 5) selectEraserLevel(lvl);
+      if (state.activeTool !== 'eraser') setTool('eraser');
+    });
+  });
+
+  // Click fuori dal menu → chiude
+  document.addEventListener('pointerdown', (e) => {
+    if (menu.classList.contains('hidden')) return;
+    if (menu.contains(e.target) || btn.contains(e.target)) return;
+    hideEraserSizeMenu();
+  });
 }
