@@ -10,7 +10,7 @@ import { setCurrentNotebook, getCurrentNotebook, syncCurrentState, saveCurrentNo
 import { scheduleSave, flushAutoSave } from '../persistence/autosave.js';
 import {
   createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
-  installViewportResizeObserver
+  installViewportResizeObserver, refreshCanvasResolution   // ← aggiunto
 } from './pages.js';
 import { refreshPageCounter } from '../toolbar/toolbar.js';
 import { resetHistory, pushHistory } from '../history/history.js';
@@ -64,6 +64,11 @@ export async function openNotebook(id) {
 
   state.activePageIndex = 0;
   refreshPageCounter();
+  // Batch A.2: dopo aver creato tutte le pagine, rilascia subito
+  // i canvas delle pagine lontane (createNewPageDOM le crea tutte
+  // a dimensione piena). Questo libera ~N×20 MB immediatamente
+  // all'apertura del notebook.
+  refreshCanvasResolution(false);
   document.getElementById('libraryView').classList.add('hidden');
   resetHistory();
   showToast(`Quaderno "${nb.title}" aperto`, '📖');
