@@ -4,9 +4,12 @@
  * RENDERING CANVAS — stili stroke, tapered path, selection overlay,
  * background patterns, pending shape, bbox-based blit/clear.
  *
- * @see core/types.js  — Stroke, PageData, BBox
- * @see render/stroke-cache.js
- * @see render/prediction.js
+ * Highlighter:
+ *   - rendering OPACO su overlay (no alpha accumulato)
+ *   - jitter perpendicolare ±1.2px (bordo ruvido)
+ *   - width variation: pressione, velocità, taper start/end
+ *   - alpha + multiply/screen applicati SOLO al blit (blitAndClearBBox)
+ *   - niente più renderHighlighterPreviewOnOverlay / blitHighlighterFromOverlay
  */
 
 import { getStrokeBitmap, buildStrokeBitmap } from './stroke-cache.js';
@@ -19,6 +22,8 @@ import { getPressureParams } from '../../core/app-settings.js';
 
 const SCRIBBLE_ERASE_COLOR  = 'rgba(220, 38, 38, 0.6)';
 const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';
+const HL_JITTER_MAG = 1.2;
+const HL_SMOOTHNESS = 0.20;
 
 let _bgCache = { key: null, canvas: null };
 const BACKGROUND_DPR = 2;
@@ -27,7 +32,7 @@ const _ptA = { x: 0, y: 0 };
 const _ptB = { x: 0, y: 0 };
 
 // ------------------------------------------------------------
-// Geometry pura (usata da render e lazo)
+// Geometry pura (invariata)
 // ------------------------------------------------------------
 
 export function getSelectionBoundingBox(includePad = true) {
@@ -96,7 +101,7 @@ export function findClosestPointInSelection(target) {
 }
 
 // ------------------------------------------------------------
-// Stili stroke con cache
+// Stili stroke
 // ------------------------------------------------------------
 
 function getTiltNorm(pt) {
@@ -114,6 +119,85 @@ function getTaper(idx, tool) {
   return 1.0;
 }
 
+// ------------------------------------------------------------
+// Highlighter helpers
+// ------------------------------------------------------------
+
+function _strokeSeed(s) {
+  const p0 = s.points && s.points[0];
+  if (!p0) return 0x5F3759DF;
+  return (((p0.x * 100) | 0) ^ ((p0.y * 100) | 0) ^ ((s.size * 97) | 0) ^ 0x5F3759DF) >>> 0;
+}
+
+function _jitterForPoint(seed, i) {
+  let s = (seed + (i * 2654435761)) >>> 0;
+  s = (s * 1664525 + 1013904223) >>> 0;
+  return ((s / 0xFFFFFFFF) * 2 - 1);
+}
+
+function _ensureJitterCache(stroke) {
+  const n = stroke.points.length;
+  if (!stroke._jitterOffsets || stroke._jitterOffsets.length < n) {
+    const old = stroke._jitterOffsets || new Float32Array(0);
+    const size = Math.max(n, old.length * 2 || 64);
+    const next = new Float32Array(size);
+    next.set(old);
+    const seed = _strokeSeed(stroke);
+    for (let i = old.length; i < size; i++) {
+      next[i] = _jitterForPoint(seed, i);
+    }
+    stroke._jitterOffsets = next;
+  }
+  return stroke._jitterOffsets;
+}
+
+/**
+ * Applica jitter perpendicolare al tratto. Ritorna array di punti
+ * { x, y } con offset applicato. Il jitter è deterministico per
+ * stroke (seed basato su primo punto + size).
+ */
+function _getJitteredPoints(stroke) {
+  const pts = stroke.points;
+  const n = pts.length;
+  if (n < 2) return pts;
+  const jitter = _ensureJitterCache(stroke);
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    let dx, dy;
+    if (i === 0) { dx = pts[1].x - p.x; dy = pts[1].y - p.y; }
+    else if (i === n - 1) { dx = p.x - pts[i - 1].x; dy = p.y - pts[i - 1].y; }
+    else { dx = pts[i + 1].x - pts[i - 1].x; dy = pts[i + 1].y - pts[i - 1].y; }
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.001) { out[i] = { x: p.x, y: p.y }; continue; }
+    const nx = -dy / len, ny = dx / len;
+    const mag = jitter[i] * HL_JITTER_MAG;
+    out[i] = { x: p.x + nx * mag, y: p.y + ny * mag };
+  }
+  return out;
+}
+
+function _computeHighlighterWidth(baseSize, pressure, speed, taper) {
+  const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
+  const s = Math.min(1, (speed || 0) / 10);
+  const w = baseSize * 4.0;
+  const pressureMul = 0.85 + p * 0.30;
+  const speedMul = 1 - s * 0.15;
+  return w * pressureMul * speedMul * taper;
+}
+
+function _highlighterTaper(i, n) {
+  if (i === 0) return 0.80;
+  if (i === 1) return 0.90;
+  if (i === n - 1) return 0.85;
+  if (i === n - 2) return 0.92;
+  return 1.0;
+}
+
+// ------------------------------------------------------------
+// computeStrokeWidth
+// ------------------------------------------------------------
+
 export function computeStrokeWidth(tool, rawSize, pressure, tiltNorm = 0, speedNorm = 0, taper = 1.0, precomputedBaseSize = null) {
   const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
   const baseSize = precomputedBaseSize !== null ? precomputedBaseSize : sliderToBaseSize(rawSize);
@@ -129,7 +213,7 @@ export function computeStrokeWidth(tool, rawSize, pressure, tiltNorm = 0, speedN
     w *= (1 + tiltNorm * 0.50);
     w *= (1 - speedNorm * 0.15);
   } else if (tool === 'highlighter') {
-    w = baseSize * 4.0;
+    w = _computeHighlighterWidth(baseSize, pressure, speedNorm * 10, taper);
   }
   w *= taper;
   return w;
@@ -141,9 +225,10 @@ function getStrokeStyle(stroke, isDark) {
   if (cache && cache.key === key) return cache;
   let strokeStyle, fillStyle, gco;
   if (stroke.tool === 'highlighter') {
-    gco = isDark ? 'screen' : 'multiply';
-    const c = hexToRgbA(stroke.color, isDark ? 0.55 : 0.40);
-    strokeStyle = c; fillStyle = c;
+    // Opaco: alpha si applica al blit
+    gco = 'source-over';
+    strokeStyle = stroke.color;
+    fillStyle = stroke.color;
   } else if (stroke.tool === 'pencil') {
     gco = 'source-over';
     const c = hexToRgbA(getEffectiveColor(stroke.color, isDark), 0.55);
@@ -168,10 +253,7 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
 }
 
 function canUnifyFill(tool) { return tool === 'pen' || tool === 'marker'; }
-
-function canUnifyFillIncremental(tool) {
-  return tool === 'pen' || tool === 'marker' || tool === 'pencil';
-}
+function canUnifyFillIncremental(tool) { return tool === 'pen' || tool === 'marker' || tool === 'pencil'; }
 
 function addTaperedSegmentPolygon(ctx, p0, p1, w0, w1) {
   const dx = p1.x - p0.x, dy = p1.y - p0.y;
@@ -207,12 +289,6 @@ function interpolatePointInto(out, p0, p1, p2, p3, t, smoothness) {
   out.y = ly + (cy - ly) * smoothness;
 }
 
-function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
-  const o = { x: 0, y: 0 };
-  interpolatePointInto(o, p0, p1, p2, p3, t, smoothness);
-  return o;
-}
-
 function drawTaperedSegment(ctx, p0, p1, w0, w1) {
   const dx = p1.x - p0.x, dy = p1.y - p0.y;
   const len = fastHypot(dx, dy);
@@ -234,134 +310,116 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
 }
 
 // ------------------------------------------------------------
-// Highlighter rendering (path continuo)
+// Highlighter rendering (opaco, jitter, width variation)
 // ------------------------------------------------------------
 
-function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
+function _renderHighlighterPath(ctx, stroke, pts, fromIdx, baseSize) {
+  const n = pts.length;
+  if (n < 2) return;
+  const firstSegEnd = Math.max(fromIdx || 0, 1);
+  if (firstSegEnd >= n) return;
+
+  const widths = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const src = stroke.points[i];
+    widths[i] = _computeHighlighterWidth(baseSize, src.pressure, (src.speed || 0), _highlighterTaper(i, n));
+  }
+
+  // Path unificato per poligoni
+  ctx.beginPath();
+  for (let i = firstSegEnd; i < n; i++) {
+    const p0 = pts[i >= 2 ? i - 2 : 0];
+    const p1 = pts[i - 1];
+    const p2 = pts[i];
+    const p3 = pts[i + 1 < n ? i + 1 : n - 1];
+    const w1 = widths[i - 1], w2 = widths[i];
+    const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
+    const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
+    const steps = Math.max(1, Math.round(baseSteps * (0.3 + HL_SMOOTHNESS * 0.7)));
+    for (let s = 0; s < steps; s++) {
+      const t0 = s / steps, t1 = (s + 1) / steps;
+      interpolatePointInto(_ptA, p0, p1, p2, p3, t0, HL_SMOOTHNESS);
+      interpolatePointInto(_ptB, p0, p1, p2, p3, t1, HL_SMOOTHNESS);
+      addTaperedSegmentPolygon(ctx, _ptA, _ptB, w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
+    }
+  }
+  ctx.fill();
+
+  // Cerchi alle giunzioni
+  ctx.beginPath();
+  for (let i = firstSegEnd; i < n; i++) {
+    const p0 = pts[i >= 2 ? i - 2 : 0];
+    const p1 = pts[i - 1];
+    const p2 = pts[i];
+    const p3 = pts[i + 1 < n ? i + 1 : n - 1];
+    const w1 = widths[i - 1], w2 = widths[i];
+    const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
+    const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
+    const steps = Math.max(1, Math.round(baseSteps * (0.3 + HL_SMOOTHNESS * 0.7)));
+    for (let s = 0; s < steps; s++) {
+      const t0 = s / steps;
+      interpolatePointInto(_ptA, p0, p1, p2, p3, t0, HL_SMOOTHNESS);
+      addTaperedSegmentCircle(ctx, _ptA, w1 + (w2 - w1) * t0);
+    }
+  }
+  ctx.fill();
+}
+
+export function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
   const pts = stroke.points;
   const n = pts.length;
   if (n < 1) return;
 
-  const style = getStrokeStyle(stroke, forceTargetDark);
   const baseSize = sliderToBaseSize(stroke.size);
-  const lineWidth = Math.max(1, baseSize * 4.0);
 
   ctx.save();
-  ctx.globalCompositeOperation = style.gco;
-  ctx.strokeStyle = style.strokeStyle;
-  ctx.fillStyle = style.fillStyle;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = stroke.color;
+  ctx.fillStyle = stroke.color;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = lineWidth;
 
   if (n === 1) {
+    const w = baseSize * 4.0;
     ctx.beginPath();
-    ctx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
+    ctx.arc(pts[0].x, pts[0].y, w / 2, 0, Math.PI * 2);
     ctx.fill();
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.stroke();
+    ctx.restore();
+    return;
   }
+
+  const jitteredPts = _getJitteredPoints(stroke);
+  _renderHighlighterPath(ctx, stroke, jitteredPts, 1, baseSize);
 
   ctx.restore();
 }
 
-export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
-  if (!pageData.overlayCtx || !stroke || stroke.points.length === 0) return;
-
-  const octx = pageData.overlayCtx;
-  const dpr = pageData.overlayDpr || pageData.dpr || 1;
+function _drawIncrementalHighlighter(ctx, stroke, fromIdx, dpr) {
   const pts = stroke.points;
+  const n = pts.length;
+  if (n < 2) return;
+  const firstSegEnd = Math.max(fromIdx || 0, 1);
+  if (firstSegEnd >= n) return;
 
-  const isDark = state.isDarkMode;
-  const color = isDark
-    ? hexToRgbA(stroke.color, 0.55)
-    : hexToRgbA(stroke.color, 0.40);
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = stroke.color;
+  ctx.fillStyle = stroke.color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
   const baseSize = sliderToBaseSize(stroke.size);
-  const lineWidth = Math.max(1, baseSize * 4.0);
+  const jitteredPts = _getJitteredPoints(stroke);
+  _renderHighlighterPath(ctx, stroke, jitteredPts, firstSegEnd, baseSize);
 
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i];
-    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-  }
-  const pad = lineWidth + 2;
-  const newBBox = {
-    x: Math.max(0, Math.floor((minX - pad) * dpr)),
-    y: Math.max(0, Math.floor((minY - pad) * dpr)),
-    w: Math.ceil((maxX - minX + pad * 2) * dpr),
-    h: Math.ceil((maxY - minY + pad * 2) * dpr)
-  };
-
-  octx.save();
-  octx.setTransform(1, 0, 0, 1, 0, 0);
-  if (pageData._lastHighlighterBBox) {
-    octx.clearRect(
-      pageData._lastHighlighterBBox.x, pageData._lastHighlighterBBox.y,
-      pageData._lastHighlighterBBox.w, pageData._lastHighlighterBBox.h
-    );
-  }
-  octx.clearRect(newBBox.x, newBBox.y, newBBox.w, newBBox.h);
-  octx.restore();
-
-  octx.save();
-  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  octx.globalCompositeOperation = 'source-over';
-  octx.strokeStyle = color;
-  octx.fillStyle = color;
-  octx.lineCap = 'round';
-  octx.lineJoin = 'round';
-  octx.lineWidth = lineWidth;
-
-  if (pts.length === 1) {
-    octx.beginPath();
-    octx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
-    octx.fill();
-  } else {
-    octx.beginPath();
-    octx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) octx.lineTo(pts[i].x, pts[i].y);
-    octx.stroke();
-  }
-  octx.restore();
-
-  pageData._lastHighlighterBBox = newBBox;
+  ctx.restore();
 }
 
-export function blitHighlighterFromOverlay(pageData) {
-  if (!pageData.overlayCtx) return;
-
-  const pctx = pageData.ctx;
-  pctx.save();
-  pctx.setTransform(1, 0, 0, 1, 0, 0);
-  pctx.globalCompositeOperation = 'source-over';
-  pctx.globalAlpha = 1;
-  pctx.drawImage(
-    pageData.overlayCanvas,
-    0, 0,
-    pageData.canvas.width,
-    pageData.canvas.height
-  );
-  pctx.restore();
-
-  pageData._lastHighlighterBBox = null;
-}
-
-// ============================================================
-// BATCH B — BBOX-BASED CLEAR + BLIT
 // ------------------------------------------------------------
-// Sostituisce le operazioni full-canvas (~2-3.4 M px) con
-// operazioni limitate al bbox dello stroke (~50-200 K px tipico).
-// ============================================================
+// Bbox helpers
+// ------------------------------------------------------------
 
-/**
- * Calcola il bbox di uno stroke in coordinate canvas-space
- * (0..PAGE_WIDTH × 0..PAGE_HEIGHT), con pad.
- * Restituisce null se lo stroke è vuoto.
- */
 export function getStrokeBBoxCanvas(stroke, pad = 24) {
   const pts = stroke && stroke.points;
   if (!pts || pts.length === 0) return null;
@@ -377,10 +435,6 @@ export function getStrokeBBoxCanvas(stroke, pad = 24) {
   };
 }
 
-/**
- * Pulisce una zona rettangolare dell'overlay canvas.
- * Coordinate in px canvas-space.
- */
 export function clearOverlayBBox(pageData, bbox) {
   if (!pageData || !pageData.overlayCtx || !bbox) return;
   const dpr = pageData.overlayDpr || pageData.dpr || 1;
@@ -396,12 +450,7 @@ export function clearOverlayBBox(pageData, bbox) {
   octx.restore();
 }
 
-/**
- * Copia la zona bbox dell'overlay sulla main canvas, poi pulisce
- * la stessa zona dall'overlay.
- * Sostituisce `pctx.drawImage(overlayCanvas, 0, 0, W, H)` full-canvas.
- */
-export function blitAndClearBBox(pageData, bbox) {
+export function blitAndClearBBox(pageData, bbox, opts = {}) {
   if (!pageData || !bbox) return;
   const pctx = pageData.ctx;
   const octx = pageData.overlayCtx;
@@ -421,10 +470,13 @@ export function blitAndClearBBox(pageData, bbox) {
 
   if (pw <= 0 || ph <= 0 || ow <= 0 || oh <= 0) return;
 
+  const alpha = opts.alpha != null ? opts.alpha : 1;
+  const compositeOp = opts.compositeOp || 'source-over';
+
   pctx.save();
   pctx.setTransform(1, 0, 0, 1, 0, 0);
-  pctx.globalCompositeOperation = 'source-over';
-  pctx.globalAlpha = 1;
+  pctx.globalCompositeOperation = compositeOp;
+  pctx.globalAlpha = alpha;
   pctx.drawImage(pageData.overlayCanvas, ox, oy, ow, oh, px, py, pw, ph);
   pctx.restore();
 
@@ -461,11 +513,7 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
       let cached = getStrokeBitmap(stroke, dpr, forceTargetDark);
       if (!cached) cached = buildStrokeBitmap(stroke, dpr, forceTargetDark);
       if (cached) {
-        ctx.drawImage(
-          cached.canvas,
-          cached.bbox.x, cached.bbox.y,
-          cached.bbox.w, cached.bbox.h
-        );
+        ctx.drawImage(cached.canvas, cached.bbox.x, cached.bbox.y, cached.bbox.w, cached.bbox.h);
         return;
       }
     }
@@ -594,6 +642,11 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
 }
 
 export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
+  if (stroke.tool === 'highlighter') {
+    _drawIncrementalHighlighter(ctx, stroke, fromIdx, dpr);
+    return;
+  }
+
   const pts = stroke.points;
   const n = pts.length;
   if (n < 2) return;
@@ -626,8 +679,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
         const t0 = s / steps, t1 = (s + 1) / steps;
         interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
         interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
-        addTaperedSegmentPolygon(ctx, _ptA, _ptB,
-          w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
+        addTaperedSegmentPolygon(ctx, _ptA, _ptB, w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
       }
     }
     ctx.fill();
@@ -683,8 +735,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
         const t0 = s / steps, t1 = (s + 1) / steps;
         interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
         interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
-        drawTaperedSegment(ctx, _ptA, _ptB,
-          w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
+        drawTaperedSegment(ctx, _ptA, _ptB, w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
       }
     }
   }
@@ -864,7 +915,6 @@ export function clearOverlay(pageData) {
   octx.setTransform(1, 0, 0, 1, 0, 0);
   octx.clearRect(0, 0, pageData.overlayCanvas.width, pageData.overlayCanvas.height);
   octx.restore();
-  pageData._lastHighlighterBBox = null;
 }
 
 export function renderPendingShapeOnOverlay(pageData) {

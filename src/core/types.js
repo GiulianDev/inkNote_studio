@@ -15,6 +15,7 @@
  * @see core/app-settings.js    — AppSettings
  * @see features/toolbar/toolbar-settings.js — ToolbarSettings
  * @see features/persistence/session.js      — Notebook
+ * @see features/persistence/serialization.js — PackedStroke
  */
 
 // ============================================================
@@ -89,8 +90,8 @@
  *   tool, color, size, points
  *
  * Campi runtime/cache (NON salvati, ricreati al caricamento):
- *   startTime, _styleCache, _pathLen, _drawnIdx, _cacheCanvas, _cacheKey
- *   → vedi session.js::_cloneStrokeForSave
+ *   startTime, _styleCache, _pathLen, _drawnIdx, _cacheCanvas, _cacheKey,
+ *   _jitterOffsets, _lastSnapCheck
  *
  * @typedef {Object} Stroke
  * @property {StrokeTool} tool
@@ -103,6 +104,23 @@
  * @property {number} [_drawnIdx]      indice ultimo punto renderizzato (batch rAF)
  * @property {Object} [_cacheCanvas]   bitmap cache per tool pencil
  * @property {string} [_cacheKey]      chiave cache (dpr + tema)
+ * @property {Float32Array} [_jitterOffsets]  offset jitter perpendicolare per highlighter
+ * @property {number} [_lastSnapCheck] indice ultimo punto a cui è stato fatto snap check
+ */
+
+/**
+ * Stroke in formato serializzabile per IDB/history.
+ * Il campo `packed` è un Float32Array contiguo con stride 7:
+ *   [x, y, pressure, tiltX, tiltY, speed, pointerTypeInt]
+ *
+ * pointerTypeInt: 0=pen, 1=touch, 2=mouse, 3=eraser
+ *
+ * @typedef {Object} PackedStroke
+ * @property {StrokeTool} tool
+ * @property {string} color
+ * @property {number} size
+ * @property {Float32Array} packed
+ * @property {number} count          numero punti (packed.length / 7)
  */
 
 // ============================================================
@@ -110,21 +128,24 @@
 // ============================================================
 
 /**
- * Una pagina del notebook (canvas + overlay + stroke).
+ * Una pagina del notebook.
+ *
+ * Con il PageRendererPool, i campi canvas/ctx sono popolati SOLO
+ * quando la pagina è "montata" in uno slot del pool. Se la pagina
+ * non ha slot (fuori range visivo), canvas/ctx sono null e la
+ * pagina esiste come puro dato (strokes in memoria).
  *
  * @typedef {Object} PageData
  * @property {number} index
  * @property {HTMLDivElement} wrapper
- * @property {HTMLCanvasElement} canvas
- * @property {CanvasRenderingContext2D} ctx
- * @property {HTMLCanvasElement} overlayCanvas
- * @property {CanvasRenderingContext2D} overlayCtx
+ * @property {HTMLCanvasElement|null} canvas          null se non montata
+ * @property {CanvasRenderingContext2D|null} ctx      null se non montata
+ * @property {HTMLCanvasElement|null} overlayCanvas   null se non montata
+ * @property {CanvasRenderingContext2D|null} overlayCtx null se non montata
  * @property {Stroke[]} strokes
  * @property {number} [dpr]           device pixel ratio canvas principale
  * @property {number} [overlayDpr]    dpr overlay (limitato a 1.5)
- * @property {boolean} [_wasVisible]  cache visibilità (per refreshCanvasResolution)
- * @property {HTMLCanvasElement} [_predCanvas]  canvas prediction events
- * @property {CanvasRenderingContext2D} [_predCtx]
+ * @property {boolean} [_wasVisible]  cache visibilità
  */
 
 // ============================================================
@@ -133,10 +154,12 @@
 
 /**
  * Snapshot per undo/redo (per-pagina).
+ * Gli strokes sono in formato packed (Float32Array) per rendere
+ * il clone memcpy-like invece che traversal di oggetti.
  *
  * @typedef {Object} Snapshot
  * @property {number} pageIndex
- * @property {Stroke[]} strokes       copia "pulita" (no cache runtime)
+ * @property {PackedStroke[]} strokesPacked
  * @property {BgPattern} bgPattern
  * @property {number} [_hash]         hash stato (per skip se identico)
  */
@@ -167,10 +190,12 @@
 
 /**
  * Configurazione per-tool di colore e spessore.
+ * `opacity` è presente solo per highlighter (0.2..0.95).
  *
  * @typedef {Object} ToolConfig
  * @property {string} color hex
  * @property {number} width 1..25
+ * @property {number} [opacity] 0.2..0.95 (solo highlighter)
  */
 
 /**
@@ -194,8 +219,17 @@
 // ============================================================
 
 /**
- * Un quaderno completo, salvato in IndexedDB (object store `notebooks`,
- * keyPath `id`).
+ * Un quaderno completo, salvato in IndexedDB.
+ *
+ * Layout IDB (v3 packed, store separati):
+ *   - store `notebooks` (keyPath: id): metadata + toolbarSettings + pageCount
+ *   - store `pages` (keyPath: [notebookId, pageIndex]):
+ *       { notebookId, pageIndex, strokes: PackedStroke[] }
+ *
+ * In memoria, `notebook.pages` è l'array di `{ pageIndex, strokes }`
+ * con `strokes` in formato `PackedStroke[]` (dal syncCurrentState).
+ * Al caricamento, `openNotebook` fa unpack e passa strokes
+ * `Stroke[]` (runtime) a `createNewPageDOM`.
  *
  * @typedef {Object} Notebook
  * @property {string} id              'nb_<timestamp>'
@@ -204,10 +238,9 @@
  * @property {BgPattern} pattern
  * @property {string} createdAt       ISO 8601
  * @property {string} updatedAt       ISO 8601 (auto-aggiornato al save)
- * @property {Array<{pageIndex: number, strokes: Stroke[]}>} pages
- * @property {ToolbarSettings} [toolbarSettings]  retrocompat: notebook
- *                                                creati prima dell'introduzione
- *                                                di questo campo non lo hanno
+ * @property {Array<{pageIndex: number, strokes: PackedStroke[]|Stroke[]}>} pages
+ * @property {ToolbarSettings} [toolbarSettings]
+ * @property {number} [pageCount]     numero pagine (usato da library view)
  */
 
 // Export vuoto per rendere il file un modulo ES (evita warning "not a module")

@@ -1,28 +1,26 @@
 // ============================================================
-// TOOLS COMMON — helper condivisi fra tutti i tool:
-// coordinate, smoothing, batching rAF, prediction clear.
+// TOOLS COMMON — helper condivisi.
 //
-// Batch B: throttle snap check a 1 ogni 10 punti (era ad ogni
-// batch da 16 → costo O(N) 12× più alto del necessario).
+// Highlighter è trattato come pen/marker in _renderBatchTarget:
+// l'overlay è disegnato opaco, mix-blend-mode CSS si occupa
+// dell'anteprima durante stroke.
 // ============================================================
 
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../core/utils.js';
 import {
-  drawIncrementalBatch, drawScribbleSegment, renderHighlighterPreviewOnOverlay
+  drawIncrementalBatch, drawScribbleSegment
 } from '../render/render.js';
 import { checkForScribble } from './scribble.js';
 import { trySnapToLineDuringDraw } from './shapes.js';
+import { getToolbarSettings } from '../toolbar/toolbar-settings.js';
 
 const MAX_BATCH_POINTS = 16;
 
 export const _useRawPointerUpdate =
   typeof window !== 'undefined' && 'onpointerrawupdate' in window;
 
-// ------------------------------------------------------------
-// Riconoscimento pen-eraser (tasto laterale penna)
-// ------------------------------------------------------------
 export function isPenEraser(e) {
   if (!e) return false;
   if (e.pointerType === 'eraser') return true;
@@ -31,17 +29,11 @@ export function isPenEraser(e) {
   return false;
 }
 
-// ------------------------------------------------------------
-// Pool di punti (evita allocazioni nel hot path)
-// ------------------------------------------------------------
 const _pointPool = [];
 let _pointPoolIdx = 0;
 
 export function resetPointPool() { _pointPoolIdx = 0; }
 
-// ------------------------------------------------------------
-// Cache rect canvas
-// ------------------------------------------------------------
 let _strokeRect = null;
 let _strokeRectCanvas = null;
 let _strokeRectScale = 0;
@@ -74,7 +66,6 @@ export function getCanvasRect(canvas) {
 
 export function getCanvasCoords(e, canvas) {
   const rect = getCanvasRect(canvas);
-
   let p;
   if (_pointPoolIdx < _pointPool.length) {
     p = _pointPool[_pointPoolIdx++];
@@ -93,9 +84,6 @@ export function getCanvasCoords(e, canvas) {
   return p;
 }
 
-// ------------------------------------------------------------
-// Smoothing
-// ------------------------------------------------------------
 function smoothPressure(points, newPressure) {
   const n = points.length;
   if (n === 0) return newPressure;
@@ -118,9 +106,6 @@ function smoothRawPoint(rawPoint, prevSmoothed) {
   return rawPoint;
 }
 
-// ------------------------------------------------------------
-// Batching rAF
-// ------------------------------------------------------------
 const _flushState = { points: [], rafId: null, pageData: null };
 
 export function pushPointsToBatch(points) {
@@ -160,14 +145,13 @@ function _runPostBatchChecks(pageData) {
   if (state.pendingShape) return;
   const pts = state.currentStroke.points;
   if (pts.length === 0) return;
-  checkForScribble(pageData);
-  if (!state.currentStroke || !state.isDrawing) return;
-  if (state.pendingShape) return;
 
-  // Batch B: throttle a 1 check ogni 10 punti.
-  // trySnapToLineDuringDraw è O(N) sul numero di punti; la
-  // condizione "linea dritta" non cambia in 16 punti, quindi
-  // controllare ogni batch è spreco.
+  if (state.scribbleEnabled === true) {
+    checkForScribble(pageData);
+    if (!state.currentStroke || !state.isDrawing) return;
+    if (state.pendingShape) return;
+  }
+
   if (!state.scribbleMode && state.autoShapeEnabled &&
       SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
       pts.length >= 6 && pts.length < 200) {
@@ -181,14 +165,27 @@ function _runPostBatchChecks(pageData) {
 
 function _renderBatchTarget(pageData, drawnIdx) {
   if (!state.currentStroke) return;
-  const isHL = state.currentStroke.tool === 'highlighter';
-  if (isHL) {
-    renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
+
+  // Highlighter: disegna opaco sull'overlay, mix-blend-mode CSS
+  // fa l'anteprima semitrasparente.
+  if (state.currentStroke.tool === 'highlighter') {
+    const opacity = getToolbarSettings().tools.highlighter.opacity ?? 0.6;
+    const oc = pageData.overlayCanvas;
+    if (oc) {
+      oc.style.opacity = String(opacity);
+      oc.style.mixBlendMode = state.isDarkMode ? 'screen' : 'multiply';
+    }
   } else {
-    const targetCtx = pageData.overlayCtx;
-    const dpr = pageData.overlayDpr || pageData.dpr;
-    drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+    const oc = pageData.overlayCanvas;
+    if (oc && oc.style.opacity) {
+      oc.style.opacity = '';
+      oc.style.mixBlendMode = '';
+    }
   }
+
+  const targetCtx = pageData.overlayCtx;
+  const dpr = pageData.overlayDpr || pageData.dpr;
+  drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
   state.currentStroke._drawnIdx = state.currentStroke.points.length;
 }
 

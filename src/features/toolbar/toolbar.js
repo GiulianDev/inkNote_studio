@@ -3,24 +3,8 @@
  *
  * FEATURE TOOLBAR — markup + UI + azioni utente.
  *
- * Responsabilità:
- *   - mountToolbar()          — inietta toolbar.html + setup eraser menu
- *   - refreshPageCounter()    — aggiorna "Pagina X di Y" nell'header
- *   - setTool()               — cambia tool attivo + aggiorna UI + event
- *   - selectColor / updateStrokeWidth — cambia config tool attivo
- *   - toggleAutoShape / updateSmoothing / toggleSubbar / toggleCompactMode
- *   - toggleTheme             — delega a updateSettings (tema è globale)
- *   - eraser menu             — show/hide/selectEraserLevel + long-press wiring
- *
- * Non fa: gestire lo stato persistente (delega a toolbar-settings.js) né
- * applicare effetti DOM su #subbar/#mainHeader (delega a toolbar-settings.js
- * via _applySubbarToDOM/_applyCompactToDOM).
- *
- * Eventi emessi: `inknote:tool-changed` su document (per eraser cursor).
- *
- * @see features/toolbar/toolbar-settings.js
- * @see features/toolbar/toolbar.html
- * @see features/toolbar/toolbar.css
+ * Novità: palette highlighter dedicata + slider opacità. Visibilità
+ * degli elementi gestita da applyActiveToolToUI() in base al tool.
  */
 
 import './toolbar.css';
@@ -37,17 +21,6 @@ import { clearSelection } from '../tools/lazo.js';
 
 let _mounted = false;
 
-// ============================================================
-// MOUNT — inietta il markup (idempotente)
-// ============================================================
-
-/**
- * Inietta il markup della toolbar nel DOM e collega i suoi eventi
- * interni (eraser menu). Idempotente.
- * Va chiamato PRIMA di initSettings() e dei bind degli editor handler,
- * perché initSettings applica tema/dock al DOM e i bind cercano gli
- * id della toolbar (#themeToggleBtn, #subbar, ecc.).
- */
 export function mountToolbar() {
   if (_mounted || document.getElementById('mainHeader')) {
     _mounted = true;
@@ -55,29 +28,12 @@ export function mountToolbar() {
   }
   const mount = document.getElementById('toolbarMount');
   if (!mount) return;
-
-  // insertAdjacentHTML('beforebegin') mantiene l'header/subbar come
-  // figli diretti del <body>: i selettori body.compact-mode #mainHeader,
-  // body.handed-left header, @media print header continuano a funzionare
-  // senza modifiche.
   mount.insertAdjacentHTML('beforebegin', toolbarHtml);
   mount.remove();
-
-  // Setup eventi interni (il markup ora esiste nel DOM)
   _setupEraserButton();
-
   _mounted = true;
 }
 
-// ============================================================
-// PAGE COUNTER (ex editor/header.js)
-// ============================================================
-
-/**
- * Aggiorna il testo "Pagina X di Y" nell'header.
- * Vive qui perché #pageCounterText è un elemento della toolbar.
- * Chiamata da editor, pages, tools/dispatcher.
- */
 export function refreshPageCounter() {
   const el = document.getElementById('pageCounterText');
   if (el) el.innerText = `Pagina ${state.activePageIndex + 1} di ${state.pages.length}`;
@@ -102,25 +58,62 @@ export function setTool(toolName) {
 }
 
 /**
- * Sincronizza slider colore/spessore della toolbar con il tool
- * attivo corrente.
+ * Sincronizza la UI in base al tool attivo:
+ *   - mostra/nasconde colori pen vs highlighter
+ *   - mostra/nasconde smoothing vs opacità
+ *   - evidenzia lo swatch attivo (pen o highlighter)
+ *   - aggiorna width slider
  */
 export function applyActiveToolToUI() {
   if (state.activeTool === 'eraser' || state.activeTool === 'lasso') return;
 
+  const isHL = state.activeTool === 'highlighter';
   const conf = getActiveToolConfig();
-  const swatch = document.querySelector(`.color-swatch[data-color="${conf.color}"]`);
-  document.querySelectorAll('.color-swatch').forEach(el =>
-    el.classList.remove('ring-2', 'ring-indigo-500', 'scale-105'));
-  if (swatch) swatch.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
+
+  const penColorsContainer = document.getElementById('penColorsContainer');
+  if (penColorsContainer) penColorsContainer.classList.toggle('hidden', isHL);
+
+  const hlColorsContainer = document.getElementById('highlighterColorsContainer');
+  if (hlColorsContainer) hlColorsContainer.classList.toggle('hidden', !isHL);
+
+  const smoothingContainer = document.getElementById('smoothingContainer');
+  if (smoothingContainer) {
+    smoothingContainer.classList.toggle('hidden', isHL);
+    if (!isHL) smoothingContainer.classList.add('sm:flex');
+  }
+
+  const opacityContainer = document.getElementById('opacityContainer');
+  if (opacityContainer) {
+    opacityContainer.classList.toggle('hidden', !isHL);
+    if (isHL) {
+      const opSlider = document.getElementById('highlighterOpacitySlider');
+      const opLabel = document.getElementById('highlighterOpacityValue');
+      const op = conf.opacity != null ? conf.opacity : 0.6;
+      if (opSlider) opSlider.value = Math.round(op * 100);
+      if (opLabel) opLabel.innerText = Math.round(op * 100);
+    }
+  }
+
+  if (isHL) {
+    document.querySelectorAll('.color-swatch-highlighter').forEach(el =>
+      el.classList.remove('ring-2', 'ring-indigo-500', 'scale-105'));
+    const swatch = document.querySelector(`.color-swatch-highlighter[data-color="${conf.color}"]`);
+    if (swatch) swatch.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
+    const picker = document.getElementById('customHighlighterColorPicker');
+    if (picker) picker.value = conf.color;
+  } else {
+    document.querySelectorAll('.color-swatch').forEach(el =>
+      el.classList.remove('ring-2', 'ring-indigo-500', 'scale-105'));
+    const swatch = document.querySelector(`.color-swatch[data-color="${conf.color}"]`);
+    if (swatch) swatch.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
+    const picker = document.getElementById('customColorPicker');
+    if (picker) picker.value = conf.color;
+  }
 
   const widthSlider = document.getElementById('strokeWidthSlider');
   const widthLabel  = document.getElementById('strokeWidthValue');
   if (widthSlider) widthSlider.value = conf.width;
   if (widthLabel)  widthLabel.innerText = conf.width;
-
-  const picker = document.getElementById('customColorPicker');
-  if (picker) picker.value = conf.color;
 }
 
 // ============================================================
@@ -171,12 +164,7 @@ export function selectColor(colorHex, element) {
   updateToolbarSettings({
     tools: { ...current.tools, [toolName]: { ...tool, color: colorHex } }
   });
-
-  document.querySelectorAll('.color-swatch').forEach(el =>
-    el.classList.remove('ring-2', 'ring-indigo-500', 'scale-105'));
-  if (element && element.classList.contains('color-swatch'))
-    element.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
-
+  applyActiveToolToUI();
   saveRecentColor(colorHex);
 }
 
@@ -193,8 +181,20 @@ export function updateStrokeWidth(val) {
   if (label) label.innerText = width;
 }
 
+export function updateHighlighterOpacity(val) {
+  const raw = parseInt(val);
+  const opacity = Math.max(0.2, Math.min(0.95, raw / 100));
+  const current = getToolbarSettings();
+  const hl = current.tools.highlighter;
+  updateToolbarSettings({
+    tools: { ...current.tools, highlighter: { ...hl, opacity } }
+  });
+  const label = document.getElementById('highlighterOpacityValue');
+  if (label) label.innerText = raw;
+}
+
 // ============================================================
-// AUTO-SHAPE
+// AUTO-SHAPE / SMOOTHING / SUBBAR / COMPACT / THEME
 // ============================================================
 
 export function toggleAutoShape() {
@@ -202,9 +202,7 @@ export function toggleAutoShape() {
   updateToolbarSettings({ autoShapeEnabled: next });
   updateAutoShapeButtonUI();
   showToast(
-    next
-      ? 'Auto-Forme ATTIVE: le forme disegnate verranno raddrizzate'
-      : 'Auto-Forme DISATTIVATE: disegno libero',
+    next ? 'Auto-Forme ATTIVE: le forme disegnate verranno raddrizzate' : 'Auto-Forme DISATTIVATE: disegno libero',
     next ? '✨' : '✏️'
   );
 }
@@ -228,10 +226,6 @@ export function updateAutoShapeButtonUI() {
   }
 }
 
-// ============================================================
-// SMOOTHING / SUBBAR / COMPACT
-// ============================================================
-
 export function updateSmoothing(val) {
   const intVal = parseInt(val);
   updateToolbarSettings({ smoothing: intVal });
@@ -254,10 +248,7 @@ export function toggleCompactMode() {
       document.exitFullscreen().catch(() => {});
     }
   } catch {}
-  showToast(
-    next ? 'Schermo intero attivo' : 'Modalità completa ripristinata',
-    next ? '⛶' : '↩️'
-  );
+  showToast(next ? 'Schermo intero attivo' : 'Modalità completa ripristinata', next ? '⛶' : '↩️');
   setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
 }
 
@@ -270,17 +261,13 @@ export function initCompactFullscreenSync() {
   });
 }
 
-// ============================================================
-// THEME (globale, app-settings)
-// ============================================================
-
 export function toggleTheme() {
   const next = state.isDarkMode ? 'light' : 'dark';
   updateSettings({ theme: next });
 }
 
 // ============================================================
-// ERASER SIZE MENU
+// ERASER MENU (invariato)
 // ============================================================
 
 function _saveEraserSize(level) {
@@ -330,10 +317,6 @@ export function selectEraserLevel(level) {
   const labels = ['Piccola', 'Medio-piccola', 'Media', 'Medio-grande', 'Grande'];
   showToast(`Gomma: ${labels[level - 1] || 'Media'}`, '🧹');
 }
-
-// ============================================================
-// ERASER BUTTON WIRING (interno alla feature)
-// ============================================================
 
 function _setupEraserButton() {
   const btn = document.getElementById('btnTool-eraser');
