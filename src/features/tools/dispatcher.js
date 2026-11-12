@@ -46,6 +46,7 @@ import { clearPredictions } from '../render/prediction.js';
 import { flushHistory, pushHistory, resetHistory } from '../history/history.js';
 import { refreshPageCounter } from '../toolbar/toolbar.js';
 import { finalizePendingShape } from './shapes.js';
+import { resetScribbleState } from './scribble.js';
 import {
   clearSelection, applyResizeSelection,
   beginLasso, moveLasso, endLasso,
@@ -303,10 +304,12 @@ export function abortCurrentDrawing() {
     state.currentStroke = null;
     state.currentPointerId = null;
     state.currentPageForPointer = null;
-    state.scribbleMode = false;
-    state.scribbleTargets = [];
     state.lassoPath = [];
     state.selectedStrokes = [];
+    // Reset completo scribble (mode, targets, contatore target check).
+    // Prima lasciava _lastScribbleTargetCheck al valore precedente, con
+    // possibile check spurio al primo scribble successivo.
+    resetScribbleState();
     const curr = state.pages[state.activePageIndex];
     if (curr) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
   }

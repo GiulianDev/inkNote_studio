@@ -189,16 +189,28 @@ export function onSettingsChanged(fn) {
 }
 
 // ------------------------------------------------------------
-// Derivati puri (nessuna cache manuale: `_current` è già in memoria)
+// Derivati puri
 // ------------------------------------------------------------
+
+// Cache dei parametri pressione. Invalidata automaticamente quando
+// pressioneLight/Heavy/Curve cambiano (key cambia → cache miss).
+// Evita di allocare un oggetto per ogni punto nel hot path di
+// computeStrokeWidth (2 allocazioni per punto → 1000 per stroke 500pt).
+let _pressureCache = null;
+let _pressureCacheKey = '';
 
 export function getPressureParams() {
   const s = _current || getSettings();
-  return {
+  const key = `${s.pressureLight}|${s.pressureHeavy}|${s.pressureCurve}`;
+  if (_pressureCacheKey === key) return _pressureCache;
+
+  _pressureCache = {
     lightMul: (s.pressureLight / 100) * 0.5,
     heavyMul: s.pressureHeavy / 100,
     curve:    0.5 + (s.pressureCurve / 100) * 2.5
   };
+  _pressureCacheKey = key;
+  return _pressureCache;
 }
 
 /**

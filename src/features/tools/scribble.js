@@ -29,7 +29,25 @@ const SCRIBBLE_RETURN_SKIP = 8;
 const SCRIBBLE_MAX_NET_RATIO_2D = 0.38;
 const SCRIBBLE_RESAMPLE_DIST = 2.0;
 
+// Limite superiore punti per il check scribble.
+// Uno scribble si fa in <100 punti. Oltre, se non è già scattato,
+// non scatterà mai. Il vecchio limite implicito era `durationMs < 1200`,
+// che causava O(N) check su ogni flush (ogni 3 punti) fino a 1.2s di
+// scrittura → O(N²) su tratti lunghi. Con 100 punti il costo
+// sparisce dopo i primi ~100 punti.
+const SCRIBBLE_CHECK_MAX_POINTS = 100;
+
 let _lastScribbleTargetCheck = 0;
+
+/**
+ * Reset dello stato scribble. Chiamato da dispatcher.js::abortCurrentDrawing
+ * per garantire coerenza quando un pinch interrompe un gesto scribble.
+ */
+export function resetScribbleState() {
+  state.scribbleMode = false;
+  state.scribbleTargets = [];
+  _lastScribbleTargetCheck = 0;
+}
 
 function resamplePoints(pts) {
   if (pts.length === 0) return [];
@@ -142,6 +160,11 @@ export function checkForScribble(pageData) {
   if (state.activeTool === 'eraser' || state.activeTool === 'lasso') return;
   const pts = state.currentStroke.points;
   if (pts.length < SCRIBBLE_MIN_POINTS) return;
+
+  // Early exit per punti elevati: se a 100 punti non è uno scribble,
+  // non lo sarà mai. Evita O(N) check fino a durationMs=1200.
+  if (!state.scribbleMode && pts.length > SCRIBBLE_CHECK_MAX_POINTS) return;
+
   const startTime = state.currentStroke.startTime || performance.now();
   const durationMs = performance.now() - startTime;
   const overlayDpr = pageData.overlayDpr || pageData.dpr || 1;

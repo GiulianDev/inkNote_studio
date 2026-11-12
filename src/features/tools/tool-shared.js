@@ -51,20 +51,32 @@ export function invalidateStrokeRect() {
   _strokeRectY = 0;
 }
 
-export function getCanvasCoords(e, canvas) {
-  let rect;
+/**
+ * Restituisce il rect del canvas, riusando la cache se viewport
+ * (scale/x/y) non è cambiato.
+ *
+ * Esportato anche per prediction.js: drawPredictions chiama
+ * getBoundingClientRect ad ogni pointermove (150-250 volte/s con
+ * penna Surface). Su canvas con transform: scale() attivo, ogni
+ * chiamata ricalcola la matrice CSS composited → 1-3ms su Atom.
+ * Con cache → 1 chiamata al pointerdown, poi O(1).
+ */
+export function getCanvasRect(canvas) {
   if (_strokeRect &&
       _strokeRectScale === viewport.scale &&
       _strokeRectX === viewport.x &&
       _strokeRectY === viewport.y) {
-    rect = _strokeRect;
-  } else {
-    rect = canvas.getBoundingClientRect();
-    _strokeRect = rect;
-    _strokeRectScale = viewport.scale;
-    _strokeRectX = viewport.x;
-    _strokeRectY = viewport.y;
+    return _strokeRect;
   }
+  _strokeRect = canvas.getBoundingClientRect();
+  _strokeRectScale = viewport.scale;
+  _strokeRectX = viewport.x;
+  _strokeRectY = viewport.y;
+  return _strokeRect;
+}
+
+export function getCanvasCoords(e, canvas) {
+  const rect = getCanvasRect(canvas);
 
   let p;
   if (_pointPoolIdx < _pointPool.length) {
@@ -154,9 +166,14 @@ function _runPostBatchChecks(pageData) {
   checkForScribble(pageData);
   if (!state.currentStroke || !state.isDrawing) return;
   if (state.pendingShape) return;
+  // Limite 100 punti: una linea retta viene riconosciuta entro
+  // i primi 50-80 punti in condizioni normali. Il vecchio limite
+  // di 200 causava O(N²) sul tratto (trySnapToLineDuringDraw è O(N),
+  // chiamato ogni ~16 punti). Su Surface Go 1 con tratti lunghi
+  // il costo cumulativo era percepibile.
   if (!state.scribbleMode && state.autoShapeEnabled &&
       SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
-      pts.length >= 6 && pts.length < 200) {
+      pts.length >= 6 && pts.length < 100) {
     trySnapToLineDuringDraw(pageData, pts[pts.length - 1]);
   }
 }
@@ -166,9 +183,6 @@ function _renderBatchTarget(pageData, drawnIdx) {
   const isHL = state.currentStroke.tool === 'highlighter';
   if (isHL) {
     // Highlighter: anteprima su overlay con path continuo.
-    // renderHighlighterPreviewOnOverlay fa clear bbox + stroke() del
-    // path completo (non accumula alpha sulle sovrapposizioni:
-    // niente palline). Non tocca la main canvas.
     renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
   } else {
     const targetCtx = pageData.overlayCtx;

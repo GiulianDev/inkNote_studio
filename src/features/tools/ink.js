@@ -42,7 +42,7 @@ import { finalizeScribble } from './scribble.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import {
-  getCanvasCoords, pushPointsToBatch, scheduleFlush,
+  getCanvasCoords, getCanvasRect, pushPointsToBatch, scheduleFlush,
   isPredictionSupported, drawPredictions
 } from './tool-shared.js';
 
@@ -89,10 +89,13 @@ export function moveInkStroke(pageData, e) {
 
   // Prediction: maschera latenza penna (pen-only). Vale anche per
   // highlighter (canvas predittivo separato, costo trascurabile).
+  // Passiamo il rect cachato da getCanvasRect: prediction.js non fa
+  // più getBoundingClientRect ad ogni pointermove (150-250/s × 1-3ms
+  // su Surface Go 1 = 150-750ms/s di CPU sprecata).
   if (isPredictionSupported(e)) {
     const predicted = e.getPredictedEvents();
     if (predicted && predicted.length > 0) {
-      drawPredictions(pageData, predicted);
+      drawPredictions(pageData, predicted, getCanvasRect(pageData.canvas));
     }
   }
 }
