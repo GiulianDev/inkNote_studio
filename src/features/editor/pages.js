@@ -7,15 +7,19 @@
  * I canvas vengono creati e riassegnati dal PageRendererPool in base
  * alla pagina attiva e alle pagine vicine.
  *
- * `refreshCanvasResolution` ora delega al pool.
+ * Gli strokes possono arrivare in formato packed (da IDB) o unpacked
+ * (da history, restore, creazione nuova pagina). `unpackStrokes`
+ * gestisce entrambi i casi in modo idempotente.
+ *
+ * `refreshCanvasResolution` delega al pool.
  *
  * @see features/editor/page-pool.js
+ * @see features/persistence/serialization.js
  */
 
-import { ensurePredictionCanvas } from '../render/prediction.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, showToast, on } from '../../core/utils.js';
-import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from '../render/render.js';
+import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
 import { attachPointerListeners } from '../tools/dispatcher.js';
 import { pushHistory, resetHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
@@ -25,7 +29,10 @@ import {
   applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
 import { pagePool, setViewportRef } from './page-pool.js';
+import { unpackStrokes } from '../persistence/serialization.js';
 
+// Pool ha bisogno di viewport.scale per calcolare il DPR target.
+// Lo passiamo per riferimento per evitare import ciclici (pool → state, qui → pool).
 setViewportRef(viewport);
 
 let _resolutionRefreshTimer = null;
@@ -33,6 +40,21 @@ let _viewportResizeObserver = null;
 let _lastVpW = 0;
 let _lastVpH = 0;
 
+// ============================================================
+// CREAZIONE PAGINA
+// ============================================================
+
+/**
+ * Crea il wrapper DOM di una pagina e registra i pointer listeners.
+ * NON crea canvas: ci pensa il PageRendererPool quando la pagina entra
+ * nel range di visibilità (o al primo pointerdown).
+ *
+ * @param {number} pageIndex
+ * @param {Array} initialStrokes — strokes packed (da IDB) o unpacked
+ *                                  (da history, restore, nuova pagina).
+ *                                  `unpackStrokes` normalizza a unpacked
+ *                                  runtime ({x,y,pressure,...}).
+ */
 export function createNewPageDOM(pageIndex, initialStrokes = []) {
   const container = document.getElementById('canvasContainer');
   const pageWrapper = document.createElement('div');
@@ -41,6 +63,8 @@ export function createNewPageDOM(pageIndex, initialStrokes = []) {
 
   container.appendChild(pageWrapper);
 
+  const strokes = unpackStrokes(initialStrokes);
+
   const pageData = {
     index: pageIndex,
     wrapper: pageWrapper,
@@ -48,7 +72,7 @@ export function createNewPageDOM(pageIndex, initialStrokes = []) {
     ctx: null,
     overlayCanvas: null,
     overlayCtx: null,
-    strokes: initialStrokes,
+    strokes,
     dpr: 0,
     overlayDpr: 0
   };
@@ -79,6 +103,10 @@ export function addNewPage() {
   });
 }
 
+// ============================================================
+// VIEWPORT (centratura, zoom, resize observer)
+// ============================================================
+
 export function centerViewport() {
   const vp = document.getElementById('viewport');
   viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
@@ -96,6 +124,7 @@ export function installViewportResizeObserver() {
   if (_viewportResizeObserver) return;
   const vp = document.getElementById('viewport');
   if (!vp) return;
+
   _lastVpW = vp.clientWidth;
   _lastVpH = vp.clientHeight;
 
@@ -103,21 +132,27 @@ export function installViewportResizeObserver() {
     const newW = vp.clientWidth;
     const newH = vp.clientHeight;
     if (newW === _lastVpW && newH === _lastVpH) return;
+
+    // Mantiene il centro del viewport ancorato al contenuto
     const canvasCX = (_lastVpW / 2 - viewport.x) / viewport.scale;
     const canvasCY = (_lastVpH / 2 - viewport.y) / viewport.scale;
+
     viewport.x = newW / 2 - canvasCX * viewport.scale;
     viewport.y = newH / 2 - canvasCY * viewport.scale;
+
     _lastVpW = newW;
     _lastVpH = newH;
+
     applyTransform();
   });
 
   _viewportResizeObserver.observe(vp);
 }
 
-// ------------------------------------------------------------
-// Pagina attiva
-// ------------------------------------------------------------
+// ============================================================
+// PAGINA ATTIVA (basata sul viewport)
+// ============================================================
+
 const ACTIVE_PAGE_SCAN_RADIUS = 3;
 
 export function getMostCenteredPage() {
@@ -129,7 +164,9 @@ export function getMostCenteredPage() {
   const vpCenterY = vpRect.top + vpRect.height / 2;
 
   const tryRange = (start, end) => {
-    let bestPage = null, bestVisibleArea = 0, bestDist = Infinity;
+    let bestPage = null;
+    let bestVisibleArea = 0;
+    let bestDist = Infinity;
     for (let i = start; i < end; i++) {
       const page = state.pages[i];
       if (!page) continue;
@@ -142,7 +179,9 @@ export function getMostCenteredPage() {
       const cy = rect.top + rect.height / 2;
       const dist = Math.hypot(cx - vpCenterX, cy - vpCenterY);
       if (visibleArea > bestVisibleArea || (visibleArea === bestVisibleArea && dist < bestDist)) {
-        bestVisibleArea = visibleArea; bestDist = dist; bestPage = page;
+        bestVisibleArea = visibleArea;
+        bestDist = dist;
+        bestPage = page;
       }
     }
     return bestPage;
@@ -152,6 +191,7 @@ export function getMostCenteredPage() {
   const end = Math.min(state.pages.length, state.activePageIndex + ACTIVE_PAGE_SCAN_RADIUS + 1);
   const ranged = tryRange(start, end);
   if (ranged) return ranged;
+
   return tryRange(0, state.pages.length);
 }
 
@@ -164,14 +204,20 @@ export function updateActivePageFromViewport() {
     _activePageCheckTimer = null;
     const page = getMostCenteredPage();
     if (!page || page.index === state.activePageIndex) return;
-    if (state.selectedStrokes.length > 0) clearSelection();
+    if (state.selectedStrokes.length > 0) {
+      clearSelection();
+    }
     state.activePageIndex = page.index;
     refreshPageCounter();
     resetHistory();
-    // Aggiorna subito il pool: le pagine vicine devono avere uno slot
+    // Pool si riallinea: le pagine vicine devono avere uno slot
     pagePool.updateAround(state.activePageIndex);
   }, ACTIVE_PAGE_CHECK_INTERVAL);
 }
+
+// ============================================================
+// POOL — delega
+// ============================================================
 
 export function refreshCanvasResolution(force = false) {
   pagePool.updateAround(state.activePageIndex, force);
@@ -186,24 +232,28 @@ export function scheduleResolutionRefresh() {
 }
 
 /**
- * resizeCanvasForHDPI è mantenuta per compatibilità (export-pdf.js, ecc.)
- * ma è un no-op con il pool: il resize avviene internamente per slot.
- * L'unico caso residuo è quando un consumatore ha bisogno di forzare
- * il DPR per la stampa: usare il canvas offscreen locale.
+ * resizeCanvasForHDPI è mantenuta per compatibilità con export-pdf.js
+ * e altri consumatori, ma con il pool è un no-op: il resize avviene
+ * internamente per slot. Se il chiamante ha bisogno di un DPR custom
+ * (stampa), deve usare un canvas offscreen separato (vedi export-pdf.js).
  */
 export function resizeCanvasForHDPI(pageData, dprOverride) {
-  // No-op: il pool gestisce il resize. Se serve un DPR custom (stampa),
-  // il chiamante deve creare un canvas offscreen separato.
   if (typeof dprOverride === 'number' && pageData && pageData.canvas) {
     // caso limite: forziamo un redraw (non cambiamo DPR)
     redrawPageCanvas(pageData);
   }
 }
 
+// ============================================================
+// AZIONI PAGINA
+// ============================================================
+
 export function changeBackgroundPattern(pattern) {
   state.bgPattern = pattern;
   scheduleSave();
-  state.pages.forEach(p => { if (p.canvas) redrawPageCanvas(p); });
+  state.pages.forEach(p => {
+    if (p.canvas) redrawPageCanvas(p);
+  });
   pushHistory();
 }
 
@@ -219,18 +269,31 @@ export function clearCurrentPage() {
   showToast('Pagina pulita', '🧹');
 }
 
+// ============================================================
+// RESTORE DA HISTORY
+// ============================================================
+
 function restorePageFromSnapshot(snap) {
   const pageIndex = snap.pageIndex;
   const container = document.getElementById('canvasContainer');
+
+  // Rimuove il wrapper vecchio
   const oldWrapper = container.querySelector(`.page-wrapper[data-index="${pageIndex}"]`);
   if (oldWrapper) oldWrapper.remove();
+
+  // Reset pool: gli slot puntavano a wrapper che stiamo per sostituire
   pagePool.reset();
+
+  // Ricrea la pagina (strokes arrivano unpacked da history)
   state.pages.splice(pageIndex, 1);
   createNewPageDOM(snap.pageIndex, snap.strokes);
+
+  // Riordina array + DOM
   state.pages.sort((a, b) => a.index - b.index);
   const wrappers = Array.from(container.querySelectorAll('.page-wrapper'));
   wrappers.sort((a, b) => parseInt(a.dataset.index) - parseInt(b.dataset.index));
   wrappers.forEach(w => container.appendChild(w));
+
   refreshPageCounter();
   invalidateClampCache();
   refreshCanvasResolution(true);
