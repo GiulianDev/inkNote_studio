@@ -3,6 +3,17 @@
  *
  * POINTER EVENT DISPATCHER — cuore dell'input.
  *
+ * Batch A.1:
+ *   - `handlePointerMove` ignora hover (pointerType pen, buttons === 0)
+ *     durante uno stroke attivo. Risolve "puntini uniti" su device
+ *     lenti dove il pointerup può essere coalescato/perso.
+ *   - `handlePointerDown` chiude uno stroke orfano se arriva un nuovo
+ *     pointerdown con lo stesso pointerId mentre `isDrawing === true`.
+ *
+ * Batch B:
+ *   - clearOverlay al pointerdown → clearOverlayBBox sullo stroke
+ *     precedente (solo se esiste). Costo ridotto ~30×.
+ *
  * @see core/types.js
  * @see tools/tool-shared.js
  * @see tools/ink.js, tools/eraser.js, tools/lazo.js
@@ -26,7 +37,10 @@ import {
   beginSelectionDrag, moveSelectionDrag, endSelectionDrag,
   resetSelectionDragState, updateCursorForSelection
 } from './lazo.js';
-import { redrawPageCanvas, clearOverlay, redrawSelectionOverlay } from '../render/render.js';
+import {
+  redrawPageCanvas, clearOverlay, redrawSelectionOverlay,
+  getStrokeBBoxCanvas, clearOverlayBBox
+} from '../render/render.js';
 import { beginInkStroke, moveInkStroke, endInkStroke } from './ink.js';
 import { scheduleSave } from '../persistence/autosave.js';
 
@@ -70,19 +84,12 @@ export function handlePointerDown(e, pageData) {
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
 
-  const isEraserGesture = penEraser || state.activeTool === 'eraser';
-  if (isEraserGesture && !_lastGestureWasEraser) {
-    flushHistory();
-  }
-  _gestureUsedEraser = false;
-
-  if (viewport.activePointers.size > 1) return;
-
   // ---- BATCH A.1 FIX ----
-  // Se c'era uno stroke ancora aperto con lo stesso pointerId,
-  // il pointerup è andato perso. Chiudilo prima di iniziarne
-  // uno nuovo: altrimenti i punti del nuovo gesto verrebbero
-  // accodati al vecchio stroke.
+  // Se c'era uno stroke ancora aperto con lo STESSO pointerId sullo
+  // STESSO canvas, il pointerup precedente è andato perso o è in
+  // ritardo. Chiudi quello stroke prima di iniziarne uno nuovo,
+  // altrimenti i punti del nuovo gesto verrebbero accodati al
+  // vecchio (→ "puntini uniti").
   if (state.isDrawing &&
       state.currentPointerId === e.pointerId &&
       state.currentPageForPointer === pageData) {
@@ -93,6 +100,13 @@ export function handlePointerDown(e, pageData) {
     state.currentPointerId = null;
     state.currentPageForPointer = null;
   }
+  // ---- FINE FIX ----
+
+  const isEraserGesture = penEraser || state.activeTool === 'eraser';
+  if (isEraserGesture && !_lastGestureWasEraser) {
+    flushHistory();
+  }
+  _gestureUsedEraser = false;
 
   resetPointPool();
   invalidateStrokeRect();
@@ -106,7 +120,25 @@ export function handlePointerDown(e, pageData) {
   state.scribbleMode = false;
   state.scribbleTargets = [];
   cancelFlush();
-  clearOverlay(pageData);
+
+  // ---- BATCH B FIX ----
+  // clear bbox-based invece di full-canvas: puliamo solo l'area
+  // dell'ultimo stroke noto (se esiste). Se non c'è uno stroke
+  // precedente, l'overlay è già pulito dal blit precedente.
+  if (state.currentStroke && state.currentStroke.points.length > 0) {
+    clearOverlayBBox(pageData, getStrokeBBoxCanvas(state.currentStroke));
+  } else if (pageData._lastHighlighterBBox) {
+    // Fallback: se un highlighter è stato interrotto, usa il suo bbox
+    clearOverlayBBox(pageData, {
+      minX: pageData._lastHighlighterBBox.x,
+      minY: pageData._lastHighlighterBBox.y,
+      maxX: pageData._lastHighlighterBBox.x + pageData._lastHighlighterBBox.w,
+      maxY: pageData._lastHighlighterBBox.y + pageData._lastHighlighterBBox.h
+    });
+    pageData._lastHighlighterBBox = null;
+  }
+  // ---- FINE FIX ----
+
   clearPredictions(pageData);
   try { pageData.canvas.setPointerCapture(e.pointerId); } catch (err) {}
 
@@ -154,16 +186,15 @@ export function handlePointerMove(e, pageData) {
   if (viewport.isPanning || viewport.isPinching) return;
 
   // ---- BATCH A.1 FIX ----
-  // Se lo stroke è ancora "aperto" ma la penna è SOL LEVATA
-  // (pointerType pen, buttons === 0), questo è un evento di HOVER,
-  // non un punto valido. Su device lenti il pointerup può essere
-  // perso o coalescato: senza questo filtro, gli eventi hover tra
-  // un tratto e il successivo vengono accodati al vecchio stroke,
-  // causando "puntini uniti" e tratti fantasma.
+  // Hover event durante uno stroke attivo: IGNORA.
+  // Su device lenti il pointerup può essere coalescato/perso: senza
+  // questo filtro, gli hover tra un tratto e l'altro vengono accodati
+  // al vecchio stroke → "puntini uniti".
   if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0) {
     return;
   }
   // ---- FINE FIX ----
+
   if (!state.isDrawing && state.activeTool === 'lasso' && e.pointerType !== 'touch') {
     updateCursorForSelection(e, pageData);
   }

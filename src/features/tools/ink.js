@@ -3,6 +3,13 @@
  *
  * TOOL INK — pen / pencil / marker / highlighter (logica condivisa).
  *
+ * Batch B:
+ *   - `_renderFinalStroke` per pen/pencil/marker usa `blitAndClearBBox`
+ *     invece di `drawImage(overlay, 0, 0, W, H)` full-canvas. Costo
+ *     ~30× inferiore su pagina piena.
+ *   - `beginInkStroke` inizializza `_lastSnapCheck` per il throttle
+ *     dello snap check in tool-shared.js.
+ *
  * @see core/types.js  — Stroke, Point
  * @see tools/tool-shared.js
  * @see tools/shapes.js
@@ -14,7 +21,8 @@ import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
   drawDotOnly, renderFullStroke, blitHighlighterFromOverlay,
-  renderHighlighterPreviewOnOverlay
+  renderHighlighterPreviewOnOverlay,
+  getStrokeBBoxCanvas, clearOverlayBBox, blitAndClearBBox
 } from '../render/render.js';
 import {
   finalizePendingShape, applyAngleSnap,
@@ -33,6 +41,7 @@ export function beginInkStroke(point) {
     tool: state.activeTool, color: state.currentColor, size: state.strokeWidth,
     startTime: performance.now(),
     _drawnIdx: 0,
+    _lastSnapCheck: 0,
     points: [{
       x: point.x, y: point.y, pressure: point.pressure,
       tiltX: point.tiltX, tiltY: point.tiltY, speed: 0, pointerType: point.pointerType
@@ -116,7 +125,6 @@ export function endInkStroke(pageData) {
 
   pageData.strokes.push(stroke);
   _renderFinalStroke(pageData, stroke, snapped);
-  clearOverlay(pageData);
   scheduleSave();
   pushHistory();
   state.currentStroke = null;
@@ -126,16 +134,14 @@ export function endInkStroke(pageData) {
 /**
  * Render finale per tool.
  *
- * Highlighter:
- *   Durante il draw è disegnato SOLO sull'overlay con source-over
- *   alpha 0.4/0.55. Al pointerup si trasferisce l'overlay sulla main
- *   con drawImage O(1).
- *
- *   Se snapped: l'overlay contiene il path PRE-SNAP (l'ultimo
- *   renderHighlighterPreviewOnOverlay chiamato da forceFlushNow in
- *   dispatcher.js è stato fatto con il path a mano libera). Va
- *   ridisegnato con il path snapped PRIMA del blit, altrimenti la
- *   main canvas riceve la traccia a mano libera e non la linea dritta.
+ * Batch B — path per tool:
+ *   - highlighter: preview overlay + blit full-canvas (invariato,
+ *     l'alto costo del preview O(n) è accettabile perché è un solo
+ *     tool e la maggior parte del lavoro è già in drawIncrementalBatch)
+ *   - snapped: redraw completo (nuovo path) + clear bbox overlay
+ *   - dot (1 punto): drawDotOnly + clear bbox overlay
+ *   - pencil: redraw completo + clear bbox overlay
+ *   - pen/marker: blit bbox-based
  */
 function _renderFinalStroke(pageData, stroke, snapped) {
   if (state.activeTool === 'highlighter') {
@@ -151,29 +157,25 @@ function _renderFinalStroke(pageData, stroke, snapped) {
     pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     renderFullStroke(pctx, stroke, state.isDarkMode);
     pctx.restore();
+    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke));
     return;
   }
+
   if (stroke.points.length === 1) {
     drawDotOnly(pageData, stroke);
+    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke));
     return;
   }
+
   if (state.activeTool === 'pencil') {
     const pctx = pageData.ctx, dpr = pageData.dpr || 1;
     pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     renderFullStroke(pctx, stroke, state.isDarkMode);
     pctx.restore();
+    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke));
     return;
   }
-  const pctx = pageData.ctx;
-  pctx.save();
-  pctx.setTransform(1, 0, 0, 1, 0, 0);
-  pctx.globalCompositeOperation = 'source-over';
-  pctx.globalAlpha = 1;
-  pctx.drawImage(
-    pageData.overlayCanvas,
-    0, 0,
-    pageData.canvas.width,
-    pageData.canvas.height
-  );
-  pctx.restore();
+
+  // pen / marker: blit bbox-based
+  blitAndClearBBox(pageData, getStrokeBBoxCanvas(stroke));
 }

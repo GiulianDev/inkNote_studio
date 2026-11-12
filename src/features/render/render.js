@@ -2,7 +2,7 @@
  * @module features/render/render
  *
  * RENDERING CANVAS — stili stroke, tapered path, selection overlay,
- * background patterns, pending shape.
+ * background patterns, pending shape, bbox-based blit/clear.
  *
  * @see core/types.js  — Stroke, PageData, BBox
  * @see render/stroke-cache.js
@@ -237,15 +237,6 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
 // Highlighter rendering (path continuo)
 // ------------------------------------------------------------
 
-/**
- * Highlighter full-stroke: path continuo con ctx.stroke(), invece
- * di fill per-segmento.
- *
- * Usato nel redraw completo (cambio tema, undo/redo, PDF, selezione):
- * ctx.stroke() su un unico path produce un nastro continuo, senza
- * giunzioni visibili e senza accumulo di alpha sulle sovrapposizioni
- * poligono/cerchio che causava l'effetto "palline con scie".
- */
 function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
   const pts = stroke.points;
   const n = pts.length;
@@ -277,20 +268,6 @@ function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
   ctx.restore();
 }
 
-/**
- * Anteprima highlighter sull'overlay durante il draw.
- *
- * Differenze rispetto a pen/marker:
- *   - non usa drawIncrementalBatch (che accumula alpha sulle
- *     sovrapposizioni: con source-over e alpha 0.4, due segmenti
- *     sovrapposti diventano 0.64 → "palline")
- *   - clear SOLO del bbox precedente (non di tutto l'overlay)
- *   - stroke() del path completo aggiornato
- *
- * NOTA: il bbox è PER-PAGE (pageData._lastHighlighterBBox), non
- * module-level. Prima era condiviso tra pagine, con rischio di
- * clearRect su coordinate sbagliate quando si cambiava pagina.
- */
 export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
   if (!pageData.overlayCtx || !stroke || stroke.points.length === 0) return;
 
@@ -354,13 +331,6 @@ export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
   pageData._lastHighlighterBBox = newBBox;
 }
 
-/**
- * Blit dell'overlay highlighter sulla main canvas.
- * Costo: 1× drawImage full-canvas (~10-15ms su Surface Go 1),
- * una tantum al termine dello stroke.
- *
- * Reset pageData._lastHighlighterBBox dopo il blit.
- */
 export function blitHighlighterFromOverlay(pageData) {
   if (!pageData.overlayCtx) return;
 
@@ -378,6 +348,90 @@ export function blitHighlighterFromOverlay(pageData) {
   pctx.restore();
 
   pageData._lastHighlighterBBox = null;
+}
+
+// ============================================================
+// BATCH B — BBOX-BASED CLEAR + BLIT
+// ------------------------------------------------------------
+// Sostituisce le operazioni full-canvas (~2-3.4 M px) con
+// operazioni limitate al bbox dello stroke (~50-200 K px tipico).
+// ============================================================
+
+/**
+ * Calcola il bbox di uno stroke in coordinate canvas-space
+ * (0..PAGE_WIDTH × 0..PAGE_HEIGHT), con pad.
+ * Restituisce null se lo stroke è vuoto.
+ */
+export function getStrokeBBoxCanvas(stroke, pad = 24) {
+  const pts = stroke && stroke.points;
+  if (!pts || pts.length === 0) return null;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+  }
+  return {
+    minX: minX - pad, maxX: maxX + pad,
+    minY: minY - pad, maxY: maxY + pad
+  };
+}
+
+/**
+ * Pulisce una zona rettangolare dell'overlay canvas.
+ * Coordinate in px canvas-space.
+ */
+export function clearOverlayBBox(pageData, bbox) {
+  if (!pageData || !pageData.overlayCtx || !bbox) return;
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;
+  const octx = pageData.overlayCtx;
+  const x = Math.max(0, Math.floor(bbox.minX * dpr));
+  const y = Math.max(0, Math.floor(bbox.minY * dpr));
+  const w = Math.ceil((bbox.maxX - bbox.minX) * dpr);
+  const h = Math.ceil((bbox.maxY - bbox.minY) * dpr);
+  if (w <= 0 || h <= 0) return;
+  octx.save();
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  octx.clearRect(x, y, w, h);
+  octx.restore();
+}
+
+/**
+ * Copia la zona bbox dell'overlay sulla main canvas, poi pulisce
+ * la stessa zona dall'overlay.
+ * Sostituisce `pctx.drawImage(overlayCanvas, 0, 0, W, H)` full-canvas.
+ */
+export function blitAndClearBBox(pageData, bbox) {
+  if (!pageData || !bbox) return;
+  const pctx = pageData.ctx;
+  const octx = pageData.overlayCtx;
+  if (!pctx || !octx) return;
+  const pDpr = pageData.dpr || 1;
+  const oDpr = pageData.overlayDpr || pDpr;
+
+  const px = Math.max(0, Math.floor(bbox.minX * pDpr));
+  const py = Math.max(0, Math.floor(bbox.minY * pDpr));
+  const pw = Math.ceil((bbox.maxX - bbox.minX) * pDpr);
+  const ph = Math.ceil((bbox.maxY - bbox.minY) * pDpr);
+
+  const ox = Math.floor(bbox.minX * oDpr);
+  const oy = Math.floor(bbox.minY * oDpr);
+  const ow = Math.ceil((bbox.maxX - bbox.minX) * oDpr);
+  const oh = Math.ceil((bbox.maxY - bbox.minY) * oDpr);
+
+  if (pw <= 0 || ph <= 0 || ow <= 0 || oh <= 0) return;
+
+  pctx.save();
+  pctx.setTransform(1, 0, 0, 1, 0, 0);
+  pctx.globalCompositeOperation = 'source-over';
+  pctx.globalAlpha = 1;
+  pctx.drawImage(pageData.overlayCanvas, ox, oy, ow, oh, px, py, pw, ph);
+  pctx.restore();
+
+  octx.save();
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  octx.clearRect(ox, oy, ow, oh);
+  octx.restore();
 }
 
 // ------------------------------------------------------------

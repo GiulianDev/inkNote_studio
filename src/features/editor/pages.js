@@ -51,64 +51,6 @@ let _viewportResizeObserver = null;
 let _lastVpW = 0;
 let _lastVpH = 0;
 
-// ============================================================
-// BATCH A.2 — CANVAS RELEASE
-// ------------------------------------------------------------
-// Le pagine lontane dal viewport non hanno bisogno di canvas
-// "reali": gli stroke sono dati JS, il canvas è solo la cache di
-// rendering. Rilasciare la memoria GPU dei canvas invisibili
-// riduce da N×20 MB a ~6×20 MB su notebook grandi (30+ pagine).
-//
-// Il wrapper resta nel DOM (layout invariato), ma con
-// visibility:hidden finché la pagina non torna visibile.
-// Al ritorno: resizeCanvasForHDPI + redrawPageCanvas ricostruiscono
-// tutto dagli stroke (nessun dato perso, è già così che funziona
-// il restore da history).
-// ============================================================
-
-const RELEASE_DISTANCE_PAGES = 4;  // oltre ±4 pagine dall'active → release
-
-function releaseCanvasMemory(pageData) {
-  if (pageData._released) return;
-
-  // 1×1 = dimensione minima che forza il browser a liberare la
-  // texture GPU associata al canvas. Non è "distruzione": è un
-  // resize a dimensione trascurabile.
-  const sz = 1;
-  if (pageData.canvas)        { pageData.canvas.width = sz;        pageData.canvas.height = sz; }
-  if (pageData.overlayCanvas) { pageData.overlayCanvas.width = sz; pageData.overlayCanvas.height = sz; }
-  if (pageData._predCanvas)   { pageData._predCanvas.width = sz;   pageData._predCanvas.height = sz; }
-
-  // Reset cache di rendering (invalidata dal resize)
-  pageData.dpr = 0;
-  pageData.overlayDpr = 0;
-  pageData._lastHighlighterBBox = null;
-  pageData._lastPredBBox = null;
-
-  // Nasconde visivamente il wrapper (senza rimuoverlo dal layout)
-  pageData.wrapper.style.visibility = 'hidden';
-
-  pageData._released = true;
-}
-
-function restoreCanvasMemory(pageData) {
-  if (!pageData._released) return;
-
-  pageData.wrapper.style.visibility = '';
-  pageData._released = false;
-
-  resizeCanvasForHDPI(pageData);
-  redrawPageCanvas(pageData);
-  if (pageData.index === state.activePageIndex && state.selectedStrokes.length > 0) {
-    redrawSelectionOverlay(pageData);
-  }
-  if (pageData._predCtx) {
-    // ensurePredictionCanvas già fatto; basta ridimensionare
-    pageData._predCanvas.width = Math.floor(PAGE_WIDTH * 1);
-    pageData._predCanvas.height = Math.floor(PAGE_HEIGHT * 1);
-  }
-}
-
 export function createNewPageDOM(pageIndex, initialStrokes = []) {
   const container = document.getElementById('canvasContainer');
   const pageWrapper = document.createElement('div');
@@ -309,28 +251,10 @@ export function resizeCanvasForHDPI(pageData, dprOverride) {
 export function refreshCanvasResolution(force = false) {
   state.pages.forEach(p => {
     const visible = isPageVisible(p);
-
-    // ---- PAGINA INVISIBILE ----
     if (!visible) {
       p._wasVisible = false;
-
-      // Release solo se è LONTANA dall'active (margine di sicurezza
-      // per evitare flash durante scroll veloce).
-      const dist = Math.abs(p.index - state.activePageIndex);
-      if (dist > RELEASE_DISTANCE_PAGES) {
-        releaseCanvasMemory(p);
-      }
       return;
     }
-
-    // ---- PAGINA VISIBILE ----
-    // Se era stata "released", ricostruisci da zero.
-    if (p._released) {
-      restoreCanvasMemory(p);
-      p._wasVisible = true;
-      return;
-    }
-
     const targetDpr = getCurrentRenderDpr(p);
     const dprChanged = Math.abs((p.dpr || 1) - targetDpr) > 0.01;
     const wasVisible = p._wasVisible !== false;

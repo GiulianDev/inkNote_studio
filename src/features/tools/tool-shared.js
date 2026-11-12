@@ -1,6 +1,9 @@
 // ============================================================
 // TOOLS COMMON — helper condivisi fra tutti i tool:
 // coordinate, smoothing, batching rAF, prediction clear.
+//
+// Batch B: throttle snap check a 1 ogni 10 punti (era ad ogni
+// batch da 16 → costo O(N) 12× più alto del necessario).
 // ============================================================
 
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
@@ -53,15 +56,6 @@ export function invalidateStrokeRect() {
   _strokeRectY = 0;
 }
 
-/**
- * Restituisce il rect del canvas, riusando la cache se canvas + viewport
- * (scale/x/y) non sono cambiati.
- *
- * Il confronto include il canvas (===): la cache è valida solo per lo
- * stesso canvas. Prima era implicito (un solo canvas per volta), ora
- * è esplicito → sicuro anche per consumatori che chiamano
- * getCanvasRect su canvas diversi (es. eraser cursor, lasso hover).
- */
 export function getCanvasRect(canvas) {
   if (_strokeRect &&
       _strokeRectCanvas === canvas &&
@@ -169,12 +163,19 @@ function _runPostBatchChecks(pageData) {
   checkForScribble(pageData);
   if (!state.currentStroke || !state.isDrawing) return;
   if (state.pendingShape) return;
-  // Limite 200 punti (valore originale). Una linea retta viene
-  // riconosciuta entro i primi 50-80 punti in condizioni normali.
+
+  // Batch B: throttle a 1 check ogni 10 punti.
+  // trySnapToLineDuringDraw è O(N) sul numero di punti; la
+  // condizione "linea dritta" non cambia in 16 punti, quindi
+  // controllare ogni batch è spreco.
   if (!state.scribbleMode && state.autoShapeEnabled &&
       SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
       pts.length >= 6 && pts.length < 200) {
-    trySnapToLineDuringDraw(pageData, pts[pts.length - 1]);
+    const lastCheck = state.currentStroke._lastSnapCheck || 0;
+    if (pts.length - lastCheck >= 10) {
+      state.currentStroke._lastSnapCheck = pts.length;
+      trySnapToLineDuringDraw(pageData, pts[pts.length - 1]);
+    }
   }
 }
 
@@ -269,5 +270,4 @@ export function forceFlushNow(pageData) {
   }
 }
 
-// Re-export utile a ink.js per la prediction
 export { isPredictionSupported, drawPredictions };
