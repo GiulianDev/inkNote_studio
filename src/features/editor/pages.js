@@ -1,31 +1,15 @@
 /**
  * @module features/editor/pages
  *
- * PAGINE — creazione DOM, gestione canvas, risoluzione HDPI, pagina attiva.
+ * PAGINE — creazione wrapper DOM, gestione canvas via pool, pagina attiva.
  *
- * createNewPageDOM(index, strokes):
- *   crea wrapper + canvas principale + overlay canvas + prediction canvas,
- *   aggancia pointer listeners, chiama redrawPageCanvas.
+ * Con il pool, `createNewPageDOM` crea SOLO il wrapper (niente canvas).
+ * I canvas vengono creati e riassegnati dal PageRendererPool in base
+ * alla pagina attiva e alle pagine vicine.
  *
- * addNewPage():
- *   crea pagina, la rende attiva, scrolla in cima, resetta history.
+ * `refreshCanvasResolution` ora delega al pool.
  *
- * HDPI / DPR:
- *   - DPR massimo 4 (perf)
- *   - overlay limitato a 1.5 (bassa risoluzione basta per feedback)
- *   - refreshCanvasResolution(): salta pagine invisibili (fix perf)
- *
- * Pagina attiva:
- *   - getMostCenteredPage(): scansione ±3 pagine (fix perf: 7 reflow vs 100)
- *   - updateActivePageFromViewport(): throttle 100ms
- *
- * Restore da history:
- *   ascolta `history:restore` e ricrea il DOM della pagina.
- *
- * @see core/types.js  — PageData, BgPattern
- * @see features/render/render.js
- * @see features/tools/dispatcher.js  — attachPointerListeners
- * @see features/history/history.js  — event history:restore
+ * @see features/editor/page-pool.js
  */
 
 import { ensurePredictionCanvas } from '../render/prediction.js';
@@ -40,13 +24,11 @@ import { refreshPageCounter } from '../toolbar/toolbar.js';
 import {
   applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
+import { pagePool, setViewportRef } from './page-pool.js';
 
-const MAX_RENDER_DPR = 4;
-const MAX_ZOOM_DPR_BOOST = 1.3;
-const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+setViewportRef(viewport);
 
 let _resolutionRefreshTimer = null;
-
 let _viewportResizeObserver = null;
 let _lastVpW = 0;
 let _lastVpH = 0;
@@ -57,28 +39,22 @@ export function createNewPageDOM(pageIndex, initialStrokes = []) {
   pageWrapper.className = 'page-wrapper';
   pageWrapper.dataset.index = pageIndex;
 
-  const canvas = document.createElement('canvas');
-  canvas.className = 'page-canvas';
-  const overlayCanvas = document.createElement('canvas');
-  overlayCanvas.className = 'overlay-canvas';
-
-  pageWrapper.appendChild(canvas);
-  pageWrapper.appendChild(overlayCanvas);
   container.appendChild(pageWrapper);
 
-  const ctx = canvas.getContext('2d');
-  const overlayCtx = overlayCanvas.getContext('2d');
   const pageData = {
-    index: pageIndex, wrapper: pageWrapper,
-    canvas, ctx, overlayCanvas, overlayCtx,
-    strokes: initialStrokes
+    index: pageIndex,
+    wrapper: pageWrapper,
+    canvas: null,
+    ctx: null,
+    overlayCanvas: null,
+    overlayCtx: null,
+    strokes: initialStrokes,
+    dpr: 0,
+    overlayDpr: 0
   };
 
-  ensurePredictionCanvas(pageData);
-  resizeCanvasForHDPI(pageData);
   state.pages.push(pageData);
   attachPointerListeners(pageData);
-  redrawPageCanvas(pageData);
   return pageData;
 }
 
@@ -120,7 +96,6 @@ export function installViewportResizeObserver() {
   if (_viewportResizeObserver) return;
   const vp = document.getElementById('viewport');
   if (!vp) return;
-
   _lastVpW = vp.clientWidth;
   _lastVpH = vp.clientHeight;
 
@@ -128,16 +103,12 @@ export function installViewportResizeObserver() {
     const newW = vp.clientWidth;
     const newH = vp.clientHeight;
     if (newW === _lastVpW && newH === _lastVpH) return;
-
     const canvasCX = (_lastVpW / 2 - viewport.x) / viewport.scale;
     const canvasCY = (_lastVpH / 2 - viewport.y) / viewport.scale;
-
     viewport.x = newW / 2 - canvasCX * viewport.scale;
     viewport.y = newH / 2 - canvasCY * viewport.scale;
-
     _lastVpW = newW;
     _lastVpH = newH;
-
     applyTransform();
   });
 
@@ -145,7 +116,7 @@ export function installViewportResizeObserver() {
 }
 
 // ------------------------------------------------------------
-// Pagina attiva basata sul viewport
+// Pagina attiva
 // ------------------------------------------------------------
 const ACTIVE_PAGE_SCAN_RADIUS = 3;
 
@@ -158,9 +129,7 @@ export function getMostCenteredPage() {
   const vpCenterY = vpRect.top + vpRect.height / 2;
 
   const tryRange = (start, end) => {
-    let bestPage = null;
-    let bestVisibleArea = 0;
-    let bestDist = Infinity;
+    let bestPage = null, bestVisibleArea = 0, bestDist = Infinity;
     for (let i = start; i < end; i++) {
       const page = state.pages[i];
       if (!page) continue;
@@ -173,9 +142,7 @@ export function getMostCenteredPage() {
       const cy = rect.top + rect.height / 2;
       const dist = Math.hypot(cx - vpCenterX, cy - vpCenterY);
       if (visibleArea > bestVisibleArea || (visibleArea === bestVisibleArea && dist < bestDist)) {
-        bestVisibleArea = visibleArea;
-        bestDist = dist;
-        bestPage = page;
+        bestVisibleArea = visibleArea; bestDist = dist; bestPage = page;
       }
     }
     return bestPage;
@@ -185,7 +152,6 @@ export function getMostCenteredPage() {
   const end = Math.min(state.pages.length, state.activePageIndex + ACTIVE_PAGE_SCAN_RADIUS + 1);
   const ranged = tryRange(start, end);
   if (ranged) return ranged;
-
   return tryRange(0, state.pages.length);
 }
 
@@ -198,76 +164,17 @@ export function updateActivePageFromViewport() {
     _activePageCheckTimer = null;
     const page = getMostCenteredPage();
     if (!page || page.index === state.activePageIndex) return;
-    if (state.selectedStrokes.length > 0) {
-      clearSelection();
-    }
+    if (state.selectedStrokes.length > 0) clearSelection();
     state.activePageIndex = page.index;
     refreshPageCounter();
     resetHistory();
+    // Aggiorna subito il pool: le pagine vicine devono avere uno slot
+    pagePool.updateAround(state.activePageIndex);
   }, ACTIVE_PAGE_CHECK_INTERVAL);
 }
 
-function getCurrentRenderDpr(pageData) {
-  const deviceDpr = window.devicePixelRatio || 1;
-  const zoom = Math.max(1, viewport.scale);
-  const extra = Math.min(zoom, MAX_ZOOM_DPR_BOOST);
-  const highDpr = Math.min(deviceDpr * extra, MAX_RENDER_DPR);
-  const lowDpr = deviceDpr;
-  if (pageData && !isPageVisible(pageData)) return lowDpr;
-  return highDpr;
-}
-
-function isPageVisible(pageData) {
-  const vp = document.getElementById('viewport');
-  if (!vp) return true;
-  const vpRect = vp.getBoundingClientRect();
-  const pRect = pageData.wrapper.getBoundingClientRect();
-  return !(pRect.right < vpRect.left || pRect.left > vpRect.right ||
-           pRect.bottom < vpRect.top || pRect.top > vpRect.bottom);
-}
-
-export function resizeCanvasForHDPI(pageData, dprOverride) {
-  const dpr = dprOverride || getCurrentRenderDpr(pageData);
-  const newW = Math.floor(PAGE_WIDTH * dpr);
-  const newH = Math.floor(PAGE_HEIGHT * dpr);
-  let changed = false;
-  if (pageData.canvas.width !== newW || pageData.canvas.height !== newH) {
-    pageData.canvas.width = newW; pageData.canvas.height = newH; changed = true;
-  }
-  const overlayDpr = Math.min(dpr, BASE_OVERLAY_DPR);
-  const oW = Math.floor(PAGE_WIDTH * overlayDpr);
-  const oH = Math.floor(PAGE_HEIGHT * overlayDpr);
-  if (pageData.overlayCanvas &&
-      (pageData.overlayCanvas.width !== oW || pageData.overlayCanvas.height !== oH)) {
-    pageData.overlayCanvas.width = oW;
-    pageData.overlayCanvas.height = oH;
-    changed = true;
-  }
-  pageData.dpr = dpr;
-  pageData.overlayDpr = overlayDpr;
-  return changed;
-}
-
 export function refreshCanvasResolution(force = false) {
-  state.pages.forEach(p => {
-    const visible = isPageVisible(p);
-    if (!visible) {
-      p._wasVisible = false;
-      return;
-    }
-    const targetDpr = getCurrentRenderDpr(p);
-    const dprChanged = Math.abs((p.dpr || 1) - targetDpr) > 0.01;
-    const wasVisible = p._wasVisible !== false;
-
-    if (force || dprChanged || !wasVisible) {
-      resizeCanvasForHDPI(p, targetDpr);
-      redrawPageCanvas(p);
-      if (p.index === state.activePageIndex && state.selectedStrokes.length > 0) {
-        redrawSelectionOverlay(p);
-      }
-    }
-    p._wasVisible = true;
-  });
+  pagePool.updateAround(state.activePageIndex, force);
 }
 
 export function scheduleResolutionRefresh() {
@@ -278,10 +185,25 @@ export function scheduleResolutionRefresh() {
   }, 200);
 }
 
+/**
+ * resizeCanvasForHDPI è mantenuta per compatibilità (export-pdf.js, ecc.)
+ * ma è un no-op con il pool: il resize avviene internamente per slot.
+ * L'unico caso residuo è quando un consumatore ha bisogno di forzare
+ * il DPR per la stampa: usare il canvas offscreen locale.
+ */
+export function resizeCanvasForHDPI(pageData, dprOverride) {
+  // No-op: il pool gestisce il resize. Se serve un DPR custom (stampa),
+  // il chiamante deve creare un canvas offscreen separato.
+  if (typeof dprOverride === 'number' && pageData && pageData.canvas) {
+    // caso limite: forziamo un redraw (non cambiamo DPR)
+    redrawPageCanvas(pageData);
+  }
+}
+
 export function changeBackgroundPattern(pattern) {
   state.bgPattern = pattern;
   scheduleSave();
-  state.pages.forEach(p => redrawPageCanvas(p));
+  state.pages.forEach(p => { if (p.canvas) redrawPageCanvas(p); });
   pushHistory();
 }
 
@@ -291,7 +213,7 @@ export function clearCurrentPage() {
   if (!confirm('Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Ctrl+Z.')) return;
   if (state.selectedStrokes.length > 0) clearSelection();
   page.strokes = [];
-  redrawPageCanvas(page);
+  if (page.canvas) redrawPageCanvas(page);
   scheduleSave();
   pushHistory();
   showToast('Pagina pulita', '🧹');
@@ -302,6 +224,7 @@ function restorePageFromSnapshot(snap) {
   const container = document.getElementById('canvasContainer');
   const oldWrapper = container.querySelector(`.page-wrapper[data-index="${pageIndex}"]`);
   if (oldWrapper) oldWrapper.remove();
+  pagePool.reset();
   state.pages.splice(pageIndex, 1);
   createNewPageDOM(snap.pageIndex, snap.strokes);
   state.pages.sort((a, b) => a.index - b.index);
@@ -310,8 +233,7 @@ function restorePageFromSnapshot(snap) {
   wrappers.forEach(w => container.appendChild(w));
   refreshPageCounter();
   invalidateClampCache();
-  const newPage = state.pages[state.activePageIndex];
-  if (newPage) redrawSelectionOverlay(newPage);
+  refreshCanvasResolution(true);
 }
 
 on('history:restore', restorePageFromSnapshot);

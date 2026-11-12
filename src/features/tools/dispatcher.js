@@ -3,16 +3,8 @@
  *
  * POINTER EVENT DISPATCHER — cuore dell'input.
  *
- * Batch A.1:
- *   - `handlePointerMove` ignora hover (pointerType pen, buttons === 0)
- *     durante uno stroke attivo. Risolve "puntini uniti" su device
- *     lenti dove il pointerup può essere coalescato/perso.
- *   - `handlePointerDown` chiude uno stroke orfano se arriva un nuovo
- *     pointerdown con lo stesso pointerId mentre `isDrawing === true`.
- *
- * Batch B:
- *   - clearOverlay al pointerdown → clearOverlayBBox sullo stroke
- *     precedente (solo se esiste). Costo ridotto ~30×.
+ * Listener sul WRAPPER (non sul canvas) perché il canvas può essere
+ * assente finché il pool non assegna uno slot alla pagina.
  *
  * @see core/types.js
  * @see tools/tool-shared.js
@@ -43,31 +35,43 @@ import {
 } from '../render/render.js';
 import { beginInkStroke, moveInkStroke, endInkStroke } from './ink.js';
 import { scheduleSave } from '../persistence/autosave.js';
+import { pagePool } from '../editor/page-pool.js';
 
 let _gestureUsedEraser = false;
 let _lastGestureWasEraser = false;
 
-// ============================================================
-// ATTACH LISTENERS
-// ============================================================
-
 export function attachPointerListeners(pageData) {
-  const canvas = pageData.canvas;
-  canvas.addEventListener('pointerdown', (e) => handlePointerDown(e, pageData));
-  if (_useRawPointerUpdate) {
-    canvas.addEventListener('pointerrawupdate', (e) => handlePointerMove(e, pageData), { passive: false });
-  } else {
-    canvas.addEventListener('pointermove', (e) => handlePointerMove(e, pageData), { passive: false });
-  }
-  canvas.addEventListener('pointerup', (e) => handlePointerUp(e, pageData));
-  canvas.addEventListener('pointercancel', (e) => handlePointerUp(e, pageData));
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  canvas.addEventListener('pointerleave', () => { hideEraserCursor(); });
-}
+  const target = pageData.wrapper;
 
-// ============================================================
-// POINTER DOWN
-// ============================================================
+  target.addEventListener('pointerdown', (e) => {
+    if (!pageData.canvas) pagePool.forceAssign(pageData.index);
+    if (!pageData.canvas) return; // pool esaurito, impossibile
+    handlePointerDown(e, pageData);
+  });
+
+  if (_useRawPointerUpdate) {
+    target.addEventListener('pointerrawupdate', (e) => {
+      if (!pageData.canvas) return;
+      handlePointerMove(e, pageData);
+    }, { passive: false });
+  } else {
+    target.addEventListener('pointermove', (e) => {
+      if (!pageData.canvas) return;
+      handlePointerMove(e, pageData);
+    }, { passive: false });
+  }
+
+  target.addEventListener('pointerup', (e) => {
+    if (!pageData.canvas) return;
+    handlePointerUp(e, pageData);
+  });
+  target.addEventListener('pointercancel', (e) => {
+    if (!pageData.canvas) return;
+    handlePointerUp(e, pageData);
+  });
+  target.addEventListener('contextmenu', (e) => e.preventDefault());
+  target.addEventListener('pointerleave', () => { hideEraserCursor(); });
+}
 
 export function handlePointerDown(e, pageData) {
   const penEraser = isPenEraser(e);
@@ -84,12 +88,7 @@ export function handlePointerDown(e, pageData) {
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
 
-  // ---- BATCH A.1 FIX ----
-  // Se c'era uno stroke ancora aperto con lo STESSO pointerId sullo
-  // STESSO canvas, il pointerup precedente è andato perso o è in
-  // ritardo. Chiudi quello stroke prima di iniziarne uno nuovo,
-  // altrimenti i punti del nuovo gesto verrebbero accodati al
-  // vecchio (→ "puntini uniti").
+  // Fix A.1: chiude stroke orfano
   if (state.isDrawing &&
       state.currentPointerId === e.pointerId &&
       state.currentPageForPointer === pageData) {
@@ -100,35 +99,26 @@ export function handlePointerDown(e, pageData) {
     state.currentPointerId = null;
     state.currentPageForPointer = null;
   }
-  // ---- FINE FIX ----
 
   const isEraserGesture = penEraser || state.activeTool === 'eraser';
-  if (isEraserGesture && !_lastGestureWasEraser) {
-    flushHistory();
-  }
+  if (isEraserGesture && !_lastGestureWasEraser) flushHistory();
   _gestureUsedEraser = false;
 
   resetPointPool();
   invalidateStrokeRect();
 
   const pageChanged = state.activePageIndex !== pageData.index;
-  if (pageChanged && state.selectedStrokes.length > 0) {
-    clearSelection();
-  }
+  if (pageChanged && state.selectedStrokes.length > 0) clearSelection();
 
   if (state.pendingShape) finalizePendingShape();
   state.scribbleMode = false;
   state.scribbleTargets = [];
   cancelFlush();
 
-  // ---- BATCH B FIX ----
-  // clear bbox-based invece di full-canvas: puliamo solo l'area
-  // dell'ultimo stroke noto (se esiste). Se non c'è uno stroke
-  // precedente, l'overlay è già pulito dal blit precedente.
+  // Batch B: clear bbox-based
   if (state.currentStroke && state.currentStroke.points.length > 0) {
     clearOverlayBBox(pageData, getStrokeBBoxCanvas(state.currentStroke));
   } else if (pageData._lastHighlighterBBox) {
-    // Fallback: se un highlighter è stato interrotto, usa il suo bbox
     clearOverlayBBox(pageData, {
       minX: pageData._lastHighlighterBBox.x,
       minY: pageData._lastHighlighterBBox.y,
@@ -137,10 +127,9 @@ export function handlePointerDown(e, pageData) {
     });
     pageData._lastHighlighterBBox = null;
   }
-  // ---- FINE FIX ----
 
   clearPredictions(pageData);
-  try { pageData.canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  try { pageData.wrapper.setPointerCapture(e.pointerId); } catch (err) {}
 
   state.activePageIndex = pageData.index;
   if (pageChanged) resetHistory();
@@ -154,9 +143,7 @@ export function handlePointerDown(e, pageData) {
 
   const effectiveTool = penEraser ? 'eraser' : state.activeTool;
 
-  if (effectiveTool === 'lasso') {
-    return beginLasso(pageData, point);
-  }
+  if (effectiveTool === 'lasso') return beginLasso(pageData, point);
 
   clearSelection();
   state.isDrawing = true;
@@ -169,31 +156,19 @@ export function handlePointerDown(e, pageData) {
   return beginInkStroke(point);
 }
 
-// ============================================================
-// POINTER MOVE
-// ============================================================
-
 export function handlePointerMove(e, pageData) {
-  if (shouldShowEraserCursor(e)) {
-    updateEraserCursor(e, pageData);
-  } else {
-    hideEraserCursor();
-  }
+  if (!pageData.canvas) return;
+
+  if (shouldShowEraserCursor(e)) updateEraserCursor(e, pageData);
+  else hideEraserCursor();
 
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
   if (palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
 
-  // ---- BATCH A.1 FIX ----
-  // Hover event durante uno stroke attivo: IGNORA.
-  // Su device lenti il pointerup può essere coalescato/perso: senza
-  // questo filtro, gli hover tra un tratto e l'altro vengono accodati
-  // al vecchio stroke → "puntini uniti".
-  if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0) {
-    return;
-  }
-  // ---- FINE FIX ----
+  // Fix A.1: ignora hover durante stroke attivo
+  if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0) return;
 
   if (!state.isDrawing && state.activeTool === 'lasso' && e.pointerType !== 'touch') {
     updateCursorForSelection(e, pageData);
@@ -201,41 +176,22 @@ export function handlePointerMove(e, pageData) {
   if (!state.isDrawing) return;
   if (e.pointerId !== state.currentPointerId) return;
 
-  if (state.pendingShape) {
-    moveInkStroke(pageData, e);
-    return;
-  }
-
-  if (state.isResizingSelection) {
-    applyResizeSelection(getCanvasCoords(e, pageData.canvas));
-    return;
-  }
-
-  if (state.isDraggingSelection) {
-    moveSelectionDrag(pageData, getCanvasCoords(e, pageData.canvas));
-    return;
-  }
-
-  if (state.activeTool === 'lasso') {
-    moveLasso(pageData, e);
-    return;
-  }
-
+  if (state.pendingShape) { moveInkStroke(pageData, e); return; }
+  if (state.isResizingSelection) { applyResizeSelection(getCanvasCoords(e, pageData.canvas)); return; }
+  if (state.isDraggingSelection) { moveSelectionDrag(pageData, getCanvasCoords(e, pageData.canvas)); return; }
+  if (state.activeTool === 'lasso') { moveLasso(pageData, e); return; }
   if (state.activeTool === 'eraser' || state._penEraserActive) {
     _gestureUsedEraser = true;
     moveEraserStroke(pageData, e);
     return;
   }
-
   if (!state.currentStroke) return;
   moveInkStroke(pageData, e);
 }
 
-// ============================================================
-// POINTER UP
-// ============================================================
-
 export function handlePointerUp(e, pageData) {
+  if (!pageData.canvas) return;
+
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
   if (palmCheck && !isPenLike) return;
@@ -257,21 +213,18 @@ export function handlePointerUp(e, pageData) {
 
   if (state.pendingShape) {
     endInkStroke(pageData);
-    try { pageData.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+    try { pageData.wrapper.releasePointerCapture(e.pointerId); } catch (err) {}
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
-    resetSelectionDragState();
-    resetPointPool(); invalidateStrokeRect();
+    resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
   }
 
-  try { pageData.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  try { pageData.wrapper.releasePointerCapture(e.pointerId); } catch (err) {}
 
   if (state.scribbleMode) {
     endInkStroke(pageData);
-    state.isDrawing = false; state.currentPointerId = null;
-    state.currentPageForPointer = null;
-    resetSelectionDragState();
-    resetPointPool(); invalidateStrokeRect();
+    state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
+    resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
   }
 
@@ -285,8 +238,7 @@ export function handlePointerUp(e, pageData) {
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
     pageData.canvas.style.cursor = 'crosshair';
     if (wasMoved) { pushHistory(); scheduleSave(); }
-    resetSelectionDragState();
-    resetPointPool(); invalidateStrokeRect();
+    resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
   }
 
@@ -299,39 +251,29 @@ export function handlePointerUp(e, pageData) {
   }
 
   if (!state.isDrawing) {
-    resetSelectionDragState();
-    resetPointPool(); invalidateStrokeRect();
+    resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
   }
   state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
 
   if (state.activeTool === 'lasso') {
     endLasso(pageData);
-    resetSelectionDragState();
-    resetPointPool(); invalidateStrokeRect();
+    resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
   }
 
   endInkStroke(pageData);
-  resetSelectionDragState();
-  resetPointPool();
-  invalidateStrokeRect();
+  resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
 }
-
-// ============================================================
-// ABORT (chiamato da gestures.js al pinch)
-// ============================================================
 
 export function abortCurrentDrawing() {
   if (state.pendingShape) finalizePendingShape();
   hideEraserCursor();
   cancelFlush();
   if (state.isDrawing || state.currentStroke) {
-    if (_gestureUsedEraser) {
-      pushHistory();
-    }
+    if (_gestureUsedEraser) pushHistory();
     if (state.currentPointerId !== null && state.currentPageForPointer) {
-      try { state.currentPageForPointer.canvas.releasePointerCapture(state.currentPointerId); } catch (err) {}
+      try { state.currentPageForPointer.wrapper.releasePointerCapture(state.currentPointerId); } catch (err) {}
     }
     state.isDrawing = false;
     state.currentStroke = null;
@@ -341,7 +283,7 @@ export function abortCurrentDrawing() {
     state.selectedStrokes = [];
     resetScribbleState();
     const curr = state.pages[state.activePageIndex];
-    if (curr) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
+    if (curr && curr.canvas) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
   }
   state._penEraserActive = false;
   _gestureUsedEraser = false;

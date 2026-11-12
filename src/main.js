@@ -67,7 +67,7 @@ window.addEventListener('load', async () => {
   onSettingsChanged(({ changed }) => {
     if (!changed.includes('theme') && !changed.includes('theme.effective')) return;
     state.pages.forEach(p => {
-      if (p._wasVisible !== false) {
+      if (p._wasVisible !== false && p.canvas) {
         redrawPageCanvas(p);
         if (p.index === state.activePageIndex && state.selectedStrokes.length > 0) {
           redrawSelectionOverlay(p);

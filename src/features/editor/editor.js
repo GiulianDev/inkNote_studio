@@ -1,6 +1,5 @@
 // ============================================================
 // EDITOR: apri/chiudi quaderno + orchestrazione
-// Fix 2: durante il pinch non aggiorniamo DPR né pagina attiva.
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
@@ -10,8 +9,9 @@ import { setCurrentNotebook, getCurrentNotebook, syncCurrentState, saveCurrentNo
 import { scheduleSave, flushAutoSave } from '../persistence/autosave.js';
 import {
   createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
-  installViewportResizeObserver
+  installViewportResizeObserver, refreshCanvasResolution
 } from './pages.js';
+import { pagePool } from './page-pool.js';
 import { refreshPageCounter } from '../toolbar/toolbar.js';
 import { resetHistory, pushHistory } from '../history/history.js';
 import { setViewportChangeHandler } from '../viewport/transform.js';
@@ -40,13 +40,16 @@ export async function openNotebook(id) {
   if (!nb) return;
 
   setCurrentNotebook(nb);
-
   initToolbarSettings(nb.toolbarSettings || null);
   applyToolbarControlsToUI();
 
   document.getElementById('docTitle').value = nb.title;
   state.bgPattern = nb.pattern || 'ruled';
   document.getElementById('bgPatternSelect').value = state.bgPattern;
+
+  // Pool: azzera prima di svuotare il container (gli slot puntano a wrapper
+  // che stanno per essere rimossi).
+  pagePool.reset();
 
   document.getElementById('canvasContainer').innerHTML = '';
   state.pages = [];
@@ -55,12 +58,16 @@ export async function openNotebook(id) {
 
   if (nb.pages && nb.pages.length > 0) {
     nb.pages.forEach((pageData, idx) => createNewPageDOM(idx, pageData.strokes || []));
-  } else createNewPageDOM(0, []);
+  } else {
+    createNewPageDOM(0, []);
+  }
 
   state.activePageIndex = 0;
   refreshPageCounter();
   document.getElementById('libraryView').classList.add('hidden');
   resetHistory();
+  // Forza il pool ad assegnare slot alle prime pagine.
+  refreshCanvasResolution(true);
   showToast(`Quaderno "${nb.title}" aperto`, '📖');
 }
 

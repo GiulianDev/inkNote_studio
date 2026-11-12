@@ -274,3 +274,37 @@ body.dark .eraser-cursor {
   border-color: rgba(248, 250, 252, 0.75);
   background: rgba(248, 250, 252, 0.06);
 }
+
+/* Export PDF con canvas offscreen */
+#printContainer {
+  display: none;
+}
+body.printing-pdf #printContainer {
+  display: block !important;
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  background: white;
+  z-index: 99999;
+}
+body.printing-pdf #viewport,
+body.printing-pdf #libraryView,
+body.printing-pdf #mainHeader,
+body.printing-pdf #subbar,
+body.printing-pdf #subbarCollapseContainer,
+body.printing-pdf #subbarExpandContainer,
+body.printing-pdf #undoRedoContainer,
+body.printing-pdf #zoomBadge,
+body.printing-pdf #toastNotification,
+body.printing-pdf #selectionMenu,
+body.printing-pdf #pullPageIndicator,
+body.printing-pdf #toolbarMount,
+body.printing-pdf #newNotebookModal {
+  display: none !important;
+}
+@media print {
+  body.printing-pdf #printContainer img {
+    page-break-after: always;
+    width: 100%;
+  }
+}
