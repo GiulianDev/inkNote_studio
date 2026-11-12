@@ -1,29 +1,21 @@
 /**
  * @module features/history
  *
- * UNDO / REDO — snapshot per-pagina, debounced 500ms.
+ * UNDO / REDO — snapshot per-pagina, debounced 800ms.
  *
- * Meccanica:
- *   - pushHistory()       → debounce 500ms (o forza se > 3s dall'ultimo)
- *   - flushHistory()      → forza push immediato
- *   - resetHistory()      → svuota stack e cattura snapshot iniziale
- *   - undo() / redo()     → applica snapshot via emit('history:restore')
- *   - handleHistoryKeyboard(e) → Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y
+ * Batch A:
+ *   - maxSteps 10 (era 20): dimezza la memoria live (≈16 MB vs 32 MB
+ *     su pagina piena), riducendo la pressione sul GC.
+ *   - Debounce 800ms (era 500): disaccoppia temporalmente history e
+ *     autosave, evitando che i due picchi di allocazione si sommino.
+ *   - Il "cap" a 3s della scrittura continua NON è più sincrono: viene
+ *     rimandato a requestIdleCallback. Se scrivi per 10s di fila, il
+ *     primo snapshot avviene a ~3s in idle, poi di nuovo a ~6s, ecc.
+ *     Nessun blocco del typing.
  *
- * Snapshot = { pageIndex, strokes: cloneFast, bgPattern, _hash }.
- * Lo stack è per-pagina: cambio pagina → resetHistory().
+ * Meccanica invariata per il resto.
  *
- * Clone manuale (cloneStrokeFast):
- *   copia solo i campi puri (x, y, pressure, tilt, speed, pointerType).
- *   NON copia _styleCache, _cacheCanvas, _pathLen, _drawnIdx (runtime).
- *
- * Hash leggero (skip se identico all'ultimo snapshot):
- *   - n° stroke, n° punti, size, colore, primo/ultimo punto, bgPattern.
- *
- * Max 20 step (~32 MB stimati). Configurabile via `maxSteps`.
- *
- * Emette: `history:restore` con lo snapshot (ascoltato da pages.js
- * per ricreare il DOM della pagina).
+ * Emette: `history:restore` con lo snapshot (ascoltato da pages.js).
  *
  * @see core/types.js  — Snapshot
  * @see features/persistence/autosave.js  — scheduleSave al restore
@@ -33,30 +25,24 @@ import { state } from '../../core/state.js';
 import { emit } from '../../core/utils.js';
 import { scheduleSave } from '../persistence/autosave.js';
 
-// Fix 4: maxSteps 20.
-// Memoria stimata: 20 snapshot × ~500 stroke × 100 punti × ~32 byte
-// ≈ 32 MB. Riduce la pressione sul GC rispetto ai 50 originali
-// (~80 MB) mantenendo 20 undo disponibili, più che sufficienti
-// per l'uso tipico. Se servono più undo, alzare questo valore
-// comporta un costo lineare in memoria.
-const historyState = { stack: [], index: -1, maxSteps: 20, isRestoring: false };
-let _pushHistoryTimer = null;
-let _lastSnapshotTime = 0;
+// Batch A: maxSteps 20 → 10.
+// Stima memoria: 10 snapshot × 500 stroke × 100 punti × ~88 byte
+// ≈ 44 MB (worst case). Il precedente era ~88 MB. Con device deboli
+// (Surface Go 1) ogni MB risparmiato allunga l'intervallo tra major GC.
+const historyState = { stack: [], index: -1, maxSteps: 10, isRestoring: false };
 
-// Fix 2: se durante una scrittura continua (stacco/riattacco rapido
-// < 500ms) il timer debounced viene continuamente resettato, senza
-// questo limite il primo undo cancellerebbe TUTTI gli stroke fatti
-// in una sessione, potenzialmente centinaia. Con 3s, il "blocco di
-// undo" massimo copre al più 3 secondi di scrittura.
+// Batch A: 500 → 800 ms. Disaccoppia da autosave (500 ms).
+const HISTORY_DEBOUNCE_MS = 800;
+
+// Cap scrittura continua: oltre questo tempo dall'inizio del batch,
+// forza uno snapshot asincrono (in idle) invece di aspettare che il
+// debounce scatti (che non scatterebbe mai in scrittura continua).
 const MAX_CONTINUOUS_DRAW_MS = 3000;
 
-// Fix 3: clone manuale degli stroke.
-// structuredClone fa reflection, gestisce cicli, tipi esotici — costoso
-// e con overhead per ogni campo. Il nostro Stroke ha struttura fissa:
-// copiamo solo i campi che servono (x, y, pressure, tilt, speed,
-// pointerType). I campi di cache (_styleCache, _pathLen, _drawnIdx,
-// _cacheCanvas, _cacheKey) non vengono clonati: verranno ricreati al
-// prossimo redraw/draw.
+let _pushHistoryTimer = null;
+let _lastSnapshotTime = 0;
+let _batchStartTime = 0;
+
 function cloneStrokeFast(s) {
   const pts = s.points;
   const n = pts.length;
@@ -79,12 +65,6 @@ function cloneStrokeFast(s) {
   };
 }
 
-// ------------------------------------------------------------
-// Hash leggero dello stato corrente.
-// Cattura: n° stroke, n° punti, size, colore, primo e ultimo punto,
-// bgPattern. Non è crittografico: collisioni rare possono causare
-// uno skip occasionale di uno step, non un bug visibile.
-// ------------------------------------------------------------
 function _computeStateHash() {
   const page = state.pages[state.activePageIndex];
   const pattern = state.bgPattern || '';
@@ -131,19 +111,34 @@ export function pushHistory() {
   if (historyState.isRestoring) return;
   if (_pushHistoryTimer) clearTimeout(_pushHistoryTimer);
 
-  // Fix 2: se sono passati più di MAX_CONTINUOUS_DRAW_MS dall'ultimo
-  // snapshot effettivo, forza subito lo snapshot. Così una sessione
-  // di scrittura continua non accumula più di 3s in un unico step.
-  if (performance.now() - _lastSnapshotTime > MAX_CONTINUOUS_DRAW_MS) {
+  const now = performance.now();
+  if (_batchStartTime === 0) _batchStartTime = now;
+
+  const elapsed = now - _batchStartTime;
+  const forceNow = elapsed > MAX_CONTINUOUS_DRAW_MS;
+
+  if (forceNow) {
+    // Batch A: niente più snapshot sincrono. Rimanda a idle.
     _pushHistoryTimer = null;
-    _doPushHistory();
+    _batchStartTime = 0;
+    _scheduleIdlePush();
     return;
   }
 
   _pushHistoryTimer = setTimeout(() => {
     _pushHistoryTimer = null;
+    _batchStartTime = 0;
     _doPushHistory();
-  }, 500);
+  }, HISTORY_DEBOUNCE_MS);
+}
+
+function _scheduleIdlePush() {
+  const run = () => _doPushHistory();
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(run, { timeout: 2000 });
+  } else {
+    setTimeout(run, 0);
+  }
 }
 
 function _doPushHistory() {
@@ -152,10 +147,8 @@ function _doPushHistory() {
   const newHash = _computeStateHash();
   const lastSnap = historyState.stack[historyState.index];
 
-  // Skip se lo stato è identico all'ultimo snapshot (nessun clone!)
   if (lastSnap && lastSnap._hash === newHash) return;
 
-  // Taglia il future prima di pushare
   if (historyState.index < historyState.stack.length - 1) {
     historyState.stack = historyState.stack.slice(0, historyState.index + 1);
   }
@@ -167,8 +160,6 @@ function _doPushHistory() {
   if (historyState.stack.length > historyState.maxSteps) historyState.stack.shift();
   historyState.index = historyState.stack.length - 1;
 
-  // Fix 2: aggiorna il timestamp SOLO quando lo snapshot è
-  // effettivamente avvenuto (non quando è stato skippato per hash).
   _lastSnapshotTime = performance.now();
 
   updateUndoRedoUI();
@@ -178,12 +169,14 @@ export function flushHistory() {
   if (_pushHistoryTimer) {
     clearTimeout(_pushHistoryTimer);
     _pushHistoryTimer = null;
+    _batchStartTime = 0;
     _doPushHistory();
   }
 }
 
 export function resetHistory() {
   if (_pushHistoryTimer) { clearTimeout(_pushHistoryTimer); _pushHistoryTimer = null; }
+  _batchStartTime = 0;
   historyState.stack = [];
   historyState.index = -1;
   const snap = captureSnapshot();
