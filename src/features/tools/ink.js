@@ -3,25 +3,6 @@
  *
  * TOOL INK — pen / pencil / marker / highlighter (logica condivisa).
  *
- * Ciclo di vita stroke:
- *   1. beginInkStroke(point)  → crea state.currentStroke (tool/color/size
- *                               dalla cache state.*, aggiornata da toolbar-settings)
- *   2. moveInkStroke(pageData, e) → accumula punti (batch rAF) + prediction
- *   3. endInkStroke(pageData) → snap forme + render finale + save + history
- *
- * Differenze tra tool (isolate in _renderFinalStroke):
- *   - pencil:    renderFullStroke (darkening per-step, no blit O(1))
- *   - highlighter: drawFinalSegmentOnly
- *   - pen/marker: blit overlay → main (O(1))
- *   - snapped:   renderFullStroke sempre
- *
- * Snap forme (solo se state.autoShapeEnabled):
- *   - highlighter → trySnapHighlighter
- *   - pen/pencil/marker → trySnapToLine + detectAndSnapShape
- *
- * Scribble-to-erase: rilevato durante il draw (in tool-shared.js), qui
- * solo finalizzato in endInkStroke.
- *
  * @see core/types.js  — Stroke, Point
  * @see tools/tool-shared.js
  * @see tools/shapes.js
@@ -32,7 +13,8 @@ import { state } from '../../core/state.js';
 import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
-  drawDotOnly, renderFullStroke, blitHighlighterFromOverlay
+  drawDotOnly, renderFullStroke, blitHighlighterFromOverlay,
+  renderHighlighterPreviewOnOverlay
 } from '../render/render.js';
 import {
   finalizePendingShape, applyAngleSnap,
@@ -87,11 +69,6 @@ export function moveInkStroke(pageData, e) {
   pushPointsToBatch(points);
   scheduleFlush(pageData);
 
-  // Prediction: maschera latenza penna (pen-only). Vale anche per
-  // highlighter (canvas predittivo separato, costo trascurabile).
-  // Passiamo il rect cachato da getCanvasRect: prediction.js non fa
-  // più getBoundingClientRect ad ogni pointermove (150-250/s × 1-3ms
-  // su Surface Go 1 = 150-750ms/s di CPU sprecata).
   if (isPredictionSupported(e)) {
     const predicted = e.getPredictedEvents();
     if (predicted && predicted.length > 0) {
@@ -100,10 +77,6 @@ export function moveInkStroke(pageData, e) {
   }
 }
 
-/**
- * Finalizza lo stroke ink al pointerup.
- * Ritorna una stringa che descrive il caso gestito (per debug/log).
- */
 export function endInkStroke(pageData) {
   if (state.pendingShape) {
     finalizePendingShape();
@@ -124,7 +97,6 @@ export function endInkStroke(pageData) {
   const stroke = state.currentStroke;
   const pts = stroke.points;
 
-  // Snap forme (solo se auto-shape attivo e stroke sufficientemente lungo)
   let snapped = false;
   if (pts.length > 2 && state.autoShapeEnabled) {
     if (state.activeTool === 'highlighter') {
@@ -154,24 +126,22 @@ export function endInkStroke(pageData) {
 /**
  * Render finale per tool.
  *
- * Highlighter: blit dell'overlay sulla main canvas (O(1) drawImage).
- * Motivo: durante il draw l'highlighter è stato disegnato SOLO
- * sull'overlay con source-over alpha 0.4. Al rilascio trasferiamo
- * l'overlay sulla main con un singolo drawImage → costo O(1) rispetto
- * al numero di stroke in pagina (redraw totale sarebbe O(n stroke)).
+ * Highlighter:
+ *   Durante il draw è disegnato SOLO sull'overlay con source-over
+ *   alpha 0.4/0.55. Al pointerup si trasferisce l'overlay sulla main
+ *   con drawImage O(1).
  *
- * Se snapped: il path è già stato modificato da trySnapHighlighter
- * (linea dritta). L'overlay contiene la vecchia traccia a mano libera
- * + il path dritto? No: renderHighlighterPreviewOnOverlay è stato
- * chiamato durante il draw, e al pointerup _forceFlushNow (in
- * dispatcher.js) chiama l'ultimo renderHighlighterPreviewOnOverlay
- * con il path aggiornato. Quindi l'overlay contiene SOLO la linea
- * dritta. La traccia a mano libera non è mai stata scritta su main.
- *
- * Pen / pencil / marker: comportamento invariato.
+ *   Se snapped: l'overlay contiene il path PRE-SNAP (l'ultimo
+ *   renderHighlighterPreviewOnOverlay chiamato da forceFlushNow in
+ *   dispatcher.js è stato fatto con il path a mano libera). Va
+ *   ridisegnato con il path snapped PRIMA del blit, altrimenti la
+ *   main canvas riceve la traccia a mano libera e non la linea dritta.
  */
 function _renderFinalStroke(pageData, stroke, snapped) {
   if (state.activeTool === 'highlighter') {
+    if (snapped) {
+      renderHighlighterPreviewOnOverlay(pageData, stroke);
+    }
     blitHighlighterFromOverlay(pageData);
     return;
   }
@@ -194,7 +164,6 @@ function _renderFinalStroke(pageData, stroke, snapped) {
     pctx.restore();
     return;
   }
-  // pen / marker: overlay ha già lo stroke con unify → blit O(1)
   const pctx = pageData.ctx;
   pctx.save();
   pctx.setTransform(1, 0, 0, 1, 0, 0);

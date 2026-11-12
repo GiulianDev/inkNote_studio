@@ -4,34 +4,6 @@
  * RENDERING CANVAS — stili stroke, tapered path, selection overlay,
  * background patterns, pending shape.
  *
- * Pipeline di rendering di uno stroke:
- *   1. computeStrokeWidth(tool, size, pressure, tilt, speed, taper) → spessore px
- *   2. drawTaperedSegment / addTaperedSegmentPolygon + addTaperedSegmentCircle
- *   3. interpolatePointInto (Catmull-Rom se smoothness > 0.01)
- *
- * Due modalità:
- *   - unified (pen/marker/pencil): un unico path.fill() per tutti i segmenti
- *   - non-unified (highlighter): fill per-segmento
- *
- * Cache pencil: buildStrokeBitmap (in stroke-cache.js) crea un canvas
- * off-screen per pencil > 30 punti (evita ri-render delle stroke lunghe).
- *
- * Cache background: getBackgroundCanvas memoizza per pattern+tema.
- *
- * Cache stile: stroke._styleCache memoizza per chiave tema ('dark'|'light'),
- * invalidata da previewSelectionColor / changeSelectionColor.
- *
- * Funzioni chiave:
- *   - redrawPageCanvas(pageData, [forceDark])   — ridisegna intera pagina
- *   - renderFullStroke(ctx, stroke, dark, [overrideColor])
- *   - drawIncrementalBatch(ctx, stroke, fromIdx, dpr) — batch rAF
- *   - drawFinalSegmentOnly / drawDotOnly — caso fine stroke
- *   - drawPendingShape / renderPendingShapeOnOverlay — snap in corso
- *   - drawScribbleSegment / drawScribbleStroke — feedback scribble-to-erase
- *   - drawPaperBackground — pattern
- *   - drawSelectionHandles / drawSelectionBBoxOnOverlay / redrawSelectionOverlay
- *   - clearOverlay(pageData)
- *
  * @see core/types.js  — Stroke, PageData, BBox
  * @see render/stroke-cache.js
  * @see render/prediction.js
@@ -53,12 +25,6 @@ const BACKGROUND_DPR = 2;
 
 const _ptA = { x: 0, y: 0 };
 const _ptB = { x: 0, y: 0 };
-
-// Tracking del bbox dell'anteprima highlighter sull'overlay.
-// Serve per fare clear solo della regione disegnata, non di tutto
-// l'overlay (~1.5M pixel): su Surface Go 1 il clearOverlay completo
-// ad ogni flush costa ~5-10ms.
-let _lastHighlighterBBox = null;
 
 // ------------------------------------------------------------
 // Geometry pura (usata da render e lazo)
@@ -279,9 +245,6 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
  * ctx.stroke() su un unico path produce un nastro continuo, senza
  * giunzioni visibili e senza accumulo di alpha sulle sovrapposizioni
  * poligono/cerchio che causava l'effetto "palline con scie".
- *
- * Nota: in dark mode usa 'screen' (schiarisce), in light 'multiply'
- * (preserva il testo nero sottostante).
  */
 function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
   const pts = stroke.points;
@@ -324,8 +287,9 @@ function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
  *   - clear SOLO del bbox precedente (non di tutto l'overlay)
  *   - stroke() del path completo aggiornato
  *
- * Costo per flush: O(N punti) + O(area bbox). Su un tratto di 500
- * punti: ~1-2ms per flush su Surface Go 1. Accettabile.
+ * NOTA: il bbox è PER-PAGE (pageData._lastHighlighterBBox), non
+ * module-level. Prima era condiviso tra pagine, con rischio di
+ * clearRect su coordinate sbagliate quando si cambiava pagina.
  */
 export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
   if (!pageData.overlayCtx || !stroke || stroke.points.length === 0) return;
@@ -334,8 +298,6 @@ export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
   const dpr = pageData.overlayDpr || pageData.dpr || 1;
   const pts = stroke.points;
 
-  // Colore scelto per approssimare il risultato multiply/screen finale
-  // su source-over: alpha 0.4 (light) / 0.55 (dark), stesso colore.
   const isDark = state.isDarkMode;
   const color = isDark
     ? hexToRgbA(stroke.color, 0.55)
@@ -343,14 +305,13 @@ export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
   const baseSize = sliderToBaseSize(stroke.size);
   const lineWidth = Math.max(1, baseSize * 4.0);
 
-  // Calcola bbox attuale del path (in coordinate canvas, poi scalate a dpr)
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
     if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
   }
-  const pad = lineWidth + 2; // margine per lineCap/join
+  const pad = lineWidth + 2;
   const newBBox = {
     x: Math.max(0, Math.floor((minX - pad) * dpr)),
     y: Math.max(0, Math.floor((minY - pad) * dpr)),
@@ -358,20 +319,17 @@ export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
     h: Math.ceil((maxY - minY + pad * 2) * dpr)
   };
 
-  // Clear del bbox precedente + del bbox attuale (il path si sposta,
-  // quindi unire le due aree per evitare residui)
   octx.save();
   octx.setTransform(1, 0, 0, 1, 0, 0);
-  if (_lastHighlighterBBox) {
+  if (pageData._lastHighlighterBBox) {
     octx.clearRect(
-      _lastHighlighterBBox.x, _lastHighlighterBBox.y,
-      _lastHighlighterBBox.w, _lastHighlighterBBox.h
+      pageData._lastHighlighterBBox.x, pageData._lastHighlighterBBox.y,
+      pageData._lastHighlighterBBox.w, pageData._lastHighlighterBBox.h
     );
   }
   octx.clearRect(newBBox.x, newBBox.y, newBBox.w, newBBox.h);
   octx.restore();
 
-  // Disegna il path completo con source-over
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   octx.globalCompositeOperation = 'source-over';
@@ -393,22 +351,15 @@ export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
   }
   octx.restore();
 
-  _lastHighlighterBBox = newBBox;
+  pageData._lastHighlighterBBox = newBBox;
 }
 
 /**
  * Blit dell'overlay highlighter sulla main canvas.
+ * Costo: 1× drawImage full-canvas (~10-15ms su Surface Go 1),
+ * una tantum al termine dello stroke.
  *
- * Usato al pointerup dell'highlighter. Costo: 1× drawImage full-canvas
- * (~10-15ms su Surface Go 1), una tantum al termine dello stroke.
- *
- * source-over (non multiply/screen): l'overlay contiene già il colore
- * con alpha 0.4/0.55 disegnato in source-over. Il blit trasferisce
- * quei pixel sulla main con la stessa alpha. Risultato visivo: identico
- * all'anteprima live. Le sovrapposizioni di DUE highlighter diversi
- * si scuriscono correttamente (perché sulla main l'alpha si compone).
- *
- * Reset _lastHighlighterBBox dopo il blit.
+ * Reset pageData._lastHighlighterBBox dopo il blit.
  */
 export function blitHighlighterFromOverlay(pageData) {
   if (!pageData.overlayCtx) return;
@@ -426,7 +377,7 @@ export function blitHighlighterFromOverlay(pageData) {
   );
   pctx.restore();
 
-  _lastHighlighterBBox = null;
+  pageData._lastHighlighterBBox = null;
 }
 
 // ------------------------------------------------------------
@@ -487,9 +438,6 @@ export function drawDotOnly(pageData, stroke) {
 }
 
 export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
-  // Highlighter senza override: rendering dedicato con stroke() continuo.
-  // Con overrideColor (scribble target rosso) ricade nel ramo generico,
-  // così il colore override viene rispettato.
   if (stroke.tool === 'highlighter' && !overrideColor) {
     renderHighlighterFullStroke(ctx, stroke, forceTargetDark);
     return;
@@ -591,9 +539,6 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   ctx.restore();
 }
 
-// ------------------------------------------------------------
-// Batch di segmenti incrementali (pen / pencil / marker)
-// ------------------------------------------------------------
 export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
   const pts = stroke.points;
   const n = pts.length;
@@ -865,7 +810,7 @@ export function clearOverlay(pageData) {
   octx.setTransform(1, 0, 0, 1, 0, 0);
   octx.clearRect(0, 0, pageData.overlayCanvas.width, pageData.overlayCanvas.height);
   octx.restore();
-  _lastHighlighterBBox = null;
+  pageData._lastHighlighterBBox = null;
 }
 
 export function renderPendingShapeOnOverlay(pageData) {

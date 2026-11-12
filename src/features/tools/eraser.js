@@ -3,23 +3,6 @@
  *
  * TOOL ERASER + CURSORE GOMMA.
  *
- * Due responsabilità separate nello stesso file:
- *
- * 1. CURSORE (cerchio tratteggiato che segue la penna):
- *    - updateEraserCursor / hideEraserCursor / shouldShowEraserCursor
- *    - vive in `#eraserCursor` (div fixed creato on-demand in body)
- *    - dimensione derivata da state.eraserSize via getEraserRadius()
- *
- * 2. TOOL ERASER (cancellazione):
- *    - beginEraserStroke / moveEraserStroke → performEraserBatch
- *    - due modalità (state.eraserMode):
- *        'stroke' → rimuove interi stroke che intersecano il raggio
- *        'point'  → rimuove singoli punti dentro il raggio
- *    - dopo cancellazione: redraw + scheduleSave
- *
- * Nota su history: flushHistory() al pointerdown è chiamato da dispatcher.js
- * per consolidare i micro-up del driver Windows Ink in un unico step.
- *
  * @see core/types.js
  * @see tools/tool-shared.js
  * @see features/toolbar/toolbar-settings.js  — getEraserRadius
@@ -31,7 +14,7 @@ import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
 import { redrawPageCanvas } from '../render/render.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import { getEraserRadius } from '../toolbar/toolbar-settings.js';
-import { getCanvasCoords, isPenEraser, resetPointPool } from './tool-shared.js';
+import { getCanvasCoords, getCanvasRect, isPenEraser, resetPointPool } from './tool-shared.js';
 
 // ============================================================
 // CURSORE GOMMA
@@ -42,11 +25,6 @@ let _eraserCursorRaf = null;
 let _eraserCursorLastX = 0;
 let _eraserCursorLastY = 0;
 let _eraserCursorPageData = null;
-
-let _cursorRect = null;
-let _cursorRectScale = 0;
-let _cursorRectX = 0;
-let _cursorRectY = 0;
 
 function ensureEraserCursor() {
   if (_eraserCursorEl) return _eraserCursorEl;
@@ -67,17 +45,7 @@ function _applyEraserCursorFrame() {
   const pageData = _eraserCursorPageData;
   if (!el || !pageData) return;
 
-  let rect = _cursorRect;
-  if (!rect ||
-      _cursorRectScale !== viewport.scale ||
-      _cursorRectX !== viewport.x ||
-      _cursorRectY !== viewport.y) {
-    rect = pageData.canvas.getBoundingClientRect();
-    _cursorRect = rect;
-    _cursorRectScale = viewport.scale;
-    _cursorRectX = viewport.x;
-    _cursorRectY = viewport.y;
-  }
+  const rect = getCanvasRect(pageData.canvas);
 
   const radiusCanvas = getEraserRadius();
   const radiusScreen = radiusCanvas * (rect.width / PAGE_WIDTH);
@@ -116,7 +84,6 @@ export function shouldShowEraserCursor(e) {
   return false;
 }
 
-// Quando l'utente cambia tool non-eraser, nascondi il cursore.
 document.addEventListener('inknote:tool-changed', () => {
   if (state.activeTool !== 'eraser' && !state._penEraserActive) {
     hideEraserCursor();

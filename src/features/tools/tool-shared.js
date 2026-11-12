@@ -40,35 +40,38 @@ export function resetPointPool() { _pointPoolIdx = 0; }
 // Cache rect canvas
 // ------------------------------------------------------------
 let _strokeRect = null;
+let _strokeRectCanvas = null;
 let _strokeRectScale = 0;
 let _strokeRectX = 0;
 let _strokeRectY = 0;
 
 export function invalidateStrokeRect() {
   _strokeRect = null;
+  _strokeRectCanvas = null;
   _strokeRectScale = 0;
   _strokeRectX = 0;
   _strokeRectY = 0;
 }
 
 /**
- * Restituisce il rect del canvas, riusando la cache se viewport
- * (scale/x/y) non è cambiato.
+ * Restituisce il rect del canvas, riusando la cache se canvas + viewport
+ * (scale/x/y) non sono cambiati.
  *
- * Esportato anche per prediction.js: drawPredictions chiama
- * getBoundingClientRect ad ogni pointermove (150-250 volte/s con
- * penna Surface). Su canvas con transform: scale() attivo, ogni
- * chiamata ricalcola la matrice CSS composited → 1-3ms su Atom.
- * Con cache → 1 chiamata al pointerdown, poi O(1).
+ * Il confronto include il canvas (===): la cache è valida solo per lo
+ * stesso canvas. Prima era implicito (un solo canvas per volta), ora
+ * è esplicito → sicuro anche per consumatori che chiamano
+ * getCanvasRect su canvas diversi (es. eraser cursor, lasso hover).
  */
 export function getCanvasRect(canvas) {
   if (_strokeRect &&
+      _strokeRectCanvas === canvas &&
       _strokeRectScale === viewport.scale &&
       _strokeRectX === viewport.x &&
       _strokeRectY === viewport.y) {
     return _strokeRect;
   }
   _strokeRect = canvas.getBoundingClientRect();
+  _strokeRectCanvas = canvas;
   _strokeRectScale = viewport.scale;
   _strokeRectX = viewport.x;
   _strokeRectY = viewport.y;
@@ -166,14 +169,11 @@ function _runPostBatchChecks(pageData) {
   checkForScribble(pageData);
   if (!state.currentStroke || !state.isDrawing) return;
   if (state.pendingShape) return;
-  // Limite 100 punti: una linea retta viene riconosciuta entro
-  // i primi 50-80 punti in condizioni normali. Il vecchio limite
-  // di 200 causava O(N²) sul tratto (trySnapToLineDuringDraw è O(N),
-  // chiamato ogni ~16 punti). Su Surface Go 1 con tratti lunghi
-  // il costo cumulativo era percepibile.
+  // Limite 200 punti (valore originale). Una linea retta viene
+  // riconosciuta entro i primi 50-80 punti in condizioni normali.
   if (!state.scribbleMode && state.autoShapeEnabled &&
       SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
-      pts.length >= 6 && pts.length < 100) {
+      pts.length >= 6 && pts.length < 200) {
     trySnapToLineDuringDraw(pageData, pts[pts.length - 1]);
   }
 }
@@ -182,7 +182,6 @@ function _renderBatchTarget(pageData, drawnIdx) {
   if (!state.currentStroke) return;
   const isHL = state.currentStroke.tool === 'highlighter';
   if (isHL) {
-    // Highlighter: anteprima su overlay con path continuo.
     renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
   } else {
     const targetCtx = pageData.overlayCtx;

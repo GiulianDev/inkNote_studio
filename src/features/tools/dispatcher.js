@@ -3,33 +3,6 @@
  *
  * POINTER EVENT DISPATCHER — cuore dell'input.
  *
- * Attach: attachPointerListeners(pageData) attacca pointerdown/move/up
- *         (+ pointerrawupdate se supportato) su ogni canvas.
- *
- * Dispatch (handlePointerDown):
- *   1. palm rejection → filtro touch/palm
- *   2. capture del pointer
- *   3. flushHistory() se gesto eraser (consolidamento micro-up del driver)
- *   4. dispatch al tool:
- *        - lasso   → beginLasso()    (tools/lazo.js)
- *        - eraser  → beginEraserStroke() (tools/eraser.js)
- *        - ink     → beginInkStroke()    (tools/ink.js)
- *
- * Dispatch (handlePointerMove):
- *   - pendingShape → moveInkStroke (gestisce anche snap linea in corso)
- *   - resizing/dragging selection → tools/lazo.js
- *   - lasso → moveLasso
- *   - eraser → moveEraserStroke
- *   - ink → moveInkStroke (batch rAF)
- *
- * Dispatch (handlePointerUp):
- *   - pendingShape / scribble → endInkStroke
- *   - resizing/dragging → fine manuale con scheduleSave
- *   - lasso → endLasso
- *   - ink → endInkStroke (render finale + save + history)
- *
- * abortCurrentDrawing(): usato da gestures.js al pinch.
- *
  * @see core/types.js
  * @see tools/tool-shared.js
  * @see tools/ink.js, tools/eraser.js, tools/lazo.js
@@ -306,9 +279,6 @@ export function abortCurrentDrawing() {
     state.currentPageForPointer = null;
     state.lassoPath = [];
     state.selectedStrokes = [];
-    // Reset completo scribble (mode, targets, contatore target check).
-    // Prima lasciava _lastScribbleTargetCheck al valore precedente, con
-    // possibile check spurio al primo scribble successivo.
     resetScribbleState();
     const curr = state.pages[state.activePageIndex];
     if (curr) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }

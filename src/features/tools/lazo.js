@@ -3,25 +3,6 @@
  *
  * TOOL LAZO + SELEZIONE + EDITING + SELECTION DRAG.
  *
- * Tre responsabilità in un file (consolidamento intenzionale):
- *
- * 1. TOOL LAZO (begin/move/end durante il draw):
- *    - beginLasso: decide resize / drag / nuovo lazo in base al click
- *    - moveLasso: accumula punti su state.lassoPath + overlay
- *    - endLasso: chiama selectStrokesInsideLasso
- *
- * 2. SELEZIONE (editing post-lazo, 20+ export):
- *    - selectStrokesInsideLasso / clearSelection
- *    - startResizeSelection / applyResizeSelection (con snap angolare 90°)
- *    - previewSelectionColor/Width + changeSelectionColor/Width
- *    - deleteSelectedStrokes
- *    - updateSelectionMenuPosition / updateCursorForSelection
- *
- * 3. SELECTION DRAG (spostamento):
- *    - begin/move/endSelectionDrag + resetSelectionDragState
- *
- * Split futuro (se cresce): lazo-tool.js / selection.js / selection-drag.js
- *
  * @see core/types.js  — Stroke, BBox
  * @see features/render/render.js  — bbox, handlers, overlay
  * @see features/history/history.js
@@ -39,7 +20,7 @@ import {
 } from '../render/render.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
-import { getCanvasCoords } from './tool-shared.js';
+import { getCanvasCoords, getCanvasRect } from './tool-shared.js';
 
 // ============================================================
 // SELEZIONE (editing)
@@ -249,7 +230,7 @@ export function updateSelectionMenuPosition() {
   const bbox = getVisualBoundingBox();
   const current = state.pages[state.activePageIndex];
   if (!bbox || !current) return;
-  const rect = current.canvas.getBoundingClientRect();
+  const rect = getCanvasRect(current.canvas);
   const scaleRatio = rect.width / PAGE_WIDTH;
   const screenX = rect.left + (bbox.minX + bbox.width / 2) * scaleRatio;
   const screenY = rect.top + bbox.minY * scaleRatio - 60;
@@ -262,7 +243,7 @@ export function updateCursorForSelection(e, pageData) {
   if (state.activeTool !== 'lasso' || state.selectedStrokes.length === 0) {
     pageData.canvas.style.cursor = 'crosshair'; return;
   }
-  const rect = pageData.canvas.getBoundingClientRect();
+  const rect = getCanvasRect(pageData.canvas);
   const point = {
     x: (e.clientX - rect.left) * (PAGE_WIDTH / rect.width),
     y: (e.clientY - rect.top) * (PAGE_HEIGHT / rect.height)

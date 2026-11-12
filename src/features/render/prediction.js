@@ -10,7 +10,6 @@ import { PAGE_WIDTH, PAGE_HEIGHT, sliderToBaseSize, getEffectiveColor } from '..
 
 const PREDICTION_ALPHA = 0.40;
 const PREDICTION_DPR = 1;
-let _lastPredBBox = null;
 
 export function ensurePredictionCanvas(pageData) {
   if (pageData._predCanvas) return;
@@ -26,21 +25,25 @@ export function ensurePredictionCanvas(pageData) {
 /**
  * Pulisce le predizioni precedenti.
  *
- * Se _lastPredBBox è null, significa che non c'è nulla da pulire
- * (canvas appena creato o appena pulito). Il vecchio fallback a
- * clearRect full-canvas (794×1123 = ~890k px) costava 5-10ms su
+ * Se pageData._lastPredBBox è null, significa che non c'è nulla da
+ * pulire (canvas appena creato o appena pulito). Il vecchio fallback
+ * a clearRect full-canvas (794×1123 = ~890k px) costava 5-10ms su
  * Surface Go 1, ed era chiamato ad ogni flush quando la penna non
  * emetteva predizioni (o con touch). Ora è O(1).
+ *
+ * NOTA: pageData._lastPredBBox è PER-PAGE. Prima era una variabile
+ * module-level condivisa, con rischio di clearRect su coordinate
+ * sbagliate quando si cambiava pagina.
  */
 export function clearPredictions(pageData) {
   if (!pageData || !pageData._predCtx) return;
-  if (!_lastPredBBox) return;
+  if (!pageData._lastPredBBox) return;
   const pad = 8;
   pageData._predCtx.clearRect(
-    _lastPredBBox.x - pad, _lastPredBBox.y - pad,
-    _lastPredBBox.w + pad * 2, _lastPredBBox.h + pad * 2
+    pageData._lastPredBBox.x - pad, pageData._lastPredBBox.y - pad,
+    pageData._lastPredBBox.w + pad * 2, pageData._lastPredBBox.h + pad * 2
   );
-  _lastPredBBox = null;
+  pageData._lastPredBBox = null;
 }
 
 /**
@@ -59,12 +62,12 @@ export function drawPredictions(pageData, events, rect) {
   const ctx = pageData._predCtx;
   const dpr = PREDICTION_DPR;
 
-  // Cancella solo il bbox della predizione precedente
-  if (_lastPredBBox) {
+  // Cancella solo il bbox della predizione precedente (per-page)
+  if (pageData._lastPredBBox) {
     const pad = 8;
     ctx.clearRect(
-      _lastPredBBox.x - pad, _lastPredBBox.y - pad,
-      _lastPredBBox.w + pad * 2, _lastPredBBox.h + pad * 2
+      pageData._lastPredBBox.x - pad, pageData._lastPredBBox.y - pad,
+      pageData._lastPredBBox.w + pad * 2, pageData._lastPredBBox.h + pad * 2
     );
   }
 
@@ -99,7 +102,7 @@ export function drawPredictions(pageData, events, rect) {
   ctx.stroke();
   ctx.restore();
 
-  _lastPredBBox = {
+  pageData._lastPredBBox = {
     x: minX - strokeW, y: minY - strokeW,
     w: (maxX - minX) + strokeW * 2,
     h: (maxY - minY) + strokeW * 2

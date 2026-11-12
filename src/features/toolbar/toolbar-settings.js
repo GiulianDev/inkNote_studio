@@ -1,5 +1,5 @@
 // ============================================================
-// TOOLBAR STATE — stato per-notebook della toolbar.
+// TOOLBAR SETTINGS — impostazioni per-notebook della toolbar.
 // Sorgente di verità per:
 //   - tools.{pen,pencil,marker,highlighter}.{color,width}
 //   - eraserSize, eraserMode
@@ -31,10 +31,6 @@ export const DEFAULT_TOOLBAR_SETTINGS = {
   recentColors: []            // array di hex string
 };
 
-/**
- * Raggi in pixel canvas (PAGE_WIDTH=794, PAGE_HEIGHT=1123) per livello 1..5.
- * Derivazione: `getEraserRadius()` mappa il livello qui.
- */
 export const ERASER_RADII = [3, 8, 16, 30, 50];
 
 /** @type {typeof DEFAULT_TOOLBAR_SETTINGS|null} */
@@ -42,9 +38,6 @@ let _current = null;
 /** @type {'pen'|'pencil'|'marker'|'highlighter'|'lasso'|'eraser'} */
 let _activeTool = 'pen';
 
-// ------------------------------------------------------------
-// Applicazione effetti DOM (subbar, compact)
-// ------------------------------------------------------------
 function _applySubbarToDOM(visible) {
   const subbar = document.getElementById('subbar');
   if (subbar) subbar.classList.toggle('collapsed', !visible);
@@ -67,9 +60,6 @@ function _applyCompactToDOM(compact) {
   if (reduceIcon) reduceIcon.style.display = compact ? 'none' : '';
 }
 
-// ------------------------------------------------------------
-// Sincronizzazione cache in `state`
-// ------------------------------------------------------------
 function _syncRuntime() {
   state.smoothing        = _current.smoothing / 100;
   state.subbarVisible    = _current.subbarVisible !== false;
@@ -86,9 +76,6 @@ function _syncRuntime() {
   }
 }
 
-// ------------------------------------------------------------
-// Sanitize settings provenienti dal notebook (retrocompatibilità)
-// ------------------------------------------------------------
 function _normalize(raw) {
   const merged = {
     ...DEFAULT_TOOLBAR_SETTINGS,
@@ -109,15 +96,6 @@ function _normalize(raw) {
   return merged;
 }
 
-// ------------------------------------------------------------
-// API pubblica
-// ------------------------------------------------------------
-
-/**
- * Inizializza lo store. Se `notebookSettings` è null/undefined, usa
- * i default (appena avviata l'app, o notebook cancellato).
- * `activeTool` è SEMPRE resettato a 'pen' (runtime only).
- */
 export function initToolbarSettings(notebookSettings = null) {
   _current = _normalize(notebookSettings);
   _activeTool = 'pen';
@@ -132,39 +110,23 @@ export function initToolbarSettings(notebookSettings = null) {
   return _current;
 }
 
-/**
- * Accessor sincrono: O(1), legge dalla variabile in memoria.
- * @returns {typeof DEFAULT_TOOLBAR_SETTINGS}
- */
 export function getToolbarSettings() {
   if (!_current) initToolbarSettings(null);
   return _current;
 }
 
-/** Tool attivo corrente (runtime only). */
 export function getActiveTool() { return _activeTool; }
 
-/**
- * Configurazione del tool corrente { color, width }.
- * Usata in input/render per creare lo stroke.
- */
 export function getActiveToolConfig() {
   if (!_current) initToolbarSettings(null);
   return _current.tools[_activeTool] || { color: '#000000', width: 3 };
 }
 
-/**
- * Raggio della gomma in pixel canvas per il livello corrente.
- * Derivazione pura (no DOM). Usato da input.js per il rendering.
- */
 export function getEraserRadius() {
   const lvl = Math.max(1, Math.min(5, state.eraserSize || 3));
   return ERASER_RADII[lvl - 1];
 }
 
-/**
- * Snapshot per il salvataggio nel notebook. Esclude `activeTool`.
- */
 export function getToolbarSettingsForSave() {
   if (!_current) initToolbarSettings(null);
   return {
@@ -179,11 +141,6 @@ export function getToolbarSettingsForSave() {
   };
 }
 
-/**
- * Cambia impostazioni toolbar.
- * @param {Partial<typeof DEFAULT_TOOLBAR_SETTINGS> & {activeTool?: string}} partial
- * @param {{silent?: boolean}} [opts]
- */
 export function updateToolbarSettings(partial, opts = {}) {
   if (!_current) initToolbarSettings(null);
   const before = _current;
@@ -227,7 +184,6 @@ export function resetToolbarSettings() {
   return _current;
 }
 
-/** Subscribe tipizzata (wrapper di `on`). */
 export function onToolbarSettingsChanged(fn) {
   return on('toolbar-settings:changed', fn);
 }

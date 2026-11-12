@@ -12,7 +12,7 @@ import {
   createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
   installViewportResizeObserver
 } from './pages.js';
-import { refreshPageCounter, applyActiveToolToUI } from '../toolbar/toolbar.js';
+import { refreshPageCounter } from '../toolbar/toolbar.js';
 import { resetHistory, pushHistory } from '../history/history.js';
 import { setViewportChangeHandler } from '../viewport/transform.js';
 import { updateSelectionMenuPosition } from '../tools/lazo.js';
@@ -24,20 +24,12 @@ import { getSettings } from '../../core/app-settings.js';
 
 export function initEditorHandlers() {
   setViewportChangeHandler(() => {
-    // Fix 2: durante il pinch, il redraw completo della pagina (che
-    // avviene in scheduleResolutionRefresh se il DPR è cambiato) e la
-    // scansione di tutte le pagine per determinare quella attiva sono
-    // operazioni pesanti che rendono il pinch a scatti. Le sopprimiamo
-    // durante il pinch: il refresh viene fatto al pointerup (gestito
-    // da gestures.js, che chiama scheduleResolutionRefresh quando il
-    // pinch termina).
     if (!viewport.isPinching) {
       scheduleResolutionRefresh();
       updateActivePageFromViewport();
     }
     updateSelectionMenuPosition();
   });
-  // Anche al resize della finestra (cambia la centratura)
   window.addEventListener('resize', () => updateActivePageFromViewport());
   installViewportResizeObserver();
 }
@@ -49,8 +41,11 @@ export async function openNotebook(id) {
 
   setCurrentNotebook(nb);
 
-  // Applica impostazioni toolbar del notebook (o default se mancanti:
-  // notebook creati prima dell'introduzione di toolbarSettings).
+  // Applica impostazioni toolbar del notebook (o default se mancanti).
+  // initToolbarSettings emette `toolbar-settings:changed` con changed=['init'],
+  // e la subscription in main.js chiama applyActiveToolToUI +
+  // updateAutoShapeButtonUI + renderRecentColors. Qui basta applicare
+  // gli altri controlli (slider smoothing, eraser mode, palm check).
   initToolbarSettings(nb.toolbarSettings || null);
   applyToolbarControlsToUI();
 
@@ -79,8 +74,6 @@ export function returnToLibrary() {
   flushAutoSave();
   if (getCurrentNotebook()) {
     syncCurrentState();
-    // Fire-and-forget: se fallisce, l'errore è loggato ma la
-    // navigazione verso la libreria procede comunque.
     saveCurrentNotebook().catch(err => console.error('[editor] save before return failed:', err));
   }
   resetToolbarSettings();
@@ -97,11 +90,6 @@ export function updateCurrentNotebookTitle(newTitle) {
   pushHistory();
 }
 
-/**
- * Chiamata da library al delete di un notebook.
- * Se il notebook cancellato è quello aperto, resetta lo store
- * toolbar ai default.
- */
 export function closeNotebookIfOpen(id) {
   const nb = getCurrentNotebook();
   if (nb && nb.id === id) {
@@ -122,6 +110,4 @@ function applyToolbarControlsToUI() {
 
   const palmCheck = document.getElementById('palmRejectionCheck');
   if (palmCheck) palmCheck.checked = getSettings().palmRejection !== false;
-
-  applyActiveToolToUI();
 }
