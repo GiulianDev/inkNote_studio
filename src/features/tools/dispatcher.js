@@ -76,6 +76,24 @@ export function handlePointerDown(e, pageData) {
   }
   _gestureUsedEraser = false;
 
+  if (viewport.activePointers.size > 1) return;
+
+  // ---- BATCH A.1 FIX ----
+  // Se c'era uno stroke ancora aperto con lo stesso pointerId,
+  // il pointerup è andato perso. Chiudilo prima di iniziarne
+  // uno nuovo: altrimenti i punti del nuovo gesto verrebbero
+  // accodati al vecchio stroke.
+  if (state.isDrawing &&
+      state.currentPointerId === e.pointerId &&
+      state.currentPageForPointer === pageData) {
+    forceFlushNow(pageData);
+    endInkStroke(pageData);
+    state.isDrawing = false;
+    state.currentStroke = null;
+    state.currentPointerId = null;
+    state.currentPageForPointer = null;
+  }
+
   resetPointPool();
   invalidateStrokeRect();
 
@@ -135,6 +153,17 @@ export function handlePointerMove(e, pageData) {
   if (palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
 
+  // ---- BATCH A.1 FIX ----
+  // Se lo stroke è ancora "aperto" ma la penna è SOL LEVATA
+  // (pointerType pen, buttons === 0), questo è un evento di HOVER,
+  // non un punto valido. Su device lenti il pointerup può essere
+  // perso o coalescato: senza questo filtro, gli eventi hover tra
+  // un tratto e il successivo vengono accodati al vecchio stroke,
+  // causando "puntini uniti" e tratti fantasma.
+  if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0) {
+    return;
+  }
+  // ---- FINE FIX ----
   if (!state.isDrawing && state.activeTool === 'lasso' && e.pointerType !== 'touch') {
     updateCursorForSelection(e, pageData);
   }
