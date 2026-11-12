@@ -78,7 +78,7 @@
  * NON scrivere direttamente su `state.settings`: usa `updateSettings`.
  *
  * Le impostazioni per-notebook della TOOLBAR vivono in
- * `features/toolbar/toolbar-state.js`:
+ * `features/toolbar/toolbar-settings.js`:
  *   - tools.{pen,pencil,marker,highlighter}.{color,width}
  *   - eraserSize, eraserMode, autoShapeEnabled, smoothing
  *   - subbarVisible, compactMode, recentColors
@@ -88,7 +88,7 @@
  * dagli store: NON vanno scritti da fuori.
  *   - activeTool, currentColor, strokeWidth
  *   - eraserSize, eraserMode, autoShapeEnabled
- *   - smoothing, subbarVisible, compactMode   ← toolbar-state
+ *   - smoothing, subbarVisible, compactMode   ← toolbar-settings
  *   - isDarkMode, palmRejection               ← app-settings
  *   - settings                                ← app-settings (snapshot)
  */
@@ -107,7 +107,7 @@ export const state = {
   /** @type {import('../core/app-settings.js').DEFAULT_SETTINGS|null} */
   settings: null,
 
-  // --- Tool corrente (cache, vedi features/toolbar/toolbar-state.js) ---
+  // --- Tool corrente (cache, vedi features/toolbar/toolbar-settings.js) ---
   /** @type {'pen'|'pencil'|'marker'|'highlighter'|'lasso'|'eraser'} */
   activeTool: 'pen',
   /** @type {string} hex */
