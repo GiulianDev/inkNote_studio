@@ -16,8 +16,6 @@
  *   - settings:changed → ridisegna pagine se cambia tema
  *   - toolbar-settings:changed → riallinea UI + scheduleSave (escluso activeTool)
  *
- * Dipende da: quasi tutti i moduli (è il composition root).
- *
  * @see core/types.js
  */
 
@@ -52,6 +50,9 @@ window.addEventListener('load', async () => {
   initSettings();
 
   // 3. Store toolbar: default all'avvio (nessun notebook aperto).
+  //    Emette `toolbar-settings:changed` con changed=['init'], ma la
+  //    subscription (punto 7) non è ancora registrata: nessuno cattura
+  //    l'evento. La UI iniziale viene sincronizzata al punto 8.
   initToolbarSettings(null);
 
   // 4. Init IndexedDB.
@@ -93,10 +94,13 @@ window.addEventListener('load', async () => {
   });
 
   // 8. Vista iniziale e setup gesti / tastiera.
+  //    applyActiveToolToUI() è necessario qui perché la subscription
+  //    (punto 7) non ha catturato la init del punto 3 (registrata dopo).
   renderLibraryView();
   centerViewport();
   setupViewportGestures();
   setupKeyboardShortcuts();
+  applyActiveToolToUI();
   updateAutoShapeButtonUI();
   renderRecentColors();
 
