@@ -350,35 +350,45 @@ function triggerSnapAnimation(pageData) {
   setTimeout(() => pageData.wrapper.classList.remove('shape-snapped'), 250);
 }
 
+/**
+ * Raddrizza l'highlighter SOLO se la linea è quasi dritta con
+ * piccoli tremori. Mantiene l'angolo originale (nessuno snap agli
+ * assi H/V).
+ *
+ * Validazione (riusa validateLineShape, la stessa della penna):
+ *   - chord/path ratio > 0.965 → è quasi dritta, non una curva
+ *   - RMS deviazione < max(1.0, chordLen * 0.010) → tremori piccoli
+ *   - coerenza ultimi 3 punti → direzione stabile
+ *
+ * Se valida, sostituisce i punti con una retta tra start e end.
+ * Se la linea è già dritta, il risultato è identico (no cambiamento
+ * visibile). Se è una curva vera, la validazione fallisce e non
+ * succede nulla.
+ */
 export function trySnapHighlighter(stroke) {
   const pts = stroke.points;
   if (pts.length < 6) return false;
+
   const startPt = pts[0], endPt = pts[pts.length - 1];
-  const dx = endPt.x - startPt.x, dy = endPt.y - startPt.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 80) return false;
-  const angle = Math.atan2(dy, dx);
-  const absCos = Math.abs(Math.cos(angle)), absSin = Math.abs(Math.sin(angle));
-  const isHorizontal = absSin < 0.3, isVertical = absCos < 0.3;
-  if (!isHorizontal && !isVertical) return false;
-  const steps = Math.max(8, Math.floor(len / 4));
+  const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+  if (chordLen < 80) return false;
+
+  // Valida che la linea sia quasi dritta (non una curva) con tremori
+  // piccoli. Stessa logica della penna: chord/path ratio + RMS.
+  if (!validateLineShape(pts, startPt, endPt, chordLen)) return false;
+
+  // Raddrizza tra start e end MANTENENDO l'angolo originale.
+  const dx = endPt.x - startPt.x;
+  const dy = endPt.y - startPt.y;
+  const steps = Math.max(8, Math.floor(chordLen / 4));
   const straightPts = [];
-  if (isHorizontal) {
-    let sumY = 0;
-    for (const p of pts) sumY += p.y;
-    const avgY = sumY / pts.length;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      straightPts.push({ x: startPt.x + dx * t, y: avgY, pressure: 0.5 });
-    }
-  } else {
-    let sumX = 0;
-    for (const p of pts) sumX += p.x;
-    const avgX = sumX / pts.length;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      straightPts.push({ x: avgX, y: startPt.y + dy * t, pressure: 0.5 });
-    }
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    straightPts.push({
+      x: startPt.x + dx * t,
+      y: startPt.y + dy * t,
+      pressure: 0.5
+    });
   }
   stroke.points = straightPts;
   return true;
