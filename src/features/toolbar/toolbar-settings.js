@@ -1,42 +1,48 @@
 // ============================================================
 // TOOLBAR SETTINGS — impostazioni per-notebook della toolbar.
-// Sorgente di verità per:
-//   - tools.{pen,pencil,marker,highlighter}.{color,width}
-//   - eraserSize, eraserMode
-//   - autoShapeEnabled, smoothing
-//   - subbarVisible, compactMode
-//   - recentColors
-//   - activeTool (RUNTIME ONLY, non persistito)
 //
-// Persistenza: dentro `notebook.toolbarSettings` (IndexedDB).
-// Cleanup automatico al delete del notebook.
+// Novità:
+//   - opacity per OGNI tool (0.1..1.0), default:
+//       pen 1.0, pencil 1.0, marker 0.9, highlighter 0.35
+//   - highlighter default color: giallo #FFEB3B (era nero)
+//   - migrazione soft: highlighter legacy nero → giallo, opacity
+//     undefined → default tool
 // ============================================================
 
 import { state } from '../../core/state.js';
 import { emit, on } from '../../core/utils.js';
 
+export const HIGHLIGHTER_COLORS = ['#FFEB3B', '#7CFF7C', '#FF7CBE', '#7CD4FF', '#FFA97C'];
+export const HIGHLIGHTER_DEFAULT_COLOR = HIGHLIGHTER_COLORS[0];
+
 export const DEFAULT_TOOLBAR_SETTINGS = {
   tools: {
-    pen:         { color: '#000000', width: 3 },
-    pencil:      { color: '#000000', width: 3 },
-    marker:      { color: '#000000', width: 3 },
-    highlighter: { color: '#000000', width: 3 }
+    pen:         { color: '#000000', width: 3, opacity: 1.0 },
+    pencil:      { color: '#000000', width: 3, opacity: 1.0 },
+    marker:      { color: '#000000', width: 3, opacity: 0.9 },
+    highlighter: { color: HIGHLIGHTER_DEFAULT_COLOR, width: 3, opacity: 0.35 }
   },
-  eraserSize: 3,              // 1..5
-  eraserMode: 'stroke',       // 'stroke' | 'point'
+  eraserSize: 3,
+  eraserMode: 'stroke',
   autoShapeEnabled: true,
-  smoothing: 50,              // 0..100
+  smoothing: 50,
   subbarVisible: true,
   compactMode: false,
-  recentColors: []            // array di hex string
+  recentColors: []
 };
 
 export const ERASER_RADII = [3, 8, 16, 30, 50];
 
-/** @type {typeof DEFAULT_TOOLBAR_SETTINGS|null} */
 let _current = null;
-/** @type {'pen'|'pencil'|'marker'|'highlighter'|'lasso'|'eraser'} */
 let _activeTool = 'pen';
+
+function _isLegacyHighlighterBlack(c) {
+  return !c || c === '#000000' || c === '#000' || c === 'black';
+}
+
+function _defaultOpacityFor(name) {
+  return DEFAULT_TOOLBAR_SETTINGS.tools[name]?.opacity ?? 1.0;
+}
 
 function _applySubbarToDOM(visible) {
   const subbar = document.getElementById('subbar');
@@ -71,8 +77,9 @@ function _syncRuntime() {
 
   const conf = _current.tools[_activeTool];
   if (conf) {
-    state.currentColor = conf.color;
-    state.strokeWidth  = conf.width;
+    state.currentColor   = conf.color;
+    state.strokeWidth    = conf.width;
+    state.currentOpacity = conf.opacity != null ? conf.opacity : 1.0;
   }
 }
 
@@ -82,13 +89,26 @@ function _normalize(raw) {
     ...(raw || {}),
     tools: { ...DEFAULT_TOOLBAR_SETTINGS.tools, ...((raw && raw.tools) || {}) }
   };
-  for (const name of ['pen', 'pencil', 'marker', 'highlighter']) {
+  for (const name of ['pen', 'pencil', 'marker']) {
     const t = merged.tools[name] || {};
     merged.tools[name] = {
       color: typeof t.color === 'string' ? t.color : DEFAULT_TOOLBAR_SETTINGS.tools[name].color,
-      width: typeof t.width === 'number' ? t.width : DEFAULT_TOOLBAR_SETTINGS.tools[name].width
+      width: typeof t.width === 'number' ? t.width : DEFAULT_TOOLBAR_SETTINGS.tools[name].width,
+      opacity: typeof t.opacity === 'number'
+        ? Math.max(0.1, Math.min(1.0, t.opacity))
+        : _defaultOpacityFor(name)
     };
   }
+  const hl = merged.tools.highlighter || {};
+  const hlColor = _isLegacyHighlighterBlack(hl.color) ? HIGHLIGHTER_DEFAULT_COLOR : hl.color;
+  merged.tools.highlighter = {
+    color: typeof hlColor === 'string' ? hlColor : HIGHLIGHTER_DEFAULT_COLOR,
+    width: typeof hl.width === 'number' ? hl.width : 3,
+    opacity: typeof hl.opacity === 'number'
+      ? Math.max(0.1, Math.min(1.0, hl.opacity))
+      : _defaultOpacityFor('highlighter')
+  };
+
   merged.eraserSize   = Math.max(1, Math.min(5, merged.eraserSize || 3));
   merged.eraserMode   = merged.eraserMode === 'point' ? 'point' : 'stroke';
   merged.smoothing    = Math.max(0, Math.min(100, merged.smoothing ?? 50));
@@ -119,7 +139,7 @@ export function getActiveTool() { return _activeTool; }
 
 export function getActiveToolConfig() {
   if (!_current) initToolbarSettings(null);
-  return _current.tools[_activeTool] || { color: '#000000', width: 3 };
+  return _current.tools[_activeTool] || { color: '#000000', width: 3, opacity: 1.0 };
 }
 
 export function getEraserRadius() {

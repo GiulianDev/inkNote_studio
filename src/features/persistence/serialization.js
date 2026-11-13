@@ -3,23 +3,10 @@
  *
  * Serializzazione packed per IDB e history.
  *
- * Problema: 500 stroke × 100 punti = 50.000 oggetti JS per pagina.
- * Lo structured-clone (IDB) e il clone JS (history) fanno traversal
- * di ogni oggetto/property → 100-500ms di freeze su Surface Go 1.
- *
- * Soluzione: pack in Float32Array contiguo (stride 7). Lo
- * structured-clone di un Float32Array è `memcpy` nativo → <1ms
- * per 1.2 MB. Il clone JS è `Array.slice()` → idem.
- *
- * Formato packed:
- *   stride = 7 float32
- *   [x, y, pressure, tiltX, tiltY, speed, pointerTypeInt]
- *
- * pointerType mapping:
- *   0 = pen, 1 = touch, 2 = mouse, 3 = eraser
- *
- * Il runtime continua a usare `{x,y,pressure,...}` (rendering invariato).
- * Pack/unpack avvengono SOLO al confine di persistenza/history.
+ * Novità:
+ *   - campo `opacity` per stroke (0.1..1.0), fuori dal packed buffer
+ *   - migrazione soft: highlighter legacy nero → giallo, opacity
+ *     undefined → default tool
  */
 
 export const PACKED_STRIDE = 7;
@@ -28,6 +15,9 @@ const PT_PEN = 0;
 const PT_TOUCH = 1;
 const PT_MOUSE = 2;
 const PT_ERASER = 3;
+
+const HIGHLIGHTER_DEFAULT_COLOR = '#FFEB3B';
+const HIGHLIGHTER_LEGACY_OPACITY = 0.4;
 
 function _pointerTypeToInt(pt) {
   switch (pt) {
@@ -47,10 +37,10 @@ function _intToPointerType(n) {
   }
 }
 
-/**
- * Packa uno stroke runtime in formato serializzabile.
- * Ritorna { tool, color, size, packed: Float32Array, count: number }.
- */
+function _isLegacyBlack(c) {
+  return !c || c === '#000000' || c === '#000' || c === 'black';
+}
+
 export function packStroke(s) {
   const pts = s.points;
   const n = pts ? pts.length : 0;
@@ -70,19 +60,30 @@ export function packStroke(s) {
     tool: s.tool,
     color: s.color,
     size: s.size,
+    opacity: s.opacity != null ? s.opacity : 1.0,
     packed: buf,
     count: n
   };
 }
 
-/**
- * Unpacka uno stroke packed in formato runtime.
- * Gestisce anche input già unpacked (retrocompat): se `s.points`
- * esiste, ritorna `s` invariato.
- */
 export function unpackStroke(s) {
   if (!s) return s;
-  if (!s.packed) return s;  // già unpacked
+
+  // Legacy: stroke highlighter nero pre-palette colorata
+  let color = s.color;
+  if (s.tool === 'highlighter' && _isLegacyBlack(color)) {
+    color = HIGHLIGHTER_DEFAULT_COLOR;
+  }
+
+  // Legacy: opacity undefined
+  let opacity = s.opacity;
+  if (opacity == null) {
+    opacity = s.tool === 'highlighter' ? HIGHLIGHTER_LEGACY_OPACITY : 1.0;
+  }
+
+  if (!s.packed) {
+    return { tool: s.tool, color, size: s.size, opacity, points: s.points };
+  }
 
   const buf = s.packed;
   const n = s.count != null ? s.count : (buf ? (buf.length / PACKED_STRIDE) | 0 : 0);
@@ -99,19 +100,10 @@ export function unpackStroke(s) {
       pointerType: _intToPointerType(buf[o + 6])
     };
   }
-  return {
-    tool: s.tool,
-    color: s.color,
-    size: s.size,
-    points: pts
-  };
+
+  return { tool: s.tool, color, size: s.size, opacity, points: pts };
 }
 
-/**
- * Pack di un array di stroke (per una pagina).
- * Usare `.map(packStroke)` direttamente è equivalente, questa funzione
- * esiste per leggibilità nei call-site.
- */
 export function packStrokes(strokes) {
   const n = strokes.length;
   const out = new Array(n);
@@ -119,9 +111,6 @@ export function packStrokes(strokes) {
   return out;
 }
 
-/**
- * Unpack di un array di stroke.
- */
 export function unpackStrokes(strokes) {
   if (!strokes) return [];
   const n = strokes.length;

@@ -118,14 +118,6 @@ export function handlePointerDown(e, pageData) {
   // Batch B: clear bbox-based
   if (state.currentStroke && state.currentStroke.points.length > 0) {
     clearOverlayBBox(pageData, getStrokeBBoxCanvas(state.currentStroke));
-  } else if (pageData._lastHighlighterBBox) {
-    clearOverlayBBox(pageData, {
-      minX: pageData._lastHighlighterBBox.x,
-      minY: pageData._lastHighlighterBBox.y,
-      maxX: pageData._lastHighlighterBBox.x + pageData._lastHighlighterBBox.w,
-      maxY: pageData._lastHighlighterBBox.y + pageData._lastHighlighterBBox.h
-    });
-    pageData._lastHighlighterBBox = null;
   }
 
   clearPredictions(pageData);
@@ -283,7 +275,13 @@ export function abortCurrentDrawing() {
     state.selectedStrokes = [];
     resetScribbleState();
     const curr = state.pages[state.activePageIndex];
-    if (curr && curr.canvas) { redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr); }
+    if (curr && curr.canvas) {
+      if (curr.overlayCanvas) {
+        curr.overlayCanvas.style.opacity = '';
+        curr.overlayCanvas.style.mixBlendMode = '';
+      }
+      redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr);
+    }
   }
   state._penEraserActive = false;
   _gestureUsedEraser = false;

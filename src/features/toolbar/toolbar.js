@@ -3,31 +3,17 @@
  *
  * FEATURE TOOLBAR — markup + UI + azioni utente.
  *
- * Responsabilità:
- *   - mountToolbar()          — inietta toolbar.html + setup eraser menu
- *   - refreshPageCounter()    — aggiorna "Pagina X di Y" nell'header
- *   - setTool()               — cambia tool attivo + aggiorna UI + event
- *   - selectColor / updateStrokeWidth — cambia config tool attivo
- *   - toggleAutoShape / updateSmoothing / toggleSubbar / toggleCompactMode
- *   - toggleTheme             — delega a updateSettings (tema è globale)
- *   - eraser menu             — show/hide/selectEraserLevel + long-press wiring
- *
- * Non fa: gestire lo stato persistente (delega a toolbar-settings.js) né
- * applicare effetti DOM su #subbar/#mainHeader (delega a toolbar-settings.js
- * via _applySubbarToDOM/_applyCompactToDOM).
- *
- * Eventi emessi: `inknote:tool-changed` su document (per eraser cursor).
- *
- * @see features/toolbar/toolbar-settings.js
- * @see features/toolbar/toolbar.html
- * @see features/toolbar/toolbar.css
+ * Novità:
+ *   - popover colore+opacità condiviso, aperto dal custom picker
+ *   - applyActiveToolToUI aggiorna anche il preview opacity
+ *   - updateOpacity() aggiorna il tool attivo
  */
 
 import './toolbar.css';
 import toolbarHtml from './toolbar.html?raw';
 
 import { state } from '../../core/state.js';
-import { showToast } from '../../core/utils.js';
+import { showToast, hexToRgbA } from '../../core/utils.js';
 import { updateSettings } from '../../core/app-settings.js';
 import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
@@ -38,16 +24,9 @@ import { clearSelection } from '../tools/lazo.js';
 let _mounted = false;
 
 // ============================================================
-// MOUNT — inietta il markup (idempotente)
+// MOUNT
 // ============================================================
 
-/**
- * Inietta il markup della toolbar nel DOM e collega i suoi eventi
- * interni (eraser menu). Idempotente.
- * Va chiamato PRIMA di initSettings() e dei bind degli editor handler,
- * perché initSettings applica tema/dock al DOM e i bind cercano gli
- * id della toolbar (#themeToggleBtn, #subbar, ecc.).
- */
 export function mountToolbar() {
   if (_mounted || document.getElementById('mainHeader')) {
     _mounted = true;
@@ -55,29 +34,13 @@ export function mountToolbar() {
   }
   const mount = document.getElementById('toolbarMount');
   if (!mount) return;
-
-  // insertAdjacentHTML('beforebegin') mantiene l'header/subbar come
-  // figli diretti del <body>: i selettori body.compact-mode #mainHeader,
-  // body.handed-left header, @media print header continuano a funzionare
-  // senza modifiche.
   mount.insertAdjacentHTML('beforebegin', toolbarHtml);
   mount.remove();
-
-  // Setup eventi interni (il markup ora esiste nel DOM)
   _setupEraserButton();
-
+  _setupColorPopover();
   _mounted = true;
 }
 
-// ============================================================
-// PAGE COUNTER (ex editor/header.js)
-// ============================================================
-
-/**
- * Aggiorna il testo "Pagina X di Y" nell'header.
- * Vive qui perché #pageCounterText è un elemento della toolbar.
- * Chiamata da editor, pages, tools/dispatcher.
- */
 export function refreshPageCounter() {
   const el = document.getElementById('pageCounterText');
   if (el) el.innerText = `Pagina ${state.activePageIndex + 1} di ${state.pages.length}`;
@@ -101,10 +64,6 @@ export function setTool(toolName) {
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
 }
 
-/**
- * Sincronizza slider colore/spessore della toolbar con il tool
- * attivo corrente.
- */
 export function applyActiveToolToUI() {
   if (state.activeTool === 'eraser' || state.activeTool === 'lasso') return;
 
@@ -178,6 +137,7 @@ export function selectColor(colorHex, element) {
     element.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
 
   saveRecentColor(colorHex);
+  _refreshPopoverPreview();
 }
 
 export function updateStrokeWidth(val) {
@@ -193,8 +153,21 @@ export function updateStrokeWidth(val) {
   if (label) label.innerText = width;
 }
 
+export function updateOpacity(val) {
+  const raw = parseInt(val);
+  const opacity = Math.max(0.1, Math.min(1.0, raw / 100));
+  const current = getToolbarSettings();
+  const toolName = getActiveTool();
+  const tool = current.tools[toolName];
+  if (!tool) return;
+  updateToolbarSettings({
+    tools: { ...current.tools, [toolName]: { ...tool, opacity } }
+  });
+  _refreshPopoverPreview();
+}
+
 // ============================================================
-// AUTO-SHAPE
+// AUTO-SHAPE / SMOOTHING / SUBBAR / COMPACT / THEME
 // ============================================================
 
 export function toggleAutoShape() {
@@ -227,10 +200,6 @@ export function updateAutoShapeButtonUI() {
     btn.title = 'Auto-Forme DISATTIVATE: clicca per attivare';
   }
 }
-
-// ============================================================
-// SMOOTHING / SUBBAR / COMPACT
-// ============================================================
 
 export function updateSmoothing(val) {
   const intVal = parseInt(val);
@@ -270,17 +239,13 @@ export function initCompactFullscreenSync() {
   });
 }
 
-// ============================================================
-// THEME (globale, app-settings)
-// ============================================================
-
 export function toggleTheme() {
   const next = state.isDarkMode ? 'light' : 'dark';
   updateSettings({ theme: next });
 }
 
 // ============================================================
-// ERASER SIZE MENU
+// ERASER MENU
 // ============================================================
 
 function _saveEraserSize(level) {
@@ -330,10 +295,6 @@ export function selectEraserLevel(level) {
   const labels = ['Piccola', 'Medio-piccola', 'Media', 'Medio-grande', 'Grande'];
   showToast(`Gomma: ${labels[level - 1] || 'Media'}`, '🧹');
 }
-
-// ============================================================
-// ERASER BUTTON WIRING (interno alla feature)
-// ============================================================
 
 function _setupEraserButton() {
   const btn = document.getElementById('btnTool-eraser');
@@ -387,5 +348,107 @@ function _setupEraserButton() {
     if (menu.classList.contains('hidden')) return;
     if (menu.contains(e.target) || btn.contains(e.target)) return;
     hideEraserSizeMenu();
+  });
+}
+
+// ============================================================
+// COLOR PICKER POPOVER (colore + opacità)
+// ============================================================
+
+function _refreshPopoverPreview() {
+  const preview = document.getElementById('colorPickerPreview');
+  if (!preview) return;
+  const conf = getActiveToolConfig();
+  const opacity = conf.opacity != null ? conf.opacity : 1.0;
+  const rgba = hexToRgbA(conf.color, opacity);
+  preview.style.backgroundColor = rgba;
+  preview.style.color = (conf.color === '#FFFFFF' || conf.color === '#ffffff') ? '#000' : '#fff';
+  preview.textContent = `${conf.color.toUpperCase()} · ${Math.round(opacity * 100)}%`;
+}
+
+function _populatePopoverForActiveTool() {
+  const conf = getActiveToolConfig();
+  const colorPicker = document.getElementById('popoverColorPicker');
+  const opacitySlider = document.getElementById('popoverOpacitySlider');
+  const opacityLabel = document.getElementById('popoverOpacityValue');
+  const swatches = document.getElementById('popoverHighlighterSwatches');
+
+  if (colorPicker) colorPicker.value = conf.color;
+  if (opacitySlider) opacitySlider.value = Math.round((conf.opacity ?? 1.0) * 100);
+  if (opacityLabel) opacityLabel.innerText = `${Math.round((conf.opacity ?? 1.0) * 100)}%`;
+
+  if (swatches) {
+    const isHL = state.activeTool === 'highlighter';
+    swatches.classList.toggle('hidden', !isHL);
+    swatches.classList.toggle('flex', isHL);
+  }
+
+  _refreshPopoverPreview();
+}
+
+export function showColorPickerPopover() {
+  const popover = document.getElementById('colorPickerPopover');
+  const trigger = document.getElementById('customColorPicker');
+  if (!popover || !trigger) return;
+
+  _populatePopoverForActiveTool();
+
+  popover.classList.remove('hidden');
+  const r = trigger.getBoundingClientRect();
+  const mw = popover.offsetWidth || 256;
+  const mh = popover.offsetHeight || 260;
+  let left = r.left + r.width / 2 - mw / 2;
+  let top = r.bottom + 8;
+  if (top + mh > window.innerHeight - 8) top = r.top - mh - 8;
+  left = Math.max(8, Math.min(window.innerWidth - mw - 8, left));
+  top = Math.max(8, top);
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+}
+
+export function hideColorPickerPopover() {
+  const popover = document.getElementById('colorPickerPopover');
+  if (popover) popover.classList.add('hidden');
+}
+
+function _setupColorPopover() {
+  const trigger = document.getElementById('customColorPicker');
+  const popover = document.getElementById('colorPickerPopover');
+  if (!trigger || !popover) return;
+
+  trigger.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showColorPickerPopover();
+  });
+
+  document.getElementById('closeColorPickerPopoverBtn')
+    ?.addEventListener('click', hideColorPickerPopover);
+
+  const colorPicker = document.getElementById('popoverColorPicker');
+  colorPicker?.addEventListener('input', (e) => {
+    selectColor(e.target.value, null);
+  });
+
+  const opacitySlider = document.getElementById('popoverOpacitySlider');
+  const opacityLabel = document.getElementById('popoverOpacityValue');
+  opacitySlider?.addEventListener('input', (e) => {
+    const v = parseInt(e.target.value);
+    if (opacityLabel) opacityLabel.innerText = `${v}%`;
+    updateOpacity(v);
+  });
+
+  popover.querySelectorAll('[data-popover-color]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectColor(btn.dataset.popoverColor, null);
+      _populatePopoverForActiveTool();
+    });
+  });
+
+  document.addEventListener('pointerdown', (e) => {
+    if (popover.classList.contains('hidden')) return;
+    if (popover.contains(e.target) || trigger.contains(e.target)) return;
+    hideColorPickerPopover();
   });
 }

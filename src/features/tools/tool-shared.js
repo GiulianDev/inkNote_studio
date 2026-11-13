@@ -1,17 +1,12 @@
 // ============================================================
 // TOOLS COMMON — helper condivisi fra tutti i tool:
 // coordinate, smoothing, batching rAF, prediction clear.
-//
-// Batch B: throttle snap check a 1 ogni 10 punti (era ad ogni
-// batch da 16 → costo O(N) 12× più alto del necessario).
 // ============================================================
 
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
+import { drawIncrementalBatch, drawScribbleSegment } from '../render/render.js';
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../core/utils.js';
-import {
-  drawIncrementalBatch, drawScribbleSegment, renderHighlighterPreviewOnOverlay
-} from '../render/render.js';
 import { checkForScribble } from './scribble.js';
 import { trySnapToLineDuringDraw } from './shapes.js';
 
@@ -165,9 +160,6 @@ function _runPostBatchChecks(pageData) {
   if (state.pendingShape) return;
 
   // Batch B: throttle a 1 check ogni 10 punti.
-  // trySnapToLineDuringDraw è O(N) sul numero di punti; la
-  // condizione "linea dritta" non cambia in 16 punti, quindi
-  // controllare ogni batch è spreco.
   if (!state.scribbleMode && state.autoShapeEnabled &&
       SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
       pts.length >= 6 && pts.length < 200) {
@@ -181,14 +173,22 @@ function _runPostBatchChecks(pageData) {
 
 function _renderBatchTarget(pageData, drawnIdx) {
   if (!state.currentStroke) return;
-  const isHL = state.currentStroke.tool === 'highlighter';
-  if (isHL) {
-    renderHighlighterPreviewOnOverlay(pageData, state.currentStroke);
-  } else {
-    const targetCtx = pageData.overlayCtx;
-    const dpr = pageData.overlayDpr || pageData.dpr;
-    drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
+
+  const oc = pageData.overlayCanvas;
+  if (oc) {
+    if (state.currentStroke.tool === 'highlighter') {
+      const op = state.currentStroke.opacity != null ? state.currentStroke.opacity : 1.0;
+      oc.style.opacity = String(op);
+      oc.style.mixBlendMode = state.isDarkMode ? 'screen' : 'multiply';
+    } else {
+      if (oc.style.opacity) oc.style.opacity = '';
+      if (oc.style.mixBlendMode) oc.style.mixBlendMode = '';
+    }
   }
+
+  const targetCtx = pageData.overlayCtx;
+  const dpr = pageData.overlayDpr || pageData.dpr;
+  drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
   state.currentStroke._drawnIdx = state.currentStroke.points.length;
 }
 

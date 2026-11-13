@@ -1,27 +1,21 @@
 /**
  * @module features/tools/ink
  *
- * TOOL INK — pen / pencil / marker / highlighter (logica condivisa).
+ * TOOL INK — pen / pencil / marker / highlighter unificati.
  *
- * Batch B:
- *   - `_renderFinalStroke` per pen/pencil/marker usa `blitAndClearBBox`
- *     invece di `drawImage(overlay, 0, 0, W, H)` full-canvas. Costo
- *     ~30× inferiore su pagina piena.
- *   - `beginInkStroke` inizializza `_lastSnapCheck` per il throttle
- *     dello snap check in tool-shared.js.
- *
- * @see core/types.js  — Stroke, Point
- * @see tools/tool-shared.js
- * @see tools/shapes.js
- * @see tools/scribble.js
+ * Differenze per tool al blit:
+ *   - pen/marker: source-over, alpha = stroke.opacity
+ *   - pencil: source-over, alpha = stroke.opacity, ma il colore ha
+ *     già alpha interna 0.55 per la grana (applicata in getStrokeStyle)
+ *   - highlighter: multiply (light) / screen (dark), alpha = stroke.opacity
+ *     + jitter perpendicolare applicato ai punti
  */
 
 import { state } from '../../core/state.js';
 import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
-  drawDotOnly, renderFullStroke, blitHighlighterFromOverlay,
-  renderHighlighterPreviewOnOverlay,
+  drawDotOnly, renderFullStroke,
   getStrokeBBoxCanvas, clearOverlayBBox, blitAndClearBBox
 } from '../render/render.js';
 import {
@@ -38,7 +32,10 @@ import {
 
 export function beginInkStroke(point) {
   state.currentStroke = {
-    tool: state.activeTool, color: state.currentColor, size: state.strokeWidth,
+    tool: state.activeTool,
+    color: state.currentColor,
+    size: state.strokeWidth,
+    opacity: state.currentOpacity != null ? state.currentOpacity : 1.0,
     startTime: performance.now(),
     _drawnIdx: 0,
     _lastSnapCheck: 0,
@@ -87,6 +84,11 @@ export function moveInkStroke(pageData, e) {
 }
 
 export function endInkStroke(pageData) {
+  if (!pageData || !pageData.canvas) {
+    state.currentStroke = null;
+    return 'aborted';
+  }
+
   if (state.pendingShape) {
     finalizePendingShape();
     return 'pendingShape';
@@ -132,50 +134,43 @@ export function endInkStroke(pageData) {
 }
 
 /**
- * Render finale per tool.
- *
- * Batch B — path per tool:
- *   - highlighter: preview overlay + blit full-canvas (invariato,
- *     l'alto costo del preview O(n) è accettabile perché è un solo
- *     tool e la maggior parte del lavoro è già in drawIncrementalBatch)
- *   - snapped: redraw completo (nuovo path) + clear bbox overlay
- *   - dot (1 punto): drawDotOnly + clear bbox overlay
- *   - pencil: redraw completo + clear bbox overlay
- *   - pen/marker: blit bbox-based
+ * Render finale. Unificato per tutti i tool:
+ *   - snapped / dot / (pencil): redraw completo sulla main
+ *   - altrimenti: blit bbox-based (alpha+compositeOp per tool)
  */
 function _renderFinalStroke(pageData, stroke, snapped) {
-  if (state.activeTool === 'highlighter') {
-    if (snapped) {
-      renderHighlighterPreviewOnOverlay(pageData, stroke);
+  const isHL = stroke.tool === 'highlighter';
+  const pad = isHL
+    ? Math.max(24, (stroke.size * 2) + 8)
+    : 24;
+
+  // Ridisegno completo sulla main (path nuovo o singolo punto)
+  if (snapped || stroke.points.length === 1 || stroke.tool === 'pencil') {
+    const pctx = pageData.ctx, dpr = pageData.dpr || 1;
+    pctx.save();
+    pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (stroke.points.length === 1) {
+      drawDotOnly(pageData, stroke);
+    } else {
+      renderFullStroke(pctx, stroke, state.isDarkMode);
     }
-    blitHighlighterFromOverlay(pageData);
-    return;
-  }
-
-  if (snapped) {
-    const pctx = pageData.ctx, dpr = pageData.dpr || 1;
-    pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    renderFullStroke(pctx, stroke, state.isDarkMode);
     pctx.restore();
-    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke));
+    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke, pad));
     return;
   }
 
-  if (stroke.points.length === 1) {
-    drawDotOnly(pageData, stroke);
-    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke));
-    return;
+  // Blit bbox-based (pen, marker, highlighter)
+  const bbox = getStrokeBBoxCanvas(stroke, pad);
+  const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+  if (isHL) {
+    blitAndClearBBox(pageData, bbox, {
+      alpha: opacity,
+      compositeOp: state.isDarkMode ? 'screen' : 'multiply'
+    });
+  } else {
+    blitAndClearBBox(pageData, bbox, {
+      alpha: opacity,
+      compositeOp: 'source-over'
+    });
   }
-
-  if (state.activeTool === 'pencil') {
-    const pctx = pageData.ctx, dpr = pageData.dpr || 1;
-    pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    renderFullStroke(pctx, stroke, state.isDarkMode);
-    pctx.restore();
-    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke));
-    return;
-  }
-
-  // pen / marker: blit bbox-based
-  blitAndClearBBox(pageData, getStrokeBBoxCanvas(stroke));
 }

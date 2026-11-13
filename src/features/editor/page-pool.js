@@ -111,6 +111,10 @@ class PageRendererPool {
         page.overlayDpr = 0;
       }
     }
+    if (slot.overlayCanvas) {
+      slot.overlayCanvas.style.opacity = '';
+      slot.overlayCanvas.style.mixBlendMode = '';
+    }
     if (slot.wrapper) {
       try { slot.wrapper.removeChild(slot.canvas); } catch (e) {}
       try { slot.wrapper.removeChild(slot.overlayCanvas); } catch (e) {}
@@ -127,6 +131,10 @@ class PageRendererPool {
     this._releaseSlot(slot);
     slot.pageIndex = pageIndex;
     slot.wrapper = page.wrapper;
+    if (slot.overlayCanvas) {
+      slot.overlayCanvas.style.opacity = '';
+      slot.overlayCanvas.style.mixBlendMode = '';
+    }
     page.wrapper.appendChild(slot.canvas);
     page.wrapper.appendChild(slot.overlayCanvas);
 

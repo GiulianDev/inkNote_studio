@@ -114,6 +114,8 @@ export const state = {
   currentColor: '#000000',
   /** @type {number} 1..25 */
   strokeWidth: 3,
+  /** @type {number} 0.1..1.0 (opacità del tool corrente) */
+  currentOpacity: 1.0,
   /** @type {number} 1..5 livello dimensione gomma (1=piccola, 5=grande) */
   eraserSize: 3,
   /** @type {'stroke'|'point'} modalità gomma */

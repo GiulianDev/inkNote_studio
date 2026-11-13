@@ -164,3 +164,34 @@
         <span class="block rounded-full bg-slate-700 dark:bg-slate-300" style="width:26px;height:26px;"></span>
     </button>
 </div>
+
+<!-- Popover colore + opacità condiviso tra tutti i tool -->
+<div id="colorPickerPopover" class="fixed hidden z-[70] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 w-64">
+  <div class="flex items-center justify-between mb-2">
+    <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">Colore & Opacità</span>
+    <button id="closeColorPickerPopoverBtn" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none w-6 h-6 flex items-center justify-center">×</button>
+  </div>
+
+  <div id="colorPickerPreview" class="w-full h-12 rounded-xl mb-3 border-2 border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-medium" style="background-color: #000000;"></div>
+
+  <div class="mb-3">
+    <label class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Colore</label>
+    <input type="color" id="popoverColorPicker" class="w-full h-9 rounded-lg cursor-pointer border border-slate-300 dark:border-slate-600 bg-transparent p-0">
+  </div>
+
+  <div class="mb-3">
+    <label class="flex justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+      <span>Opacità</span>
+      <span id="popoverOpacityValue" class="text-slate-700 dark:text-slate-300 tabular-nums">100%</span>
+    </label>
+    <input type="range" id="popoverOpacitySlider" min="10" max="100" value="100" class="w-full accent-indigo-600">
+  </div>
+
+  <div id="popoverHighlighterSwatches" class="hidden flex-wrap gap-1.5 pt-1 border-t border-slate-200 dark:border-slate-700">
+    <button data-popover-color="#FFEB3B" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFEB3B" title="Giallo"></button>
+    <button data-popover-color="#7CFF7C" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CFF7C" title="Verde"></button>
+    <button data-popover-color="#FF7CBE" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FF7CBE" title="Rosa"></button>
+    <button data-popover-color="#7CD4FF" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CD4FF" title="Azzurro"></button>
+    <button data-popover-color="#FFA97C" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFA97C" title="Arancio"></button>
+  </div>
+</div>

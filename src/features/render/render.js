@@ -4,6 +4,20 @@
  * RENDERING CANVAS — stili stroke, tapered path, selection overlay,
  * background patterns, pending shape, bbox-based blit/clear.
  *
+ * Highlighter unificato a pen/marker:
+ *   - jitter perpendicolare ±1.2px (bordo "ruvido")
+ *   - width variation con pressione/velocità
+ *   - rendering OPACO su overlay (alpha + multiply/screen al blit)
+ *   - nessun campo `_lastHighlighterBBox` (era per-page, causava bleed)
+ *
+ * Pencil:
+ *   - alpha interna 0.55 (grana grafite) × opacity utente
+ *   - rende su main canvas (drawIncrementalBatch → drawFullStroke)
+ *
+ * Opacity:
+ *   - applicata al BLIT (non al disegno) per evitare accumulo alpha
+ *     tra segmenti adiacenti
+ *
  * @see core/types.js  — Stroke, PageData, BBox
  * @see render/stroke-cache.js
  * @see render/prediction.js
@@ -19,6 +33,7 @@ import { getPressureParams } from '../../core/app-settings.js';
 
 const SCRIBBLE_ERASE_COLOR  = 'rgba(220, 38, 38, 0.6)';
 const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';
+const HL_JITTER_MAG = 1.2;
 
 let _bgCache = { key: null, canvas: null };
 const BACKGROUND_DPR = 2;
@@ -26,9 +41,9 @@ const BACKGROUND_DPR = 2;
 const _ptA = { x: 0, y: 0 };
 const _ptB = { x: 0, y: 0 };
 
-// ------------------------------------------------------------
-// Geometry pura (usata da render e lazo)
-// ------------------------------------------------------------
+// ============================================================
+// GEOMETRY (usata da render e lazo)
+// ============================================================
 
 export function getSelectionBoundingBox(includePad = true) {
   if (state.selectedStrokes.length === 0) return null;
@@ -95,9 +110,9 @@ export function findClosestPointInSelection(target) {
   return closest;
 }
 
-// ------------------------------------------------------------
-// Stili stroke con cache
-// ------------------------------------------------------------
+// ============================================================
+// STYLE HELPERS
+// ============================================================
 
 function getTiltNorm(pt) {
   if (!pt || (!pt.tiltX && !pt.tiltY)) return 0;
@@ -114,6 +129,76 @@ function getTaper(idx, tool) {
   return 1.0;
 }
 
+// ============================================================
+// HIGHLIGHTER HELPERS (jitter perpendicolare + width)
+// ============================================================
+
+function _strokeSeed(stroke) {
+  const p0 = stroke.points && stroke.points[0];
+  if (!p0) return 0x5F3759DF;
+  return (((p0.x * 100) | 0) ^ ((p0.y * 100) | 0) ^ ((stroke.size * 97) | 0) ^ 0x5F3759DF) >>> 0;
+}
+
+function _jitterAt(seed, i) {
+  let s = (seed + i * 2654435761) >>> 0;
+  s = (s * 1664525 + 1013904223) >>> 0;
+  return (s / 0xFFFFFFFF) * 2 - 1; // [-1, 1]
+}
+
+function _ensureJitterCache(stroke) {
+  const n = stroke.points.length;
+  if (!stroke._jitterOffsets || stroke._jitterOffsets.length < n) {
+    const old = stroke._jitterOffsets || new Float32Array(0);
+    const size = Math.max(n, old.length * 2 || 64);
+    const next = new Float32Array(size);
+    next.set(old);
+    const seed = _strokeSeed(stroke);
+    for (let i = old.length; i < size; i++) {
+      next[i] = _jitterAt(seed, i);
+    }
+    stroke._jitterOffsets = next;
+  }
+  return stroke._jitterOffsets;
+}
+
+/**
+ * Ritorna array di {x, y} con jitter perpendicolare applicato per
+ * highlighter. Per gli altri tool ritorna i punti originali.
+ * Il jitter è deterministico per stroke (stesso stroke → stesso pattern).
+ */
+export function getDisplayPoints(stroke) {
+  const pts = stroke.points;
+  if (stroke.tool !== 'highlighter' || pts.length < 2) return pts;
+  const n = pts.length;
+  const jitter = _ensureJitterCache(stroke);
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    let dx, dy;
+    if (i === 0) { dx = pts[1].x - p.x; dy = pts[1].y - p.y; }
+    else if (i === n - 1) { dx = p.x - pts[i - 1].x; dy = p.y - pts[i - 1].y; }
+    else { dx = pts[i + 1].x - pts[i - 1].x; dy = pts[i + 1].y - pts[i - 1].y; }
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.001) { out[i] = { x: p.x, y: p.y }; continue; }
+    const nx = -dy / len, ny = dx / len;
+    const mag = jitter[i] * HL_JITTER_MAG;
+    out[i] = { x: p.x + nx * mag, y: p.y + ny * mag };
+  }
+  return out;
+}
+
+function _computeHighlighterWidth(baseSize, pressure, speedNorm) {
+  const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
+  const w = baseSize * 4.0;
+  const pressureMul = 0.85 + p * 0.30;
+  const speedMul = 1 - Math.min(1, (speedNorm || 0)) * 0.15;
+  return w * pressureMul * speedMul;
+}
+
+// ============================================================
+// COMPUTE STROKE WIDTH
+// ============================================================
+
 export function computeStrokeWidth(tool, rawSize, pressure, tiltNorm = 0, speedNorm = 0, taper = 1.0, precomputedBaseSize = null) {
   const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
   const baseSize = precomputedBaseSize !== null ? precomputedBaseSize : sliderToBaseSize(rawSize);
@@ -129,24 +214,33 @@ export function computeStrokeWidth(tool, rawSize, pressure, tiltNorm = 0, speedN
     w *= (1 + tiltNorm * 0.50);
     w *= (1 - speedNorm * 0.15);
   } else if (tool === 'highlighter') {
-    w = baseSize * 4.0;
+    w = _computeHighlighterWidth(baseSize, pressure, speedNorm);
   }
   w *= taper;
   return w;
 }
 
+// ============================================================
+// STROKE STYLE (con cache)
+// ============================================================
+
 function getStrokeStyle(stroke, isDark) {
-  const key = isDark ? 'dark' : 'light';
+  const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+  const key = `${isDark ? 'd' : 'l'}|${opacity.toFixed(2)}`;
   const cache = stroke._styleCache;
   if (cache && cache.key === key) return cache;
+
   let strokeStyle, fillStyle, gco;
   if (stroke.tool === 'highlighter') {
-    gco = isDark ? 'screen' : 'multiply';
-    const c = hexToRgbA(stroke.color, isDark ? 0.55 : 0.40);
-    strokeStyle = c; fillStyle = c;
-  } else if (stroke.tool === 'pencil') {
+    // Highlighter: OPACO sull'overlay. Alpha + multiply/screen al blit.
     gco = 'source-over';
-    const c = hexToRgbA(getEffectiveColor(stroke.color, isDark), 0.55);
+    strokeStyle = stroke.color;
+    fillStyle = stroke.color;
+  } else if (stroke.tool === 'pencil') {
+    // Pencil: grana grafite (alpha interna 0.55) × opacity utente.
+    gco = 'source-over';
+    const a = 0.55 * opacity;
+    const c = hexToRgbA(getEffectiveColor(stroke.color, isDark), a);
     strokeStyle = c; fillStyle = c;
   } else {
     gco = 'source-over';
@@ -168,10 +262,7 @@ function setupStrokeStyle(ctx, stroke, forceTargetDark) {
 }
 
 function canUnifyFill(tool) { return tool === 'pen' || tool === 'marker'; }
-
-function canUnifyFillIncremental(tool) {
-  return tool === 'pen' || tool === 'marker' || tool === 'pencil';
-}
+function canUnifyFillIncremental(tool) { return tool === 'pen' || tool === 'marker' || tool === 'pencil'; }
 
 function addTaperedSegmentPolygon(ctx, p0, p1, w0, w1) {
   const dx = p1.x - p0.x, dy = p1.y - p0.y;
@@ -207,12 +298,6 @@ function interpolatePointInto(out, p0, p1, p2, p3, t, smoothness) {
   out.y = ly + (cy - ly) * smoothness;
 }
 
-function interpolatePoint(p0, p1, p2, p3, t, smoothness) {
-  const o = { x: 0, y: 0 };
-  interpolatePointInto(o, p0, p1, p2, p3, t, smoothness);
-  return o;
-}
-
 function drawTaperedSegment(ctx, p0, p1, w0, w1) {
   const dx = p1.x - p0.x, dy = p1.y - p0.y;
   const len = fastHypot(dx, dy);
@@ -233,135 +318,10 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
   ctx.beginPath(); ctx.arc(p0.x, p0.y, hw0, 0, Math.PI * 2); ctx.fill();
 }
 
-// ------------------------------------------------------------
-// Highlighter rendering (path continuo)
-// ------------------------------------------------------------
-
-function renderHighlighterFullStroke(ctx, stroke, forceTargetDark) {
-  const pts = stroke.points;
-  const n = pts.length;
-  if (n < 1) return;
-
-  const style = getStrokeStyle(stroke, forceTargetDark);
-  const baseSize = sliderToBaseSize(stroke.size);
-  const lineWidth = Math.max(1, baseSize * 4.0);
-
-  ctx.save();
-  ctx.globalCompositeOperation = style.gco;
-  ctx.strokeStyle = style.strokeStyle;
-  ctx.fillStyle = style.fillStyle;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = lineWidth;
-
-  if (n === 1) {
-    ctx.beginPath();
-    ctx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
-
-export function renderHighlighterPreviewOnOverlay(pageData, stroke) {
-  if (!pageData.overlayCtx || !stroke || stroke.points.length === 0) return;
-
-  const octx = pageData.overlayCtx;
-  const dpr = pageData.overlayDpr || pageData.dpr || 1;
-  const pts = stroke.points;
-
-  const isDark = state.isDarkMode;
-  const color = isDark
-    ? hexToRgbA(stroke.color, 0.55)
-    : hexToRgbA(stroke.color, 0.40);
-  const baseSize = sliderToBaseSize(stroke.size);
-  const lineWidth = Math.max(1, baseSize * 4.0);
-
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i];
-    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-  }
-  const pad = lineWidth + 2;
-  const newBBox = {
-    x: Math.max(0, Math.floor((minX - pad) * dpr)),
-    y: Math.max(0, Math.floor((minY - pad) * dpr)),
-    w: Math.ceil((maxX - minX + pad * 2) * dpr),
-    h: Math.ceil((maxY - minY + pad * 2) * dpr)
-  };
-
-  octx.save();
-  octx.setTransform(1, 0, 0, 1, 0, 0);
-  if (pageData._lastHighlighterBBox) {
-    octx.clearRect(
-      pageData._lastHighlighterBBox.x, pageData._lastHighlighterBBox.y,
-      pageData._lastHighlighterBBox.w, pageData._lastHighlighterBBox.h
-    );
-  }
-  octx.clearRect(newBBox.x, newBBox.y, newBBox.w, newBBox.h);
-  octx.restore();
-
-  octx.save();
-  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  octx.globalCompositeOperation = 'source-over';
-  octx.strokeStyle = color;
-  octx.fillStyle = color;
-  octx.lineCap = 'round';
-  octx.lineJoin = 'round';
-  octx.lineWidth = lineWidth;
-
-  if (pts.length === 1) {
-    octx.beginPath();
-    octx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
-    octx.fill();
-  } else {
-    octx.beginPath();
-    octx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) octx.lineTo(pts[i].x, pts[i].y);
-    octx.stroke();
-  }
-  octx.restore();
-
-  pageData._lastHighlighterBBox = newBBox;
-}
-
-export function blitHighlighterFromOverlay(pageData) {
-  if (!pageData.overlayCtx) return;
-
-  const pctx = pageData.ctx;
-  pctx.save();
-  pctx.setTransform(1, 0, 0, 1, 0, 0);
-  pctx.globalCompositeOperation = 'source-over';
-  pctx.globalAlpha = 1;
-  pctx.drawImage(
-    pageData.overlayCanvas,
-    0, 0,
-    pageData.canvas.width,
-    pageData.canvas.height
-  );
-  pctx.restore();
-
-  pageData._lastHighlighterBBox = null;
-}
-
 // ============================================================
-// BATCH B — BBOX-BASED CLEAR + BLIT
-// ------------------------------------------------------------
-// Sostituisce le operazioni full-canvas (~2-3.4 M px) con
-// operazioni limitate al bbox dello stroke (~50-200 K px tipico).
+// BBOX HELPERS (used by ink.js, dispatcher.js)
 // ============================================================
 
-/**
- * Calcola il bbox di uno stroke in coordinate canvas-space
- * (0..PAGE_WIDTH × 0..PAGE_HEIGHT), con pad.
- * Restituisce null se lo stroke è vuoto.
- */
 export function getStrokeBBoxCanvas(stroke, pad = 24) {
   const pts = stroke && stroke.points;
   if (!pts || pts.length === 0) return null;
@@ -377,10 +337,6 @@ export function getStrokeBBoxCanvas(stroke, pad = 24) {
   };
 }
 
-/**
- * Pulisce una zona rettangolare dell'overlay canvas.
- * Coordinate in px canvas-space.
- */
 export function clearOverlayBBox(pageData, bbox) {
   if (!pageData || !pageData.overlayCtx || !bbox) return;
   const dpr = pageData.overlayDpr || pageData.dpr || 1;
@@ -397,11 +353,16 @@ export function clearOverlayBBox(pageData, bbox) {
 }
 
 /**
- * Copia la zona bbox dell'overlay sulla main canvas, poi pulisce
- * la stessa zona dall'overlay.
- * Sostituisce `pctx.drawImage(overlayCanvas, 0, 0, W, H)` full-canvas.
+ * Copia il bbox dell'overlay sulla main canvas, poi pulisce la stessa
+ * area dall'overlay e RESETTA lo stile CSS di preview (mixBlendMode +
+ * opacity). Il reset CSS è necessario perché durante lo stroke
+ * highlighter l'overlay ha `mix-blend-mode: multiply; opacity: X` via
+ * CSS, e va pulito per evitare bleed visivo sulla main.
+ *
+ * opts.alpha        — globalAlpha al blit (default 1.0)
+ * opts.compositeOp  — globalCompositeOperation al blit (default 'source-over')
  */
-export function blitAndClearBBox(pageData, bbox) {
+export function blitAndClearBBox(pageData, bbox, opts = {}) {
   if (!pageData || !bbox) return;
   const pctx = pageData.ctx;
   const octx = pageData.overlayCtx;
@@ -419,24 +380,33 @@ export function blitAndClearBBox(pageData, bbox) {
   const ow = Math.ceil((bbox.maxX - bbox.minX) * oDpr);
   const oh = Math.ceil((bbox.maxY - bbox.minY) * oDpr);
 
-  if (pw <= 0 || ph <= 0 || ow <= 0 || oh <= 0) return;
+  if (pw > 0 && ph > 0 && ow > 0 && oh > 0) {
+    const alpha = opts.alpha != null ? opts.alpha : 1;
+    const compositeOp = opts.compositeOp || 'source-over';
 
-  pctx.save();
-  pctx.setTransform(1, 0, 0, 1, 0, 0);
-  pctx.globalCompositeOperation = 'source-over';
-  pctx.globalAlpha = 1;
-  pctx.drawImage(pageData.overlayCanvas, ox, oy, ow, oh, px, py, pw, ph);
-  pctx.restore();
+    pctx.save();
+    pctx.setTransform(1, 0, 0, 1, 0, 0);
+    pctx.globalCompositeOperation = compositeOp;
+    pctx.globalAlpha = alpha;
+    pctx.drawImage(pageData.overlayCanvas, ox, oy, ow, oh, px, py, pw, ph);
+    pctx.restore();
 
-  octx.save();
-  octx.setTransform(1, 0, 0, 1, 0, 0);
-  octx.clearRect(ox, oy, ow, oh);
-  octx.restore();
+    octx.save();
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(ox, oy, ow, oh);
+    octx.restore();
+  }
+
+  // Reset CSS preview (mixBlendMode + opacity) sull'overlay.
+  if (pageData.overlayCanvas) {
+    pageData.overlayCanvas.style.opacity = '';
+    pageData.overlayCanvas.style.mixBlendMode = '';
+  }
 }
 
-// ------------------------------------------------------------
-// Rendering
-// ------------------------------------------------------------
+// ============================================================
+// REDRAW PAGE
+// ============================================================
 
 export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
   const ctx = pageData.ctx;
@@ -476,6 +446,10 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
   ctx.restore();
 }
 
+// ============================================================
+// DOT (single point)
+// ============================================================
+
 export function drawDotOnly(pageData, stroke) {
   const pts = stroke.points;
   if (pts.length === 0) return;
@@ -484,22 +458,60 @@ export function drawDotOnly(pageData, stroke) {
   const dpr = pageData.dpr || 1;
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  setupStrokeStyle(ctx, stroke, state.isDarkMode);
-  const baseSize = sliderToBaseSize(stroke.size);
-  const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
-  ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2); ctx.fill();
+
+  if (stroke.tool === 'highlighter') {
+    const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+    ctx.globalCompositeOperation = state.isDarkMode ? 'screen' : 'multiply';
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = stroke.color;
+    const baseSize = sliderToBaseSize(stroke.size);
+    const w = baseSize * 4.0;
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2); ctx.fill();
+  } else {
+    setupStrokeStyle(ctx, stroke, state.isDarkMode);
+    const baseSize = sliderToBaseSize(stroke.size);
+    const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2); ctx.fill();
+  }
   ctx.restore();
 }
 
-export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
-  if (stroke.tool === 'highlighter' && !overrideColor) {
-    renderHighlighterFullStroke(ctx, stroke, forceTargetDark);
-    return;
-  }
+// ============================================================
+// RENDER FULL STROKE
+// ============================================================
 
+export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
   const pts = stroke.points;
   const n = pts.length;
   if (n < 1) return;
+
+  // Highlighter: jitter + alpha + multiply/screen (path unico).
+  if (stroke.tool === 'highlighter' && !overrideColor) {
+    const jittered = getDisplayPoints(stroke);
+    const baseSize = sliderToBaseSize(stroke.size);
+    const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+    const lineWidth = Math.max(1, baseSize * 4.0);
+    ctx.save();
+    ctx.globalCompositeOperation = forceTargetDark ? 'screen' : 'multiply';
+    ctx.globalAlpha = opacity;
+    ctx.strokeStyle = stroke.color;
+    ctx.fillStyle = stroke.color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = lineWidth;
+    if (n === 1) {
+      ctx.beginPath();
+      ctx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(jittered[0].x, jittered[0].y);
+      for (let i = 1; i < n; i++) ctx.lineTo(jittered[i].x, jittered[i].y);
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
 
   if (n === 1) {
     ctx.save();
@@ -593,6 +605,10 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   ctx.restore();
 }
 
+// ============================================================
+// INCREMENTAL DRAWING
+// ============================================================
+
 export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
   const pts = stroke.points;
   const n = pts.length;
@@ -602,6 +618,27 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
 
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Highlighter: disegna OPACO sull'overlay (alpha al blit).
+  // CSS mixBlendMode + opacity sull'overlay canvas fa l'anteprima.
+  if (stroke.tool === 'highlighter') {
+    const jittered = getDisplayPoints(stroke);
+    const baseSize = sliderToBaseSize(stroke.size);
+    const lineWidth = Math.max(1, baseSize * 4.0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = stroke.color;
+    ctx.fillStyle = stroke.color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(jittered[firstSegEnd - 1].x, jittered[firstSegEnd - 1].y);
+    for (let i = firstSegEnd; i < n; i++) ctx.lineTo(jittered[i].x, jittered[i].y);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
   setupStrokeStyle(ctx, stroke, state.isDarkMode);
 
   const smoothness = state.smoothing;
@@ -692,6 +729,10 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
   ctx.restore();
 }
 
+// ============================================================
+// SCRIBBLE HELPERS
+// ============================================================
+
 export function drawScribbleSegment(ctx, stroke, dpr = 1) {
   const pts = stroke.points;
   const n = pts.length;
@@ -724,6 +765,10 @@ export function drawScribbleStroke(ctx, stroke, dpr = 1) {
   ctx.stroke();
   ctx.restore();
 }
+
+// ============================================================
+// PENDING SHAPE
+// ============================================================
 
 export function drawPendingShape(ctx, forceTargetDark) {
   const ps = state.pendingShape;
@@ -769,6 +814,10 @@ export function drawPendingShape(ctx, forceTargetDark) {
   ctx.restore();
 }
 
+// ============================================================
+// BACKGROUND
+// ============================================================
+
 function getBackgroundCanvas(patternName, isDark) {
   const key = `${patternName}|${isDark ? 'dark' : 'light'}`;
   if (_bgCache.key === key) return _bgCache.canvas;
@@ -808,6 +857,10 @@ export function drawPaperBackground(ctx, isDark) {
   const bg = getBackgroundCanvas(state.bgPattern, isDark);
   ctx.drawImage(bg, 0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 }
+
+// ============================================================
+// SELECTION OVERLAY
+// ============================================================
 
 export function drawSelectionHandles(ctx, visualBBox) {
   const scale = viewport.scale;
@@ -857,14 +910,25 @@ export function drawSelectionBadge(ctx, bbox, label) {
   ctx.restore();
 }
 
+/**
+ * Pulisce TUTTO l'overlay (contenuto + CSS preview).
+ * Chiamata da lazo.js (beginLasso, endLasso), scribble.js,
+ * shapes.js, ink.js per reset completo prima di un nuovo disegno.
+ */
 export function clearOverlay(pageData) {
-  if (!pageData.overlayCtx) return;
+  if (!pageData || !pageData.overlayCtx) return;
   const octx = pageData.overlayCtx;
   octx.save();
   octx.setTransform(1, 0, 0, 1, 0, 0);
   octx.clearRect(0, 0, pageData.overlayCanvas.width, pageData.overlayCanvas.height);
   octx.restore();
-  pageData._lastHighlighterBBox = null;
+  // Reset CSS preview (highlighter): durante lo stroke settiamo
+  // mixBlendMode + opacity sull'overlay, e va pulito quando
+  // l'overlay viene svuotato per evitare bleed visivo.
+  if (pageData.overlayCanvas) {
+    pageData.overlayCanvas.style.opacity = '';
+    pageData.overlayCanvas.style.mixBlendMode = '';
+  }
 }
 
 export function renderPendingShapeOnOverlay(pageData) {
