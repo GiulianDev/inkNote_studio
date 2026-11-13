@@ -799,14 +799,32 @@ export function drawScribbleStroke(ctx, stroke, dpr = 1) {
 export function drawPendingShape(ctx, forceTargetDark) {
   const ps = state.pendingShape;
   if (!ps) return;
+
   const startPt = ps.start, endPt = ps.end;
   const effectiveColor = getEffectiveColor(ps.color, forceTargetDark);
+
+  // Opacità visiva della linea di preview:
+  //   - opacity utente dal popover (0.1..1.0)
+  //   - pencil: grana interna 0.55 → moltiplicata
+  //   - highlighter non entra mai in pendingShape (usa trySnapHighlighter
+  //     che modifica in-place), quindi non serve gestirlo qui.
+  const userOpacity = ps.opacity != null ? ps.opacity : 1.0;
+  const pencilFactor = ps.tool === 'pencil' ? 0.55 : 1.0;
+  const lineOpacity = userOpacity * pencilFactor;
+
   ctx.save();
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   ctx.globalCompositeOperation = 'source-over';
   ctx.strokeStyle = effectiveColor;
   ctx.lineWidth = computeStrokeWidth(ps.tool, ps.size, 0.5);
-  ctx.beginPath(); ctx.moveTo(startPt.x, startPt.y); ctx.lineTo(endPt.x, endPt.y); ctx.stroke();
+  ctx.globalAlpha = lineOpacity;                // ← linea con opacity
+  ctx.beginPath();
+  ctx.moveTo(startPt.x, startPt.y);
+  ctx.lineTo(endPt.x, endPt.y);
+  ctx.stroke();
+  ctx.globalAlpha = 1;                          // ← reset per maniglie/badge opachi
+
   const handleRadius = 8;
   [startPt, endPt].forEach(pt => {
     ctx.beginPath();
@@ -816,6 +834,7 @@ export function drawPendingShape(ctx, forceTargetDark) {
     ctx.arc(pt.x, pt.y, handleRadius, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
   });
+
   const midX = (startPt.x + endPt.x) / 2;
   const midY = (startPt.y + endPt.y) / 2;
   const len = fastHypot(endPt.x - startPt.x, endPt.y - startPt.y);
@@ -827,6 +846,7 @@ export function drawPendingShape(ctx, forceTargetDark) {
   const padX = 8, badgeW = textW + padX * 2, badgeH = 22;
   const bx = midX - badgeW / 2, by = midY - 36;
   const isSnapped = ps._snapAxis != null;
+
   ctx.save();
   ctx.fillStyle = isSnapped ? 'rgba(16, 185, 129, 0.95)' : 'rgba(79, 70, 229, 0.95)';
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
@@ -837,6 +857,7 @@ export function drawPendingShape(ctx, forceTargetDark) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(label, midX, by + badgeH / 2 + 0.5);
   ctx.restore();
+
   ctx.restore();
 }
 

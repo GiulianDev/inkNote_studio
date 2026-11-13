@@ -187,7 +187,11 @@ export function trySnapToLineDuringDraw(pageData, currentPoint) {
   state.pendingShape = {
     start: { x: startPt.x, y: startPt.y, pressure: 0.5 },
     end: { x: snapRes.x, y: snapRes.y, pressure: 0.5 },
-    tool: stroke.tool, color: stroke.color, size: stroke.size, activeHandle: 'end',
+    tool: stroke.tool,
+    color: stroke.color,
+    size: stroke.size,
+    opacity: stroke.opacity != null ? stroke.opacity : 1.0,  // ← PROPAGA OPACITY
+    activeHandle: 'end',
     _snapAxis: snapRes.axis,
     _snapRejected: snapRes.rejected
   };
@@ -271,7 +275,13 @@ export function finalizePendingShape() {
         pressure: 0.5
       });
     }
-    const newStroke = { tool: ps.tool, color: ps.color, size: ps.size, points: straightPts };
+    const newStroke = {
+      tool: ps.tool,
+      color: ps.color,
+      size: ps.size,
+      opacity: ps.opacity != null ? ps.opacity : 1.0,  // ← PROPAGA OPACITY
+      points: straightPts
+    };
     curr.strokes.push(newStroke);
     const pctx = curr.ctx, dpr = curr.dpr || 1;
     pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
