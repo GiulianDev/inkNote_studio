@@ -17,17 +17,12 @@
  *     viene montata/smontata: chi ha un riferimento a pageData vede
  *     i campi aggiornati senza riletture.
  *
- * Pulizia canvas: quando uno slot viene rilasciato, entrambi i canvas
- * (main e overlay) vengono esplicitamente puliti con clearRect. Senza
- * questa pulizia, il contenuto della pagina precedente resta visibile
- * quando lo slot viene riassegnato (bug "evidenziatore su più pagine").
- *
  * API:
- *   - updateAround(activeIndex, force?)  — assegna slot
- *   - forceAssign(pageIndex)             — adotta pagina
- *   - reset()                            — azzera tutti gli slot
+ *   - updatePoolAssignments(activeIndex, force?)  — assegna slot
+ *   - forceAssign(pageIndex)                      — adotta pagina
+ *   - reset()                                     — azzera tutti gli slot
  *
- * @see features/editor/pages.js   — refreshCanvasResolution chiama update
+ * @see features/editor/pages.js — refreshCanvasResolution chiama update
  * @see features/tools/dispatcher.js — forceAssign su pointerdown orfano
  */
 
@@ -59,33 +54,12 @@ class PageSlot {
 class PageRendererPool {
   constructor() {
     this.slots = Array.from({ length: POOL_SIZE }, () => new PageSlot());
+    // LRU: slot più recentemente assegnati in coda. Evict dal fronte.
     this._lru = this.slots.slice();
-  }
-
-  /**
-   * Pulisce ESPLICITAMENTE i canvas di uno slot (main + overlay).
-   * Necessario perché se lo slot viene riusato con lo stesso canvas
-   * e la stessa dimensione, `_resizeSlot` non fa nulla e il contenuto
-   * vecchio resta visibile.
-   */
-  _clearSlotCanvas(slot) {
-    try {
-      slot.ctx.save();
-      slot.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      slot.ctx.clearRect(0, 0, slot.canvas.width, slot.canvas.height);
-      slot.ctx.restore();
-    } catch (e) {}
-    try {
-      slot.overlayCtx.save();
-      slot.overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-      slot.overlayCtx.clearRect(0, 0, slot.overlayCanvas.width, slot.overlayCanvas.height);
-      slot.overlayCtx.restore();
-    } catch (e) {}
   }
 
   reset() {
     for (const slot of this.slots) {
-      this._clearSlotCanvas(slot);
       if (slot.wrapper) {
         try { slot.wrapper.removeChild(slot.canvas); } catch (e) {}
         try { slot.wrapper.removeChild(slot.overlayCanvas); } catch (e) {}
@@ -141,10 +115,6 @@ class PageRendererPool {
       try { slot.wrapper.removeChild(slot.canvas); } catch (e) {}
       try { slot.wrapper.removeChild(slot.overlayCanvas); } catch (e) {}
     }
-    // Pulisci esplicitamente PRIMA di marcare lo slot come libero.
-    // Senza questo, il contenuto vecchio resta sul canvas e riappare
-    // quando lo slot viene riassegnato.
-    this._clearSlotCanvas(slot);
     slot.pageIndex = -1;
     slot.wrapper = null;
     slot.dpr = 0;
@@ -160,6 +130,8 @@ class PageRendererPool {
     page.wrapper.appendChild(slot.canvas);
     page.wrapper.appendChild(slot.overlayCanvas);
 
+    // Pulisce gli stroke da cache stile (safety dopo release)
+    // In realtà non serve perché _styleCache è per (stroke, isDark).
     page.canvas = slot.canvas;
     page.ctx = slot.ctx;
     page.overlayCanvas = slot.overlayCanvas;
@@ -248,14 +220,11 @@ function _resizeSlot(slot, page) {
   const dpr = getTargetDpr(page);
   const newW = Math.floor(PAGE_WIDTH * dpr);
   const newH = Math.floor(PAGE_HEIGHT * dpr);
-
-  const sizeChanged = slot.canvas.width !== newW || slot.canvas.height !== newH;
-  if (sizeChanged) {
+  if (slot.canvas.width !== newW || slot.canvas.height !== newH) {
     slot.canvas.width = newW;
     slot.canvas.height = newH;
     slot.ctx = slot.canvas.getContext('2d');
   }
-
   const oDpr = Math.min(dpr, BASE_OVERLAY_DPR);
   const oW = Math.floor(PAGE_WIDTH * oDpr);
   const oH = Math.floor(PAGE_HEIGHT * oDpr);
@@ -264,23 +233,11 @@ function _resizeSlot(slot, page) {
     slot.overlayCanvas.height = oH;
     slot.overlayCtx = slot.overlayCanvas.getContext('2d');
   }
-
-  // Se il resize NON è avvenuto (dimensioni invariate), il contenuto
-  // precedente è ancora lì: puliscilo esplicitamente. redrawPageCanvas
-  // pulisce già la main canvas, ma l'overlay no.
-  if (!sizeChanged) {
-    try {
-      slot.overlayCtx.save();
-      slot.overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-      slot.overlayCtx.clearRect(0, 0, slot.overlayCanvas.width, slot.overlayCanvas.height);
-      slot.overlayCtx.restore();
-    } catch (e) {}
-  }
-
   slot.dpr = dpr;
   slot.overlayDpr = oDpr;
   page.dpr = dpr;
   page.overlayDpr = oDpr;
+  // Aggiorna i riferimenti (ridando ctx al pageData)
   page.ctx = slot.ctx;
   page.overlayCtx = slot.overlayCtx;
   redrawPageCanvas(page);

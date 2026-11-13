@@ -1,6 +1,7 @@
 <!-- features/toolbar/toolbar.html
      Markup della feature toolbar (dock + subbar).
-     Iniettato via `?raw` da toolbar.js tramite mountToolbar(). -->
+     Iniettato via `?raw` da toolbar.js tramite mountToolbar().
+     Gli id sono quelli storici: il resto del codice continua a funzionare. -->
 
 <header id="mainHeader" class="bg-white/95 dark:bg-slate-900/95 border-b border-slate-300 dark:border-slate-800 px-2 py-2.5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-sm transition-all duration-200">
 
@@ -21,9 +22,11 @@
 
   <div class="flex-1 flex justify-center items-center min-w-0 overflow-hidden gap-2">
     <div id="drawingToolbar" class="flex items-center flex-nowrap bg-slate-100 dark:bg-slate-800 p-0.5 rounded-2xl border border-slate-300 dark:border-slate-700 gap-0.5 transition-all">
+      <!-- PENNA -->
       <button id="btnTool-pen" class="dock-tool-btn tool-btn bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm shrink-0" title="Stilografica">
         🖊️<span class="hidden 2xl:inline ml-1">Stilografica</span>
       </button>
+      <!-- MATITA -->
       <button id="btnTool-pencil" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Matita">
         ✏️<span class="hidden 2xl:inline ml-1">Matita</span>
       </button>
@@ -46,24 +49,15 @@
         <span id="autoShapeIcon">✨</span><span class="hidden 2xl:inline ml-1" id="autoShapeLabel">Auto-Forme</span>
       </button>
 
-      <!-- Smoothing (nascosto quando highlighter è attivo) -->
-      <div id="smoothingContainer" class="hidden sm:flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Levigatura del tratto">
+      <div class="hidden sm:flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Levigatura del tratto: 0 = fedele all'input, 100 = curve molto morbide">
         <span class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">〰️</span>
         <input type="range" id="smoothingSlider" min="0" max="100" value="50" class="dock-range accent-indigo-600 cursor-pointer">
         <span id="smoothingValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">50</span>
       </div>
 
-      <!-- Opacità highlighter (visibile solo con highlighter) -->
-      <div id="opacityContainer" class="hidden dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Opacità evidenziatore">
-        <span class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">◐</span>
-        <input type="range" id="highlighterOpacitySlider" min="20" max="95" value="60" class="dock-range accent-amber-500 cursor-pointer">
-        <span id="highlighterOpacityValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-5 text-center tabular-nums">60</span>
-      </div>
-
       <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
 
-      <!-- Colori pen (visibili per pen/pencil/marker) -->
-      <div id="penColorsContainer" class="flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
+      <div class="flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
         <button class="color-swatch dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
         <button class="color-swatch dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
         <button class="color-swatch dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
@@ -71,16 +65,6 @@
         <button class="color-swatch dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
         <div id="recentColorsContainer" class="hidden items-center space-x-1"></div>
         <input type="color" id="customColorPicker" class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent" title="Colore personalizzato">
-      </div>
-
-      <!-- Colori highlighter (visibili solo con highlighter attivo) -->
-      <div id="highlighterColorsContainer" class="hidden dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
-        <button class="color-swatch-highlighter dock-swatch rounded-full border-2 border-white dark:border-slate-800" style="background-color:#FFEB3B" data-color="#FFEB3B" title="Giallo"></button>
-        <button class="color-swatch-highlighter dock-swatch rounded-full border-2 border-white dark:border-slate-800" style="background-color:#7CFF7C" data-color="#7CFF7C" title="Verde"></button>
-        <button class="color-swatch-highlighter dock-swatch rounded-full border-2 border-white dark:border-slate-800" style="background-color:#FF7CBE" data-color="#FF7CBE" title="Rosa"></button>
-        <button class="color-swatch-highlighter dock-swatch rounded-full border-2 border-white dark:border-slate-800" style="background-color:#7CD4FF" data-color="#7CD4FF" title="Blu"></button>
-        <button class="color-swatch-highlighter dock-swatch rounded-full border-2 border-white dark:border-slate-800" style="background-color:#FFA97C" data-color="#FFA97C" title="Arancio"></button>
-        <input type="color" id="customHighlighterColorPicker" class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent" title="Colore personalizzato">
       </div>
 
       <div class="hidden md:flex dock-container items-center space-x-1.5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Spessore tratto">
@@ -108,7 +92,7 @@
   </div>
 </header>
 
-<!-- SUBBAR (invariata) -->
+<!-- SUBBAR -->
 <div id="subbar" class="bg-slate-50 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 shrink-0 z-20 overflow-hidden transition-all duration-300">
   <div id="subbarContent" class="flex items-center justify-between px-6 py-1.5 w-full transition-transform duration-300">
     <div class="flex items-center space-x-2">
@@ -162,6 +146,7 @@
   </button>
 </div>
 
+<!-- Popup livelli gomma (long-press / tasto destro su #btnTool-eraser) -->
 <div id="eraserSizeMenu" class="fixed hidden z-[60] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2 flex items-center gap-1.5">
     <button data-eraser-level="1" class="eraser-size-btn flex items-center justify-center w-9 h-9 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition" title="Gomma piccola">
         <span class="block rounded-full bg-slate-700 dark:bg-slate-300" style="width:6px;height:6px;"></span>

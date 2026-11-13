@@ -20,9 +20,6 @@
  *
  * Il runtime continua a usare `{x,y,pressure,...}` (rendering invariato).
  * Pack/unpack avvengono SOLO al confine di persistenza/history.
- *
- * Migrazione soft: gli highlighter legacy con colore nero (#000000)
- * vengono mappati al giallo default (#FFEB3B) al primo unpack.
  */
 
 export const PACKED_STRIDE = 7;
@@ -31,8 +28,6 @@ const PT_PEN = 0;
 const PT_TOUCH = 1;
 const PT_MOUSE = 2;
 const PT_ERASER = 3;
-
-const HIGHLIGHTER_DEFAULT_COLOR = '#FFEB3B';
 
 function _pointerTypeToInt(pt) {
   switch (pt) {
@@ -50,10 +45,6 @@ function _intToPointerType(n) {
     case PT_ERASER: return 'eraser';
     default:        return 'pen';
   }
-}
-
-function _isLegacyBlack(c) {
-  return !c || c === '#000000' || c === '#000' || c === 'black';
 }
 
 /**
@@ -87,23 +78,11 @@ export function packStroke(s) {
 /**
  * Unpacka uno stroke packed in formato runtime.
  * Gestisce anche input già unpacked (retrocompat): se `s.points`
- * esiste e `s.packed` no, ritorna `s` invariato.
- *
- * Migrazione soft: se `tool === 'highlighter'` e il colore è nero
- * (legacy, prima della palette colorata), sostituisce con il giallo
- * default. Questo normalizza gli stroke già salvati senza richiedere
- * una migrazione esplicita in IDB.
+ * esiste, ritorna `s` invariato.
  */
 export function unpackStroke(s) {
   if (!s) return s;
-
-  // Già unpacked: applica solo la migrazione highlighter se serve
-  if (!s.packed) {
-    if (s.tool === 'highlighter' && _isLegacyBlack(s.color)) {
-      return { ...s, color: HIGHLIGHTER_DEFAULT_COLOR };
-    }
-    return s;
-  }
+  if (!s.packed) return s;  // già unpacked
 
   const buf = s.packed;
   const n = s.count != null ? s.count : (buf ? (buf.length / PACKED_STRIDE) | 0 : 0);
@@ -120,16 +99,9 @@ export function unpackStroke(s) {
       pointerType: _intToPointerType(buf[o + 6])
     };
   }
-
-  // Migrazione soft highlighter legacy
-  let color = s.color;
-  if (s.tool === 'highlighter' && _isLegacyBlack(color)) {
-    color = HIGHLIGHTER_DEFAULT_COLOR;
-  }
-
   return {
     tool: s.tool,
-    color,
+    color: s.color,
     size: s.size,
     points: pts
   };
@@ -137,6 +109,8 @@ export function unpackStroke(s) {
 
 /**
  * Pack di un array di stroke (per una pagina).
+ * Usare `.map(packStroke)` direttamente è equivalente, questa funzione
+ * esiste per leggibilità nei call-site.
  */
 export function packStrokes(strokes) {
   const n = strokes.length;
