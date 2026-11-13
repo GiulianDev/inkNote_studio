@@ -225,8 +225,7 @@ export function computeStrokeWidth(tool, rawSize, pressure, tiltNorm = 0, speedN
 // ============================================================
 
 function getStrokeStyle(stroke, isDark) {
-  const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
-  const key = `${isDark ? 'd' : 'l'}|${opacity.toFixed(2)}`;
+  const key = isDark ? 'dark' : 'light';
   const cache = stroke._styleCache;
   if (cache && cache.key === key) return cache;
 
@@ -237,10 +236,13 @@ function getStrokeStyle(stroke, isDark) {
     strokeStyle = stroke.color;
     fillStyle = stroke.color;
   } else if (stroke.tool === 'pencil') {
-    // Pencil: grana grafite (alpha interna 0.55) × opacity utente.
+    // Pencil: grana grafite (alpha interna 0.55 FISSO).
+    // L'opacity utente è applicata via globalAlpha al momento del
+    // rendering (renderFullStroke/drawDotOnly) e via CSS sull'overlay
+    // durante lo stroke. Non la includiamo qui per evitare doppia
+    // applicazione.
     gco = 'source-over';
-    const a = 0.55 * opacity;
-    const c = hexToRgbA(getEffectiveColor(stroke.color, isDark), a);
+    const c = hexToRgbA(getEffectiveColor(stroke.color, isDark), 0.55);
     strokeStyle = c; fillStyle = c;
   } else {
     gco = 'source-over';
@@ -345,11 +347,20 @@ export function clearOverlayBBox(pageData, bbox) {
   const y = Math.max(0, Math.floor(bbox.minY * dpr));
   const w = Math.ceil((bbox.maxX - bbox.minX) * dpr);
   const h = Math.ceil((bbox.maxY - bbox.minY) * dpr);
-  if (w <= 0 || h <= 0) return;
-  octx.save();
-  octx.setTransform(1, 0, 0, 1, 0, 0);
-  octx.clearRect(x, y, w, h);
-  octx.restore();
+  if (w > 0 && h > 0) {
+    octx.save();
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(x, y, w, h);
+    octx.restore();
+  }
+  // Reset CSS preview (necessario per pencil/pen/marker: dopo il render
+  // finale il blit o il full redraw hanno già scritto su main, ma
+  // l'overlay può avere ancora opacity/mixBlendMode attivi durante
+  // lo stroke successivo).
+  if (pageData.overlayCanvas) {
+    pageData.overlayCanvas.style.opacity = '';
+    pageData.overlayCanvas.style.mixBlendMode = '';
+  }
 }
 
 /**
@@ -456,11 +467,12 @@ export function drawDotOnly(pageData, stroke) {
   const pt = pts[0];
   const ctx = pageData.ctx;
   const dpr = pageData.dpr || 1;
+  const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   if (stroke.tool === 'highlighter') {
-    const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
     ctx.globalCompositeOperation = state.isDarkMode ? 'screen' : 'multiply';
     ctx.globalAlpha = opacity;
     ctx.fillStyle = stroke.color;
@@ -468,7 +480,11 @@ export function drawDotOnly(pageData, stroke) {
     const w = baseSize * 4.0;
     ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2); ctx.fill();
   } else {
+    // Pencil: colore ha già alpha interna 0.55 in getStrokeStyle.
+    // Pen/marker: colore pieno.
+    // In entrambi i casi applichiamo opacity utente via globalAlpha.
     setupStrokeStyle(ctx, stroke, state.isDarkMode);
+    ctx.globalAlpha = opacity;
     const baseSize = sliderToBaseSize(stroke.size);
     const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
     ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2); ctx.fill();
@@ -485,11 +501,12 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   const n = pts.length;
   if (n < 1) return;
 
-  // Highlighter: jitter + alpha + multiply/screen (path unico).
+  const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+
+  // Highlighter: jitter + alpha + multiply/screen (path unico, branch separato).
   if (stroke.tool === 'highlighter' && !overrideColor) {
     const jittered = getDisplayPoints(stroke);
     const baseSize = sliderToBaseSize(stroke.size);
-    const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
     const lineWidth = Math.max(1, baseSize * 4.0);
     ctx.save();
     ctx.globalCompositeOperation = forceTargetDark ? 'screen' : 'multiply';
@@ -519,7 +536,10 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = overrideColor; ctx.fillStyle = overrideColor;
-    } else setupStrokeStyle(ctx, stroke, forceTargetDark);
+    } else {
+      setupStrokeStyle(ctx, stroke, forceTargetDark);
+      ctx.globalAlpha = opacity;
+    }
     const baseSize = sliderToBaseSize(stroke.size);
     const pt = pts[0];
     const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
@@ -533,7 +553,13 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.globalCompositeOperation = 'source-over';
     ctx.strokeStyle = overrideColor; ctx.fillStyle = overrideColor;
-  } else setupStrokeStyle(ctx, stroke, forceTargetDark);
+  } else {
+    setupStrokeStyle(ctx, stroke, forceTargetDark);
+    // Applica opacity utente. Pencil ha colore con alpha interna
+    // 0.55, quindi risultato = 0.55 × opacity. Pen/marker colore
+    // pieno, risultato = opacity.
+    ctx.globalAlpha = opacity;
+  }
 
   const smoothness = state.smoothing;
   const baseSize = sliderToBaseSize(stroke.size);

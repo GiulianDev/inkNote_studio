@@ -139,12 +139,21 @@ export function endInkStroke(pageData) {
  *   - altrimenti: blit bbox-based (alpha+compositeOp per tool)
  */
 function _renderFinalStroke(pageData, stroke, snapped) {
+  // Reset CSS preview sull'overlay: durante lo stroke _renderBatchTarget
+  // ha impostato opacity/mixBlendMode, e va pulito prima di scrivere
+  // la versione definitiva sulla main canvas.
+  if (pageData.overlayCanvas) {
+    pageData.overlayCanvas.style.opacity = '';
+    pageData.overlayCanvas.style.mixBlendMode = '';
+  }
+
   const isHL = stroke.tool === 'highlighter';
   const pad = isHL
     ? Math.max(24, (stroke.size * 2) + 8)
     : 24;
 
-  // Ridisegno completo sulla main (path nuovo o singolo punto)
+  // Ridisegno completo sulla main (path nuovo o singolo punto o pencil).
+  // renderFullStroke applica globalAlpha = opacity (pen/marker/pencil).
   if (snapped || stroke.points.length === 1 || stroke.tool === 'pencil') {
     const pctx = pageData.ctx, dpr = pageData.dpr || 1;
     pctx.save();
@@ -159,7 +168,8 @@ function _renderFinalStroke(pageData, stroke, snapped) {
     return;
   }
 
-  // Blit bbox-based (pen, marker, highlighter)
+  // Blit bbox-based. blitAndClearBBox applica alpha al blit e resetta
+  // CSS overlay a fine operazione.
   const bbox = getStrokeBBoxCanvas(stroke, pad);
   const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
   if (isHL) {

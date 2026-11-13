@@ -175,21 +175,30 @@ function _renderBatchTarget(pageData, drawnIdx) {
   if (!state.currentStroke) return;
 
   const oc = pageData.overlayCanvas;
+  const stroke = state.currentStroke;
+  const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+
   if (oc) {
-    if (state.currentStroke.tool === 'highlighter') {
-      const op = state.currentStroke.opacity != null ? state.currentStroke.opacity : 1.0;
-      oc.style.opacity = String(op);
+    // Applica opacity CSS all'overlay per TUTTI i tool, così
+    // l'anteprima durante lo stroke ha la stessa opacità del
+    // risultato finale (blit con alpha = opacity).
+    if (opacity < 1.0) {
+      oc.style.opacity = String(opacity);
+    } else {
+      oc.style.opacity = '';
+    }
+    // mixBlendMode solo per highlighter (multiply/screen)
+    if (stroke.tool === 'highlighter') {
       oc.style.mixBlendMode = state.isDarkMode ? 'screen' : 'multiply';
     } else {
-      if (oc.style.opacity) oc.style.opacity = '';
-      if (oc.style.mixBlendMode) oc.style.mixBlendMode = '';
+      oc.style.mixBlendMode = '';
     }
   }
 
   const targetCtx = pageData.overlayCtx;
   const dpr = pageData.overlayDpr || pageData.dpr;
-  drawIncrementalBatch(targetCtx, state.currentStroke, drawnIdx, dpr);
-  state.currentStroke._drawnIdx = state.currentStroke.points.length;
+  drawIncrementalBatch(targetCtx, stroke, drawnIdx, dpr);
+  stroke._drawnIdx = stroke.points.length;
 }
 
 export function scheduleFlush(pageData) {
