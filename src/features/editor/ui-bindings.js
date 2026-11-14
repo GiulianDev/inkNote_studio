@@ -149,3 +149,135 @@ function applyEraserModeToUI() {
   const sel = document.getElementById('eraserModeSelect');
   if (sel) sel.value = getToolbarSettings().eraserMode;
 }
+
+// ============================================================
+// UNDO/REDO DRAG — spostabile con long-press
+// ============================================================
+
+const UNDO_REDO_POS_KEY = 'inknote_undo_redo_pos';
+const UNDO_REDO_DRAG_PRESS_MS = 350;
+const UNDO_REDO_MARGIN = 8;
+
+function initUndoRedoDrag() {
+  const el = document.getElementById('undoRedoContainer');
+  if (!el) return;
+
+  // Clamp ai bordi del viewport: usato sia al restore iniziale
+  // sia durante il drag, per evitare che il container finisca
+  // fuori schermo su resize.
+  const clampToViewport = (x, y) => {
+    const w = el.offsetWidth || 100;
+    const h = el.offsetHeight || 44;
+    const maxX = window.innerWidth - w - UNDO_REDO_MARGIN;
+    const maxY = window.innerHeight - h - UNDO_REDO_MARGIN;
+    return {
+      x: Math.max(UNDO_REDO_MARGIN, Math.min(maxX, x)),
+      y: Math.max(UNDO_REDO_MARGIN, Math.min(maxY, y))
+    };
+  };
+
+  // Ripristina posizione salvata (se presente). Se fuori viewport
+  // (es. resize), clampa.
+  try {
+    const raw = localStorage.getItem(UNDO_REDO_POS_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
+        const pos = clampToViewport(saved.x, saved.y);
+        el.style.left = `${pos.x}px`;
+        el.style.top = `${pos.y}px`;
+      }
+    }
+  } catch {}
+
+  let pressTimer = null;
+  let dragging = false;
+  let startX = 0, startY = 0;
+  let origX = 0, origY = 0;
+  let skipNextClick = false;
+
+  const cancelPress = () => {
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+  };
+
+  el.addEventListener('pointerdown', (e) => {
+    // Solo click sinistro (mouse). Touch/penna sempre validi.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    const rect = el.getBoundingClientRect();
+    startX = e.clientX;
+    startY = e.clientY;
+    origX = rect.left;
+    origY = rect.top;
+    dragging = false;
+    skipNextClick = false;
+
+    cancelPress();
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      dragging = true;
+      skipNextClick = true;
+      el.style.cursor = 'grabbing';
+      el.style.transition = 'none';
+      el.style.willChange = 'left, top';
+      try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    }, UNDO_REDO_DRAG_PRESS_MS);
+  });
+
+  el.addEventListener('pointermove', (e) => {
+    if (!dragging) {
+      // Se l'utente muove prima del long-press (>8px), annulla il
+      // press: probabilmente è un movimento/scroll, non un long-press.
+      if (pressTimer) {
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (Math.hypot(dx, dy) > 8) cancelPress();
+      }
+      return;
+    }
+    // Trascinamento attivo: aggiorna posizione con clamp.
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    const pos = clampToViewport(origX + dx, origY + dy);
+    el.style.left = `${pos.x}px`;
+    el.style.top = `${pos.y}px`;
+  });
+
+  const endDrag = (e) => {
+    cancelPress();
+    if (!dragging) return;
+    dragging = false;
+    el.style.cursor = '';
+    el.style.transition = '';
+    el.style.willChange = '';
+    try { el.releasePointerCapture(e.pointerId); } catch (err) {}
+
+    // Salva la nuova posizione
+    const rect = el.getBoundingClientRect();
+    try {
+      localStorage.setItem(UNDO_REDO_POS_KEY, JSON.stringify({
+        x: Math.round(rect.left),
+        y: Math.round(rect.top)
+      }));
+    } catch {}
+
+    // Lascia passare il click successivo (evita undo/redo accidentale)
+    setTimeout(() => { skipNextClick = false; }, 50);
+  };
+
+  el.addEventListener('pointerup', endDrag);
+  el.addEventListener('pointercancel', endDrag);
+
+  // Blocca il click generato dall'evento che ha chiuso il drag,
+  // così non viene attivato undo/redo per errore.
+  el.addEventListener('click', (e) => {
+    if (skipNextClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      skipNextClick = false;
+    }
+  }, true);
+}

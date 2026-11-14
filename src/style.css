@@ -129,10 +129,10 @@ body.dark .page-wrapper {
    HANDEDNESS — elementi non-toolbar che si specchiano
    (toolbar e subbar gestite in features/toolbar/toolbar.css)
    ============================================================ */
-body.handed-left #undoRedoContainer {
+/* body.handed-left #undoRedoContainer {
   left: 1.5rem;
   right: auto;
-}
+} */
 
 body.handed-left #zoomBadge {
   left: auto;
