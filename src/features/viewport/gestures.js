@@ -156,15 +156,20 @@ function _isPenBlockingTouches() {
 
   const now = performance.now();
 
+  // Grace post-pointerup (palmo che appoggia nel momento del sollevamento)
   if (_lastPenContactEndTime > 0 &&
       now - _lastPenContactEndTime < PEN_CONTACT_GRACE_MS) {
     return true;
   }
 
+  // Grace post-pointerleave (mignolo che tocca appena la penna esce dal range)
+  if (_lastPenLeaveTime > 0 &&
+      now - _lastPenLeaveTime < PEN_LEAVE_GRACE_MS) {
+    return true;
+  }
+
+  // Hover attivo (con safety net)
   if (_penInRange) {
-    // Safety net: se non riceviamo eventi hover da troppo tempo,
-    // assumiamo che la penna sia fuori range ma il driver non abbia
-    // emesso pointerleave. Sblocca i touch.
     if (_lastPenEventTime > 0 &&
         now - _lastPenEventTime > PEN_HOVER_TIMEOUT_MS) {
       _penInRange = false;
