@@ -1,6 +1,13 @@
 // ============================================================
 // TOOLS COMMON — helper condivisi fra tutti i tool:
 // coordinate, smoothing, batching rAF, prediction clear.
+//
+// Ottimizzazioni applicate:
+//   A. getCanvasRect ritorna un wrapper con scaleX/scaleY precalcolati
+//      (evita PAGE_WIDTH / rect.width ad ogni punto)
+//   B. _processPointerPoint calcola hypot una sola volta per punto
+//   C. Buffer di flush con swap preallocato (zero allocazioni array)
+//   D. _pointPool cappato a MAX_POOL_SIZE per limitare la memoria
 // ============================================================
 
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
@@ -11,6 +18,7 @@ import { checkForScribble } from './scribble.js';
 import { trySnapToLineDuringDraw } from './shapes.js';
 
 const MAX_BATCH_POINTS = 16;
+const MAX_POOL_SIZE = 2000;
 
 export const _useRawPointerUpdate =
   typeof window !== 'undefined' && 'onpointerrawupdate' in window;
@@ -28,42 +36,63 @@ export function isPenEraser(e) {
 
 // ------------------------------------------------------------
 // Pool di punti (evita allocazioni nel hot path)
+//
+// Cap a MAX_POOL_SIZE: uno stroke molto lungo (es. 5000 punti) non
+// lascia un pool enorme per il resto della sessione. Al reset, se il
+// pool supera il cap, viene trimmato. Gli oggetti oltre il cap
+// vengono lasciati al GC.
 // ------------------------------------------------------------
 const _pointPool = [];
 let _pointPoolIdx = 0;
 
-export function resetPointPool() { _pointPoolIdx = 0; }
+export function resetPointPool() {
+  _pointPoolIdx = 0;
+  if (_pointPool.length > MAX_POOL_SIZE) {
+    _pointPool.length = MAX_POOL_SIZE;
+  }
+}
 
 // ------------------------------------------------------------
 // Cache rect canvas
+//
+// Ritorna un wrapper con gli stessi campi del DOMRect (left/top/
+// width/height/right/bottom/x/y) + scaleX/scaleY precalcolati.
+// Evita di ripetere PAGE_WIDTH / rect.width per ogni punto.
+//
+// La cache è valida finché canvas + viewport (scale/x/y) non
+// cambiano. Cambio pagina o pan/zoom invalidano automaticamente.
 // ------------------------------------------------------------
 let _strokeRect = null;
-let _strokeRectCanvas = null;
-let _strokeRectScale = 0;
-let _strokeRectX = 0;
-let _strokeRectY = 0;
 
 export function invalidateStrokeRect() {
   _strokeRect = null;
-  _strokeRectCanvas = null;
-  _strokeRectScale = 0;
-  _strokeRectX = 0;
-  _strokeRectY = 0;
 }
 
 export function getCanvasRect(canvas) {
   if (_strokeRect &&
-      _strokeRectCanvas === canvas &&
-      _strokeRectScale === viewport.scale &&
-      _strokeRectX === viewport.x &&
-      _strokeRectY === viewport.y) {
+      _strokeRect._cacheCanvas === canvas &&
+      _strokeRect._cacheVpScale === viewport.scale &&
+      _strokeRect._cacheVpX === viewport.x &&
+      _strokeRect._cacheVpY === viewport.y) {
     return _strokeRect;
   }
-  _strokeRect = canvas.getBoundingClientRect();
-  _strokeRectCanvas = canvas;
-  _strokeRectScale = viewport.scale;
-  _strokeRectX = viewport.x;
-  _strokeRectY = viewport.y;
+  const r = canvas.getBoundingClientRect();
+  // Protezione: canvas appena creato (prima del layout) può avere
+  // width/height 0. Uso 1 come fallback per evitare scaleX = Infinity.
+  const w = r.width > 0 ? r.width : 1;
+  const h = r.height > 0 ? r.height : 1;
+  _strokeRect = {
+    left: r.left, top: r.top,
+    width: r.width, height: r.height,
+    right: r.right, bottom: r.bottom,
+    x: r.x, y: r.y,
+    scaleX: PAGE_WIDTH / w,
+    scaleY: PAGE_HEIGHT / h,
+    _cacheCanvas: canvas,
+    _cacheVpScale: viewport.scale,
+    _cacheVpX: viewport.x,
+    _cacheVpY: viewport.y
+  };
   return _strokeRect;
 }
 
@@ -78,8 +107,8 @@ export function getCanvasCoords(e, canvas) {
     _pointPool.push(p);
     _pointPoolIdx++;
   }
-  p.x = (e.clientX - rect.left) * (PAGE_WIDTH / rect.width);
-  p.y = (e.clientY - rect.top) * (PAGE_HEIGHT / rect.height);
+  p.x = (e.clientX - rect.left) * rect.scaleX;
+  p.y = (e.clientY - rect.top) * rect.scaleY;
   p.pressure = (e.pointerType === 'pen' && e.pressure > 0) ? e.pressure : 0.5;
   p.tiltX = e.tiltX || 0;
   p.tiltY = e.tiltY || 0;
@@ -100,6 +129,12 @@ function smoothPressure(points, newPressure) {
   return Math.max(0.05, Math.min(1, acc));
 }
 
+/**
+ * NOTA: muta `rawPoint` in place (il chiamante deve considerare
+ * il punto "consumato" dopo questa chiamata). Sicuro perché
+ * `rawPoint` è temporaneo del batch corrente — viene processato
+ * una sola volta.
+ */
 function smoothRawPoint(rawPoint, prevSmoothed) {
   const smoothness = Math.max(0, Math.min(1, state.smoothing));
   if (!prevSmoothed || smoothness <= 0.01) return rawPoint;
@@ -114,12 +149,36 @@ function smoothRawPoint(rawPoint, prevSmoothed) {
 }
 
 // ------------------------------------------------------------
-// Batching rAF
+// Batching rAF con buffer swap preallocato
+//
+// _bufferA e _bufferB si alternano ad ogni _doFlush. Uno è "attivo"
+// (riceve i push), l'altro è in processing. Zero allocazioni di
+// array: gli array vengono riusati e svuotati con `.length = 0`.
+//
+// Nota: `_activeBuffer.length = 0` è safe in single-thread. Anche
+// se un nuovo pointermove arrivasse durante _doFlush (impossibile:
+// è sincrono), il nuovo punto andrebbe sul buffer già swappato,
+// non su quello in processing.
 // ------------------------------------------------------------
-const _flushState = { points: [], rafId: null, pageData: null };
+let _bufferA = [];
+let _bufferB = [];
+let _activeBuffer = _bufferA;
+
+const _flushState = { rafId: null, pageData: null };
+
+/**
+ * Prende il buffer attivo e lo sostituisce con l'altro (vuoto).
+ * Il chiamante ottiene il buffer "pieno" da processare.
+ */
+function _takeBuffer() {
+  const batch = _activeBuffer;
+  _activeBuffer = (_activeBuffer === _bufferA) ? _bufferB : _bufferA;
+  _activeBuffer.length = 0;
+  return batch;
+}
 
 export function pushPointsToBatch(points) {
-  for (let i = 0; i < points.length; i++) _flushState.points.push(points[i]);
+  for (let i = 0; i < points.length; i++) _activeBuffer.push(points[i]);
 }
 
 function _processPointerPoint(rawPoint, pageData) {
@@ -132,8 +191,16 @@ function _processPointerPoint(rawPoint, pageData) {
     smoothedPressure = smoothPressure(state.currentStroke.points, rawPoint.pressure);
   }
   const minDist = state.smoothing <= 0.01 ? 0.01 : 0.4;
-  if (prevSmoothed && fastHypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) < minDist) return;
-  const speedPx = prevSmoothed ? fastHypot(smoothedPos.x - prevSmoothed.x, smoothedPos.y - prevSmoothed.y) : 0;
+  // Calcolo hypot UNA volta sola: serve sia per il check dist < minDist
+  // sia come speedPx per il render.
+  let speedPx = 0;
+  if (prevSmoothed) {
+    const dx = smoothedPos.x - prevSmoothed.x;
+    const dy = smoothedPos.y - prevSmoothed.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < minDist) return;
+    speedPx = dist;
+  }
   const smoothedPoint = {
     x: smoothedPos.x, y: smoothedPos.y, pressure: smoothedPressure,
     tiltX: rawPoint.tiltX, tiltY: rawPoint.tiltY, speed: speedPx, pointerType: rawPoint.pointerType
@@ -203,7 +270,7 @@ function _renderBatchTarget(pageData, drawnIdx) {
 
 export function scheduleFlush(pageData) {
   _flushState.pageData = pageData;
-  if (_flushState.points.length >= MAX_BATCH_POINTS) {
+  if (_activeBuffer.length >= MAX_BATCH_POINTS) {
     if (_flushState.rafId !== null) { cancelAnimationFrame(_flushState.rafId); _flushState.rafId = null; }
     _doFlush(); return;
   }
@@ -214,8 +281,7 @@ export function scheduleFlush(pageData) {
 function _doFlush() {
   _flushState.rafId = null;
   const pageData = _flushState.pageData;
-  const batch = _flushState.points;
-  _flushState.points = [];
+  const batch = _takeBuffer();
   _flushState.pageData = null;
   try {
     if (!pageData || batch.length === 0) return;
@@ -238,21 +304,22 @@ function _doFlush() {
 
     _runPostBatchChecks(pageData);
   } finally {
+    // Libera i riferimenti ai punti (il buffer verrà riusato).
+    batch.length = 0;
     resetPointPool();
   }
 }
 
 export function cancelFlush() {
   if (_flushState.rafId !== null) { cancelAnimationFrame(_flushState.rafId); _flushState.rafId = null; }
-  _flushState.points = [];
+  _activeBuffer.length = 0;
   _flushState.pageData = null;
   resetPointPool();
 }
 
 export function forceFlushNow(pageData) {
   if (_flushState.rafId !== null) { cancelAnimationFrame(_flushState.rafId); _flushState.rafId = null; }
-  const batch = _flushState.points;
-  _flushState.points = [];
+  const batch = _takeBuffer();
   _flushState.pageData = null;
   try {
     if (!pageData || batch.length === 0) return;
@@ -275,6 +342,7 @@ export function forceFlushNow(pageData) {
     if (!state.currentStroke || !state.isDrawing) return;
     checkForScribble(pageData);
   } finally {
+    batch.length = 0;
     resetPointPool();
   }
 }
