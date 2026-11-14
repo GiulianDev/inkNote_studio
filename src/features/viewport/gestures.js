@@ -4,9 +4,17 @@
  * GESTURE VIEWPORT — pan, pinch, wheel, pull-to-add-page.
  *
  * Palm rejection (se state.palmRejection):
- *   - touch > 40px (contact size) → ignora (palm)
- *   - touch entro 100ms da penna → ignora (post-pen dust)
+ *   - Touch > 40px (contact size) → ignora (palm)
+ *   - Touch mentre penna è a contatto o in hover → ignora (no pan/pinch)
  *   - 1 dito = pan, 2 dita = pinch, 3+ = ignora
+ *
+ * Hover detection:
+ *   - pointerenter / pointerleave sul viewport con pointerType 'pen'
+ *   - Safety net: timeout PEN_HOVER_TIMEOUT_MS dall'ultimo pointermove
+ *     con penna (per device che non emettono enter/leave in modo
+ *     affidabile, es. alcuni driver Windows)
+ *   - window.blur → reset (tab in background non deve lasciare il
+ *     flag "pen in range" attivo al ritorno)
  *
  * Scroll momentum:
  *   - velocity samples (ultimi 6 eventi in 100ms)
@@ -45,6 +53,12 @@ import {
 // ------------------------------------------------------------
 const PALM_CONTACT_SIZE = 40;
 const PEN_ACTIVITY_WINDOW_MS = 100;
+// Safety net: se pointerenter/pointerleave non sono affidabili, il
+// timeout dall'ultimo pointermove con penna fa riabilitare i touch.
+// 800ms è un compromesso: abbastanza per non perdere il pan se
+// l'utente allontana la penna e subito vuole usare il dito, non
+// troppo per non lasciare i touch bloccati troppo a lungo.
+const PEN_HOVER_TIMEOUT_MS = 800;
 const PALM_PAN_CANCEL_WINDOW_MS = 400;
 
 // ------------------------------------------------------------
@@ -71,6 +85,8 @@ const MOMENTUM_SPEED_MAX = 8.0;
 const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 
 let _lastPenActivityTime = 0;
+let _lastPenHoverTime = 0;
+let _penInRange = false;
 let _panStartTime = 0;
 
 let _scrollDecisionMade = false;
@@ -97,9 +113,37 @@ function _isPalmContact(e) {
   return (e.width || 0) > PALM_CONTACT_SIZE || (e.height || 0) > PALM_CONTACT_SIZE;
 }
 
+/**
+ * Aggiorna i timestamp di attività penna. Chiamato su pointerdown e
+ * pointermove con penna (anche in hover, senza buttons).
+ */
+function _updatePenActivity() {
+  const now = performance.now();
+  _lastPenActivityTime = now;
+  _lastPenHoverTime = now;
+}
+
+/**
+ * True se i touch devono essere ignorati perché la penna è "in uso"
+ * (a contatto o in hover).
+ *
+ * Logica a cascata:
+ *   1. Penna ha disegnato da < PEN_ACTIVITY_WINDOW_MS → blocca
+ *   2. Penna in range (pointerenter ricevuto, pointerleave non ancora)
+ *      → blocca finché resta in range
+ *   3. Safety net: < PEN_HOVER_TIMEOUT_MS dall'ultimo hover event →
+ *      blocca (per device senza enter/leave affidabili)
+ */
 function _isPenBlockingTouches() {
-  if (_lastPenActivityTime === 0) return false;
-  return (performance.now() - _lastPenActivityTime) < PEN_ACTIVITY_WINDOW_MS;
+  const now = performance.now();
+  if (_lastPenActivityTime !== 0 && now - _lastPenActivityTime < PEN_ACTIVITY_WINDOW_MS) {
+    return true;
+  }
+  if (_penInRange) return true;
+  if (_lastPenHoverTime !== 0 && now - _lastPenHoverTime < PEN_HOVER_TIMEOUT_MS) {
+    return true;
+  }
+  return false;
 }
 
 // ------------------------------------------------------------
@@ -219,14 +263,46 @@ export function setupViewportGestures() {
 
   window.addEventListener('resize', invalidateClampCache);
 
-  viewportEl.addEventListener('pointerdown', (e) => {
-    if (_isPenEvent(e)) _lastPenActivityTime = performance.now();
+  // Se il tab va in background mentre la penna è in hover, al ritorno
+  // non riceveremmo pointerleave → touch bloccati per sempre. Reset
+  // esplicito su blur.
+  window.addEventListener('blur', () => {
+    _penInRange = false;
+  });
+
+  // ----------------------------------------------------------
+  // PEN TRACKING (hover + activity)
+  // ----------------------------------------------------------
+
+  // Penna entra nel viewport (in hover): blocca touch finché non esce.
+  viewportEl.addEventListener('pointerenter', (e) => {
+    if (_isPenEvent(e)) {
+      _penInRange = true;
+      _lastPenHoverTime = performance.now();
+    }
   }, { capture: true, passive: true });
 
-  viewportEl.addEventListener('pointermove', (e) => {
-    if (_isPenEvent(e) && e.buttons > 0) {
-      _lastPenActivityTime = performance.now();
+  // Penna esce dal viewport (fuori range): riabilita touch.
+  // NON azzeriamo _lastPenHoverTime: il safety net (PEN_HOVER_TIMEOUT_MS)
+  // fa da cuscinetto se pointerenter non viene emesso correttamente
+  // dal device (raro ma possibile).
+  viewportEl.addEventListener('pointerleave', (e) => {
+    if (_isPenEvent(e)) {
+      _penInRange = false;
     }
+  }, { capture: true, passive: true });
+
+  // Pointerdown con penna: aggiorna activity (contatto).
+  viewportEl.addEventListener('pointerdown', (e) => {
+    if (_isPenEvent(e)) _updatePenActivity();
+  }, { capture: true, passive: true });
+
+  // Pointermove con penna: aggiorna activity ANCHE in hover
+  // (e.buttons === 0). Prima era `e.buttons > 0` → l'hover non
+  // aggiornava il timestamp, e la palm rejection si "dimenticava"
+  // della penna dopo 100ms di hover.
+  viewportEl.addEventListener('pointermove', (e) => {
+    if (_isPenEvent(e)) _updatePenActivity();
   }, { capture: true, passive: true });
 
   // ----------------------------------------------------------
@@ -267,7 +343,9 @@ export function setupViewportGestures() {
     // ---- TOCCO ----
     const palmCheck = state.palmRejection;
     if (palmCheck) {
+      // Blocca touch se penna a contatto o in hover.
       if (_isPenBlockingTouches()) return;
+      // Blocca se contatto > 40px (palm).
       if (_isPalmContact(e)) return;
     }
 
@@ -297,8 +375,6 @@ export function setupViewportGestures() {
         _panStartTime = performance.now();
         _pushVelocitySample(e.clientX, e.clientY);
 
-        // Determina se siamo già clampati al fondo: solo in quel caso
-        // il pull-to-add-page è considerato "volontario".
         const c0 = clampViewport(viewport.x, viewport.y);
         _startedAtBottom = !!(c0.bounds &&
           Math.abs(viewport.y - c0.bounds.minY) < 2);
@@ -338,7 +414,6 @@ export function setupViewportGestures() {
       e.preventDefault();
       _pushVelocitySample(e.clientX, e.clientY);
 
-      // ---- Finestra di decisione scroll (one-shot) ----
       if (!_scrollDecisionMade) {
         const { vx, vy } = _computeFlingVelocity();
         const speed = Math.hypot(vx, vy);
@@ -364,7 +439,6 @@ export function setupViewportGestures() {
         }
       }
 
-      // ---- Applica la trasformazione + clamp ----
       const dx = e.clientX - viewport.panStart.x;
       const dy = e.clientY - viewport.panStart.y;
       const effectiveDx = _scrollAxisLocked ? 0 : dx;
@@ -377,9 +451,6 @@ export function setupViewportGestures() {
       viewport.y = c.y;
       applyTransform();
 
-      // ---- Pull-to-add-page (overscroll virtuale) ----
-      // Solo se: (a) il gesto è iniziato al fondo, (b) stiamo
-      // spingendo oltre il bordo superiore del contenuto.
       if (_startedAtBottom && c.clampY < 0) {
         const pullY = -c.clampY;
         state.pullOverscrollY = pullY;
@@ -423,8 +494,6 @@ export function setupViewportGestures() {
     viewport.activePointers.delete(e.pointerId);
 
     if (viewport.activePointers.size === 0) {
-      // Pull-to-add-page: solo se il gesto è iniziato al fondo
-      // e la soglia è stata superata.
       const shouldAddPage = _startedAtBottom && state.pullOverscrollY >= PULL_THRESHOLD;
 
       state.pullOverscrollY = 0;
@@ -530,7 +599,7 @@ function hidePullIndicator() {
 
 export function togglePalmRejection(enabled) {
   showToast(
-    enabled ? 'Palm Rejection ATTIVO: Solo Penna scrive, 1 dito muove'
+    enabled ? 'Palm Rejection ATTIVO: Solo Penna scrive, dita bloccate con penna in uso'
             : 'Palm Rejection DISATTIVO: 1 dito scrive, 2 dita muovono',
     enabled ? '🖐️' : '✏️'
   );
