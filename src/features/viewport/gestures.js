@@ -5,16 +5,29 @@
  *
  * Palm rejection (se state.palmRejection):
  *   - Touch > 40px (contact size) → ignora (palm)
- *   - Touch mentre penna è a contatto o in hover → ignora (no pan/pinch)
- *   - 1 dito = pan, 2 dita = pinch, 3+ = ignora
+ *   - Touch durante stroke penna (penDown) → ignora
+ *   - Touch entro PEN_CONTACT_GRACE_MS dal pointerup → ignora
+ *     (grace: palmo che appoggia nel momento del sollevamento)
+ *   - Touch mentre penna è in hover (penInRange) → ignora
+ *     (finché cursore visibile → no pan/pinch)
  *
- * Hover detection:
- *   - pointerenter / pointerleave sul viewport con pointerType 'pen'
- *   - Safety net: timeout PEN_HOVER_TIMEOUT_MS dall'ultimo pointermove
- *     con penna (per device che non emettono enter/leave in modo
- *     affidabile, es. alcuni driver Windows)
- *   - window.blur → reset (tab in background non deve lasciare il
- *     flag "pen in range" attivo al ritorno)
+ * Due timer, ruoli distinti e non sovrapposti:
+ *
+ *   PEN_CONTACT_GRACE_MS = 80ms
+ *     - Parte SOLO al pointerup/pointercancel della penna
+ *     - Copre: sollevo di scatto + allontano + dito appoggia
+ *       entro 80ms → bloccato
+ *     - Dopo 80ms: scade, non è più valutato
+ *
+ *   PEN_HOVER_TIMEOUT_MS = 250ms
+ *     - Safety net per device che NON emettono pointerleave
+ *     - Si applica SOLO se _penInRange === true
+ *     - Se non riceviamo eventi hover da 250ms, assume che la
+ *       penna sia fuori range e sblocca i touch
+ *     - Su Surface Go non si attiva mai (pointerleave arriva)
+ *
+ * Ritardo post-pointerleave normale: 0ms (il leave azzera
+ * _penInRange e _lastPenEventTime, touch liberi subito).
  *
  * Scroll momentum:
  *   - velocity samples (ultimi 6 eventi in 100ms)
@@ -52,13 +65,17 @@ import {
 // PALM REJECTION
 // ------------------------------------------------------------
 const PALM_CONTACT_SIZE = 40;
-const PEN_ACTIVITY_WINDOW_MS = 100;
-// Safety net: se pointerenter/pointerleave non sono affidabili, il
-// timeout dall'ultimo pointermove con penna fa riabilitare i touch.
-// 800ms è un compromesso: abbastanza per non perdere il pan se
-// l'utente allontana la penna e subito vuole usare il dito, non
-// troppo per non lasciare i touch bloccati troppo a lungo.
-const PEN_HOVER_TIMEOUT_MS = 800;
+
+// Grace post-pointerup: breve, copre il caso "sollevo di scatto +
+// allontano + dito appoggia". Si esaurisce in 80ms dal pointerup.
+const PEN_CONTACT_GRACE_MS = 80;
+
+// Safety net per device che non emettono pointerleave in modo
+// affidabile. Si attiva SOLO se _penInRange === true e non riceviamo
+// eventi penna da 250ms. Su Surface Go non si attiva mai (il
+// pointerleave arriva correttamente quando la penna esce dal range).
+const PEN_HOVER_TIMEOUT_MS = 250;
+
 const PALM_PAN_CANCEL_WINDOW_MS = 400;
 
 // ------------------------------------------------------------
@@ -84,9 +101,19 @@ const MOMENTUM_SPEED_SLOPE = 0.30;
 const MOMENTUM_SPEED_MAX = 8.0;
 const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 
-let _lastPenActivityTime = 0;
-let _lastPenHoverTime = 0;
+// ------------------------------------------------------------
+// PEN STATE
+// ------------------------------------------------------------
+// _penDown                 true tra pointerdown e pointerup/cancel penna
+// _penInRange              true tra pointerenter e pointerleave penna
+// _lastPenContactEndTime   timestamp ultimo pointerup/cancel penna
+// _lastPenEventTime        timestamp ultimo evento penna (enter/move/down)
+//                          azzerato su pointerleave
+let _penDown = false;
 let _penInRange = false;
+let _lastPenContactEndTime = 0;
+let _lastPenEventTime = 0;
+
 let _panStartTime = 0;
 
 let _scrollDecisionMade = false;
@@ -114,35 +141,39 @@ function _isPalmContact(e) {
 }
 
 /**
- * Aggiorna i timestamp di attività penna. Chiamato su pointerdown e
- * pointermove con penna (anche in hover, senza buttons).
- */
-function _updatePenActivity() {
-  const now = performance.now();
-  _lastPenActivityTime = now;
-  _lastPenHoverTime = now;
-}
-
-/**
- * True se i touch devono essere ignorati perché la penna è "in uso"
- * (a contatto o in hover).
+ * True se i touch devono essere ignorati per via della penna.
  *
- * Logica a cascata:
- *   1. Penna ha disegnato da < PEN_ACTIVITY_WINDOW_MS → blocca
- *   2. Penna in range (pointerenter ricevuto, pointerleave non ancora)
- *      → blocca finché resta in range
- *   3. Safety net: < PEN_HOVER_TIMEOUT_MS dall'ultimo hover event →
- *      blocca (per device senza enter/leave affidabili)
+ * Ordine di valutazione (nessuna sovrapposizione tra i due timer):
+ *   1. Stroke in corso → bloccato
+ *   2. Grace post-pointerup (80ms) → bloccato
+ *   3. Hover attivo → bloccato, MA se non arrivano eventi penna
+ *      da 250ms il safety net considera la penna fuori range
+ *      e sblocca i touch
+ *   4. Fuori range → touch liberi
  */
 function _isPenBlockingTouches() {
+  if (_penDown) return true;
+
   const now = performance.now();
-  if (_lastPenActivityTime !== 0 && now - _lastPenActivityTime < PEN_ACTIVITY_WINDOW_MS) {
+
+  if (_lastPenContactEndTime > 0 &&
+      now - _lastPenContactEndTime < PEN_CONTACT_GRACE_MS) {
     return true;
   }
-  if (_penInRange) return true;
-  if (_lastPenHoverTime !== 0 && now - _lastPenHoverTime < PEN_HOVER_TIMEOUT_MS) {
+
+  if (_penInRange) {
+    // Safety net: se non riceviamo eventi hover da troppo tempo,
+    // assumiamo che la penna sia fuori range ma il driver non abbia
+    // emesso pointerleave. Sblocca i touch.
+    if (_lastPenEventTime > 0 &&
+        now - _lastPenEventTime > PEN_HOVER_TIMEOUT_MS) {
+      _penInRange = false;
+      _lastPenEventTime = 0;
+      return false;
+    }
     return true;
   }
+
   return false;
 }
 
@@ -263,46 +294,66 @@ export function setupViewportGestures() {
 
   window.addEventListener('resize', invalidateClampCache);
 
-  // Se il tab va in background mentre la penna è in hover, al ritorno
-  // non riceveremmo pointerleave → touch bloccati per sempre. Reset
-  // esplicito su blur.
+  // Reset su blur: se il tab va in background mentre la penna è a
+  // contatto o in hover, al ritorno potremmo non ricevere
+  // pointerup/pointerleave → flag bloccati. Reset esplicito.
   window.addEventListener('blur', () => {
+    _penDown = false;
     _penInRange = false;
+    _lastPenContactEndTime = 0;
+    _lastPenEventTime = 0;
   });
 
   // ----------------------------------------------------------
-  // PEN TRACKING (hover + activity)
+  // PEN TRACKING (enter / leave / down / up)
   // ----------------------------------------------------------
 
-  // Penna entra nel viewport (in hover): blocca touch finché non esce.
+  // Penna entra nel viewport (hover visibile).
   viewportEl.addEventListener('pointerenter', (e) => {
     if (_isPenEvent(e)) {
       _penInRange = true;
-      _lastPenHoverTime = performance.now();
+      _lastPenEventTime = performance.now();
     }
   }, { capture: true, passive: true });
 
-  // Penna esce dal viewport (fuori range): riabilita touch.
-  // NON azzeriamo _lastPenHoverTime: il safety net (PEN_HOVER_TIMEOUT_MS)
-  // fa da cuscinetto se pointerenter non viene emesso correttamente
-  // dal device (raro ma possibile).
+  // Penna si muove nel viewport (hover o contact). Tiene fresco
+  // il safety net di _penInRange.
+  viewportEl.addEventListener('pointermove', (e) => {
+    if (_isPenEvent(e)) {
+      _lastPenEventTime = performance.now();
+    }
+  }, { capture: true, passive: true });
+
+  // Penna esce dal viewport (fuori range). Sblocca SUBITO i touch:
+  // _penInRange=false + _lastPenEventTime=0 → il prossimo touch
+  // passa il check senza ritardo.
   viewportEl.addEventListener('pointerleave', (e) => {
     if (_isPenEvent(e)) {
       _penInRange = false;
+      _lastPenEventTime = 0;
     }
   }, { capture: true, passive: true });
 
-  // Pointerdown con penna: aggiorna activity (contatto).
+  // Penna a contatto: blocca touch fino a pointerup/cancel.
   viewportEl.addEventListener('pointerdown', (e) => {
-    if (_isPenEvent(e)) _updatePenActivity();
+    if (_isPenEvent(e)) {
+      _penDown = true;
+      _lastPenEventTime = performance.now();
+    }
   }, { capture: true, passive: true });
 
-  // Pointermove con penna: aggiorna activity ANCHE in hover
-  // (e.buttons === 0). Prima era `e.buttons > 0` → l'hover non
-  // aggiornava il timestamp, e la palm rejection si "dimenticava"
-  // della penna dopo 100ms di hover.
-  viewportEl.addEventListener('pointermove', (e) => {
-    if (_isPenEvent(e)) _updatePenActivity();
+  viewportEl.addEventListener('pointerup', (e) => {
+    if (_isPenEvent(e)) {
+      _penDown = false;
+      _lastPenContactEndTime = performance.now();
+    }
+  }, { capture: true, passive: true });
+
+  viewportEl.addEventListener('pointercancel', (e) => {
+    if (_isPenEvent(e)) {
+      _penDown = false;
+      _lastPenContactEndTime = performance.now();
+    }
   }, { capture: true, passive: true });
 
   // ----------------------------------------------------------
@@ -343,7 +394,8 @@ export function setupViewportGestures() {
     // ---- TOCCO ----
     const palmCheck = state.palmRejection;
     if (palmCheck) {
-      // Blocca touch se penna a contatto o in hover.
+      // Blocca touch se penna a contatto, in grace post-pointerup,
+      // o in hover (con safety net integrato).
       if (_isPenBlockingTouches()) return;
       // Blocca se contatto > 40px (palm).
       if (_isPalmContact(e)) return;
@@ -599,7 +651,7 @@ function hidePullIndicator() {
 
 export function togglePalmRejection(enabled) {
   showToast(
-    enabled ? 'Palm Rejection ATTIVO: Solo Penna scrive, dita bloccate con penna in uso'
+    enabled ? 'Palm Rejection ATTIVO: Solo Penna scrive, dita attive dopo il rilascio'
             : 'Palm Rejection DISATTIVO: 1 dito scrive, 2 dita muovono',
     enabled ? '🖐️' : '✏️'
   );
