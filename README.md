@@ -23,6 +23,9 @@ npm run dev
 # build di produzione (in dist/)
 npm run build
 
+# build di produzione su singolo file html (in dist/)
+npm run build:singlefile
+
 # anteprima del build di produzione (NON durante lo sviluppo)
 npm run preview
 ```
