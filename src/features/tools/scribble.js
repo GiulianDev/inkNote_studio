@@ -10,12 +10,8 @@ import { scheduleSave } from '../persistence/autosave.js';
 
 const SCRIBBLE_MIN_POINTS = 12;
 const SCRIBBLE_MIN_REVERSALS = 7;
-// Raggio di hit: SOLO tolleranza di movimento/rumore.
-// Lo spessore visivo degli stroke viene aggiunto separatamente.
 const SCRIBBLE_HIT_RADIUS = 6;
-// Padding conservativo per early-reject bbox (copre qualsiasi size target).
 const SCRIBBLE_BBOX_PAD = 16;
-// Peso dello spessore visivo dello stroke target nel calcolo soglia.
 const SCRIBBLE_STROKE_WEIGHT = 0.6;
 
 const SCRIBBLE_MAX_DURATION_MS = 1200;
@@ -29,24 +25,25 @@ const SCRIBBLE_RETURN_SKIP = 8;
 const SCRIBBLE_MAX_NET_RATIO_2D = 0.38;
 const SCRIBBLE_RESAMPLE_DIST = 2.0;
 
-// Limite superiore punti per il check scribble.
-// Uno scribble si fa in <100 punti. Oltre, se non è già scattato,
-// non scatterà mai. Il vecchio limite implicito era `durationMs < 1200`,
-// che causava O(N) check su ogni flush (ogni 3 punti) fino a 1.2s di
-// scrittura → O(N²) su tratti lunghi. Con 100 punti il costo
-// sparisce dopo i primi ~100 punti.
-const SCRIBBLE_CHECK_MAX_POINTS = 100;
+// Throttle temporale: invece di controllare ogni 3 punti (che con la
+// penna a 240Hz significa ogni 12ms — troppo frequente — e con batch
+// grandi da 8-16 punti significa mai), controlliamo al massimo 1 volta
+// ogni SCRIBBLE_CHECK_INTERVAL_MS. Indipendente dal rate di input.
+const SCRIBBLE_CHECK_INTERVAL_MS = 30;
 
-let _lastScribbleTargetCheck = 0;
+// Throttle temporale per l'aggiornamento dei target in scribble mode.
+// Prima era basato su 15 punti, che con la penna significava ~10ms
+// (troppo frequente) e con il mouse ~75ms (troppo diradato).
+const SCRIBBLE_TARGET_INTERVAL_MS = 40;
 
-/**
- * Reset dello stato scribble. Chiamato da dispatcher.js::abortCurrentDrawing
- * per garantire coerenza quando un pinch interrompe un gesto scribble.
- */
+let _lastScribbleTargetCheckTime = 0;
+let _lastScribbleCheckTime = 0;
+
 export function resetScribbleState() {
   state.scribbleMode = false;
   state.scribbleTargets = [];
-  _lastScribbleTargetCheck = 0;
+  _lastScribbleTargetCheckTime = 0;
+  _lastScribbleCheckTime = 0;
 }
 
 function resamplePoints(pts) {
@@ -161,26 +158,45 @@ export function checkForScribble(pageData) {
   const pts = state.currentStroke.points;
   if (pts.length < SCRIBBLE_MIN_POINTS) return;
 
-  // Early exit per punti elevati: se a 100 punti non è uno scribble,
-  // non lo sarà mai. Evita O(N) check fino a durationMs=1200.
-  if (!state.scribbleMode && pts.length > SCRIBBLE_CHECK_MAX_POINTS) return;
-
   const startTime = state.currentStroke.startTime || performance.now();
   const durationMs = performance.now() - startTime;
+
+  // Cutoff temporale (non su pts.length): se lo stroke dura già più di
+  // SCRIBBLE_MAX_DURATION_MS, non può essere uno scribble (isScribbleShape
+  // lo rifiuterebbe comunque). Indipendente dal rate di input:
+  //   - Mouse (60-240 pt/s): 100pt = 500-1500ms → cutoff a 100pt ~ 1200ms ✓
+  //   - Penna (960-1920 pt/s): 100pt = 50-100ms → cutoff a 100pt blocca
+  //     il check prima che l'utente abbia finito lo scribble ✗
+  if (!state.scribbleMode && durationMs > SCRIBBLE_MAX_DURATION_MS) return;
+
+  // Throttle temporale per la fase di rilevamento iniziale. Prima era
+  // `pts.length % 3 === 0`, ma con la penna (batch da 8-16 punti) il
+  // check può essere sistematicamente skippato (es. 100 → 108 → 116 →
+  // 124: nessuno è multiplo di 3). Ora throttle a 1 check / 30ms.
+  if (!state.scribbleMode) {
+    const now = performance.now();
+    if (now - _lastScribbleCheckTime < SCRIBBLE_CHECK_INTERVAL_MS) return;
+    _lastScribbleCheckTime = now;
+  }
+
   const overlayDpr = pageData.overlayDpr || pageData.dpr || 1;
 
   if (!state.scribbleMode) {
-    if (pts.length % 3 !== 0) return;
     if (!isScribbleShape(pts, durationMs)) return;
     state.scribbleMode = true;
     state.scribbleTargets = findStrokesIntersectingScribble(pts, pageData);
-    _lastScribbleTargetCheck = pts.length;
+    _lastScribbleTargetCheckTime = performance.now();
     redrawPageCanvas(pageData);
     clearOverlay(pageData);
     drawScribbleStroke(pageData.overlayCtx, state.currentStroke, overlayDpr);
   } else {
-    if (pts.length - _lastScribbleTargetCheck < 15) return;
-    _lastScribbleTargetCheck = pts.length;
+    // Throttle temporale per l'aggiornamento dei target in scribble mode.
+    // Prima era `pts.length - _lastScribbleTargetCheck < 15`, che con
+    // la penna significava aggiornamenti ogni ~10ms (inutili e costosi)
+    // e con il mouse ogni ~75ms (troppo diradato).
+    const now = performance.now();
+    if (now - _lastScribbleTargetCheckTime < SCRIBBLE_TARGET_INTERVAL_MS) return;
+    _lastScribbleTargetCheckTime = now;
     const newTargets = findStrokesIntersectingScribble(pts, pageData);
     if (newTargets.length !== state.scribbleTargets.length) {
       state.scribbleTargets = newTargets;
@@ -191,9 +207,6 @@ export function checkForScribble(pageData) {
   }
 }
 
-// ------------------------------------------------------------
-// Distanza punto-segmento al quadrato (evita sqrt nel caso base)
-// ------------------------------------------------------------
 function pointToSegmentDistSq(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
   const lenSq = dx * dx + dy * dy;
@@ -208,12 +221,6 @@ function pointToSegmentDistSq(px, py, ax, ay, bx, by) {
   return ex * ex + ey * ey;
 }
 
-// ------------------------------------------------------------
-// Trova strokes Toccati dallo scribble.
-// - Interpola i segmenti dello scribble (coglie pointermove diradati)
-// - Soglia = tolleranza fissa + spessore visivo del target
-// - Early reject bbox conservativo per performance
-// ------------------------------------------------------------
 function findStrokesIntersectingScribble(scribblePoints, pageData) {
   if (scribblePoints.length === 0 || pageData.strokes.length === 0) return [];
 
@@ -234,7 +241,6 @@ function findStrokesIntersectingScribble(scribblePoints, pageData) {
     }
     if (stMaxX < sbMinX || stMinX > sbMaxX || stMaxY < sbMinY || stMinY > sbMaxY) continue;
 
-    // Soglia: tolleranza + spessore visivo del target
     const strokeR = sliderToBaseSize(stroke.size) * SCRIBBLE_STROKE_WEIGHT;
     const threshold = SCRIBBLE_HIT_RADIUS + strokeR;
     const thresholdSq = threshold * threshold;
@@ -244,7 +250,6 @@ function findStrokesIntersectingScribble(scribblePoints, pageData) {
       for (let i = 1; i < scribblePoints.length; i++) {
         const a = scribblePoints[i - 1];
         const b = scribblePoints[i];
-        // Quick reject: bounding circle del segmento
         const abLen = fastHypot(b.x - a.x, b.y - a.y);
         const midX = (a.x + b.x) * 0.5;
         const midY = (a.y + b.y) * 0.5;
@@ -277,7 +282,8 @@ export function finalizeScribble(pageData) {
   }
   state.scribbleMode = false;
   state.scribbleTargets = [];
-  _lastScribbleTargetCheck = 0;
+  _lastScribbleTargetCheckTime = 0;
+  _lastScribbleCheckTime = 0;
   redrawPageCanvas(pageData);
   clearOverlay(pageData);
   return true;
