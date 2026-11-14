@@ -28,6 +28,9 @@ export function renderLibraryView() {
 
       notebooks.forEach(nb => {
         const dateStr = new Date(nb.updatedAt).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+        // `loadAllNotebooksFromDB` ritorna solo metadata (niente `pages`).
+        // Il numero di pagine è salvato in `pageCount` dal saveNotebookToDB.
+        const pageCount = nb.pageCount || 1;
         const card = document.createElement('div');
         card.className = 'notebook-card cursor-pointer flex flex-col group';
         card.innerHTML = `
@@ -36,7 +39,7 @@ export function renderLibraryView() {
             <div class="notebook-spine absolute left-0 top-0 bottom-0 w-3"></div>
             <div class="bg-black/20 backdrop-blur-md rounded-lg p-2.5 text-white border border-white/10">
               <h4 class="font-bold text-sm truncate">${escapeHtml(nb.title)}</h4>
-              <span class="text-[10px] opacity-80">${nb.pages ? nb.pages.length : 1} pag.</span>
+              <span class="text-[10px] opacity-80">${pageCount} pag.</span>
             </div>
             <div class="flex items-center justify-between text-white/90 text-[10px] font-medium">
               <span>${dateStr}</span><span>📖 InkNote</span>
@@ -99,7 +102,8 @@ export async function confirmCreateNotebook() {
     title, coverColor: selectedCoverColor, pattern,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    pages: [{ pageIndex: 0, strokes: [] }]
+    pages: [{ pageIndex: 0, strokes: [] }],
+    lastPageIndex: 0
   };
   await saveNotebookToDB(newNb);
   closeNewNotebookModal();
@@ -109,7 +113,6 @@ export async function confirmCreateNotebook() {
 export async function deleteNotebook(e, id) {
   if (confirm('Sei sicuro di voler eliminare questo quaderno e tutte le sue pagine?')) {
     await deleteNotebookFromDB(id);
-    // Reset dello store toolbar se il notebook cancellato era aperto
     closeNotebookIfOpen(id);
     renderLibraryView();
     showToast('Quaderno eliminato', '🗑️');

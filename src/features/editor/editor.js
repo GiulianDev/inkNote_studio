@@ -5,8 +5,8 @@
 import { state, viewport } from '../../core/state.js';
 import { showToast, emit, PAGE_WIDTH } from '../../core/utils.js';
 import { loadNotebookWithPages } from '../../services/db.js';
-import { setCurrentNotebook, getCurrentNotebook, syncCurrentState, saveCurrentNotebook } from '../persistence/session.js';
-import { scheduleSave, flushAutoSave } from '../persistence/autosave.js';
+import { setCurrentNotebook, getCurrentNotebook } from '../persistence/session.js';
+import { scheduleSave, forceSave } from '../persistence/autosave.js';
 import {
   createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
   installViewportResizeObserver, refreshCanvasResolution, centerViewport
@@ -37,7 +37,14 @@ export function initEditorHandlers() {
 }
 
 export async function openNotebook(id) {
-  const nb = await loadNotebookWithPages(id);
+  let nb;
+  try {
+    nb = await loadNotebookWithPages(id);
+  } catch (err) {
+    console.error('[editor] load failed:', err);
+    showToast('Errore nel caricamento del quaderno', '❌');
+    return;
+  }
   if (!nb) return;
 
   setCurrentNotebook(nb);
@@ -61,7 +68,10 @@ export async function openNotebook(id) {
   state.isDrawing = false;
 
   if (nb.pages && nb.pages.length > 0) {
-    // Usa `pageData.pageIndex` (posizione originale), non `idx`.
+    // `loadNotebookWithPages` ricostruisce SEMPRE tutte le pagine
+    // 0..pageCount-1, riempiendo le mancanti con strokes vuoti.
+    // `pageData.pageIndex` coincide con l'indice, ma lo usiamo
+    // esplicitamente per difenderci da qualsiasi divergenza futura.
     nb.pages.forEach((pageData) => {
       createNewPageDOM(pageData.pageIndex, pageData.strokes || []);
     });
@@ -69,12 +79,14 @@ export async function openNotebook(id) {
     createNewPageDOM(0, []);
   }
 
+  // Ripristina la pagina salvata (o 0 se non c'è)
   const targetIndex = Math.min(
     typeof nb.lastPageIndex === 'number' ? nb.lastPageIndex : 0,
     state.pages.length - 1
   );
   state.activePageIndex = Math.max(0, targetIndex);
 
+  // Aspetta il layout (offsetTop dei wrapper) prima di posizionare il viewport
   await new Promise(resolve => {
     requestAnimationFrame(() => {
       const targetPage = state.pages[state.activePageIndex];
@@ -103,12 +115,16 @@ export async function openNotebook(id) {
   showToast(`Quaderno "${nb.title}" aperto`, '📖');
 }
 
-export function returnToLibrary() {
+export async function returnToLibrary() {
   if (state.pendingShape) finalizePendingShape();
-  flushAutoSave();
-  if (getCurrentNotebook()) {
-    syncCurrentState();
-    saveCurrentNotebook().catch(err => console.error('[editor] save before return failed:', err));
+  // forceSave() cancella il timer pendente (se c'è) e salva SEMPRE
+  // (metadata + pagine dirty). Awaitato: aspettiamo il commit IDB
+  // prima di tornare alla libreria, così `renderLibraryView` vede
+  // i metadata aggiornati (pageCount, lastPageIndex).
+  try {
+    await forceSave();
+  } catch (err) {
+    // errore già loggato in autosave; procediamo comunque
   }
   resetToolbarSettings();
   resetHistory();
@@ -120,8 +136,10 @@ export function updateCurrentNotebookTitle(newTitle) {
   const nb = getCurrentNotebook();
   if (!nb) return;
   nb.title = newTitle;
-  scheduleSave();
-  pushHistory();
+  // Solo save (metadata); niente pushHistory: il titolo non
+  // modifica gli stroke, quindi uno snapshot di undo sarebbe
+  // solo rumore (no-op per hash check, ma concettualmente errato).
+  scheduleSave({ markDirty: false });
 }
 
 export function closeNotebookIfOpen(id) {

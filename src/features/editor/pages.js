@@ -3,16 +3,6 @@
  *
  * PAGINE — creazione wrapper DOM, gestione canvas via pool, pagina attiva.
  *
- * Con il pool, `createNewPageDOM` crea SOLO il wrapper (niente canvas).
- * I canvas vengono creati e riassegnati dal PageRendererPool in base
- * alla pagina attiva e alle pagine vicine.
- *
- * Gli strokes possono arrivare in formato packed (da IDB) o unpacked
- * (da history, restore, creazione nuova pagina). `unpackStrokes`
- * gestisce entrambi i casi in modo idempotente.
- *
- * `refreshCanvasResolution` delega al pool.
- *
  * @see features/editor/page-pool.js
  * @see features/persistence/serialization.js
  */
@@ -31,8 +21,6 @@ import {
 import { pagePool, setViewportRef } from './page-pool.js';
 import { unpackStrokes } from '../persistence/serialization.js';
 
-// Pool ha bisogno di viewport.scale per calcolare il DPR target.
-// Lo passiamo per riferimento per evitare import ciclici (pool → state, qui → pool).
 setViewportRef(viewport);
 
 let _resolutionRefreshTimer = null;
@@ -44,17 +32,6 @@ let _lastVpH = 0;
 // CREAZIONE PAGINA
 // ============================================================
 
-/**
- * Crea il wrapper DOM di una pagina e registra i pointer listeners.
- * NON crea canvas: ci pensa il PageRendererPool quando la pagina entra
- * nel range di visibilità (o al primo pointerdown).
- *
- * @param {number} pageIndex
- * @param {Array} initialStrokes — strokes packed (da IDB) o unpacked
- *                                  (da history, restore, nuova pagina).
- *                                  `unpackStrokes` normalizza a unpacked
- *                                  runtime ({x,y,pressure,...}).
- */
 export function createNewPageDOM(pageIndex, initialStrokes = []) {
   const container = document.getElementById('canvasContainer');
   const pageWrapper = document.createElement('div');
@@ -133,7 +110,6 @@ export function installViewportResizeObserver() {
     const newH = vp.clientHeight;
     if (newW === _lastVpW && newH === _lastVpH) return;
 
-    // Mantiene il centro del viewport ancorato al contenuto
     const canvasCX = (_lastVpW / 2 - viewport.x) / viewport.scale;
     const canvasCY = (_lastVpH / 2 - viewport.y) / viewport.scale;
 
@@ -233,19 +209,6 @@ export function scheduleResolutionRefresh() {
   }, 200);
 }
 
-/**
- * resizeCanvasForHDPI è mantenuta per compatibilità con export-pdf.js
- * e altri consumatori, ma con il pool è un no-op: il resize avviene
- * internamente per slot. Se il chiamante ha bisogno di un DPR custom
- * (stampa), deve usare un canvas offscreen separato (vedi export-pdf.js).
- */
-export function resizeCanvasForHDPI(pageData, dprOverride) {
-  if (typeof dprOverride === 'number' && pageData && pageData.canvas) {
-    // caso limite: forziamo un redraw (non cambiamo DPR)
-    redrawPageCanvas(pageData);
-  }
-}
-
 // ============================================================
 // AZIONI PAGINA
 // ============================================================
@@ -279,18 +242,14 @@ function restorePageFromSnapshot(snap) {
   const pageIndex = snap.pageIndex;
   const container = document.getElementById('canvasContainer');
 
-  // Rimuove il wrapper vecchio
   const oldWrapper = container.querySelector(`.page-wrapper[data-index="${pageIndex}"]`);
   if (oldWrapper) oldWrapper.remove();
 
-  // Reset pool: gli slot puntavano a wrapper che stiamo per sostituire
   pagePool.reset();
 
-  // Ricrea la pagina (strokes arrivano unpacked da history)
   state.pages.splice(pageIndex, 1);
   createNewPageDOM(snap.pageIndex, snap.strokes);
 
-  // Riordina array + DOM
   state.pages.sort((a, b) => a.index - b.index);
   const wrappers = Array.from(container.querySelectorAll('.page-wrapper'));
   wrappers.sort((a, b) => parseInt(a.dataset.index) - parseInt(b.dataset.index));
