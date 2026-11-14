@@ -115,11 +115,6 @@ export function handlePointerDown(e, pageData) {
   state.scribbleTargets = [];
   cancelFlush();
 
-  // Batch B: clear bbox-based
-  if (state.currentStroke && state.currentStroke.points.length > 0) {
-    clearOverlayBBox(pageData, getStrokeBBoxCanvas(state.currentStroke));
-  }
-
   clearPredictions(pageData);
   try { pageData.wrapper.setPointerCapture(e.pointerId); } catch (err) {}
 

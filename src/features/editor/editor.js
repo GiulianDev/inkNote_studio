@@ -3,18 +3,20 @@
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
-import { showToast, emit } from '../../core/utils.js';
-import { loadAllNotebooksFromDB } from '../../services/db.js';
+import { showToast, emit, PAGE_WIDTH } from '../../core/utils.js';
+import { loadNotebookWithPages } from '../../services/db.js';
 import { setCurrentNotebook, getCurrentNotebook, syncCurrentState, saveCurrentNotebook } from '../persistence/session.js';
 import { scheduleSave, flushAutoSave } from '../persistence/autosave.js';
 import {
   createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
-  installViewportResizeObserver, refreshCanvasResolution
+  installViewportResizeObserver, refreshCanvasResolution, centerViewport
 } from './pages.js';
 import { pagePool } from './page-pool.js';
 import { refreshPageCounter } from '../toolbar/toolbar.js';
 import { resetHistory, pushHistory } from '../history/history.js';
-import { setViewportChangeHandler } from '../viewport/transform.js';
+import {
+  setViewportChangeHandler, applyTransform, clampViewport, invalidateClampCache
+} from '../viewport/transform.js';
 import { updateSelectionMenuPosition } from '../tools/lazo.js';
 import { finalizePendingShape } from '../tools/shapes.js';
 import {
@@ -35,8 +37,7 @@ export function initEditorHandlers() {
 }
 
 export async function openNotebook(id) {
-  const notebooks = await loadAllNotebooksFromDB();
-  const nb = notebooks.find(n => n.id === id);
+  const nb = await loadNotebookWithPages(id);
   if (!nb) return;
 
   setCurrentNotebook(nb);
@@ -47,27 +48,58 @@ export async function openNotebook(id) {
   state.bgPattern = nb.pattern || 'ruled';
   document.getElementById('bgPatternSelect').value = state.bgPattern;
 
-  // Pool: azzera prima di svuotare il container (gli slot puntano a wrapper
-  // che stanno per essere rimossi).
   pagePool.reset();
 
   document.getElementById('canvasContainer').innerHTML = '';
   state.pages = [];
   state.pendingShape = null;
   state.selectedStrokes = [];
+  state.lassoPath = [];
+  state.currentStroke = null;
+  state.currentPointerId = null;
+  state.currentPageForPointer = null;
+  state.isDrawing = false;
 
   if (nb.pages && nb.pages.length > 0) {
-    nb.pages.forEach((pageData, idx) => createNewPageDOM(idx, pageData.strokes || []));
+    // Usa `pageData.pageIndex` (posizione originale), non `idx`.
+    nb.pages.forEach((pageData) => {
+      createNewPageDOM(pageData.pageIndex, pageData.strokes || []);
+    });
   } else {
     createNewPageDOM(0, []);
   }
 
-  state.activePageIndex = 0;
+  const targetIndex = Math.min(
+    typeof nb.lastPageIndex === 'number' ? nb.lastPageIndex : 0,
+    state.pages.length - 1
+  );
+  state.activePageIndex = Math.max(0, targetIndex);
+
+  await new Promise(resolve => {
+    requestAnimationFrame(() => {
+      const targetPage = state.pages[state.activePageIndex];
+      if (targetPage) {
+        const vp = document.getElementById('viewport');
+        viewport.scale = 1.0;
+        viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
+        viewport.y = -targetPage.wrapper.offsetTop * viewport.scale + 20;
+        invalidateClampCache();
+        const c = clampViewport(viewport.x, viewport.y);
+        viewport.x = c.x;
+        viewport.y = c.y;
+        applyTransform(false);
+        pagePool.updateAround(state.activePageIndex, true);
+      } else {
+        centerViewport();
+        refreshCanvasResolution(true);
+      }
+      resolve();
+    });
+  });
+
   refreshPageCounter();
-  document.getElementById('libraryView').classList.add('hidden');
   resetHistory();
-  // Forza il pool ad assegnare slot alle prime pagine.
-  refreshCanvasResolution(true);
+  document.getElementById('libraryView').classList.add('hidden');
   showToast(`Quaderno "${nb.title}" aperto`, '📖');
 }
 

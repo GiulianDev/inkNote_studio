@@ -3,25 +3,6 @@
  *
  * RICONOSCIMENTO FORME + snap angolare.
  *
- * Snap angolare (applyAngleSnap):
- *   - ENGAGE 4° → aggancia all'asse H o V più vicino
- *   - RELEASE 8° → sgancia (isteresi 2x)
- *   - una volta sganciato, non riaggancia per quello stroke
- *
- * Riconoscimento linea (trySnapToLine / trySnapToLineDuringDraw):
- *   - chord/path ratio > 0.965
- *   - RMS deviazione < max(1.0, chordLen * 0.010)
- *   - coerenza ultimi 3 punti (cos > 0.85)
- *
- * Riconoscimento cerchio/rettangolo (detectAndSnapShape):
- *   - closure, aspect ratio, radius std/avg, corners touched
- *
- * Highlighter (trySnapHighlighter): raddrizza se l'angolo è entro ±17°
- * da H o V (sin/cos < 0.3).
- *
- * finalizePendingShape(): chiude una forma in pendingShape (creata da
- * trySnapToLineDuringDraw) e la committa come stroke.
- *
  * @see core/types.js  — Stroke, Point
  * @see features/render/render.js
  * @see features/history/history.js
@@ -36,31 +17,19 @@ import { scheduleSave } from '../persistence/autosave.js';
 // ------------------------------------------------------------
 // Soglie rilevamento linea retta
 // ------------------------------------------------------------
-const LINE_MIN_CHORD_LEN     = 60;    // lunghezza minima corda
-const LINE_MIN_PATH_RATIO    = 0.965; // chord/path
-const LINE_MAX_RMS_BASE      = 1.0;   // RMS minimo assoluto
-const LINE_MAX_RMS_FACTOR    = 0.010; // RMS massimo proporzionale
+const LINE_MIN_CHORD_LEN     = 60;
+const LINE_MIN_PATH_RATIO    = 0.965;
+const LINE_MAX_RMS_BASE      = 1.0;
+const LINE_MAX_RMS_FACTOR    = 0.010;
 const LINE_MAX_COS_CONSISTENCY = 0.85;
 const LINE_SIGN_HYSTERESIS   = 1.5;
 
-// ------------------------------------------------------------
-// Snap angolare (magnete per linee orizzontali/verticali)
-// ENGAGE: soglia di aggancio iniziale (4°)
-// RELEASE: soglia di sgancio (8°) → isteresi 2x
-// Una volta sganciato, lo stroke resta libero fino alla fine
-// (niente ri-aggancio).
-// ------------------------------------------------------------
 const LINE_ANGLE_ENGAGE_DEG  = 4;
 const LINE_ANGLE_RELEASE_DEG = 8;
 
-/**
- * Applica (o mantiene/rilascia) lo snap angolare.
- * @param {{x:number,y:number}} start  Punto fisso della linea
- * @param {{x:number,y:number}} rawEnd Punto grezzo del pointer
- * @param {'h'|'v'|null} currentAxis   Asse agganciato attualmente (o null)
- * @param {boolean} rejected           True se già stato sganciato (o mai agganciato)
- * @returns {{x:number, y:number, axis:'h'|'v'|null, rejected:boolean}}
- */
+// ------------------------------------------------------------
+// Snap angolare
+// ------------------------------------------------------------
 export function applyAngleSnap(start, rawEnd, currentAxis, rejected) {
   const dx = rawEnd.x - start.x;
   const dy = rawEnd.y - start.y;
@@ -69,17 +38,14 @@ export function applyAngleSnap(start, rawEnd, currentAxis, rejected) {
     return { x: rawEnd.x, y: rawEnd.y, axis: currentAxis, rejected };
   }
 
-  // thetaDeg ∈ [0, 90]: 0 = orizzontale, 90 = verticale
   const thetaDeg = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
-  const distH = thetaDeg;       // distanza dall'asse orizzontale (0°/180°)
-  const distV = 90 - thetaDeg;  // distanza dall'asse verticale (90°/270°)
+  const distH = thetaDeg;
+  const distV = 90 - thetaDeg;
 
-  // Già rifiutato in precedenza: mai riagganciare per questo stroke
   if (rejected) {
     return { x: rawEnd.x, y: rawEnd.y, axis: null, rejected: true };
   }
 
-  // Già agganciato: mantieni finché non si supera RELEASE, poi sgancia
   if (currentAxis === 'h') {
     if (distH > LINE_ANGLE_RELEASE_DEG) {
       return { x: rawEnd.x, y: rawEnd.y, axis: null, rejected: true };
@@ -93,7 +59,6 @@ export function applyAngleSnap(start, rawEnd, currentAxis, rejected) {
     return { x: start.x, y: rawEnd.y, axis: 'v', rejected: false };
   }
 
-  // Mai agganciato: prova ad agganciare solo se entro ENGAGE
   if (distH <= LINE_ANGLE_ENGAGE_DEG) {
     return { x: rawEnd.x, y: start.y, axis: 'h', rejected: false };
   }
@@ -101,12 +66,11 @@ export function applyAngleSnap(start, rawEnd, currentAxis, rejected) {
     return { x: start.x, y: rawEnd.y, axis: 'v', rejected: false };
   }
 
-  // Fuori soglia iniziale: rifiutato definitivamente
   return { x: rawEnd.x, y: rawEnd.y, axis: null, rejected: true };
 }
 
 // ------------------------------------------------------------
-// Conta i cambi di segno della deviazione perpendicolare
+// Analisi forma linea
 // ------------------------------------------------------------
 function countPerpSignChanges(points, A, B, hysteresis) {
   const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
@@ -157,51 +121,6 @@ function validateLineShape(pts, startPt, endPt, chordLen) {
   return true;
 }
 
-export function trySnapToLineDuringDraw(pageData, currentPoint) {
-  const stroke = state.currentStroke;
-  if (!stroke) return false;
-  const pts = stroke.points;
-  if (pts.length < 6) return false;
-  const startPt = pts[0], endPt = currentPoint;
-  const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-  if (chordLen < LINE_MIN_CHORD_LEN) return false;
-
-  let pathLen;
-  if (stroke._pathLen !== undefined && stroke._pathLen > 0) pathLen = stroke._pathLen;
-  else {
-    pathLen = 0;
-    for (let i = 1; i < pts.length; i++) pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
-    stroke._pathLen = pathLen;
-  }
-  if (chordLen / Math.max(pathLen, 1) < LINE_MIN_PATH_RATIO) return false;
-
-  if (!validateLineShape(pts, startPt, endPt, chordLen)) return false;
-
-  // Applica snap angolare iniziale
-  const snapRes = applyAngleSnap(
-    { x: startPt.x, y: startPt.y },
-    { x: endPt.x, y: endPt.y },
-    null, false
-  );
-
-  state.pendingShape = {
-    start: { x: startPt.x, y: startPt.y, pressure: 0.5 },
-    end: { x: snapRes.x, y: snapRes.y, pressure: 0.5 },
-    tool: stroke.tool,
-    color: stroke.color,
-    size: stroke.size,
-    opacity: stroke.opacity != null ? stroke.opacity : 1.0,  // ← PROPAGA OPACITY
-    activeHandle: 'end',
-    _snapAxis: snapRes.axis,
-    _snapRejected: snapRes.rejected
-  };
-  state.currentStroke = null;
-  clearOverlay(pageData);
-  renderPendingShapeOnOverlay(pageData);
-  showToast('Linea agganciata — muovi per aggiustare, rilascia per confermare', '📏');
-  return true;
-}
-
 function perpendicularRmsDeviationSampled(points, A, B, step) {
   const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
   if (len < 1) return null;
@@ -223,6 +142,58 @@ function perpendicularRmsDeviationSampled(points, A, B, step) {
   return Math.sqrt(sumSq / count);
 }
 
+// ------------------------------------------------------------
+// trySnapToLineDuringDraw — snap durante lo stroke
+// (crea pendingShape con pageIndex)
+// ------------------------------------------------------------
+export function trySnapToLineDuringDraw(pageData, currentPoint) {
+  const stroke = state.currentStroke;
+  if (!stroke) return false;
+  const pts = stroke.points;
+  if (pts.length < 6) return false;
+  const startPt = pts[0], endPt = currentPoint;
+  const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+  if (chordLen < LINE_MIN_CHORD_LEN) return false;
+
+  let pathLen;
+  if (stroke._pathLen !== undefined && stroke._pathLen > 0) pathLen = stroke._pathLen;
+  else {
+    pathLen = 0;
+    for (let i = 1; i < pts.length; i++) pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+    stroke._pathLen = pathLen;
+  }
+  if (chordLen / Math.max(pathLen, 1) < LINE_MIN_PATH_RATIO) return false;
+
+  if (!validateLineShape(pts, startPt, endPt, chordLen)) return false;
+
+  const snapRes = applyAngleSnap(
+    { x: startPt.x, y: startPt.y },
+    { x: endPt.x, y: endPt.y },
+    null, false
+  );
+
+  state.pendingShape = {
+    start: { x: startPt.x, y: startPt.y, pressure: 0.5 },
+    end: { x: snapRes.x, y: snapRes.y, pressure: 0.5 },
+    tool: stroke.tool,
+    color: stroke.color,
+    size: stroke.size,
+    opacity: stroke.opacity != null ? stroke.opacity : 1.0,
+    activeHandle: 'end',
+    pageIndex: pageData.index,
+    _snapAxis: snapRes.axis,
+    _snapRejected: snapRes.rejected
+  };
+  state.currentStroke = null;
+  clearOverlay(pageData);
+  renderPendingShapeOnOverlay(pageData);
+  showToast('Linea agganciata — muovi per aggiustare, rilascia per confermare', '📏');
+  return true;
+}
+
+// ------------------------------------------------------------
+// trySnapToLine — snap al pointerup (fallback)
+// ------------------------------------------------------------
 export function trySnapToLine(stroke) {
   const pts = stroke.points;
   if (pts.length < 6) return false;
@@ -235,7 +206,6 @@ export function trySnapToLine(stroke) {
 
   if (!validateLineShape(pts, startPt, endPt, chordLen)) return false;
 
-  // Snap angolare anche nel fallback (linee corte / no pendingShape)
   const snapRes = applyAngleSnap(
     { x: startPt.x, y: startPt.y },
     { x: endPt.x, y: endPt.y },
@@ -258,11 +228,18 @@ export function trySnapToLine(stroke) {
   return true;
 }
 
+// ------------------------------------------------------------
+// finalizePendingShape — committa la forma in pendingShape
+// sulla pagina di appartenenza (pageIndex)
+// ------------------------------------------------------------
 export function finalizePendingShape() {
   if (!state.pendingShape) return;
   const ps = state.pendingShape;
-  const curr = state.pages[state.activePageIndex];
-  if (curr) {
+
+  const targetIndex = typeof ps.pageIndex === 'number' ? ps.pageIndex : state.activePageIndex;
+  const curr = state.pages[targetIndex];
+
+  if (curr && curr.canvas) {
     const startPt = { x: ps.start.x, y: ps.start.y, pressure: 0.5 };
     const endPt = { x: ps.end.x, y: ps.end.y, pressure: 0.5 };
     const steps = Math.max(8, Math.floor(Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y) / 4));
@@ -279,7 +256,7 @@ export function finalizePendingShape() {
       tool: ps.tool,
       color: ps.color,
       size: ps.size,
-      opacity: ps.opacity != null ? ps.opacity : 1.0,  // ← PROPAGA OPACITY
+      opacity: ps.opacity != null ? ps.opacity : 1.0,
       points: straightPts
     };
     curr.strokes.push(newStroke);
@@ -295,6 +272,9 @@ export function finalizePendingShape() {
   state.pendingShape = null;
 }
 
+// ------------------------------------------------------------
+// detectAndSnapShape — cerchio / rettangolo
+// ------------------------------------------------------------
 export function detectAndSnapShape(stroke, pageData) {
   const pts = stroke.points;
   if (pts.length < 8) return false;
@@ -360,21 +340,9 @@ function triggerSnapAnimation(pageData) {
   setTimeout(() => pageData.wrapper.classList.remove('shape-snapped'), 250);
 }
 
-/**
- * Raddrizza l'highlighter SOLO se la linea è quasi dritta con
- * piccoli tremori. Mantiene l'angolo originale (nessuno snap agli
- * assi H/V).
- *
- * Validazione (riusa validateLineShape, la stessa della penna):
- *   - chord/path ratio > 0.965 → è quasi dritta, non una curva
- *   - RMS deviazione < max(1.0, chordLen * 0.010) → tremori piccoli
- *   - coerenza ultimi 3 punti → direzione stabile
- *
- * Se valida, sostituisce i punti con una retta tra start e end.
- * Se la linea è già dritta, il risultato è identico (no cambiamento
- * visibile). Se è una curva vera, la validazione fallisce e non
- * succede nulla.
- */
+// ------------------------------------------------------------
+// trySnapHighlighter — raddrizza mantenendo l'angolo
+// ------------------------------------------------------------
 export function trySnapHighlighter(stroke) {
   const pts = stroke.points;
   if (pts.length < 6) return false;
@@ -383,11 +351,8 @@ export function trySnapHighlighter(stroke) {
   const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
   if (chordLen < 80) return false;
 
-  // Valida che la linea sia quasi dritta (non una curva) con tremori
-  // piccoli. Stessa logica della penna: chord/path ratio + RMS.
   if (!validateLineShape(pts, startPt, endPt, chordLen)) return false;
 
-  // Raddrizza tra start e end MANTENENDO l'angolo originale.
   const dx = endPt.x - startPt.x;
   const dy = endPt.y - startPt.y;
   const steps = Math.max(8, Math.floor(chordLen / 4));

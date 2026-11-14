@@ -1,14 +1,5 @@
 // ============================================================
 // SESSION: notebook attualmente aperto + sync + save
-//
-// syncCurrentState() packa gli strokes delle pagine dirty in
-// Float32Array prima di assegnarli a _currentNotebook.pages[idx].
-// saveCurrentNotebook() li passa a IDB (memcpy nativo).
-//
-// Il pack elimina:
-//   - structured-clone JS di 50.000 oggetti → memcpy di 500 Float32Array
-//   - clone runtime duplicato (pack alloca 1 buffer contiguo, non
-//     50.000 oggetti temporanei)
 // ============================================================
 
 import { state } from '../../core/state.js';
@@ -33,18 +24,37 @@ export function markPageDirty(pageIndex) {
 }
 
 /**
- * Sincronizza `state` → `_currentNotebook`, packando solo le
- * pagine dirty. Le pagine pulite restano invariate (packed dal
- * loro ultimo sync).
+ * Sincronizza `state` → `_currentNotebook`.
+ *
+ * GARANTISCE che `_currentNotebook.pages` sia sempre lungo
+ * `state.pages.length` e senza buchi (undefined). Le pagine
+ * non-dirty mantengono il loro contenuto precedente; le pagine
+ * mai scritte diventano entry vuote `{ pageIndex: i, strokes: [] }`.
+ *
+ * Questo evita che `pageCount` (calcolato da `_currentNotebook.pages.length`)
+ * sia disallineato da `state.pages.length`, e che al load successivo
+ * il DB contenga entry sparse (buco in 0) → shift/traslazione.
  */
 export function syncCurrentState() {
   if (!_currentNotebook) return;
   _currentNotebook.pattern = state.bgPattern;
   _currentNotebook.toolbarSettings = getToolbarSettingsForSave();
+  _currentNotebook.lastPageIndex = state.activePageIndex;
 
   if (!_currentNotebook.pages) _currentNotebook.pages = [];
-  if (_dirtyPages.size === 0) return;
 
+  // Allinea la lunghezza di _currentNotebook.pages a state.pages.length.
+  // Le nuove posizioni restano `null` finché non vengono riempite
+  // (dirty) o stabilizzate (placeholder vuoto).
+  const targetLen = state.pages.length;
+  while (_currentNotebook.pages.length < targetLen) {
+    _currentNotebook.pages.push(null);
+  }
+  if (_currentNotebook.pages.length > targetLen) {
+    _currentNotebook.pages.length = targetLen;
+  }
+
+  // Aggiorna le pagine dirty con il contenuto corrente packato.
   for (const idx of _dirtyPages) {
     const page = state.pages[idx];
     if (!page) continue;
@@ -53,12 +63,17 @@ export function syncCurrentState() {
       strokes: packStrokes(page.strokes)
     };
   }
+
+  // Riempi i buchi (pagine mai scritte) con placeholder vuoto.
+  // Necessario perché `pageCount` conta `_currentNotebook.pages.length`
+  // e non deve contenere `null` / `undefined`.
+  for (let i = 0; i < _currentNotebook.pages.length; i++) {
+    if (!_currentNotebook.pages[i]) {
+      _currentNotebook.pages[i] = { pageIndex: i, strokes: [] };
+    }
+  }
 }
 
-/**
- * Salva il notebook: metadata + pagine dirty (già packed).
- * Ritorna Promise che risolve al commit IDB.
- */
 export function saveCurrentNotebook() {
   if (!_currentNotebook) return Promise.resolve();
   const dirty = Array.from(_dirtyPages);

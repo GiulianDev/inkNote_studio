@@ -3,25 +3,6 @@
  *
  * POOL DI SLOT DI RENDERING — virtualizzazione dei canvas.
  *
- * Problema: N pagine = N canvas nel DOM. Su GPU condivise (Surface Go 1,
- * Intel HD 615) il numero di superfici attive degrada prestazioni in
- * modo super-lineare. OneNote/GoodNotes usano poche superfici riciclate.
- *
- * Soluzione: 5 slot (main + overlay) riassegnati alle pagine intorno
- * a quella attiva. Le pagine senza slot restano solo dati (`strokes`).
- *
- * Invarianti:
- *   - `state.pages[i].wrapper` esiste sempre (layout invariato).
- *   - `state.pages[i].canvas` è null se la pagina non è montata.
- *   - `pageData` è lo stesso oggetto JS in `state.pages[i]` quando
- *     viene montata/smontata: chi ha un riferimento a pageData vede
- *     i campi aggiornati senza riletture.
- *
- * API:
- *   - updatePoolAssignments(activeIndex, force?)  — assegna slot
- *   - forceAssign(pageIndex)                      — adotta pagina
- *   - reset()                                     — azzera tutti gli slot
- *
  * @see features/editor/pages.js — refreshCanvasResolution chiama update
  * @see features/tools/dispatcher.js — forceAssign su pointerdown orfano
  */
@@ -31,7 +12,7 @@ import { PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
 
 const POOL_SIZE = 5;
-const POOL_RADIUS = 2;   // attorno all'attiva: [-2, +2]
+const POOL_RADIUS = 2;
 const MAX_RENDER_DPR = 4;
 const MAX_ZOOM_DPR_BOOST = 1.3;
 const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -54,12 +35,37 @@ class PageSlot {
 class PageRendererPool {
   constructor() {
     this.slots = Array.from({ length: POOL_SIZE }, () => new PageSlot());
-    // LRU: slot più recentemente assegnati in coda. Evict dal fronte.
     this._lru = this.slots.slice();
+  }
+
+  /**
+   * Pulisce esplicitamente i canvas dello slot (main + overlay)
+   * e resetta lo stile CSS dell'overlay. Chiamato da reset() e
+   * _releaseSlot(): senza, il contenuto precedente resta visibile
+   * quando lo slot viene riassegnato a una pagina diversa.
+   */
+  _clearSlotCanvas(slot) {
+    try {
+      slot.ctx.save();
+      slot.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      slot.ctx.clearRect(0, 0, slot.canvas.width, slot.canvas.height);
+      slot.ctx.restore();
+    } catch (e) {}
+    try {
+      slot.overlayCtx.save();
+      slot.overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+      slot.overlayCtx.clearRect(0, 0, slot.overlayCanvas.width, slot.overlayCanvas.height);
+      slot.overlayCtx.restore();
+    } catch (e) {}
+    if (slot.overlayCanvas) {
+      slot.overlayCanvas.style.opacity = '';
+      slot.overlayCanvas.style.mixBlendMode = '';
+    }
   }
 
   reset() {
     for (const slot of this.slots) {
+      this._clearSlotCanvas(slot);
       if (slot.wrapper) {
         try { slot.wrapper.removeChild(slot.canvas); } catch (e) {}
         try { slot.wrapper.removeChild(slot.overlayCanvas); } catch (e) {}
@@ -87,7 +93,6 @@ class PageRendererPool {
   }
 
   _evictTarget() {
-    // Prende lo slot più "lontano" dall'active (fallback: il primo libero)
     const active = state.activePageIndex;
     let victim = null;
     let maxDist = -1;
@@ -111,14 +116,11 @@ class PageRendererPool {
         page.overlayDpr = 0;
       }
     }
-    if (slot.overlayCanvas) {
-      slot.overlayCanvas.style.opacity = '';
-      slot.overlayCanvas.style.mixBlendMode = '';
-    }
     if (slot.wrapper) {
       try { slot.wrapper.removeChild(slot.canvas); } catch (e) {}
       try { slot.wrapper.removeChild(slot.overlayCanvas); } catch (e) {}
     }
+    this._clearSlotCanvas(slot);
     slot.pageIndex = -1;
     slot.wrapper = null;
     slot.dpr = 0;
@@ -131,15 +133,9 @@ class PageRendererPool {
     this._releaseSlot(slot);
     slot.pageIndex = pageIndex;
     slot.wrapper = page.wrapper;
-    if (slot.overlayCanvas) {
-      slot.overlayCanvas.style.opacity = '';
-      slot.overlayCanvas.style.mixBlendMode = '';
-    }
     page.wrapper.appendChild(slot.canvas);
     page.wrapper.appendChild(slot.overlayCanvas);
 
-    // Pulisce gli stroke da cache stile (safety dopo release)
-    // In realtà non serve perché _styleCache è per (stroke, isDark).
     page.canvas = slot.canvas;
     page.ctx = slot.ctx;
     page.overlayCanvas = slot.overlayCanvas;
@@ -151,24 +147,17 @@ class PageRendererPool {
     return true;
   }
 
-  /**
-   * Riassegna gli slot attorno a `activeIndex`. Idempotente.
-   * Se force=true, ricostruisce anche le pagine già assegnate
-   * (usato dopo un restore di history).
-   */
   updateAround(activeIndex, force = false) {
     if (state.pages.length === 0) return;
     const lo = Math.max(0, activeIndex - POOL_RADIUS);
     const hi = Math.min(state.pages.length - 1, activeIndex + POOL_RADIUS);
 
-    // 1. Rilascia gli slot fuori range
     for (const slot of this.slots) {
       if (slot.pageIndex >= 0 && (slot.pageIndex < lo || slot.pageIndex > hi)) {
         this._releaseSlot(slot);
       }
     }
 
-    // 2. Assegna ai pageIndex del range che non hanno slot
     for (let i = lo; i <= hi; i++) {
       const existing = this._slotFor(i);
       if (existing) {
@@ -186,11 +175,6 @@ class PageRendererPool {
     }
   }
 
-  /**
-   * Forza l'assegnazione di una pagina (usato se pointerdown arriva
-   * prima che updateAround abbia aggiornato il pool).
-   * Ritorna true se la pagina ha ora un canvas.
-   */
   forceAssign(pageIndex) {
     const page = state.pages[pageIndex];
     if (!page) return false;
@@ -245,7 +229,6 @@ function _resizeSlot(slot, page) {
   slot.overlayDpr = oDpr;
   page.dpr = dpr;
   page.overlayDpr = oDpr;
-  // Aggiorna i riferimenti (ridando ctx al pageData)
   page.ctx = slot.ctx;
   page.overlayCtx = slot.overlayCtx;
   redrawPageCanvas(page);
@@ -254,8 +237,6 @@ function _resizeSlot(slot, page) {
   }
 }
 
-// Espongo il viewport corrente al pool senza import ciclici.
-// Viene settato da pages.js al primo refresh.
 export function setViewportRef(viewport) {
   window.__inknoteViewport = { viewport };
 }

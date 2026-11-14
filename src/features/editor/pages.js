@@ -210,8 +210,10 @@ export function updateActivePageFromViewport() {
     state.activePageIndex = page.index;
     refreshPageCounter();
     resetHistory();
-    // Pool si riallinea: le pagine vicine devono avere uno slot
     pagePool.updateAround(state.activePageIndex);
+    // Salva solo il metadata (lastPageIndex) — niente dirty page,
+    // niente badge "Salvataggio...". Debounce 500ms.
+    scheduleSave({ markDirty: false, silent: true });
   }, ACTIVE_PAGE_CHECK_INTERVAL);
 }
 
