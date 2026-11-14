@@ -8,26 +8,38 @@
  *   - Touch durante stroke penna (penDown) → ignora
  *   - Touch entro PEN_CONTACT_GRACE_MS dal pointerup → ignora
  *     (grace: palmo che appoggia nel momento del sollevamento)
+ *   - Touch entro PEN_LEAVE_GRACE_MS dal pointerleave → ignora
+ *     (grace: mignolo che appoggia appena la penna esce dal range)
  *   - Touch mentre penna è in hover (penInRange) → ignora
  *     (finché cursore visibile → no pan/pinch)
  *
- * Due timer, ruoli distinti e non sovrapposti:
+ * Tre timer con ruoli distinti:
  *
  *   PEN_CONTACT_GRACE_MS = 80ms
  *     - Parte SOLO al pointerup/pointercancel della penna
  *     - Copre: sollevo di scatto + allontano + dito appoggia
  *       entro 80ms → bloccato
- *     - Dopo 80ms: scade, non è più valutato
  *
- *   PEN_HOVER_TIMEOUT_MS = 250ms
+ *   PEN_LEAVE_GRACE_MS = 150ms
+ *     - Parte SOLO al pointerleave della penna
+ *     - Copre: penna esce dal range, mignolo appoggia subito dopo
+ *     - 150ms distinguono un riposizionamento da un pan intenzionale
+ *
+ *   PEN_HOVER_TIMEOUT_MS = 800ms
  *     - Safety net per device che NON emettono pointerleave
  *     - Si applica SOLO se _penInRange === true
- *     - Se non riceviamo eventi hover da 250ms, assume che la
+ *     - Se non riceviamo eventi hover da 800ms, assume che la
  *       penna sia fuori range e sblocca i touch
- *     - Su Surface Go non si attiva mai (pointerleave arriva)
+ *     - 800ms tollera penna ferma in hover senza eventi (driver
+ *       Windows non emette hover se la penna non si muove)
  *
- * Ritardo post-pointerleave normale: 0ms (il leave azzera
- * _penInRange e _lastPenEventTime, touch liberi subito).
+ * Ritardo post-pointerleave normale: 0ms se non appoggi un dito
+ * subito dopo. Se appoggi un dito entro 150ms dal leave, bloccato.
+ *
+ * Blocco 3+ tocchi:
+ *   - Se arriva un 3° dito, il gesto in corso (pan/pinch) viene
+ *     annullato con ROLLBACK della trasformazione al punto di
+ *     inizio. Il foglio non resta spostato a metà gesto.
  *
  * Scroll momentum:
  *   - velocity samples (ultimi 6 eventi in 100ms)
@@ -70,11 +82,16 @@ const PALM_CONTACT_SIZE = 40;
 // allontano + dito appoggia". Si esaurisce in 80ms dal pointerup.
 const PEN_CONTACT_GRACE_MS = 80;
 
+// Grace post-pointerleave: copre il caso "penna esce dal range,
+// mignolo appoggia subito dopo". 150ms distinguono un riposizionamento
+// da un pan intenzionale.
+const PEN_LEAVE_GRACE_MS = 150;
+
 // Safety net per device che non emettono pointerleave in modo
 // affidabile. Si attiva SOLO se _penInRange === true e non riceviamo
-// eventi penna da 250ms. Su Surface Go non si attiva mai (il
-// pointerleave arriva correttamente quando la penna esce dal range).
-const PEN_HOVER_TIMEOUT_MS = 250;
+// eventi penna da 800ms. 800ms tollera penna ferma in hover senza
+// eventi (driver Windows non emette hover se la penna non si muove).
+const PEN_HOVER_TIMEOUT_MS = 800;
 
 const PALM_PAN_CANCEL_WINDOW_MS = 400;
 
@@ -107,11 +124,13 @@ const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 // _penDown                 true tra pointerdown e pointerup/cancel penna
 // _penInRange              true tra pointerenter e pointerleave penna
 // _lastPenContactEndTime   timestamp ultimo pointerup/cancel penna
+// _lastPenLeaveTime        timestamp ultimo pointerleave penna
 // _lastPenEventTime        timestamp ultimo evento penna (enter/move/down)
 //                          azzerato su pointerleave
 let _penDown = false;
 let _penInRange = false;
 let _lastPenContactEndTime = 0;
+let _lastPenLeaveTime = 0;
 let _lastPenEventTime = 0;
 
 let _panStartTime = 0;
@@ -143,26 +162,28 @@ function _isPalmContact(e) {
 /**
  * True se i touch devono essere ignorati per via della penna.
  *
- * Ordine di valutazione (nessuna sovrapposizione tra i due timer):
+ * Ordine di valutazione (i tre timer non si sovrappongono mai
+ * sullo stesso evento):
  *   1. Stroke in corso → bloccato
  *   2. Grace post-pointerup (80ms) → bloccato
- *   3. Hover attivo → bloccato, MA se non arrivano eventi penna
- *      da 250ms il safety net considera la penna fuori range
+ *   3. Grace post-pointerleave (150ms) → bloccato
+ *   4. Hover attivo → bloccato, MA se non arrivano eventi penna
+ *      da 800ms il safety net considera la penna fuori range
  *      e sblocca i touch
- *   4. Fuori range → touch liberi
+ *   5. Fuori range → touch liberi
  */
 function _isPenBlockingTouches() {
   if (_penDown) return true;
 
   const now = performance.now();
 
-  // Grace post-pointerup (palmo che appoggia nel momento del sollevamento)
+  // Grace post-pointerup
   if (_lastPenContactEndTime > 0 &&
       now - _lastPenContactEndTime < PEN_CONTACT_GRACE_MS) {
     return true;
   }
 
-  // Grace post-pointerleave (mignolo che tocca appena la penna esce dal range)
+  // Grace post-pointerleave
   if (_lastPenLeaveTime > 0 &&
       now - _lastPenLeaveTime < PEN_LEAVE_GRACE_MS) {
     return true;
@@ -306,6 +327,7 @@ export function setupViewportGestures() {
     _penDown = false;
     _penInRange = false;
     _lastPenContactEndTime = 0;
+    _lastPenLeaveTime = 0;
     _lastPenEventTime = 0;
   });
 
@@ -329,13 +351,14 @@ export function setupViewportGestures() {
     }
   }, { capture: true, passive: true });
 
-  // Penna esce dal viewport (fuori range). Sblocca SUBITO i touch:
-  // _penInRange=false + _lastPenEventTime=0 → il prossimo touch
-  // passa il check senza ritardo.
+  // Penna esce dal viewport (fuori range). Sblocca i touch, ma
+  // salva il timestamp per il leave grace (mignolo che appoggia
+  // subito dopo il leave).
   viewportEl.addEventListener('pointerleave', (e) => {
     if (_isPenEvent(e)) {
       _penInRange = false;
       _lastPenEventTime = 0;
+      _lastPenLeaveTime = performance.now();
     }
   }, { capture: true, passive: true });
 
@@ -400,7 +423,7 @@ export function setupViewportGestures() {
     const palmCheck = state.palmRejection;
     if (palmCheck) {
       // Blocca touch se penna a contatto, in grace post-pointerup,
-      // o in hover (con safety net integrato).
+      // in grace post-leave, o in hover (con safety net).
       if (_isPenBlockingTouches()) return;
       // Blocca se contatto > 40px (palm).
       if (_isPalmContact(e)) return;
@@ -416,6 +439,20 @@ export function setupViewportGestures() {
     });
 
     if (viewport.activePointers.size > 2) {
+      // Rollback della trasformazione al punto di inizio gesto.
+      // Se il 3° dito arriva durante un pan, torniamo a
+      // panStartTransform. Se durante un pinch, torniamo a
+      // pinchStartTransform. Il foglio non resta spostato a metà.
+      if (viewport.isPanning && viewport.panStartTransform) {
+        viewport.x = viewport.panStartTransform.x;
+        viewport.y = viewport.panStartTransform.y;
+        applyTransform(false);
+      } else if (viewport.isPinching && viewport.pinchStartTransform) {
+        viewport.x = viewport.pinchStartTransform.x;
+        viewport.y = viewport.pinchStartTransform.y;
+        viewport.scale = viewport.pinchStartTransform.scale;
+        applyTransform(false);
+      }
       viewport.isPanning = false;
       viewport.isPinching = false;
       _startedAtBottom = false;
