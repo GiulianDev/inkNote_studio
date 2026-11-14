@@ -130,6 +130,7 @@ export function bindEditorUI() {
   applySmoothingToUI();
   applyPalmRejectionToUI();
   applyEraserModeToUI();
+  initUndoRedoDrag();
 }
 
 function applySmoothingToUI() {
@@ -157,17 +158,15 @@ function applyEraserModeToUI() {
 const UNDO_REDO_POS_KEY = 'inknote_undo_redo_pos';
 const UNDO_REDO_DRAG_PRESS_MS = 350;
 const UNDO_REDO_MARGIN = 8;
+const UNDO_REDO_MOVE_CANCEL_PX = 8;
 
 function initUndoRedoDrag() {
   const el = document.getElementById('undoRedoContainer');
   if (!el) return;
 
-  // Clamp ai bordi del viewport: usato sia al restore iniziale
-  // sia durante il drag, per evitare che il container finisca
-  // fuori schermo su resize.
   const clampToViewport = (x, y) => {
     const w = el.offsetWidth || 100;
-    const h = el.offsetHeight || 44;
+    const h = el.offsetHeight || 56;
     const maxX = window.innerWidth - w - UNDO_REDO_MARGIN;
     const maxY = window.innerHeight - h - UNDO_REDO_MARGIN;
     return {
@@ -177,7 +176,7 @@ function initUndoRedoDrag() {
   };
 
   // Ripristina posizione salvata (se presente). Se fuori viewport
-  // (es. resize), clampa.
+  // (es. dopo un resize), clampa.
   try {
     const raw = localStorage.getItem(UNDO_REDO_POS_KEY);
     if (raw) {
@@ -192,6 +191,7 @@ function initUndoRedoDrag() {
 
   let pressTimer = null;
   let dragging = false;
+  let activePointerId = null;
   let startX = 0, startY = 0;
   let origX = 0, origY = 0;
   let skipNextClick = false;
@@ -203,9 +203,77 @@ function initUndoRedoDrag() {
     }
   };
 
+  const setDraggingCursor = (active) => {
+    el.style.cursor = active ? 'grabbing' : '';
+    el.querySelectorAll('button').forEach(b => {
+      b.style.cursor = active ? 'grabbing' : '';
+    });
+  };
+
+  const onDocumentPointerMove = (e) => {
+    if (e.pointerId !== activePointerId) return;
+
+    if (!dragging) {
+      // Se l'utente si muove >8px PRIMA del long-press, annulla il
+      // press: probabilmente è un tap "sporco" o uno scroll.
+      if (pressTimer) {
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (Math.hypot(dx, dy) > UNDO_REDO_MOVE_CANCEL_PX) {
+          cancelPress();
+          detachDocumentListeners();
+          activePointerId = null;
+        }
+      }
+      return;
+    }
+
+    // Drag attivo: aggiorna posizione (clamp ai bordi viewport).
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    const pos = clampToViewport(origX + dx, origY + dy);
+    el.style.left = `${pos.x}px`;
+    el.style.top = `${pos.y}px`;
+  };
+
+  const onDocumentPointerUp = (e) => {
+    if (e.pointerId !== activePointerId) return;
+    cancelPress();
+
+    if (dragging) {
+      dragging = false;
+      setDraggingCursor(false);
+
+      // Salva posizione
+      try {
+        const rect = el.getBoundingClientRect();
+        localStorage.setItem(UNDO_REDO_POS_KEY, JSON.stringify({
+          x: Math.round(rect.left),
+          y: Math.round(rect.top)
+        }));
+      } catch {}
+
+      // Blocca il click generato subito dopo (evita undo/redo
+      // accidentale al rilascio).
+      setTimeout(() => { skipNextClick = false; }, 50);
+    }
+
+    detachDocumentListeners();
+    activePointerId = null;
+  };
+
+  const detachDocumentListeners = () => {
+    document.removeEventListener('pointermove', onDocumentPointerMove);
+    document.removeEventListener('pointerup', onDocumentPointerUp);
+    document.removeEventListener('pointercancel', onDocumentPointerUp);
+  };
+
   el.addEventListener('pointerdown', (e) => {
     // Solo click sinistro (mouse). Touch/penna sempre validi.
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    cancelPress();
+    detachDocumentListeners();
 
     const rect = el.getBoundingClientRect();
     startX = e.clientX;
@@ -214,65 +282,26 @@ function initUndoRedoDrag() {
     origY = rect.top;
     dragging = false;
     skipNextClick = false;
+    activePointerId = e.pointerId;
 
-    cancelPress();
+    // Listener su document IMMEDIATI: riceviamo pointermove/up
+    // ovunque vada il cursore, anche fuori dai bounds dell'elemento.
+    // Niente setPointerCapture (inaffidabile su alcuni browser/device).
+    document.addEventListener('pointermove', onDocumentPointerMove);
+    document.addEventListener('pointerup', onDocumentPointerUp);
+    document.addEventListener('pointercancel', onDocumentPointerUp);
+
     pressTimer = setTimeout(() => {
       pressTimer = null;
+      if (activePointerId !== e.pointerId) return;
       dragging = true;
       skipNextClick = true;
-      el.style.cursor = 'grabbing';
-      el.style.transition = 'none';
-      el.style.willChange = 'left, top';
-      try { el.setPointerCapture(e.pointerId); } catch (err) {}
+      setDraggingCursor(true);
     }, UNDO_REDO_DRAG_PRESS_MS);
   });
 
-  el.addEventListener('pointermove', (e) => {
-    if (!dragging) {
-      // Se l'utente muove prima del long-press (>8px), annulla il
-      // press: probabilmente è un movimento/scroll, non un long-press.
-      if (pressTimer) {
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        if (Math.hypot(dx, dy) > 8) cancelPress();
-      }
-      return;
-    }
-    // Trascinamento attivo: aggiorna posizione con clamp.
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    const pos = clampToViewport(origX + dx, origY + dy);
-    el.style.left = `${pos.x}px`;
-    el.style.top = `${pos.y}px`;
-  });
-
-  const endDrag = (e) => {
-    cancelPress();
-    if (!dragging) return;
-    dragging = false;
-    el.style.cursor = '';
-    el.style.transition = '';
-    el.style.willChange = '';
-    try { el.releasePointerCapture(e.pointerId); } catch (err) {}
-
-    // Salva la nuova posizione
-    const rect = el.getBoundingClientRect();
-    try {
-      localStorage.setItem(UNDO_REDO_POS_KEY, JSON.stringify({
-        x: Math.round(rect.left),
-        y: Math.round(rect.top)
-      }));
-    } catch {}
-
-    // Lascia passare il click successivo (evita undo/redo accidentale)
-    setTimeout(() => { skipNextClick = false; }, 50);
-  };
-
-  el.addEventListener('pointerup', endDrag);
-  el.addEventListener('pointercancel', endDrag);
-
-  // Blocca il click generato dall'evento che ha chiuso il drag,
-  // così non viene attivato undo/redo per errore.
+  // Blocca il click generato dal rilascio dopo un drag (undo/redo
+  // verrebbe triggerato per errore altrimenti).
   el.addEventListener('click', (e) => {
     if (skipNextClick) {
       e.preventDefault();
