@@ -199,3 +199,106 @@ body.compact-mode #drawingToolbar {
     display: none !important;
   }
 }
+
+/* ============================================================
+   MOBILE — toolbar essenziale + pannello ⋯ (< 640px)
+   ============================================================ */
+
+/* Utility: elementi visibili SOLO su mobile (swatch colore,
+   pulsante ⋯). Non applicare a backdrop/panel: quelli usano
+   .hidden di Tailwind e .open via JS. */
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 639px) {
+  /* Toolbar: solo i tool essenziali visibili; gli .tool-optional
+     vengono spostati nel pannello via JS all'apertura. */
+  #drawingToolbar .tool-optional {
+    display: none !important;
+  }
+  #drawingToolbar .hide-mobile {
+    display: none !important;
+  }
+
+  /* Elementi mobile-only visibili */
+  .mobile-only {
+    display: inline-flex;
+  }
+
+  /* Pannello e backdrop: nascosti di default (Tailwind .hidden).
+     Visibili SOLO quando JS aggiunge .open. Su desktop restano
+     nascosti per la media query (min-width: 640px) sotto. */
+  #toolbarMenuPanel.open {
+    display: flex !important;
+  }
+  #toolbarMenuBackdrop.open {
+    display: block !important;
+  }
+
+  /* Header su 2 righe: riga 1 titolo+icone, riga 2 toolbar */
+  #mainHeader {
+    flex-wrap: wrap;
+  }
+  #mainHeader > div:nth-child(2) {
+    flex-basis: 100%;
+    order: 3;
+    margin-top: 6px;
+  }
+  #headerLeft {
+    order: 1;
+    flex: 1;
+    min-width: 0;
+  }
+  #headerRight {
+    order: 2;
+  }
+
+  /* Compatta header su mobile */
+  #headerLeft .h-4.w-px {
+    display: none !important;
+  }
+  #headerLeft #docTitle {
+    max-width: 110px;
+  }
+  #headerLeft #pageCounterText {
+    font-size: 10px;
+  }
+  #headerRight #exportPdfBtn {
+    display: none !important;
+  }
+  #headerRight .dock-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Toolbar: scroll orizzontale come safety net se non ci sta.
+     Scrollbar nascosta per non rubare spazio. */
+  #drawingToolbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+  #drawingToolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Backdrop e panel: dimensioni adattive */
+  #toolbarMenuPanel {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+}
+
+/* Su desktop: panel e backdrop sempre nascosti, indipendentemente
+   dalla classe .open (che viene rimossa automaticamente dal
+   listener resize in toolbar.js). */
+@media (min-width: 640px) {
+  #toolbarMenuPanel,
+  #toolbarMenuBackdrop {
+    display: none !important;
+  }
+}

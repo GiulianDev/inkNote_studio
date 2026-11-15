@@ -7,6 +7,11 @@
  *   - popover colore+opacità condiviso, aperto dal custom picker
  *   - applyActiveToolToUI aggiorna anche il preview opacity
  *   - updateOpacity() aggiorna il tool attivo
+ *   - MOBILE TOOLBAR MENU: su < 640px i controlli `tool-optional`
+ *     vengono spostati nel pannello ⋯ all'apertura e ripristinati
+ *     alla chiusura. Nessuna duplicazione di markup.
+ *     Il backdrop e il panel usano la classe `.open` (non `.hidden`)
+ *     per evitare conflitti con la utility `.mobile-only`.
  */
 
 import './toolbar.css';
@@ -38,6 +43,7 @@ export function mountToolbar() {
   mount.remove();
   _setupEraserButton();
   _setupColorPopover();
+  _setupMobileToolbarMenu();
   _mounted = true;
 }
 
@@ -65,7 +71,10 @@ export function setTool(toolName) {
 }
 
 export function applyActiveToolToUI() {
-  if (state.activeTool === 'eraser' || state.activeTool === 'lasso') return;
+  if (state.activeTool === 'eraser' || state.activeTool === 'lasso') {
+    _updateCurrentColorSwatch();
+    return;
+  }
 
   const conf = getActiveToolConfig();
   const swatch = document.querySelector(`.color-swatch[data-color="${conf.color}"]`);
@@ -80,6 +89,20 @@ export function applyActiveToolToUI() {
 
   const picker = document.getElementById('customColorPicker');
   if (picker) picker.value = conf.color;
+
+  _updateCurrentColorSwatch();
+}
+
+/**
+ * Aggiorna lo swatch "colore corrente" su mobile.
+ * Mostra il colore del tool attivo anche quando il tool non è
+ * pen/pencil/marker (usa comunque il colore configurato).
+ */
+function _updateCurrentColorSwatch() {
+  const el = document.getElementById('currentColorSwatch');
+  if (!el) return;
+  const conf = getActiveToolConfig();
+  el.style.backgroundColor = conf.color;
 }
 
 // ============================================================
@@ -138,6 +161,7 @@ export function selectColor(colorHex, element) {
 
   saveRecentColor(colorHex);
   _refreshPopoverPreview();
+  _updateCurrentColorSwatch();
 }
 
 export function updateStrokeWidth(val) {
@@ -386,9 +410,14 @@ function _populatePopoverForActiveTool() {
   _refreshPopoverPreview();
 }
 
-export function showColorPickerPopover() {
+/**
+ * Mostra il popover colore+opacità ancorato a un trigger.
+ * @param {HTMLElement} [triggerEl] — elemento di ancoraggio.
+ *   Se omesso, usa #customColorPicker (default su desktop).
+ */
+export function showColorPickerPopover(triggerEl = null) {
   const popover = document.getElementById('colorPickerPopover');
-  const trigger = document.getElementById('customColorPicker');
+  const trigger = triggerEl || document.getElementById('customColorPicker');
   if (!popover || !trigger) return;
 
   _populatePopoverForActiveTool();
@@ -451,4 +480,111 @@ function _setupColorPopover() {
     if (popover.contains(e.target) || trigger.contains(e.target)) return;
     hideColorPickerPopover();
   });
+}
+
+// ============================================================
+// MOBILE TOOLBAR MENU (pannello ⋯)
+// ============================================================
+//
+// Su < 640px, gli elementi `.tool-optional` sono nascosti dalla
+// toolbar principale via CSS. Quando l'utente apre il pannello
+// (⋯), gli elementi vengono SPOSTATI nel pannello; alla chiusura,
+// tornano nella toolbar esattamente nella loro posizione originale.
+//
+// Backdrop e panel usano la classe `.open` (non `.hidden`), perché
+// `.hidden` di Tailwind verrebbe sovrascritto dalla utility
+// `.mobile-only` che ha `display: inline-flex !important` via CSS.
+// In questo modo il controllo è solo su `.open`:
+//   - default: nascosto (nessuna classe di display)
+//   - aperto: `.open` → display: flex / block (via CSS media query)
+//   - desktop: sempre `display: none !important` (via CSS)
+
+let _toolbarMenuOriginalPositions = [];
+let _toolbarMenuOpen = false;
+
+function _setupMobileToolbarMenu() {
+  const btn = document.getElementById('toolbarMenuBtn');
+  const panel = document.getElementById('toolbarMenuPanel');
+  const backdrop = document.getElementById('toolbarMenuBackdrop');
+  const swatch = document.getElementById('currentColorSwatch');
+  if (!btn || !panel || !backdrop) return;
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    _toggleToolbarMenu();
+  });
+
+  backdrop.addEventListener('click', _closeToolbarMenu);
+
+  // Swatch colore corrente: apre il popover color+opacity
+  swatch?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showColorPickerPopover(swatch);
+  });
+
+  // Se l'utente ridimensiona verso desktop con pannello aperto,
+  // chiudilo (gli elementi tornerebbero in una toolbar che ora è
+  // visibile: lasciare il pannello aperto creerebbe confusione).
+  window.addEventListener('resize', () => {
+    if (window.innerWidth >= 640 && _toolbarMenuOpen) {
+      _closeToolbarMenu();
+    }
+  });
+
+  _updateCurrentColorSwatch();
+}
+
+function _toggleToolbarMenu() {
+  if (_toolbarMenuOpen) _closeToolbarMenu();
+  else _openToolbarMenu();
+}
+
+function _openToolbarMenu() {
+  const panel = document.getElementById('toolbarMenuPanel');
+  const backdrop = document.getElementById('toolbarMenuBackdrop');
+  const toolbar = document.getElementById('drawingToolbar');
+  if (!panel || !backdrop || !toolbar) return;
+
+  // Sposta gli elementi `.tool-optional` dalla toolbar al pannello.
+  // Salva la loro posizione originale (parent + nextSibling) per
+  // poterli rimettere esattamente dove erano.
+  _toolbarMenuOriginalPositions = [];
+  const optional = toolbar.querySelectorAll('.tool-optional');
+  optional.forEach(el => {
+    _toolbarMenuOriginalPositions.push({
+      el,
+      parent: el.parentNode,
+      nextSibling: el.nextSibling
+    });
+    panel.appendChild(el);
+  });
+
+  // Posiziona il pannello subito sotto la toolbar
+  const rect = toolbar.getBoundingClientRect();
+  panel.style.top = `${rect.bottom + 8}px`;
+
+  panel.classList.add('open');
+  backdrop.classList.add('open');
+  _toolbarMenuOpen = true;
+}
+
+function _closeToolbarMenu() {
+  const panel = document.getElementById('toolbarMenuPanel');
+  const backdrop = document.getElementById('toolbarMenuBackdrop');
+  if (!panel || !backdrop) return;
+
+  // Ripristina gli elementi nella toolbar originale. Se nextSibling
+  // non esiste più (raro, ma sicuro), fallback a appendChild.
+  for (const { el, parent, nextSibling } of _toolbarMenuOriginalPositions) {
+    if (nextSibling && nextSibling.parentNode === parent) {
+      parent.insertBefore(el, nextSibling);
+    } else {
+      parent.appendChild(el);
+    }
+  }
+  _toolbarMenuOriginalPositions = [];
+
+  panel.classList.remove('open');
+  backdrop.classList.remove('open');
+  _toolbarMenuOpen = false;
 }

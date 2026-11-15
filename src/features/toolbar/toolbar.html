@@ -1,7 +1,6 @@
 <!-- features/toolbar/toolbar.html
      Markup della feature toolbar (dock + subbar).
-     Iniettato via `?raw` da toolbar.js tramite mountToolbar().
-     Gli id sono quelli storici: il resto del codice continua a funzionare. -->
+     Iniettato via `?raw` da toolbar.js tramite mountToolbar(). -->
 
 <header id="mainHeader" class="bg-white/95 dark:bg-slate-900/95 border-b border-slate-300 dark:border-slate-800 px-2 py-2.5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-sm transition-all duration-200">
 
@@ -22,42 +21,44 @@
 
   <div class="flex-1 flex justify-center items-center min-w-0 overflow-hidden gap-2">
     <div id="drawingToolbar" class="flex items-center flex-nowrap bg-slate-100 dark:bg-slate-800 p-0.5 rounded-2xl border border-slate-300 dark:border-slate-700 gap-0.5 transition-all">
-      <!-- PENNA -->
-      <button id="btnTool-pen" class="dock-tool-btn tool-btn bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm shrink-0" title="Stilografica">
+
+      <!-- ESSENTIALS: sempre visibili -->
+      <button id="btnTool-pen" class="dock-tool-btn tool-btn tool-essential bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm shrink-0" title="Stilografica">
         🖊️<span class="hidden 2xl:inline ml-1">Stilografica</span>
       </button>
-      <!-- MATITA -->
-      <button id="btnTool-pencil" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Matita">
-        ✏️<span class="hidden 2xl:inline ml-1">Matita</span>
-      </button>
-      <button id="btnTool-marker" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Pennarello">
-        🖋️<span class="hidden 2xl:inline ml-1">Pennarello</span>
-      </button>
-      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Evidenziatore">
-        🖍️<span class="hidden 2xl:inline ml-1">Evidenziatore</span>
-      </button>
-      <button id="btnTool-lasso" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Lazo">
+      <button id="btnTool-lasso" class="dock-tool-btn tool-btn tool-essential text-slate-600 dark:text-slate-300 shrink-0" title="Lazo">
         ✂️<span class="hidden 2xl:inline ml-1">Lazo</span>
       </button>
-      <button id="btnTool-eraser" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Gomma">
+      <button id="btnTool-eraser" class="dock-tool-btn tool-btn tool-essential text-slate-600 dark:text-slate-300 shrink-0" title="Gomma">
         🧹<span class="hidden 2xl:inline ml-1">Gomma</span>
       </button>
 
-      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
+      <!-- OPTIONAL: visibili su desktop, dentro il pannello su mobile -->
+      <button id="btnTool-pencil" class="dock-tool-btn tool-btn tool-optional text-slate-600 dark:text-slate-300 shrink-0" title="Matita">
+        ✏️<span class="hidden 2xl:inline ml-1">Matita</span>
+      </button>
+      <button id="btnTool-marker" class="dock-tool-btn tool-btn tool-optional text-slate-600 dark:text-slate-300 shrink-0" title="Pennarello">
+        🖋️<span class="hidden 2xl:inline ml-1">Pennarello</span>
+      </button>
+      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn tool-optional text-slate-600 dark:text-slate-300 shrink-0" title="Evidenziatore">
+        🖍️<span class="hidden 2xl:inline ml-1">Evidenziatore</span>
+      </button>
 
-      <button id="btnToggleAutoShape" class="dock-tool-btn auto-shape-on border transition-all shrink-0" title="Auto-Forme">
+      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0 hide-mobile"></div>
+
+      <button id="btnToggleAutoShape" class="dock-tool-btn auto-shape-on border transition-all shrink-0 tool-optional" title="Auto-Forme">
         <span id="autoShapeIcon">✨</span><span class="hidden 2xl:inline ml-1" id="autoShapeLabel">Auto-Forme</span>
       </button>
 
-      <div class="hidden sm:flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Levigatura del tratto: 0 = fedele all'input, 100 = curve molto morbide">
+      <div class="hidden sm:flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0 tool-optional" title="Levigatura del tratto: 0 = fedele all'input, 100 = curve molto morbide">
         <span class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">〰️</span>
         <input type="range" id="smoothingSlider" min="0" max="100" value="50" class="dock-range accent-indigo-600 cursor-pointer">
         <span id="smoothingValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">50</span>
       </div>
 
-      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
+      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0 hide-mobile"></div>
 
-      <div class="flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
+      <div class="flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0 tool-optional">
         <button class="color-swatch dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
         <button class="color-swatch dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
         <button class="color-swatch dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
@@ -67,19 +68,27 @@
         <input type="color" id="customColorPicker" class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent" title="Colore personalizzato">
       </div>
 
-      <div class="hidden md:flex dock-container items-center space-x-1.5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Spessore tratto">
+      <div class="hidden md:flex dock-container items-center space-x-1.5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0 tool-optional" title="Spessore tratto">
         <input type="range" id="strokeWidthSlider" min="1" max="25" value="3" class="dock-range accent-indigo-600 cursor-pointer">
         <span id="strokeWidthValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-3 text-center tabular-nums">3</span>
       </div>
 
-      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0"></div>
+      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0 hide-mobile"></div>
 
       <button id="compactExitBtn"
-        class="dock-icon-btn inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors"
+        class="dock-icon-btn inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors tool-optional"
         title="Schermo intero">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path id="compactIconExpand" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
           <path id="compactIconReduce" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9M20.25 20.25h-4.5m4.5 0v-4.5m0 4.5L15 15" style="display:none;" />
+        </svg>
+      </button>
+
+      <!-- MOBILE: swatch colore corrente + menu -->
+      <button id="currentColorSwatch" class="dock-swatch mobile-only rounded-full border-2 border-white dark:border-slate-800 bg-slate-900 shrink-0" title="Colore corrente"></button>
+      <button id="toolbarMenuBtn" class="mobile-only dock-icon-btn inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors" title="Altri strumenti">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
         </svg>
       </button>
     </div>
@@ -145,6 +154,10 @@
     </svg>
   </button>
 </div>
+
+<!-- BACKDROP + PANEL per menu mobile della toolbar -->
+<div id="toolbarMenuBackdrop" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[45]"></div>
+<div id="toolbarMenuPanel" class="hidden fixed left-2 right-2 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[46] flex flex-wrap items-center justify-center gap-2"></div>
 
 <!-- Popup livelli gomma (long-press / tasto destro su #btnTool-eraser) -->
 <div id="eraserSizeMenu" class="fixed hidden z-[60] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2 flex items-center gap-1.5">
