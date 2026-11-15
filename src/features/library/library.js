@@ -1,20 +1,18 @@
 // ============================================================
 // LIBRERIA QUADERNI + BACKUP EXPORT/IMPORT
 //
-// Auth: mock `services/auth.js` (handleGoogleLogin). Quando si
-// passerà a Firebase, sostituire l'import e il bind con la
-// versione documentata.
-//
-// Backup: multi-select dei notebook, export in file `.inknote`
-// unico, import con dialog conflitti (Rinomina / Sovrascrivi /
-// Salta + "Applica a tutti").
+// Auth: Firebase (services/firebase.js). Mock services/auth.js
+// resta nel progetto per rollback veloce se necessario.
 // ============================================================
 
 import { escapeHtml, showToast, on } from '../../core/utils.js';
 import {
   loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB
 } from '../../services/db.js';
-import { handleGoogleLogin } from '../../services/auth.js';
+import {
+  signInWithGoogle, signOutGoogle, onAuthChange
+} from '../../services/firebase.js';
+import { authState } from '../../core/state.js';
 import { openNotebook, closeNotebookIfOpen } from '../editor/editor.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
 import { exportNotebooks } from '../backup/backup-export.js';
@@ -23,6 +21,164 @@ import { showProgressDialog } from '../backup/backup-progress.js';
 
 let selectedCoverColor = '#4f46e5';
 const selectedNotebookIds = new Set();
+
+// ============================================================
+// AUTH
+// ============================================================
+
+// ============================================================
+// AUTH — avatar circolare + dropdown
+// ============================================================
+
+export function initAuth() {
+  onAuthChange((user) => {
+    authState.user = user;
+    authState.loading = false;
+    updateAuthUI();
+  });
+
+  // Chiudi il dropdown al click fuori
+  document.addEventListener('click', (e) => {
+    const container = document.getElementById('authContainer');
+    const dropdown = document.getElementById('authDropdown');
+    if (!container || !dropdown || dropdown.classList.contains('hidden')) return;
+    if (!container.contains(e.target)) dropdown.classList.add('hidden');
+  });
+}
+
+/**
+ * Deriva un colore stabile dall'email/nome dell'utente.
+ * Ogni utente ha sempre lo stesso colore, senza storage.
+ */
+function _colorFromString(str) {
+  const palette = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
+                   '#10b981', '#14b8a6', '#06b6d4', '#3b82f6', '#a855f7'];
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash * 31) + str.charCodeAt(i)) | 0;
+  }
+  return palette[Math.abs(hash) % palette.length];
+}
+
+/**
+ * Estrae le iniziali da displayName o email.
+ * "Mario Rossi" → "MR" | "mario@x.com" → "MA" | "mario" → "MA"
+ */
+function _getInitials(user) {
+  const name = user.displayName || user.email || '';
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
+
+/**
+ * Genera l'HTML per un avatar (foto o iniziali).
+ * @param {object} user — Firebase User
+ * @param {number} size — dimensione in px (es. 40)
+ */
+function _renderAvatar(user, size) {
+  if (user.photoURL) {
+    return `<img src="${user.photoURL}" alt="" class="w-full h-full object-cover" referrerpolicy="no-referrer">`;
+  }
+  const initials = _getInitials(user);
+  const bg = _colorFromString(user.email || user.displayName || user.uid);
+  return `<span class="flex items-center justify-center w-full h-full text-white font-bold" style="background-color: ${bg}; font-size: ${Math.round(size * 0.4)}px;">${initials}</span>`;
+}
+
+function updateAuthUI() {
+  const btn = document.getElementById('authBtn');
+  const content = document.getElementById('authBtnContent');
+  const dropdown = document.getElementById('authDropdown');
+  if (!btn || !content) return;
+
+  if (authState.user) {
+    // Loggato: avatar circolare
+    btn.title = 'Profilo';
+    content.outerHTML = `<span id="authBtnContent">${_renderAvatar(authState.user, 40)}</span>`;
+
+    // Popola dropdown
+    const dAvatar = document.getElementById('authDropdownAvatar');
+    const dName = document.getElementById('authDropdownName');
+    const dEmail = document.getElementById('authDropdownEmail');
+    if (dAvatar) dAvatar.outerHTML = `<div id="authDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">${_renderAvatar(authState.user, 40)}</div>`;
+    if (dName) dName.textContent = authState.user.displayName || 'Utente';
+    if (dEmail) dEmail.textContent = authState.user.email || '';
+  } else {
+    // Sloggato: icona 👤
+    btn.title = 'Accedi con Google';
+    content.outerHTML = `<span id="authBtnContent" class="text-base">👤</span>`;
+    if (dropdown) dropdown.classList.add('hidden');
+  }
+}
+
+export async function handleAuthClick() {
+  if (authState.loading) return;
+
+  if (authState.user) {
+    // Toggle dropdown
+    const dropdown = document.getElementById('authDropdown');
+    if (dropdown) dropdown.classList.toggle('hidden');
+    return;
+  }
+
+  // Login
+  try {
+    const user = await signInWithGoogle();
+    if (user) {
+      showToast(`Benvenuto, ${user.displayName || user.email}!`, '👋');
+    }
+  } catch (err) {
+    console.error('[auth] login failed:', err);
+    if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
+      showToast('Login fallito', '❌');
+    }
+  }
+}
+
+async function handleLogout() {
+  try {
+    await signOutGoogle();
+    const dropdown = document.getElementById('authDropdown');
+    if (dropdown) dropdown.classList.add('hidden');
+    showToast('Disconnesso', '👋');
+  } catch (err) {
+    console.error('[auth] signOut failed:', err);
+    showToast('Logout fallito', '❌');
+  }
+}
+
+export async function handleGoogleLogin() {
+  if (authState.loading) return;
+
+  if (authState.user) {
+    try {
+      await signOutGoogle();
+      showToast('Disconnesso', '👋');
+    } catch (err) {
+      console.error('[auth] signOut failed:', err);
+      showToast('Logout fallito', '❌');
+    }
+    return;
+  }
+
+  try {
+    const user = await signInWithGoogle();
+    // Su mobile user è null (redirect in corso). Il toast arriva
+    // al reload via onAuthChange.
+    if (user) {
+      showToast(`Benvenuto, ${user.displayName || user.email}!`, '👋');
+    }
+  } catch (err) {
+    console.error('[auth] login failed:', err);
+    // Ignora l'errore se l'utente ha chiuso il popup
+    if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
+      showToast('Login fallito', '❌');
+    }
+  }
+}
 
 // ============================================================
 // LIBRERIA
@@ -34,7 +190,6 @@ export function renderLibraryView() {
     const emptyMsg = document.getElementById('emptyLibraryMessage');
     grid.innerHTML = '';
 
-    // Rimuovi selezioni obsolete (notebook cancellati altrove)
     for (const id of Array.from(selectedNotebookIds)) {
       if (!notebooks.some(n => n.id === id)) selectedNotebookIds.delete(id);
     }
@@ -48,10 +203,11 @@ export function renderLibraryView() {
       notebooks.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
       notebooks.forEach(nb => {
-    // Mostra l'ultima scrittura reale (lastEditAt), con fallback a
-    // updatedAt per notebook creati prima di questa modifica.
-    const editIso = nb.lastEditAt || nb.updatedAt;
-    const dateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });        const pageCount = nb.pageCount || 1;
+        // lastEditAt: ultima scrittura reale. Fallback a updatedAt
+        // per notebook creati prima di questa modifica.
+        const editIso = nb.lastEditAt || nb.updatedAt;
+        const dateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+        const pageCount = nb.pageCount || 1;
         const isSelected = selectedNotebookIds.has(nb.id);
 
         const card = document.createElement('div');
@@ -160,7 +316,7 @@ async function handleImportFile(file) {
 }
 
 // ============================================================
-// MODALE NUOVO QUADERNO (invariato)
+// MODALE NUOVO QUADERNO
 // ============================================================
 
 export function openNewNotebookModal() {
@@ -224,8 +380,12 @@ export async function deleteNotebook(e, id) {
 // ============================================================
 
 export function bindLibraryUI() {
-  document.getElementById('googleLoginBtn')
-    ?.addEventListener('click', handleGoogleLogin);
+  initAuth();
+
+  document.getElementById('authBtn')
+  ?.addEventListener('click', handleAuthClick);
+  document.getElementById('authLogoutBtn')
+    ?.addEventListener('click', handleLogout);
   document.getElementById('newNotebookBtn')
     ?.addEventListener('click', openNewNotebookModal);
   document.getElementById('openSettingsBtnLib')

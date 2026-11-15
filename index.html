@@ -23,16 +23,8 @@
                     <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">I tuoi blocchetti salvati in locale</p>
                 </div>
             </div>
+
             <div class="flex items-center gap-3">
-                <button id="googleLoginBtn" class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-4 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition active:scale-95">
-                    <svg class="w-4 h-4" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
-                        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.13 0-5.78-2.11-6.73-4.96H1.18v3.14C3.15 21.32 7.23 24 12 24z"/>
-                        <path fill="#FBBC05" d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.62H1.18C.43 8.13 0 9.83 0 11.6s.43 3.47 1.18 4.98l4.09-2.34z"/>
-                        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.23 0 3.15 2.68 1.18 6.62l4.09 3.14c.95-2.85 3.6-4.96 6.73-4.96z"/>
-                    </svg>
-                    <span id="googleLoginText">Accedi con Google</span>
-                </button>
                 <button id="newNotebookBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
                     ➕ Nuovo Quaderno
                 </button>
@@ -45,7 +37,36 @@
                 <button id="openSettingsBtnLib" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95" title="Impostazioni">
                     ⚙️
                 </button>
+
+                <!-- Auth: pulsante circolare + dropdown -->
+                <div class="relative" id="authContainer">
+                    <button id="authBtn"
+                            class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition active:scale-95 overflow-hidden border border-slate-300 dark:border-slate-700"
+                            title="Accedi">
+                        <!-- Contenuto gestito dinamicamente da updateAuthUI() -->
+                        <span id="authBtnContent" class="text-base">👤</span>
+                    </button>
+
+                    <!-- Dropdown utente (nascosto di default) -->
+                    <div id="authDropdown"
+                        class="hidden absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
+                        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+                            <div class="flex items-center gap-3">
+                                <div id="authDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-indigo-500 text-white font-bold flex-shrink-0"></div>
+                                <div class="min-w-0">
+                                    <div id="authDropdownName" class="text-sm font-semibold text-slate-900 dark:text-white truncate"></div>
+                                    <div id="authDropdownEmail" class="text-[11px] text-slate-500 dark:text-slate-400 truncate"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <button id="authLogoutBtn"
+                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition">
+                            Esci
+                        </button>
+                    </div>
+                </div>
             </div>
+
         </div>
         <div class="max-w-6xl w-full mx-auto flex-1">
             <div id="notebooksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6"></div>

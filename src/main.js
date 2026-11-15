@@ -39,6 +39,7 @@ import { bindEditorUI } from './features/editor/ui-bindings.js';
 import { mountSettingsModal } from './features/settings/settings-modal.js';
 import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
 import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
+import { handleRedirectResult } from './services/firebase.js';
 
 window.addEventListener('load', async () => {
   // 1. Componenti grafiche. Devono esistere PRIMA di initSettings():
@@ -57,6 +58,14 @@ window.addEventListener('load', async () => {
 
   // 4. Init IndexedDB.
   try { await initDB(); } catch (err) { console.error(err); }
+
+  // 4b. Gestisci il ritorno dal redirect Google (mobile).
+  // Su desktop è no-op (nessun redirect).
+  try {
+    await handleRedirectResult();
+  } catch (err) {
+    console.error('[main] redirect handler failed:', err);
+  }
 
   // 5. Handler editor + binding UI (ora tutti gli id esistono).
   initEditorHandlers();
