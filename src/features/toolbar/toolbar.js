@@ -3,15 +3,26 @@
  *
  * FEATURE TOOLBAR — markup + UI + azioni utente.
  *
- * Novità:
- *   - popover colore+opacità condiviso, aperto dal custom picker
- *   - applyActiveToolToUI aggiorna anche il preview opacity
- *   - updateOpacity() aggiorna il tool attivo
- *   - MOBILE TOOLBAR MENU: su < 640px i controlli `tool-optional`
- *     vengono spostati nel pannello ⋯ all'apertura e ripristinati
- *     alla chiusura. Nessuna duplicazione di markup.
- *     Il backdrop e il panel usano la classe `.open` (non `.hidden`)
- *     per evitare conflitti con la utility `.mobile-only`.
+ * Layout priority+:
+ *   - Ogni elemento ha data-priority (100 = essentials, mai nel panel;
+ *     numeri più bassi = meno importanti, primi a essere spostati).
+ *   - _layoutToolbar() riporta TUTTI gli opzionali in toolbar, poi
+ *     sposta nel panel quelli che non ci stanno (priorità minima prima).
+ *   - Se anche gli essentials (pen, lasso, eraser, swatch) non ci stanno,
+ *     vengono spostati nel panel con priorità più bassa di menuBtn.
+ *     menuBtn non viene MAI spostato: è sempre visibile in toolbar.
+ *   - Quando lo spazio aumenta, gli elementi riappaiono uno ad uno
+ *     in ordine di priorità.
+ *
+ * Trigger di _layoutToolbar():
+ *   - ResizeObserver su wrapper + toolbar
+ *   - window.resize
+ *   - MutationObserver su body (data-dock-size, class dark/light)
+ *   - document.fonts.ready
+ *   - window.load
+ *   - Timer di safety a 100ms, 300ms, 600ms, 1000ms dopo il mount
+ *   - Chiamata esplicita dopo setTool (cambia la visibilità degli
+ *     elementi in base al tool attivo, es. opacity)
  */
 
 import './toolbar.css';
@@ -43,7 +54,7 @@ export function mountToolbar() {
   mount.remove();
   _setupEraserButton();
   _setupColorPopover();
-  _setupMobileToolbarMenu();
+  _setupResponsiveToolbar();
   _mounted = true;
 }
 
@@ -68,6 +79,11 @@ export function setTool(toolName) {
 
   applyActiveToolToUI();
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
+
+  // Il cambio tool può cambiare la visibilità degli elementi
+  // (es. opacity diversa nel popover, palette highlighter).
+  // Rilayout per sicurezza.
+  _requestLayout();
 }
 
 export function applyActiveToolToUI() {
@@ -93,11 +109,6 @@ export function applyActiveToolToUI() {
   _updateCurrentColorSwatch();
 }
 
-/**
- * Aggiorna lo swatch "colore corrente" su mobile.
- * Mostra il colore del tool attivo anche quando il tool non è
- * pen/pencil/marker (usa comunque il colore configurato).
- */
 function _updateCurrentColorSwatch() {
   const el = document.getElementById('currentColorSwatch');
   if (!el) return;
@@ -376,7 +387,7 @@ function _setupEraserButton() {
 }
 
 // ============================================================
-// COLOR PICKER POPOVER (colore + opacità)
+// COLOR PICKER POPOVER
 // ============================================================
 
 function _refreshPopoverPreview() {
@@ -410,11 +421,6 @@ function _populatePopoverForActiveTool() {
   _refreshPopoverPreview();
 }
 
-/**
- * Mostra il popover colore+opacità ancorato a un trigger.
- * @param {HTMLElement} [triggerEl] — elemento di ancoraggio.
- *   Se omesso, usa #customColorPicker (default su desktop).
- */
 export function showColorPickerPopover(triggerEl = null) {
   const popover = document.getElementById('colorPickerPopover');
   const trigger = triggerEl || document.getElementById('customColorPicker');
@@ -483,31 +489,50 @@ function _setupColorPopover() {
 }
 
 // ============================================================
-// MOBILE TOOLBAR MENU (pannello ⋯)
+// RESPONSIVE TOOLBAR (priority+ pattern)
 // ============================================================
 //
-// Su < 640px, gli elementi `.tool-optional` sono nascosti dalla
-// toolbar principale via CSS. Quando l'utente apre il pannello
-// (⋯), gli elementi vengono SPOSTATI nel pannello; alla chiusura,
-// tornano nella toolbar esattamente nella loro posizione originale.
-//
-// Backdrop e panel usano la classe `.open` (non `.hidden`), perché
-// `.hidden` di Tailwind verrebbe sovrascritto dalla utility
-// `.mobile-only` che ha `display: inline-flex !important` via CSS.
-// In questo modo il controllo è solo su `.open`:
-//   - default: nascosto (nessuna classe di display)
-//   - aperto: `.open` → display: flex / block (via CSS media query)
-//   - desktop: sempre `display: none !important` (via CSS)
+// Bug fix (menuBtn che "non sempre compare"):
+//   1. _layoutToolbar() ora è triggerata da più fonti (ResizeObserver
+//      wrapper+toolbar, window.resize, MutationObserver su body per
+//      data-dock-size e class, document.fonts.ready, window.load,
+//      timer multipli 100/300/600/1000ms).
+//   2. menuBtn viene mostrato SEMPRE se c'è overflow residuo
+//      (anche con panel vuoto), così l'utente ha un punto di
+//      accesso anche se gli essentials non ci stanno tutti.
+//   3. Se dopo aver spostato tutti gli opzionali la toolbar è
+//      ancora in overflow, vengono spostati nel panel anche gli
+//      essentials (pen, lasso, eraser, swatch) tranne menuBtn.
+//      Così menuBtn non viene MAI tagliato da overflow: hidden.
 
-let _toolbarMenuOriginalPositions = [];
+let _layoutResizeTimer = null;
+let _layoutRO = null;
+let _layoutSafetyTimers = [];
+let _layoutMO = null;
 let _toolbarMenuOpen = false;
+let _toolbarItemsInOrder = [];
+let _layoutRafId = null;
 
-function _setupMobileToolbarMenu() {
+function _requestLayout() {
+  if (_layoutRafId !== null) return;
+  _layoutRafId = requestAnimationFrame(() => {
+    _layoutRafId = null;
+    _layoutToolbar();
+  });
+}
+
+function _setupResponsiveToolbar() {
   const btn = document.getElementById('toolbarMenuBtn');
-  const panel = document.getElementById('toolbarMenuPanel');
   const backdrop = document.getElementById('toolbarMenuBackdrop');
   const swatch = document.getElementById('currentColorSwatch');
-  if (!btn || !panel || !backdrop) return;
+  if (!btn || !backdrop) return;
+
+  // Snapshot degli opzionali in ordine originale (tutti in toolbar al setup)
+  const toolbar = document.getElementById('drawingToolbar');
+  if (toolbar) {
+    _toolbarItemsInOrder = Array.from(toolbar.querySelectorAll('[data-priority]'))
+      .filter(el => parseInt(el.dataset.priority, 10) < 100);
+  }
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -516,22 +541,203 @@ function _setupMobileToolbarMenu() {
 
   backdrop.addEventListener('click', _closeToolbarMenu);
 
-  // Swatch colore corrente: apre il popover color+opacity
   swatch?.addEventListener('click', (e) => {
     e.stopPropagation();
     showColorPickerPopover(swatch);
   });
 
-  // Se l'utente ridimensiona verso desktop con pannello aperto,
-  // chiudilo (gli elementi tornerebbero in una toolbar che ora è
-  // visibile: lasciare il pannello aperto creerebbe confusione).
+  document.addEventListener('pointerdown', (e) => {
+    if (!_toolbarMenuOpen) return;
+    const panel = document.getElementById('toolbarMenuPanel');
+    const button = document.getElementById('toolbarMenuBtn');
+    if (!panel || !button) return;
+    if (panel.contains(e.target) || button.contains(e.target)) return;
+    _closeToolbarMenu();
+  });
+
+  // ResizeObserver su wrapper + toolbar
+  const wrapper = document.getElementById('toolbarCenterWrapper');
+  if (toolbar && wrapper && typeof ResizeObserver !== 'undefined') {
+    _layoutRO = new ResizeObserver(() => {
+      if (_layoutResizeTimer) clearTimeout(_layoutResizeTimer);
+      _layoutResizeTimer = setTimeout(_layoutToolbar, 80);
+    });
+    _layoutRO.observe(wrapper);
+    _layoutRO.observe(toolbar);
+  }
+
+  // Fallback e re-check su resize finestra
   window.addEventListener('resize', () => {
-    if (window.innerWidth >= 640 && _toolbarMenuOpen) {
-      _closeToolbarMenu();
-    }
+    if (_layoutResizeTimer) clearTimeout(_layoutResizeTimer);
+    _layoutResizeTimer = setTimeout(_layoutToolbar, 80);
+  });
+
+  // MutationObserver: quando cambia data-dock-size o la classe dark
+  // sul body, la dimensione dei bottoni cambia ma il wrapper no.
+  // Il ResizeObserver non triggera → serve questo observer.
+  if (typeof MutationObserver !== 'undefined') {
+    _layoutMO = new MutationObserver(() => {
+      if (_layoutResizeTimer) clearTimeout(_layoutResizeTimer);
+      _layoutResizeTimer = setTimeout(_layoutToolbar, 80);
+    });
+    _layoutMO.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['data-dock-size', 'class']
+    });
+  }
+
+  // Primo layout
+  _requestLayout();
+
+  // Re-check dopo il caricamento dei font
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => _requestLayout());
+  }
+
+  // Re-check dopo il load completo
+  if (document.readyState === 'complete') {
+    _requestLayout();
+  } else {
+    window.addEventListener('load', () => _requestLayout(), { once: true });
+  }
+
+  // Safety net: più tentativi per coprire device lenti e reflow
+  // successivi al mount (canvas, prediction, ecc.)
+  [100, 300, 600, 1000, 2000].forEach(ms => {
+    const t = setTimeout(_layoutToolbar, ms);
+    _layoutSafetyTimers.push(t);
   });
 
   _updateCurrentColorSwatch();
+}
+
+/**
+ * Elementi spostabili nel panel: prima gli opzionali (priority < 100),
+ * poi gli essentials in caso di necessità (pen, lasso, eraser, swatch).
+ * menuBtn non è MAI spostabile.
+ */
+function _getMoveableElements(toolbar) {
+  const order = [];
+  // 1. Opzionali in ordine di priorità crescente (i meno prioritari
+  //    vengono spostati per primi)
+  const optionals = _toolbarItemsInOrder
+    .filter(el => el.parentElement === toolbar)
+    .sort((a, b) =>
+      parseInt(a.dataset.priority, 10) - parseInt(b.dataset.priority, 10)
+    );
+  order.push(...optionals);
+
+  // 2. Essentials in ordine di priorità crescente, escluso menuBtn
+  const essentials = Array.from(toolbar.querySelectorAll('[data-priority]'))
+    .filter(el => {
+      const p = parseInt(el.dataset.priority, 10);
+      return p >= 100 && el.id !== 'toolbarMenuBtn';
+    })
+    .sort((a, b) =>
+      parseInt(a.dataset.priority, 10) - parseInt(b.dataset.priority, 10)
+    );
+  order.push(...essentials);
+
+  return order;
+}
+
+function _layoutToolbar() {
+  const toolbar = document.getElementById('drawingToolbar');
+  const panel = document.getElementById('toolbarMenuPanel');
+  const menuBtn = document.getElementById('toolbarMenuBtn');
+  const swatch = document.getElementById('currentColorSwatch');
+  const palette = document.getElementById('colorPalette');
+  if (!toolbar || !panel || !menuBtn || !swatch || !palette) return;
+
+  if (toolbar.clientWidth === 0) return;
+
+  // Fase 1: riporta TUTTI gli elementi spostabili in toolbar,
+  // in ordine originale, con DocumentFragment.
+  // (Include essentials spostati in caso di overflow estremo.)
+  if (panel.children.length > 0) {
+    const fragment = document.createDocumentFragment();
+    // Ordine: opzionali nell'ordine originale di _toolbarItemsInOrder,
+    // poi essentials nell'ordine originale del DOM (prima di swatch).
+    for (const el of _toolbarItemsInOrder) {
+      fragment.appendChild(el);
+    }
+    // Riporta anche eventuali essentials spostati (escluso menuBtn),
+    // nella loro posizione originale (prima di swatch).
+    const essentialsMoved = Array.from(panel.querySelectorAll('[data-priority]'))
+      .filter(el => parseInt(el.dataset.priority, 10) >= 100);
+    for (const el of essentialsMoved) {
+      fragment.appendChild(el);
+    }
+    toolbar.insertBefore(fragment, swatch);
+  }
+
+  // Fase 2: while overflow, sposta nel panel l'elemento spostabile
+  // con priorità minima. Include essentials in caso di necessità.
+  let iterations = 0;
+  while (toolbar.scrollWidth > toolbar.clientWidth + 1 && iterations < 40) {
+    iterations++;
+    const moveable = _getMoveableElements(toolbar);
+    const victim = moveable[0];
+    if (!victim) break;
+    panel.appendChild(victim);
+  }
+
+  // Fase 3: currentColorSwatch visibile solo se palette è nel panel
+  const paletteInToolbar = palette.parentElement === toolbar;
+  swatch.style.display = paletteInToolbar ? 'none' : '';
+
+  // Fase 4: menuBtn visibile SEMPRE se:
+  //   - c'è almeno un elemento nel panel, OPPURE
+  //   - c'è overflow residuo (toolbar tagliata)
+  // Così l'utente ha sempre un punto di accesso quando qualcosa
+  // non ci sta, anche se il panel è vuoto (caso limite).
+  const overflow = toolbar.scrollWidth > toolbar.clientWidth + 1;
+  const shouldShowMenu = panel.children.length > 0 || overflow;
+  menuBtn.style.display = shouldShowMenu ? '' : 'none';
+
+  if (!shouldShowMenu && _toolbarMenuOpen) {
+    _closeToolbarMenu();
+  }
+
+  if (_toolbarMenuOpen) {
+    _positionMenuPanel();
+  }
+}
+
+function _positionMenuPanel() {
+  const toolbar = document.getElementById('drawingToolbar');
+  const panel = document.getElementById('toolbarMenuPanel');
+  if (!toolbar || !panel) return;
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const margin = 8;
+
+  const maxW = Math.min(480, vw - margin * 2);
+  const minW = Math.min(260, vw - margin * 2);
+  panel.style.width = '';
+  panel.style.maxWidth = `${maxW}px`;
+  panel.style.minWidth = `${minW}px`;
+  panel.style.right = 'auto';
+
+  const panelRect = panel.getBoundingClientRect();
+  const toolbarRect = toolbar.getBoundingClientRect();
+
+  let left = toolbarRect.left + toolbarRect.width / 2 - panelRect.width / 2;
+  left = Math.max(margin, Math.min(vw - panelRect.width - margin, left));
+
+  let top = toolbarRect.bottom + 8;
+  if (top + panelRect.height > vh - margin) {
+    const topAbove = toolbarRect.top - panelRect.height - 8;
+    if (topAbove >= margin) {
+      top = topAbove;
+    } else {
+      top = Math.max(margin, Math.min(vh - panelRect.height - margin, top));
+    }
+  }
+
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
 }
 
 function _toggleToolbarMenu() {
@@ -542,29 +748,17 @@ function _toggleToolbarMenu() {
 function _openToolbarMenu() {
   const panel = document.getElementById('toolbarMenuPanel');
   const backdrop = document.getElementById('toolbarMenuBackdrop');
-  const toolbar = document.getElementById('drawingToolbar');
-  if (!panel || !backdrop || !toolbar) return;
+  if (!panel || !backdrop) return;
+  if (panel.children.length === 0) return;
 
-  // Sposta gli elementi `.tool-optional` dalla toolbar al pannello.
-  // Salva la loro posizione originale (parent + nextSibling) per
-  // poterli rimettere esattamente dove erano.
-  _toolbarMenuOriginalPositions = [];
-  const optional = toolbar.querySelectorAll('.tool-optional');
-  optional.forEach(el => {
-    _toolbarMenuOriginalPositions.push({
-      el,
-      parent: el.parentNode,
-      nextSibling: el.nextSibling
-    });
-    panel.appendChild(el);
-  });
-
-  // Posiziona il pannello subito sotto la toolbar
-  const rect = toolbar.getBoundingClientRect();
-  panel.style.top = `${rect.bottom + 8}px`;
-
+  // Rendi visibile il panel (con visibility hidden) per misurarlo
+  panel.style.visibility = 'hidden';
   panel.classList.add('open');
   backdrop.classList.add('open');
+
+  _positionMenuPanel();
+
+  panel.style.visibility = '';
   _toolbarMenuOpen = true;
 }
 
@@ -572,17 +766,6 @@ function _closeToolbarMenu() {
   const panel = document.getElementById('toolbarMenuPanel');
   const backdrop = document.getElementById('toolbarMenuBackdrop');
   if (!panel || !backdrop) return;
-
-  // Ripristina gli elementi nella toolbar originale. Se nextSibling
-  // non esiste più (raro, ma sicuro), fallback a appendChild.
-  for (const { el, parent, nextSibling } of _toolbarMenuOriginalPositions) {
-    if (nextSibling && nextSibling.parentNode === parent) {
-      parent.insertBefore(el, nextSibling);
-    } else {
-      parent.appendChild(el);
-    }
-  }
-  _toolbarMenuOriginalPositions = [];
 
   panel.classList.remove('open');
   backdrop.classList.remove('open');

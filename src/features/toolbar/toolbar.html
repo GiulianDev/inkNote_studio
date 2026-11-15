@@ -1,6 +1,7 @@
 <!-- features/toolbar/toolbar.html
      Markup della feature toolbar (dock + subbar).
-     Iniettato via `?raw` da toolbar.js tramite mountToolbar(). -->
+     Iniettato via `?raw` da toolbar.js tramite mountToolbar().
+     data-priority controlla il priority+ layout dinamico. -->
 
 <header id="mainHeader" class="bg-white/95 dark:bg-slate-900/95 border-b border-slate-300 dark:border-slate-800 px-2 py-2.5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-sm transition-all duration-200">
 
@@ -8,7 +9,7 @@
     <button id="backToLibraryBtn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition" title="Torna alla Libreria">
       📚 <span class="hidden xl:inline">Libreria</span>
     </button>
-    <div class="h-4 w-px bg-slate-300 dark:bg-slate-700"></div>
+    <div class="h-4 w-px bg-slate-300 dark:bg-slate-700 shrink-0"></div>
     <div class="min-w-0">
       <input type="text" id="docTitle" value="Appunti Surface Pen" class="font-semibold text-sm bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 rounded px-1.5 py-0.5 outline-none w-24 md:w-32 lg:w-auto" />
       <div class="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
@@ -19,46 +20,42 @@
     </div>
   </div>
 
-  <div class="flex-1 flex justify-center items-center min-w-0 overflow-hidden gap-2">
+  <div id="toolbarCenterWrapper" class="flex-1 flex justify-center items-center min-w-0 gap-2">
     <div id="drawingToolbar" class="flex items-center flex-nowrap bg-slate-100 dark:bg-slate-800 p-0.5 rounded-2xl border border-slate-300 dark:border-slate-700 gap-0.5 transition-all">
 
-      <!-- ESSENTIALS: sempre visibili -->
-      <button id="btnTool-pen" class="dock-tool-btn tool-btn tool-essential bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm shrink-0" title="Stilografica">
+      <!-- ESSENTIALS: mai nel panel -->
+      <button id="btnTool-pen" data-priority="100" class="dock-tool-btn tool-btn bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm shrink-0" title="Stilografica">
         🖊️<span class="hidden 2xl:inline ml-1">Stilografica</span>
       </button>
-      <button id="btnTool-lasso" class="dock-tool-btn tool-btn tool-essential text-slate-600 dark:text-slate-300 shrink-0" title="Lazo">
+      <button id="btnTool-lasso" data-priority="98" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Lazo">
         ✂️<span class="hidden 2xl:inline ml-1">Lazo</span>
       </button>
-      <button id="btnTool-eraser" class="dock-tool-btn tool-btn tool-essential text-slate-600 dark:text-slate-300 shrink-0" title="Gomma">
+      <button id="btnTool-eraser" data-priority="99" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Gomma">
         🧹<span class="hidden 2xl:inline ml-1">Gomma</span>
       </button>
 
-      <!-- OPTIONAL: visibili su desktop, dentro il pannello su mobile -->
-      <button id="btnTool-pencil" class="dock-tool-btn tool-btn tool-optional text-slate-600 dark:text-slate-300 shrink-0" title="Matita">
+      <!-- OPTIONAL: spostati nel panel in base allo spazio -->
+      <button id="btnTool-pencil" data-priority="60" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Matita">
         ✏️<span class="hidden 2xl:inline ml-1">Matita</span>
       </button>
-      <button id="btnTool-marker" class="dock-tool-btn tool-btn tool-optional text-slate-600 dark:text-slate-300 shrink-0" title="Pennarello">
+      <button id="btnTool-marker" data-priority="55" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Pennarello">
         🖋️<span class="hidden 2xl:inline ml-1">Pennarello</span>
       </button>
-      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn tool-optional text-slate-600 dark:text-slate-300 shrink-0" title="Evidenziatore">
+      <button id="btnTool-highlighter" data-priority="50" class="dock-tool-btn tool-btn text-slate-600 dark:text-slate-300 shrink-0" title="Evidenziatore">
         🖍️<span class="hidden 2xl:inline ml-1">Evidenziatore</span>
       </button>
 
-      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0 hide-mobile"></div>
-
-      <button id="btnToggleAutoShape" class="dock-tool-btn auto-shape-on border transition-all shrink-0 tool-optional" title="Auto-Forme">
+      <button id="btnToggleAutoShape" data-priority="40" class="dock-tool-btn auto-shape-on border transition-all shrink-0" title="Auto-Forme">
         <span id="autoShapeIcon">✨</span><span class="hidden 2xl:inline ml-1" id="autoShapeLabel">Auto-Forme</span>
       </button>
 
-      <div class="hidden sm:flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0 tool-optional" title="Levigatura del tratto: 0 = fedele all'input, 100 = curve molto morbide">
+      <div id="smoothingContainer" data-priority="30" class="dock-container flex items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Levigatura del tratto">
         <span class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">〰️</span>
         <input type="range" id="smoothingSlider" min="0" max="100" value="50" class="dock-range accent-indigo-600 cursor-pointer">
         <span id="smoothingValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">50</span>
       </div>
 
-      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0 hide-mobile"></div>
-
-      <div class="flex dock-container items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0 tool-optional">
+      <div id="colorPalette" data-priority="70" class="dock-container flex items-center space-x-1 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0">
         <button class="color-swatch dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
         <button class="color-swatch dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
         <button class="color-swatch dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
@@ -68,15 +65,13 @@
         <input type="color" id="customColorPicker" class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent" title="Colore personalizzato">
       </div>
 
-      <div class="hidden md:flex dock-container items-center space-x-1.5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0 tool-optional" title="Spessore tratto">
+      <div id="strokeWidthContainer" data-priority="35" class="dock-container flex items-center space-x-1.5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shrink-0" title="Spessore tratto">
         <input type="range" id="strokeWidthSlider" min="1" max="25" value="3" class="dock-range accent-indigo-600 cursor-pointer">
         <span id="strokeWidthValue" class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-3 text-center tabular-nums">3</span>
       </div>
 
-      <div class="dock-divider w-px bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0 hide-mobile"></div>
-
-      <button id="compactExitBtn"
-        class="dock-icon-btn inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors tool-optional"
+      <button id="compactExitBtn" data-priority="20"
+        class="dock-icon-btn inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors"
         title="Schermo intero">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path id="compactIconExpand" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
@@ -84,9 +79,11 @@
         </svg>
       </button>
 
-      <!-- MOBILE: swatch colore corrente + menu -->
-      <button id="currentColorSwatch" class="dock-swatch mobile-only rounded-full border-2 border-white dark:border-slate-800 bg-slate-900 shrink-0" title="Colore corrente"></button>
-      <button id="toolbarMenuBtn" class="mobile-only dock-icon-btn inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors" title="Altri strumenti">
+      <!-- Trigger colore compatto (visibile solo se colorPalette è nel panel) -->
+      <button id="currentColorSwatch" data-priority="100" class="dock-swatch rounded-full border-2 border-white dark:border-slate-800 bg-slate-900 shrink-0" title="Colore corrente"></button>
+
+      <!-- Menu overflow: sempre in toolbar, nascosto se panel vuoto -->
+      <button id="toolbarMenuBtn" data-priority="100" class="dock-icon-btn inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors" title="Altri strumenti">
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
         </svg>
@@ -155,9 +152,9 @@
   </button>
 </div>
 
-<!-- BACKDROP + PANEL per menu mobile della toolbar -->
-<div id="toolbarMenuBackdrop" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[45]"></div>
-<div id="toolbarMenuPanel" class="hidden fixed left-2 right-2 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[46] flex flex-wrap items-center justify-center gap-2"></div>
+<!-- PANEL per overflow (aperto da #toolbarMenuBtn) -->
+<div id="toolbarMenuBackdrop" class="hidden fixed inset-0 bg-slate-900/20 dark:bg-slate-950/40 backdrop-blur-[1px] z-[45]"></div>
+<div id="toolbarMenuPanel" class="hidden fixed bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2 z-[46] flex flex-wrap items-center justify-center gap-1.5"></div>
 
 <!-- Popup livelli gomma (long-press / tasto destro su #btnTool-eraser) -->
 <div id="eraserSizeMenu" class="fixed hidden z-[60] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2 flex items-center gap-1.5">
