@@ -1,5 +1,13 @@
 // ============================================================
-// LIBRERIA QUADERNI + NUOVO QUADERNO MODALE
+// LIBRERIA QUADERNI + BACKUP EXPORT/IMPORT
+//
+// Auth: mock `services/auth.js` (handleGoogleLogin). Quando si
+// passerà a Firebase, sostituire l'import e il bind con la
+// versione documentata.
+//
+// Backup: multi-select dei notebook, export in file `.inknote`
+// unico, import con dialog conflitti (Rinomina / Sovrascrivi /
+// Salta + "Applica a tutti").
 // ============================================================
 
 import { escapeHtml, showToast, on } from '../../core/utils.js';
@@ -9,14 +17,27 @@ import {
 import { handleGoogleLogin } from '../../services/auth.js';
 import { openNotebook, closeNotebookIfOpen } from '../editor/editor.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
+import { exportNotebooks } from '../backup/backup-export.js';
+import { importNotebooks } from '../backup/backup-import.js';
+import { showProgressDialog } from '../backup/backup-progress.js';
 
 let selectedCoverColor = '#4f46e5';
+const selectedNotebookIds = new Set();
+
+// ============================================================
+// LIBRERIA
+// ============================================================
 
 export function renderLibraryView() {
   loadAllNotebooksFromDB().then(notebooks => {
     const grid = document.getElementById('notebooksGrid');
     const emptyMsg = document.getElementById('emptyLibraryMessage');
     grid.innerHTML = '';
+
+    // Rimuovi selezioni obsolete (notebook cancellati altrove)
+    for (const id of Array.from(selectedNotebookIds)) {
+      if (!notebooks.some(n => n.id === id)) selectedNotebookIds.delete(id);
+    }
 
     if (notebooks.length === 0) {
       emptyMsg.classList.remove('hidden');
@@ -28,12 +49,16 @@ export function renderLibraryView() {
 
       notebooks.forEach(nb => {
         const dateStr = new Date(nb.updatedAt).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
-        // `loadAllNotebooksFromDB` ritorna solo metadata (niente `pages`).
-        // Il numero di pagine è salvato in `pageCount` dal saveNotebookToDB.
         const pageCount = nb.pageCount || 1;
+        const isSelected = selectedNotebookIds.has(nb.id);
+
         const card = document.createElement('div');
-        card.className = 'notebook-card cursor-pointer flex flex-col group';
+        card.className = 'notebook-card cursor-pointer flex flex-col group relative';
+        if (isSelected) card.classList.add('ring-2', 'ring-indigo-500', 'rounded-xl');
+
         card.innerHTML = `
+          <input type="checkbox" data-select-id="${nb.id}" ${isSelected ? 'checked' : ''}
+                 class="absolute top-2 left-2 z-10 w-5 h-5 rounded accent-indigo-600 cursor-pointer" />
           <div class="w-full h-52 rounded-r-xl rounded-l-sm shadow-md relative overflow-hidden flex flex-col justify-between p-4"
                style="background-color: ${nb.coverColor || '#4f46e5'}; border-left: 12px solid rgba(0,0,0,0.25);">
             <div class="notebook-spine absolute left-0 top-0 bottom-0 w-3"></div>
@@ -50,24 +75,96 @@ export function renderLibraryView() {
             <button data-delete-id="${nb.id}" class="delete-nb-btn text-slate-400 hover:text-rose-600 p-1 transition" title="Elimina Quaderno">🗑️</button>
           </div>
         `;
+
         const coverEl = card.querySelector('.w-full.h-52');
         coverEl.addEventListener('click', () => openNotebook(nb.id));
+
+        const cb = card.querySelector('input[type="checkbox"]');
+        cb.addEventListener('click', (ev) => ev.stopPropagation());
+        cb.addEventListener('change', (ev) => {
+          ev.stopPropagation();
+          if (cb.checked) selectedNotebookIds.add(nb.id);
+          else selectedNotebookIds.delete(nb.id);
+          updateExportButton();
+          card.classList.toggle('ring-2', cb.checked);
+          card.classList.toggle('ring-indigo-500', cb.checked);
+        });
+
         card.querySelector('.delete-nb-btn').addEventListener('click', (ev) => {
           ev.stopPropagation();
           deleteNotebook(ev, nb.id);
         });
+
         grid.appendChild(card);
       });
     }
+
+    updateExportButton();
     document.getElementById('libraryView').classList.remove('hidden');
   });
 }
+
+function updateExportButton() {
+  const btn = document.getElementById('exportBackupBtn');
+  if (!btn) return;
+  if (selectedNotebookIds.size > 0) {
+    btn.classList.remove('hidden');
+    btn.innerText = `💾 Esporta (${selectedNotebookIds.size})`;
+  } else {
+    btn.classList.add('hidden');
+  }
+}
+
+// ============================================================
+// BACKUP EXPORT/IMPORT
+// ============================================================
+
+async function handleExportClick() {
+  if (selectedNotebookIds.size === 0) return;
+  const ids = Array.from(selectedNotebookIds);
+
+  const progress = showProgressDialog('Esportazione in corso...');
+  try {
+    await exportNotebooks(ids, ({ done, total, notebookTitle }) => {
+      progress.update({ done, total, label: notebookTitle });
+    });
+    progress.close();
+    selectedNotebookIds.clear();
+    renderLibraryView();
+  } catch (err) {
+    console.error('[export] failed:', err);
+    progress.close();
+    showToast('Esportazione fallita', '❌');
+  }
+}
+
+async function handleImportFile(file) {
+  if (!file) return;
+
+  const progress = showProgressDialog('Importazione in corso...');
+  try {
+    const result = await importNotebooks(file, ({ done, total, notebookTitle }) => {
+      progress.update({ done, total, label: notebookTitle });
+    });
+    progress.close();
+    if (result && result.length > 0) {
+      renderLibraryView();
+    }
+  } catch (err) {
+    console.error('[import] failed:', err);
+    progress.close();
+    showToast(`Importazione fallita: ${err.message || 'file non valido'}`, '❌');
+  }
+}
+
+// ============================================================
+// MODALE NUOVO QUADERNO (invariato)
+// ============================================================
 
 export function openNewNotebookModal() {
   const modal = document.getElementById('newNotebookModal');
   if (!modal) return;
 
-  // Reset colore al default indaco
   selectedCoverColor = '#4f46e5';
   document.querySelectorAll('#coverColorOptions button').forEach(b =>
     b.classList.remove('ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'));
@@ -114,6 +211,7 @@ export async function deleteNotebook(e, id) {
   if (confirm('Sei sicuro di voler eliminare questo quaderno e tutte le sue pagine?')) {
     await deleteNotebookFromDB(id);
     closeNotebookIfOpen(id);
+    selectedNotebookIds.delete(id);
     renderLibraryView();
     showToast('Quaderno eliminato', '🗑️');
   }
@@ -134,6 +232,20 @@ export function bindLibraryUI() {
     ?.addEventListener('click', confirmCreateNotebook);
   document.getElementById('cancelNewNbBtn')
     ?.addEventListener('click', closeNewNotebookModal);
+
+  document.getElementById('exportBackupBtn')
+    ?.addEventListener('click', handleExportClick);
+
+  const importBtn = document.getElementById('importBackupBtn');
+  const fileInput = document.getElementById('importFileInput');
+  if (importBtn && fileInput) {
+    importBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (file) handleImportFile(file);
+      fileInput.value = '';
+    });
+  }
 
   document.querySelectorAll('#coverColorOptions button').forEach(btn => {
     btn.addEventListener('click', () => selectCoverColor(btn));

@@ -36,6 +36,12 @@
                 <button id="newNotebookBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
                     ➕ Nuovo Quaderno
                 </button>
+                <button id="exportBackupBtn" class="hidden bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs px-4 py-2.5 rounded-xl transition active:scale-95">
+                    💾 Esporta
+                </button>
+                <button id="importBackupBtn" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs px-4 py-2.5 rounded-xl transition active:scale-95">
+                    📥 Importa
+                </button>
                 <button id="openSettingsBtnLib" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95" title="Impostazioni">
                     ⚙️
                 </button>
@@ -95,7 +101,6 @@
         </div>
     </div>
 
-
     <!-- TOOLBAR (header + subbar + collapse/expand) -->
     <div id="toolbarMount"></div>
 
@@ -145,7 +150,7 @@
         <span id="toastMessage">Messaggio</span>
     </div>
 
-
+    <input type="file" id="importFileInput" accept=".inknote" hidden>
     <script type="module" src="src/main.js"></script>
 </body>
 </html>
