@@ -3,6 +3,15 @@
 //
 // Auth: Firebase (services/firebase.js). Mock services/auth.js
 // resta nel progetto per rollback veloce se necessario.
+//
+// Header ridisegnato:
+//   - [➕ Nuovo] [📥 Importa]  → azioni primarie/secondarie
+//   - [⋯ Azioni]               → menu contestuale (Esporta,
+//                                Seleziona tutto, Deseleziona tutto)
+//   - [⚙️] [👤]                → sistema + auth
+//
+// L'export è nel menu ⋯ (nessun layout shift quando cambia la
+// selezione). Il badge sull'icona ⋯ mostra il conteggio selezioni.
 // ============================================================
 
 import { escapeHtml, showToast, on } from '../../core/utils.js';
@@ -23,10 +32,6 @@ let selectedCoverColor = '#4f46e5';
 const selectedNotebookIds = new Set();
 
 // ============================================================
-// AUTH
-// ============================================================
-
-// ============================================================
 // AUTH — avatar circolare + dropdown
 // ============================================================
 
@@ -37,19 +42,22 @@ export function initAuth() {
     updateAuthUI();
   });
 
-  // Chiudi il dropdown al click fuori
+  // Chiudi dropdown auth + actions al click fuori
   document.addEventListener('click', (e) => {
-    const container = document.getElementById('authContainer');
-    const dropdown = document.getElementById('authDropdown');
-    if (!container || !dropdown || dropdown.classList.contains('hidden')) return;
-    if (!container.contains(e.target)) dropdown.classList.add('hidden');
+    const authContainer = document.getElementById('authContainer');
+    const authDropdown = document.getElementById('authDropdown');
+    if (authContainer && authDropdown && !authDropdown.classList.contains('hidden')) {
+      if (!authContainer.contains(e.target)) authDropdown.classList.add('hidden');
+    }
+
+    const actionsContainer = document.getElementById('actionsContainer');
+    const actionsMenu = document.getElementById('actionsMenu');
+    if (actionsContainer && actionsMenu && !actionsMenu.classList.contains('hidden')) {
+      if (!actionsContainer.contains(e.target)) actionsMenu.classList.add('hidden');
+    }
   });
 }
 
-/**
- * Deriva un colore stabile dall'email/nome dell'utente.
- * Ogni utente ha sempre lo stesso colore, senza storage.
- */
 function _colorFromString(str) {
   const palette = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
                    '#10b981', '#14b8a6', '#06b6d4', '#3b82f6', '#a855f7'];
@@ -60,10 +68,6 @@ function _colorFromString(str) {
   return palette[Math.abs(hash) % palette.length];
 }
 
-/**
- * Estrae le iniziali da displayName o email.
- * "Mario Rossi" → "MR" | "mario@x.com" → "MA" | "mario" → "MA"
- */
 function _getInitials(user) {
   const name = user.displayName || user.email || '';
   if (!name) return '?';
@@ -74,11 +78,6 @@ function _getInitials(user) {
   return name.slice(0, 2).toUpperCase();
 }
 
-/**
- * Genera l'HTML per un avatar (foto o iniziali).
- * @param {object} user — Firebase User
- * @param {number} size — dimensione in px (es. 40)
- */
 function _renderAvatar(user, size) {
   if (user.photoURL) {
     return `<img src="${user.photoURL}" alt="" class="w-full h-full object-cover" referrerpolicy="no-referrer">`;
@@ -95,11 +94,9 @@ function updateAuthUI() {
   if (!btn || !content) return;
 
   if (authState.user) {
-    // Loggato: avatar circolare
     btn.title = 'Profilo';
     content.outerHTML = `<span id="authBtnContent">${_renderAvatar(authState.user, 40)}</span>`;
 
-    // Popola dropdown
     const dAvatar = document.getElementById('authDropdownAvatar');
     const dName = document.getElementById('authDropdownName');
     const dEmail = document.getElementById('authDropdownEmail');
@@ -107,7 +104,6 @@ function updateAuthUI() {
     if (dName) dName.textContent = authState.user.displayName || 'Utente';
     if (dEmail) dEmail.textContent = authState.user.email || '';
   } else {
-    // Sloggato: icona 👤
     btn.title = 'Accedi con Google';
     content.outerHTML = `<span id="authBtnContent" class="text-base">👤</span>`;
     if (dropdown) dropdown.classList.add('hidden');
@@ -118,13 +114,11 @@ export async function handleAuthClick() {
   if (authState.loading) return;
 
   if (authState.user) {
-    // Toggle dropdown
     const dropdown = document.getElementById('authDropdown');
     if (dropdown) dropdown.classList.toggle('hidden');
     return;
   }
 
-  // Login
   try {
     const user = await signInWithGoogle();
     if (user) {
@@ -150,36 +144,6 @@ async function handleLogout() {
   }
 }
 
-export async function handleGoogleLogin() {
-  if (authState.loading) return;
-
-  if (authState.user) {
-    try {
-      await signOutGoogle();
-      showToast('Disconnesso', '👋');
-    } catch (err) {
-      console.error('[auth] signOut failed:', err);
-      showToast('Logout fallito', '❌');
-    }
-    return;
-  }
-
-  try {
-    const user = await signInWithGoogle();
-    // Su mobile user è null (redirect in corso). Il toast arriva
-    // al reload via onAuthChange.
-    if (user) {
-      showToast(`Benvenuto, ${user.displayName || user.email}!`, '👋');
-    }
-  } catch (err) {
-    console.error('[auth] login failed:', err);
-    // Ignora l'errore se l'utente ha chiuso il popup
-    if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
-      showToast('Login fallito', '❌');
-    }
-  }
-}
-
 // ============================================================
 // LIBRERIA
 // ============================================================
@@ -190,6 +154,7 @@ export function renderLibraryView() {
     const emptyMsg = document.getElementById('emptyLibraryMessage');
     grid.innerHTML = '';
 
+    // Rimuovi selezioni obsolete
     for (const id of Array.from(selectedNotebookIds)) {
       if (!notebooks.some(n => n.id === id)) selectedNotebookIds.delete(id);
     }
@@ -203,8 +168,6 @@ export function renderLibraryView() {
       notebooks.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
       notebooks.forEach(nb => {
-        // lastEditAt: ultima scrittura reale. Fallback a updatedAt
-        // per notebook creati prima di questa modifica.
         const editIso = nb.lastEditAt || nb.updatedAt;
         const dateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
         const pageCount = nb.pageCount || 1;
@@ -243,7 +206,7 @@ export function renderLibraryView() {
           ev.stopPropagation();
           if (cb.checked) selectedNotebookIds.add(nb.id);
           else selectedNotebookIds.delete(nb.id);
-          updateExportButton();
+          updateActionsMenuUI();
           card.classList.toggle('ring-2', cb.checked);
           card.classList.toggle('ring-indigo-500', cb.checked);
         });
@@ -257,29 +220,79 @@ export function renderLibraryView() {
       });
     }
 
-    updateExportButton();
+    updateActionsMenuUI();
     document.getElementById('libraryView').classList.remove('hidden');
   });
 }
 
-function updateExportButton() {
-  const btn = document.getElementById('exportBackupBtn');
-  if (!btn) return;
-  if (selectedNotebookIds.size > 0) {
-    btn.classList.remove('hidden');
-    btn.innerText = `💾 Esporta (${selectedNotebookIds.size})`;
-  } else {
-    btn.classList.add('hidden');
+/**
+ * Aggiorna il badge sul pulsante ⋯ e lo stato del bottone
+ * "Esporta selezionati" nel menu.
+ */
+function updateActionsMenuUI() {
+  const count = selectedNotebookIds.size;
+
+  const badge = document.getElementById('actionsBadge');
+  if (badge) {
+    if (count > 0) {
+      badge.textContent = String(count);
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
   }
+
+  const exportBtn = document.getElementById('exportMenuBtn');
+  const exportCount = document.getElementById('exportMenuCount');
+  if (exportBtn) {
+    exportBtn.disabled = count === 0;
+  }
+  if (exportCount) {
+    exportCount.textContent = count > 0 ? `(${count})` : '';
+  }
+}
+
+function toggleActionsMenu() {
+  const menu = document.getElementById('actionsMenu');
+  if (!menu) return;
+  menu.classList.toggle('hidden');
+  // Chiudi auth dropdown se aperto
+  const authDropdown = document.getElementById('authDropdown');
+  if (authDropdown) authDropdown.classList.add('hidden');
+}
+
+function handleSelectAll() {
+  document.querySelectorAll('[data-select-id]').forEach(cb => {
+    const id = cb.dataset.selectId;
+    if (!cb.checked) {
+      cb.checked = true;
+      selectedNotebookIds.add(id);
+      cb.closest('.notebook-card')?.classList.add('ring-2', 'ring-indigo-500');
+    }
+  });
+  updateActionsMenuUI();
+}
+
+function handleDeselectAll() {
+  selectedNotebookIds.clear();
+  document.querySelectorAll('[data-select-id]').forEach(cb => {
+    cb.checked = false;
+    cb.closest('.notebook-card')?.classList.remove('ring-2', 'ring-indigo-500');
+  });
+  updateActionsMenuUI();
 }
 
 // ============================================================
 // BACKUP EXPORT/IMPORT
 // ============================================================
 
-async function handleExportClick() {
+async function handleExportFromMenu() {
   if (selectedNotebookIds.size === 0) return;
   const ids = Array.from(selectedNotebookIds);
+
+  // Chiudi menu prima di mostrare la progress
+  const menu = document.getElementById('actionsMenu');
+  if (menu) menu.classList.add('hidden');
 
   const progress = showProgressDialog('Esportazione in corso...');
   try {
@@ -383,9 +396,10 @@ export function bindLibraryUI() {
   initAuth();
 
   document.getElementById('authBtn')
-  ?.addEventListener('click', handleAuthClick);
+    ?.addEventListener('click', handleAuthClick);
   document.getElementById('authLogoutBtn')
     ?.addEventListener('click', handleLogout);
+
   document.getElementById('newNotebookBtn')
     ?.addEventListener('click', openNewNotebookModal);
   document.getElementById('openSettingsBtnLib')
@@ -395,8 +409,14 @@ export function bindLibraryUI() {
   document.getElementById('cancelNewNbBtn')
     ?.addEventListener('click', closeNewNotebookModal);
 
-  document.getElementById('exportBackupBtn')
-    ?.addEventListener('click', handleExportClick);
+  document.getElementById('actionsBtn')
+    ?.addEventListener('click', toggleActionsMenu);
+  document.getElementById('exportMenuBtn')
+    ?.addEventListener('click', handleExportFromMenu);
+  document.getElementById('selectAllMenuBtn')
+    ?.addEventListener('click', handleSelectAll);
+  document.getElementById('deselectAllMenuBtn')
+    ?.addEventListener('click', handleDeselectAll);
 
   const importBtn = document.getElementById('importBackupBtn');
   const fileInput = document.getElementById('importFileInput');

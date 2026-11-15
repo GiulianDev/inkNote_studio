@@ -15,6 +15,7 @@
 
     <!-- VISTA 1: LIBRERIA -->
     <div id="libraryView" class="fixed inset-0 bg-slate-100 dark:bg-slate-950 z-50 overflow-y-auto p-6 md:p-10 flex flex-col">
+        
         <div class="max-w-6xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between mb-8 pb-4 border-b border-slate-300 dark:border-slate-800 gap-4">
             <div class="flex items-center space-x-3">
                 <div class="bg-indigo-600 text-white w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/30">📚</div>
@@ -24,30 +25,63 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+                <!-- Azioni primarie -->
                 <button id="newNotebookBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
                     ➕ Nuovo Quaderno
                 </button>
-                <button id="exportBackupBtn" class="hidden bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs px-4 py-2.5 rounded-xl transition active:scale-95">
-                    💾 Esporta
-                </button>
-                <button id="importBackupBtn" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs px-4 py-2.5 rounded-xl transition active:scale-95">
+                <button id="importBackupBtn" class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-4 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2">
                     📥 Importa
                 </button>
-                <button id="openSettingsBtnLib" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95" title="Impostazioni">
+
+                <!-- Separatore visivo -->
+                <div class="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
+
+                <!-- Azioni contestuali (⋯) -->
+                <div class="relative" id="actionsContainer">
+                    <button id="actionsBtn"
+                            class="relative bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95"
+                            title="Altre azioni">
+                        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+                        </svg>
+                        <span id="actionsBadge" class="hidden absolute -top-1 -right-1 bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none min-w-[16px] text-center"></span>
+                    </button>
+
+                    <div id="actionsMenu"
+                         class="hidden absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
+                        <button id="exportMenuBtn"
+                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-between gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                            <span>💾 Esporta selezionati</span>
+                            <span id="exportMenuCount" class="text-[10px] text-slate-500 dark:text-slate-400"></span>
+                        </button>
+                        <div class="h-px bg-slate-200 dark:bg-slate-800"></div>
+                        <button id="selectAllMenuBtn"
+                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                            ☑️ Seleziona tutto
+                        </button>
+                        <button id="deselectAllMenuBtn"
+                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                            ⬜ Deseleziona tutto
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Sistema -->
+                <button id="openSettingsBtnLib"
+                        class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95"
+                        title="Impostazioni">
                     ⚙️
                 </button>
 
-                <!-- Auth: pulsante circolare + dropdown -->
+                <!-- Auth -->
                 <div class="relative" id="authContainer">
                     <button id="authBtn"
                             class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition active:scale-95 overflow-hidden border border-slate-300 dark:border-slate-700"
                             title="Accedi">
-                        <!-- Contenuto gestito dinamicamente da updateAuthUI() -->
                         <span id="authBtnContent" class="text-base">👤</span>
                     </button>
 
-                    <!-- Dropdown utente (nascosto di default) -->
                     <div id="authDropdown"
                         class="hidden absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
                         <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
@@ -66,8 +100,8 @@
                     </div>
                 </div>
             </div>
-
         </div>
+        
         <div class="max-w-6xl w-full mx-auto flex-1">
             <div id="notebooksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6"></div>
             <div id="emptyLibraryMessage" class="hidden flex-col items-center justify-center py-20 text-center text-slate-400">
