@@ -1,21 +1,9 @@
 // ============================================================
 // IndexedDB — v2 con store separati per notebook e pagine.
 //
-// Struttura:
-//   - store "notebooks" (keyPath: 'id')
-//       { id, title, coverColor, pattern, createdAt, updatedAt,
-//         toolbarSettings, pageCount, lastPageIndex }
-//   - store "pages" (keyPath: ['notebookId', 'pageIndex'])
-//       { notebookId, pageIndex, strokes: PackedStroke[] }
-//       + index 'notebookId' per getAll(id)
-//
-// Perché split per-page:
-//   - saveNotebookToDB(nb, dirtyPages) scrive SOLO le pagine dirty
-//   - structured-clone = ~4.4 MB (una pagina) invece di ~130 MB (30 pagine)
-//   - su Surface Go 1: da ~500-1500 ms a ~5-35 ms per save
-//
-// Fresh start: se oldVersion < 2, cancella lo store v1. L'app è in
-// sviluppo, non ci sono dati legacy da migrare.
+// Campi metadata aggiornati:
+//   - updatedAt: ogni save (qualsiasi modifica)
+//   - lastEditAt: solo se dirtyPages.length > 0 (scrittura reale)
 // ============================================================
 
 let db = null;
@@ -27,7 +15,6 @@ export function initDB() {
     request.onupgradeneeded = (e) => {
       const database = e.target.result;
 
-      // v1 → v2: butta via lo store monolitico v1 (fresh start).
       if (e.oldVersion > 0 && e.oldVersion < 2) {
         if (database.objectStoreNames.contains('notebooks')) {
           database.deleteObjectStore('notebooks');
@@ -55,19 +42,30 @@ export function initDB() {
  * Salva metadata + pagine dirty.
  *
  * @param {object} notebook        — oggetto in memoria
- * @param {number[]} dirtyPages    — indici in notebook.pages delle pagine
- *                                    modificate dall'ultimo save. Se omesso
- *                                    o vuoto, salva solo metadata (veloce).
+ * @param {number[]} dirtyPages    — indici delle pagine modificate
+ * @param {object} [opts]
+ *   - preserveLastEditAt: true → non aggiornare lastEditAt
+ *     (usato dall'import per preservare il valore del file)
  *
- * Costo: metadata = pochi KB; ogni pagina dirty = ~4.4 MB
- * (Float32Array → memcpy nativo di IDB).
+ * lastEditAt si aggiorna SOLO se dirtyPages.length > 0. Cambi
+ * toolbar/titolo/pattern non marcano la pagina dirty → lastEditAt
+ * resta invariato. Cambio pattern fogli passa per scheduleSave()
+ * senza markDirty:false, quindi marca dirty e aggiorna lastEditAt.
  */
-export function saveNotebookToDB(notebook, dirtyPages = []) {
+export function saveNotebookToDB(notebook, dirtyPages = [], opts = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return resolve();
-    notebook.updatedAt = new Date().toISOString();
 
-    // Metadata senza pages (le pagine vivono nello store separato).
+    const now = new Date().toISOString();
+    notebook.updatedAt = now;
+
+    if (dirtyPages.length > 0 && !opts.preserveLastEditAt) {
+      notebook.lastEditAt = now;
+    }
+    if (!notebook.lastEditAt) {
+      notebook.lastEditAt = notebook.updatedAt;
+    }
+
     const meta = {
       id: notebook.id,
       title: notebook.title,
@@ -75,6 +73,7 @@ export function saveNotebookToDB(notebook, dirtyPages = []) {
       pattern: notebook.pattern,
       createdAt: notebook.createdAt,
       updatedAt: notebook.updatedAt,
+      lastEditAt: notebook.lastEditAt,
       toolbarSettings: notebook.toolbarSettings,
       pageCount: Array.isArray(notebook.pages) ? notebook.pages.length : 0,
       lastPageIndex: typeof notebook.lastPageIndex === 'number' ? notebook.lastPageIndex : 0
@@ -103,15 +102,6 @@ export function saveNotebookToDB(notebook, dirtyPages = []) {
   });
 }
 
-/**
- * Carica un notebook completo (metadata + tutte le pagine).
- *
- * Il DB contiene solo le pagine effettivamente scritte. Le pagine
- * mai usate non hanno entry nello store `pages`. Qui ricostruiamo
- * TUTTE le pagine 0..pageCount-1, riempiendo le mancanti con
- * strokes vuoti. Così ogni pagina mantiene il suo indice originale
- * e non c'è shift/compaction al load.
- */
 export function loadNotebookWithPages(id) {
   return new Promise((resolve, reject) => {
     if (!db) return resolve(null);
@@ -145,10 +135,6 @@ export function loadNotebookWithPages(id) {
   });
 }
 
-/**
- * Carica solo i metadata di tutti i notebook (per la libreria).
- * Nessuna pagina: leggero anche con notebook grandi.
- */
 export function loadAllNotebooksFromDB() {
   return new Promise((resolve, reject) => {
     if (!db) return resolve([]);
@@ -159,15 +145,11 @@ export function loadAllNotebooksFromDB() {
   });
 }
 
-/**
- * Cancella notebook + tutte le sue pagine (range query sull'indice).
- */
 export function deleteNotebookFromDB(id) {
   return new Promise((resolve, reject) => {
     if (!db) return resolve();
     const tx = db.transaction(['notebooks', 'pages'], 'readwrite');
     tx.objectStore('notebooks').delete(id);
-    // Range: tutte le entry con chiave composta [id, *]
     const range = IDBKeyRange.bound([id, 0], [id, 1e9]);
     tx.objectStore('pages').delete(range);
     tx.oncomplete = () => resolve();

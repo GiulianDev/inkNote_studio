@@ -48,8 +48,10 @@ export function renderLibraryView() {
       notebooks.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
       notebooks.forEach(nb => {
-        const dateStr = new Date(nb.updatedAt).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
-        const pageCount = nb.pageCount || 1;
+    // Mostra l'ultima scrittura reale (lastEditAt), con fallback a
+    // updatedAt per notebook creati prima di questa modifica.
+    const editIso = nb.lastEditAt || nb.updatedAt;
+    const dateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });        const pageCount = nb.pageCount || 1;
         const isSelected = selectedNotebookIds.has(nb.id);
 
         const card = document.createElement('div');

@@ -10,7 +10,7 @@
  *   NOTEBOOK_COUNT: uint32
  *   Per ogni notebook:
  *     META_LEN: uint32
- *     META: UTF-8 JSON
+ *     META: UTF-8 JSON (include lastEditAt)
  *     PAGE_COUNT: uint32
  *     Per ogni pagina:
  *       PAGE_INDEX: uint32
@@ -49,6 +49,9 @@ export async function serializeBackup(notebooks, onProgress) {
       pattern: nb.pattern || 'ruled',
       createdAt: nb.createdAt || new Date().toISOString(),
       updatedAt: nb.updatedAt || new Date().toISOString(),
+      // lastEditAt: ultima scrittura reale. Fallback a updatedAt
+      // per notebook creati prima di questa modifica.
+      lastEditAt: nb.lastEditAt || nb.updatedAt || new Date().toISOString(),
       pageCount: (nb.pages && nb.pages.length) || 0,
       lastPageIndex: nb.lastPageIndex || 0,
       toolbarSettings: nb.toolbarSettings || null

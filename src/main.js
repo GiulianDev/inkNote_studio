@@ -90,7 +90,7 @@ window.addEventListener('load', async () => {
     // Cambio preferenza toolbar (colore, spessore, smoothing,
     // auto-shape, subbar, compact, eraserSize, eraserMode,
     // recentColors): persisti nel notebook.
-    scheduleSave();
+    scheduleSave({ markDirty: false });
   });
 
   // 8. Vista iniziale e setup gesti / tastiera.
