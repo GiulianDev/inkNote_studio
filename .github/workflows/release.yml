@@ -32,6 +32,14 @@ jobs:
         run: npm ci
 
       - name: Build singlefile
+        env:
+          # Iniettate da GitHub Secrets → Vite le legge come import.meta.env.VITE_*
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
         run: npm run build:singlefileoffline
 
       - name: Verifica output
@@ -45,6 +53,17 @@ jobs:
           echo "✅ dist/index.html presente (${SIZE} bytes)"
           if [ "$SIZE" -lt 50000 ]; then
             echo "⚠️  File troppo piccolo — singlefile non attivo nel mode?"
+            exit 1
+          fi
+
+      - name: Verifica config Firebase nel bundle
+        run: |
+          # Sanity check: la apiKey deve essere presente nel file compilato.
+          # Non mostriamo il valore (solo l'esito), per non leakare i log.
+          if grep -q 'AIza[0-9A-Za-z_-]\{20,\}' dist/index.html; then
+            echo "✅ Firebase apiKey presente nel bundle"
+          else
+            echo "❌ Firebase apiKey NON presente nel bundle — i secrets non sono stati iniettati"
             exit 1
           fi
 
