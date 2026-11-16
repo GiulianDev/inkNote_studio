@@ -329,3 +329,21 @@ body.dark #undoRedoContainer.undo-redo-dragging {
     0 6px 16px -4px rgba(0, 0, 0, 0.6),
     0 0 0 1px rgba(255, 255, 255, 0.15);
 }
+
+/* ============================================================
+   SETTINGS MODAL — paint containment
+   Isola il repaint del modal dal resto della pagina. Senza
+   questo, lo scroll interno del modal (specialmente con
+   backdrop-filter sul backdrop) può causare flicker dei
+   canvas delle pagine sottostanti.
+   ============================================================ */
+#settingsModal {
+  contain: layout paint;
+  isolation: isolate;
+}
+
+#settingsModal > div {
+  /* Il contenuto del modal è un layer stabile: il browser
+     non deve ricalcolare il compositing dei canvas sotto. */
+  transform: translateZ(0);
+}

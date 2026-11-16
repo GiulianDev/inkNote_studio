@@ -1,5 +1,11 @@
 // ============================================================
 // SETTINGS MODULE — si autogestisce (markup + binding + stato)
+//
+// NOTA v2: rimosso backdrop-blur dal markup per evitare il
+// flicker dei canvas delle pagine durante lo scroll del modal.
+// Inoltre applichiamo un "paint containment" via classe CSS
+// (vedi style.css → #settingsModal) per isolare il repaint
+// del modal dal resto della pagina.
 // ============================================================
 
 import { state } from '../../core/state.js';
@@ -71,9 +77,6 @@ export function openSettingsModal() {
  *   - cancel: false           → mantiene lo stato corrente (commit)
  */
 export function closeSettingsModal({ cancel = true } = {}) {
-  // Ripristino: rimette lo stato (e la persistenza) a com'era all'apertura.
-  // updateSettings emette `settings:changed`, quindi main.js ridisegna
-  // le pagine col tema corretto e _redrawPressureTest rifà il canvas.
   if (cancel && _draftSnapshot) {
     updateSettings(_draftSnapshot, { persist: true });
   }
@@ -88,9 +91,7 @@ export function closeSettingsModal({ cancel = true } = {}) {
 }
 
 /**
- * Commit definitivo: raccoglie i select non-live (printTheme, handedness,
- * dockSize) e persiste l'intero stato corrente (che include già le
- * modifiche live a tema/pressione/scroll). Poi chiude senza ripristinare.
+ * Commit definitivo.
  */
 export function confirmSettings() {
   const printTheme = _getValue('settingPrintTheme') ?? getSettings().printTheme;
@@ -129,12 +130,10 @@ function _bindAll() {
   if (_bound) return;
   _bound = true;
 
-  // Select "live" del tema (immediato, ma non persistito finché Salva)
   document.getElementById('settingTheme')
     ?.addEventListener('change', (e) =>
       updateSettings({ theme: e.target.value }, { persist: false }));
 
-  // Slider pressione: anteprima live + persist:false
   ['pressureLightSlider', 'pressureHeavySlider', 'pressureCurveSlider'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', () => {
       updateSettings({
@@ -147,19 +146,16 @@ function _bindAll() {
     });
   });
 
-  // Scroll sensitivity: anteprima live + persist:false
   document.getElementById('scrollSensitivitySlider')?.addEventListener('input', (e) => {
     updateSettings({ scrollSensitivity: parseInt(e.target.value) }, { persist: false });
     _setText('scrollSensitivityValue', e.target.value);
   });
 
-  // Bottoni
   document.getElementById('confirmSettingsBtn')?.addEventListener('click', confirmSettings);
   document.getElementById('cancelSettingsBtn') ?.addEventListener('click', () => closeSettingsModal());
   document.getElementById('resetPressureBtn')  ?.addEventListener('click', _resetPressureDefaults);
   document.getElementById('clearPressureBtn')  ?.addEventListener('click', _clearPressureTest);
 
-  // Canvas di test pressione
   const canvas = document.getElementById('pressureTestCanvas');
   if (canvas) {
     canvas.addEventListener('pointerdown',   _onPressureTestDown);
@@ -169,31 +165,22 @@ function _bindAll() {
     canvas.addEventListener('contextmenu',   (e) => e.preventDefault());
   }
 
-  // ----------------------------------------------------------
-  // Click sul backdrop → chiude come "Annulla"
-  // Pattern: pointerdown+pointerup sullo STESSO target (backdrop)
-  // per evitare chiusure accidentali quando un drag iniziato dentro
-  // la modale (slider, canvas di test, ecc.) finisce oltre il bordo.
-  // ----------------------------------------------------------
   const modal = document.getElementById('settingsModal');
   let backdropDown = false;
 
   modal?.addEventListener('pointerdown', (e) => {
-    // e.currentTarget è il modal; e.target è il figlio cliccato.
-    // Backdrop = click direttamente sul contenitore esterno.
     backdropDown = (e.target === e.currentTarget);
   });
 
   modal?.addEventListener('pointerup', (e) => {
     if (backdropDown && e.target === e.currentTarget) {
-      closeSettingsModal(); // default cancel: true → ripristina
+      closeSettingsModal();
     }
     backdropDown = false;
   });
 
   modal?.addEventListener('pointercancel', () => { backdropDown = false; });
 
-  // Ridisegna il test se cambia il tema mentre la modale è aperta
   onSettingsChanged(({ changed }) => {
     if (!_isOpen) return;
     if (changed.includes('theme') || changed.includes('theme.effective')) {

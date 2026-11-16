@@ -1,8 +1,10 @@
 <!-- features/settings/settings.html
      Modale impostazioni. Iniettata via `?raw` da settings.js.
-     Gli id sono quelli storici: il resto del codice continua a funzionare. -->
+     Gli id sono quelli storici: il resto del codice continua a funzionare.
+     NOTA v2: rimosso backdrop-blur-sm dal backdrop per evitare flicker
+     dei canvas delle pagine durante lo scroll del modal. -->
 <div id="settingsModal"
-     class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+     class="fixed inset-0 bg-slate-900/70 z-50 hidden items-center justify-center p-4">
   <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col"
        style="max-height: 90vh;">
 
