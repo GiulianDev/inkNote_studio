@@ -38,7 +38,7 @@ body[data-dock-size="large"] {
 }
 
 /* ============================================================
-   HEADER (mainbar) — invariato nella struttura, adattato
+   HEADER (mainbar)
    ============================================================ */
 
 #mainHeader {
@@ -107,7 +107,17 @@ body.dark .main-menu-btn.active {
 }
 
 /* ============================================================
-   CONTEXT DOCK — flottante, centrato sotto la mainbar
+   CONTEXT DOCK — flottante, centrato via
+   left:50% + translateX(-50%).
+
+   Larghezza:
+     - width: max-content  → il dock si allarga esattamente
+       quanto serve per stare su UNA riga. Se lo schermo è più
+       largo del necessario, si ferma alla larghezza naturale.
+     - max-width: calc(100vw - 16px) → mai oltre il viewport.
+       Quando lo schermo è più stretto del contenuto, il dock
+       occupa tutta la larghezza disponibile e va a capo.
+     - Centraggio sempre identico → nessuno scatto.
    ============================================================ */
 
 .context-dock {
@@ -120,13 +130,17 @@ body.dark .main-menu-btn.active {
   flex-direction: column;
   gap: 4px;
   padding: 6px 8px;
+
+  width: max-content;
+  max-width: calc(100vw - 16px);
+
   background: rgba(255, 255, 255, 0.96);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 16px;
   box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.18), 0 2px 6px -2px rgba(15, 23, 42, 0.08);
-  max-width: calc(100vw - 16px);
+
   animation: dockFadeIn .14s ease-out;
 }
 
@@ -208,7 +222,7 @@ body.dark .context-dock-toggle:hover {
 }
 
 /* ============================================================
-   DOCK BUTTONS (invariati, ma con dimensioni ridotte)
+   DOCK BUTTONS
    ============================================================ */
 
 .dock-tool-btn {
@@ -277,7 +291,6 @@ body.dark .dock-tool-btn.dark\:bg-slate-700 {
   height: var(--dock-swatch-size);
 }
 
-/* Eraser level buttons */
 .eraser-level-btn {
   display: inline-flex;
   align-items: center;
@@ -319,7 +332,8 @@ body.dark .eraser-level-btn.active {
 }
 
 /* ============================================================
-   POPOVER FOGLIO
+   POPOVER FOGLIO — stesso pattern del dock:
+   width: max-content + min-width per non collassare.
    ============================================================ */
 
 #pagePopover {
@@ -328,12 +342,16 @@ body.dark .eraser-level-btn.active {
   left: 50%;
   transform: translateX(-50%);
   z-index: 36;
+
+  width: max-content;
+  min-width: 240px;
+  max-width: calc(100vw - 16px);
+
   background: #ffffff;
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 16px;
   box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.18);
   padding: 12px;
-  min-width: 240px;
   animation: dockFadeIn .14s ease-out;
 }
 
@@ -413,7 +431,7 @@ body.dark .page-pattern-btn:hover {
 }
 
 body.dark .page-pattern-btn.active {
-  background: #312e81;
+  background-color: #312e81;
   color: #c7d2fe;
   border-color: #4338ca;
 }
@@ -492,14 +510,6 @@ body.dark .menu-item:hover {
 }
 
 /* ============================================================
-   PANEL OVERFLOW (generico, usato da chi vuole)
-   ============================================================ */
-
-.hidden {
-  /* Tailwind-like, ma in CSS vanilla per sicurezza */
-}
-
-/* ============================================================
    HANDEDNESS
    ============================================================ */
 body.handed-left header {
@@ -546,6 +556,127 @@ body.compact-mode .context-dock {
 
 body.compact-mode #pagePopover {
   top: 76px;
+}
+
+/* ============================================================
+   RESPONSIVE — mainbar
+   ============================================================ */
+
+@media (max-width: 900px) {
+  #mainMenuBar {
+    flex: 1 1 auto;
+    justify-content: space-evenly;
+    gap: 0;
+    padding: 0;
+  }
+
+  .main-menu-btn {
+    padding: 0.4rem 0.55rem;
+    gap: 0;
+    font-size: 1.05rem;
+  }
+}
+
+@media (max-width: 767px) {
+  #headerLeft {
+    flex: 0 0 auto;
+    gap: 0;
+    margin-right: 0;
+  }
+  #headerLeft > .min-w-0 {
+    display: none;
+  }
+  #headerLeft > .h-4.w-px {
+    display: none;
+  }
+  #backToLibraryBtn {
+    padding: 0.4rem;
+    min-width: 36px;
+  }
+  #backToLibraryBtn > span {
+    display: none;
+  }
+
+  #headerRight {
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+  #headerRight .dock-icon-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+  #exportPdfBtn {
+    display: none;
+  }
+
+  #mainMenuBar {
+    gap: 0;
+    padding: 0;
+    margin: 0 4px;
+  }
+  .main-menu-btn {
+    padding: 0.4rem 0.45rem;
+  }
+}
+
+@media (max-width: 480px) {
+  #openSettingsBtnHeader,
+  #themeToggleBtn {
+    display: none;
+  }
+
+  .main-menu-btn {
+    padding: 0.4rem 0.4rem;
+    font-size: 1rem;
+  }
+}
+
+/* ============================================================
+   RESPONSIVE — dock contestuali
+   Solo padding/gap/label: la larghezza è gestita da
+   width: max-content + max-width (vedi sopra).
+   ============================================================ */
+
+@media (max-width: 640px) {
+  .context-dock {
+    padding: 4px 6px;
+    gap: 3px;
+  }
+
+  .context-dock-row {
+    gap: 0.25rem;
+    justify-content: space-evenly;
+  }
+
+  .context-dock-group {
+    gap: 0.2rem;
+  }
+
+  /* Niente label testuali: recuperano molta larghezza */
+  .context-dock-label {
+    display: none;
+  }
+
+  .context-dock-divider {
+    margin: 0 0.05rem;
+  }
+
+  #pagePopover {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 400px) {
+  .context-dock-row {
+    gap: 0.15rem;
+  }
+  .context-dock-group {
+    gap: 0.15rem;
+  }
+  .dock-range {
+    width: calc(var(--dock-range-w) * 0.85);
+  }
 }
 
 /* ============================================================
