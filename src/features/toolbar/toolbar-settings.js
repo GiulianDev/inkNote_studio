@@ -16,10 +16,10 @@ export const HIGHLIGHTER_DEFAULT_COLOR = HIGHLIGHTER_COLORS[0];
 
 export const DEFAULT_TOOLBAR_SETTINGS = {
   tools: {
-    pen:         { color: '#000000', width: 3, opacity: 1.0 },
-    pencil:      { color: '#000000', width: 3, opacity: 1.0 },
-    marker:      { color: '#000000', width: 3, opacity: 0.9 },
-    highlighter: { color: HIGHLIGHTER_DEFAULT_COLOR, width: 3, opacity: 0.35 }
+    pen:         { color: '#000000', width: 3, opacity: 1.0, style: 'solid' },
+    pencil:      { color: '#000000', width: 3, opacity: 1.0, style: 'solid' },
+    marker:      { color: '#000000', width: 3, opacity: 0.9, style: 'solid' },
+    highlighter: { color: HIGHLIGHTER_DEFAULT_COLOR, width: 3, opacity: 0.35, style: 'solid' }
   },
   eraserSize: 3,
   eraserMode: 'stroke',
@@ -28,11 +28,15 @@ export const DEFAULT_TOOLBAR_SETTINGS = {
   smoothing: 50,
   compactMode: false,
   recentColors: [],
-  /** Colore custom del foglio. null = default del tema. */
   paperColor: null,
-  /** Colore custom di linee/quadretti/punti. null = default del tema. */
   patternColor: null
 };
+
+export const STROKE_STYLES = ['solid', 'dashed', 'dashed-large', 'dotted', 'dash-dot'];
+
+function _normalizeStyle(v) {
+  return STROKE_STYLES.includes(v) ? v : 'solid';
+}
 
 export const ERASER_RADII = [3, 8, 16, 30, 50];
 
@@ -78,6 +82,7 @@ function _syncRuntime() {
     state.currentColor   = conf.color;
     state.strokeWidth    = conf.width;
     state.currentOpacity = conf.opacity != null ? conf.opacity : 1.0;
+    state.currentStyle   = conf.style || 'solid';
   }
 }
 
@@ -105,7 +110,8 @@ function _normalize(raw) {
       width: typeof t.width === 'number' ? t.width : DEFAULT_TOOLBAR_SETTINGS.tools[name].width,
       opacity: typeof t.opacity === 'number'
         ? Math.max(0.1, Math.min(1.0, t.opacity))
-        : _defaultOpacityFor(name)
+        : _defaultOpacityFor(name),
+      style: _normalizeStyle(t.style)
     };
   }
   const hl = merged.tools.highlighter || {};
@@ -115,7 +121,8 @@ function _normalize(raw) {
     width: typeof hl.width === 'number' ? hl.width : 3,
     opacity: typeof hl.opacity === 'number'
       ? Math.max(0.1, Math.min(1.0, hl.opacity))
-      : _defaultOpacityFor('highlighter')
+      : _defaultOpacityFor('highlighter'),
+    style: _normalizeStyle(hl.style)
   };
 
   // Migrazione legacy: autoShapeEnabled → snapLines/snapShapes

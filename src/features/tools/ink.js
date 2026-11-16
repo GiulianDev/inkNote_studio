@@ -41,6 +41,7 @@ export function beginInkStroke(point) {
     color: state.currentColor,
     size: state.strokeWidth,
     opacity: state.currentOpacity != null ? state.currentOpacity : 1.0,
+    style: state.currentStyle || 'solid',
     startTime: performance.now(),
     _drawnIdx: 0,
     _lastSnapCheck: 0,

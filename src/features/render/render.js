@@ -231,16 +231,10 @@ function getStrokeStyle(stroke, isDark) {
 
   let strokeStyle, fillStyle, gco;
   if (stroke.tool === 'highlighter') {
-    // Highlighter: OPACO sull'overlay. Alpha + multiply/screen al blit.
     gco = 'source-over';
     strokeStyle = stroke.color;
     fillStyle = stroke.color;
   } else if (stroke.tool === 'pencil') {
-    // Pencil: grana grafite (alpha interna 0.55 FISSO).
-    // L'opacity utente è applicata via globalAlpha al momento del
-    // rendering (renderFullStroke/drawDotOnly) e via CSS sull'overlay
-    // durante lo stroke. Non la includiamo qui per evitare doppia
-    // applicazione.
     gco = 'source-over';
     const c = hexToRgbA(getEffectiveColor(stroke.color, isDark), 0.55);
     strokeStyle = c; fillStyle = c;
@@ -249,9 +243,23 @@ function getStrokeStyle(stroke, isDark) {
     const c = getEffectiveColor(stroke.color, isDark);
     strokeStyle = c; fillStyle = c;
   }
-  const result = { key, strokeStyle, fillStyle, gco };
+
+  // lineDash per lo stile del tratto (calcolato sulla size dello stroke)
+  const lineDash = _buildLineDash(stroke.style, sliderToBaseSize(stroke.size));
+
+  const result = { key, strokeStyle, fillStyle, gco, lineDash };
   stroke._styleCache = result;
   return result;
+}
+
+export function _buildLineDash(style, baseSize) {
+  if (!style || style === 'solid') return null;
+  const s = Math.max(0.8, baseSize);
+  if (style === 'dashed')        return [s * 4, s * 3];
+  if (style === 'dashed-large')  return [s * 9, s * 6];   // ← nuovo
+  if (style === 'dotted')        return [0.1, s * 3];
+  if (style === 'dash-dot')      return [s * 4, s * 2, 0.1, s * 2];
+  return null;
 }
 
 function setupStrokeStyle(ctx, stroke, forceTargetDark) {
@@ -438,7 +446,7 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
     if (selectedSet && selectedSet.has(stroke)) return;
     const isTarget = targetSet && targetSet.has(stroke);
 
-    if (stroke.tool === 'pencil' && !isTarget) {
+    if (stroke.tool === 'pencil' && !isTarget && (stroke.style || 'solid') === 'solid') {
       let cached = getStrokeBitmap(stroke, dpr, forceTargetDark);
       if (!cached) cached = buildStrokeBitmap(stroke, dpr, forceTargetDark);
       if (cached) {
@@ -502,6 +510,13 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   if (n < 1) return;
 
   const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+  // Tratteggio: bypassa il path poligonale (fill) e usa ctx.stroke()
+  // con setLineDash. Perde la taper della pressione ma rende il pattern.
+  const styleInfo = getStrokeStyle(stroke, forceTargetDark);
+  if (styleInfo.lineDash && stroke.tool !== 'highlighter' && !overrideColor) {
+    _renderDashedStroke(ctx, stroke, styleInfo, forceTargetDark, opacity);
+    return;
+  }
 
   // Highlighter: jitter + alpha + multiply/screen (path unico, branch separato).
   if (stroke.tool === 'highlighter' && !overrideColor) {
@@ -644,6 +659,63 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
 
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Style info (lineDash, strokeStyle, gco). Va calcolato prima
+  // dei branch tratteggio/highlighter/solido.
+  const styleInfo = getStrokeStyle(stroke, state.isDarkMode);
+
+  // Tratteggio: stroke incrementale con setLineDash.
+  //
+  // PROBLEMA: se chiamiamo setLineDash ad ogni batch senza accumulare
+  // l'offset, il pattern riparte da capo ogni volta → disegnando piano
+  // (batch piccoli < periodo del pattern) si vede solo "il primo
+  // trattino ripetuto". Inoltre la preview "sembra" proporzionale alla
+  // velocità perché batch più grandi mostrano più trattini.
+  //
+  // FIX: accumuliamo la lunghezza del path già percorso in
+  // `stroke._dashOffset` e impostiamo `lineDashOffset = -length`.
+  // Il pattern continua esattamente da dove era rimasto.
+  if (styleInfo.lineDash && stroke.tool !== 'highlighter') {
+    const baseSize = sliderToBaseSize(stroke.size);
+    let sumW = 0;
+    for (let i = 0; i < n; i++) {
+      const pt = pts[i];
+      sumW += computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
+        getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
+    }
+    const avgW = Math.max(0.6, sumW / n);
+
+    // Init: al primo batch accumula la lunghezza fino a firstSegEnd - 1
+    // (dovrebbe essere 0, ma per sicurezza). Nei batch successivi
+    // _dashOffset è già aggiornato.
+    if (stroke._dashOffset == null) {
+      let len = 0;
+      for (let i = 1; i < firstSegEnd; i++) {
+        len += fastHypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      }
+      stroke._dashOffset = len;
+    }
+
+    ctx.setLineDash(styleInfo.lineDash);
+    ctx.lineDashOffset = -stroke._dashOffset;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = styleInfo.gco;
+    ctx.strokeStyle = styleInfo.strokeStyle;
+    ctx.lineWidth = avgW;
+    ctx.beginPath();
+    ctx.moveTo(pts[firstSegEnd - 1].x, pts[firstSegEnd - 1].y);
+    for (let i = firstSegEnd; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+
+    // Accumula lunghezza dei nuovi segmenti per il prossimo batch
+    for (let i = firstSegEnd; i < n; i++) {
+      stroke._dashOffset += fastHypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    }
+
+    ctx.restore();
+    return;
+  }
 
   // Highlighter: disegna OPACO sull'overlay (alpha al blit).
   // CSS mixBlendMode + opacity sull'overlay canvas fa l'anteprima.
@@ -818,7 +890,15 @@ export function drawPendingShape(ctx, forceTargetDark) {
   ctx.globalCompositeOperation = 'source-over';
   ctx.strokeStyle = effectiveColor;
   ctx.lineWidth = computeStrokeWidth(ps.tool, ps.size, 0.5);
-  ctx.globalAlpha = lineOpacity;                // ← linea con opacity
+  ctx.globalAlpha = lineOpacity;
+
+  // Mostra il pattern anche durante lo snap (prima era solo solido)
+  const pendingDash = _buildLineDash(ps.style || 'solid', sliderToBaseSize(ps.size));
+  if (pendingDash) {
+    ctx.setLineDash(pendingDash);
+    ctx.lineDashOffset = 0;
+  }
+
   ctx.beginPath();
   ctx.moveTo(startPt.x, startPt.y);
   ctx.lineTo(endPt.x, endPt.y);
@@ -1062,4 +1142,38 @@ export function redrawSelectionOverlay(pageData) {
     octx.restore();
   }
   drawSelectionBBoxOnOverlay(pageData);
+}
+
+function _renderDashedStroke(ctx, stroke, styleInfo, isDark, opacity) {
+  const pts = stroke.points;
+  const n = pts.length;
+  if (n < 2) return;
+
+  const baseSize = sliderToBaseSize(stroke.size);
+
+  // Larghezza: media dei width per-punto (la taper si perde, ma il
+  // pattern resta leggibile). Un minimo di 0.6 evita linee invisibili.
+  let sumW = 0;
+  for (let i = 0; i < n; i++) {
+    const pt = pts[i];
+    sumW += computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
+      getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
+  }
+  const avgW = Math.max(0.6, sumW / n);
+
+  ctx.save();
+  ctx.setLineDash(styleInfo.lineDash);
+  ctx.lineDashOffset = 0;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.globalCompositeOperation = styleInfo.gco;
+  ctx.strokeStyle = styleInfo.strokeStyle;
+  ctx.globalAlpha = opacity;
+  ctx.lineWidth = avgW;
+
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+  ctx.restore();
 }

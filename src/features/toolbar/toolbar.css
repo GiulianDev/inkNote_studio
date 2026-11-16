@@ -875,3 +875,65 @@ body.compact-mode .ui-icon { width: 16px; height: 16px; }
   }
 }
 
+/* ============================================================
+   STILE TRATTO (solid/dashed/dotted/dash-dot)
+   ============================================================ */
+
+.stroke-style-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #475569;
+  cursor: pointer;
+  transition: background-color .12s, border-color .12s, color .12s;
+}
+
+.stroke-style-btn svg {
+  width: 28px;
+  height: 12px;
+  display: block;
+  pointer-events: none;
+}
+
+.stroke-style-btn:hover {
+  background: #f1f5f9;
+}
+
+.stroke-style-btn.active {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+  color: #4338ca;
+}
+
+body.dark .stroke-style-btn {
+  color: #cbd5e1;
+}
+
+body.dark .stroke-style-btn:hover {
+  background: #334155;
+}
+
+body.dark .stroke-style-btn.active {
+  background: #312e81;
+  border-color: #4338ca;
+  color: #c7d2fe;
+}
+
+/* Mobile: pulsanti più compatti */
+@media (max-width: 640px) {
+  .stroke-style-btn {
+    width: 32px;
+    height: 26px;
+  }
+  .stroke-style-btn svg {
+    width: 24px;
+    height: 11px;
+  }
+}
+

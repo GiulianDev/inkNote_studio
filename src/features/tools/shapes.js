@@ -179,6 +179,7 @@ export function trySnapToLineDuringDraw(pageData, currentPoint) {
     color: stroke.color,
     size: stroke.size,
     opacity: stroke.opacity != null ? stroke.opacity : 1.0,
+    style: stroke.style || 'solid',        // ← AGGIUNTA
     activeHandle: 'end',
     pageIndex: pageData.index,
     _snapAxis: snapRes.axis,
@@ -257,6 +258,7 @@ export function finalizePendingShape() {
       color: ps.color,
       size: ps.size,
       opacity: ps.opacity != null ? ps.opacity : 1.0,
+      style: ps.style || 'solid',
       points: straightPts
     };
     curr.strokes.push(newStroke);

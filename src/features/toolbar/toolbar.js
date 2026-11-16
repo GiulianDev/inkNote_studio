@@ -1,8 +1,9 @@
 /**
  * @module features/toolbar/toolbar
  *
- * FEATURE TOOLBAR v2.2 — mainbar + dock contestuali + colori foglio
- *                          + drag&drop mainbar (long-press).
+ * FEATURE TOOLBAR v2.3 — mainbar + dock contestuali + colori foglio
+ *                          + drag&drop mainbar (long-press)
+ *                          + stile tratto (solid/dashed/dotted/dash-dot).
  *
  * Interazione mainbar:
  *   - Long-press (450ms) su un .main-menu-btn → drag mode
@@ -29,7 +30,7 @@ import {
 } from '../../core/app-settings.js';
 import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
-  updateToolbarSettings, getEraserRadius
+  updateToolbarSettings, getEraserRadius, STROKE_STYLES
 } from './toolbar-settings.js';
 import { changeBackgroundPattern } from '../editor/pages.js';
 import { redrawPageCanvas } from '../render/render.js';
@@ -46,6 +47,7 @@ let _hintShownThisSession = false;
 let _mainMenu = 'writing';
 
 const WRITING_TOOLS = ['pen', 'pencil', 'marker', 'highlighter'];
+const STYLE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
 
 const MENU_TO_DEFAULT_TOOL = {
   writing:   'pen',
@@ -141,8 +143,6 @@ function _setupMainMenuDrag() {
   const mainBar = document.getElementById('mainMenuBar');
   if (!mainBar) return;
 
-  // Blocca il click "di uscita dal drag" in capture, prima che
-  // arrivi al listener di ui-bindings.js (bubbling).
   mainBar.addEventListener('click', (e) => {
     if (_drag.skipNextClick) {
       e.stopPropagation();
@@ -170,9 +170,6 @@ function _onMenuPointerDown(e) {
   _drag.skipNextClick = false;
   _drag.outside = false;
 
-  // NIENTE setPointerCapture: insertBefore() durante il drag
-  // rilascerebbe il capture e romperebbe il drag dopo il primo move.
-  // I listener stanno su document così sopravvivono al riordino.
   document.addEventListener('pointermove', _onMenuPointerMove);
   document.addEventListener('pointerup',   _onMenuPointerUp);
   document.addEventListener('pointercancel', _onMenuPointerUp);
@@ -362,6 +359,7 @@ function _setMainMenu(menu, opts = {}) {
     applyActiveToolToUI();
     applySnapTogglesToUI();
     applyEraserLevelToUI();
+    applyStrokeStyleToUI();
   }
 }
 
@@ -412,6 +410,10 @@ export function setTool(toolName) {
 
   applyActiveToolToUI();
   applyEraserLevelToUI();
+  // La riga "Stile" va aggiornata/nascosta anche per eraser/lasso,
+  // dove applyActiveToolToUI fa return early. Chiamata esplicita.
+  applyStrokeStyleToUI();
+
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
 }
 
@@ -435,6 +437,39 @@ export function applyActiveToolToUI() {
   const opacityVal = conf.opacity != null ? conf.opacity : 1.0;
   const opacityEl = document.getElementById('opacityValue');
   if (opacityEl) opacityEl.innerText = `${Math.round(opacityVal * 100)}%`;
+
+  applyStrokeStyleToUI();
+}
+
+// ============================================================
+// STILE TRATTO (solid/dashed/dotted/dash-dot)
+// ============================================================
+
+export function updateStrokeStyle(style) {
+  if (!STROKE_STYLES.includes(style)) return;
+  const current = getToolbarSettings();
+  const toolName = getActiveTool();
+  const tool = current.tools[toolName];
+  if (!tool) return;
+  updateToolbarSettings({
+    tools: { ...current.tools, [toolName]: { ...tool, style } }
+  });
+  applyStrokeStyleToUI();
+}
+
+export function applyStrokeStyleToUI() {
+  const row = document.getElementById('strokeStyleRow');
+  const isStyleCapable = STYLE_CAPABLE_TOOLS.includes(state.activeTool);
+
+  // Highlighter, eraser, lasso: niente stile tratto
+  if (row) row.style.display = isStyleCapable ? '' : 'none';
+  if (!isStyleCapable) return;
+
+  const conf = getActiveToolConfig();
+  const style = conf.style || 'solid';
+  document.querySelectorAll('.stroke-style-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.style === style);
+  });
 }
 
 // ============================================================
@@ -845,6 +880,14 @@ function _setupDockButtons() {
       e.stopPropagation();
       showColorPickerPopover(e.currentTarget);
     });
+
+  // Stile tratto
+  document.querySelectorAll('.stroke-style-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      updateStrokeStyle(btn.dataset.style);
+    });
+  });
 }
 
 // ============================================================
