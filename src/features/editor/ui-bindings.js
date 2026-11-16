@@ -3,18 +3,19 @@
 // Collega gli elementi DOM dell'editor alle rispettive funzioni.
 // Chiamato una volta sola da main.js dopo il load.
 //
-// NOTA: gli elementi della toolbar (tool buttons, auto-shape,
-// smoothing, colori, stroke width, eraser menu) sono gestiti
-// internamente da features/toolbar/toolbar.js. Qui restano solo
-// i bind "editor-specifici" e gli header/subbar actions.
+// NOTA: gli elementi della toolbar v2 (mainbar, dock, popover
+// Foglio, menu ⋯) sono gestiti internamente da
+// features/toolbar/toolbar.js. Qui restano solo i bind
+// "editor-specifici" e gli header/menu actions.
 // ============================================================
 
 import { state } from '../../core/state.js';
 import { updateSettings, getSettings } from '../../core/app-settings.js';
 import {
-  setTool, selectColor, updateStrokeWidth, updateSmoothing,
-  toggleAutoShape, toggleTheme, toggleCompactMode, toggleSubbar,
-  initCompactFullscreenSync
+  setMainMenu, setTool, selectColor, updateStrokeWidth, updateSmoothing,
+  toggleTheme, toggleCompactMode, initCompactFullscreenSync,
+  applySnapTogglesToUI, applyEraserLevelToUI,
+  updateOpacity
 } from '../toolbar/toolbar.js';
 import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
@@ -32,34 +33,32 @@ import {
 } from '../tools/lazo.js';
 
 export function bindEditorUI() {
-  // --- Toolbar: tool buttons (eraser gestito separatamente in toolbar.js) ---
-  document.querySelectorAll('[id^="btnTool-"]').forEach(btn => {
-    if (btn.id === 'btnTool-eraser') return;
-    btn.addEventListener('click', () => setTool(btn.id.replace('btnTool-', '')));
+  // --- Mainbar: 5 menu contestuali ---
+  document.querySelectorAll('.main-menu-btn').forEach(btn => {
+    btn.addEventListener('click', () => setMainMenu(btn.dataset.menu));
   });
 
-  // --- Toolbar: auto-shape ---
-  document.getElementById('btnToggleAutoShape')
-    ?.addEventListener('click', toggleAutoShape);
-
-  // --- Toolbar: smoothing ---
-  document.getElementById('smoothingSlider')
-    ?.addEventListener('input', (e) => updateSmoothing(e.target.value));
-
-  // --- Toolbar: color swatches ---
+  // --- Dock Writing: palette colori ---
   document.querySelectorAll('.color-swatch').forEach(swatch => {
     swatch.addEventListener('click', () => selectColor(swatch.dataset.color, swatch));
   });
 
-  // --- Toolbar: custom color picker ---
+  // --- Dock Writing: custom color picker (nascosto, usato dal popover) ---
   document.getElementById('customColorPicker')
     ?.addEventListener('change', (e) => selectColor(e.target.value, e.target));
 
-  // --- Toolbar: stroke width ---
+  // --- Dock Writing: stroke width ---
   document.getElementById('strokeWidthSlider')
     ?.addEventListener('input', (e) => updateStrokeWidth(e.target.value));
 
-  // --- Header ---
+  // --- Dock Writing: smoothing ---
+  document.getElementById('smoothingSlider')
+    ?.addEventListener('input', (e) => updateSmoothing(e.target.value));
+
+  // --- Dock Writing: opacity (bottone) → apre popover già bindato in toolbar.js
+  // (gestito internamente da toolbar.js::_setupDockButtons)
+
+  // --- Header: back, titolo, compact, impostazioni, tema, PDF ---
   document.getElementById('backToLibraryBtn')
     ?.addEventListener('click', returnToLibrary);
   document.getElementById('docTitle')
@@ -73,31 +72,26 @@ export function bindEditorUI() {
   document.getElementById('exportPdfBtn')
     ?.addEventListener('click', exportToPDF);
 
-  // --- Subbar ---
+  // --- Menu ⋯: voci ---
   document.getElementById('addPageBtn')
-    ?.addEventListener('click', addNewPage);
+    ?.addEventListener('click', () => { addNewPage(); closeOverflowMenu(); });
   document.getElementById('clearPageBtn')
-    ?.addEventListener('click', clearCurrentPage);
-  document.getElementById('bgPatternSelect')
-    ?.addEventListener('change', (e) => changeBackgroundPattern(e.target.value));
+    ?.addEventListener('click', () => { clearCurrentPage(); closeOverflowMenu(); });
+  document.getElementById('openSettingsFromMenu')
+    ?.addEventListener('click', () => { openSettingsModal(); closeOverflowMenu(); });
 
-  // Palm rejection: globale (app-settings)
+  // --- Menu ⋯: palm rejection (globale) ---
   document.getElementById('palmRejectionCheck')
     ?.addEventListener('change', (e) => {
       updateSettings({ palmRejection: e.target.checked });
       togglePalmRejection(e.target.checked);
     });
 
-  // Eraser mode: per-notebook (toolbar-settings)
+  // --- Dock Gomma: eraser mode ---
   document.getElementById('eraserModeSelect')
     ?.addEventListener('change', (e) => {
       updateToolbarSettings({ eraserMode: e.target.value });
     });
-
-  document.getElementById('subbarCollapseBtn')
-    ?.addEventListener('click', toggleSubbar);
-  document.getElementById('subbarExpandBtn')
-    ?.addEventListener('click', toggleSubbar);
 
   // --- Zoom badge ---
   document.getElementById('resetZoomBtn')
@@ -125,20 +119,17 @@ export function bindEditorUI() {
   initCompactFullscreenSync();
 
   // --- Sincronizza controlli con lo stato corrente ---
-  // (applyActiveToolToUI è chiamato da setTool + toolbar-settings init;
-  // qui non serve ripeterlo.)
-  applySmoothingToUI();
   applyPalmRejectionToUI();
   applyEraserModeToUI();
+  applySnapTogglesToUI();
+  applyEraserLevelToUI();
   initUndoRedoDrag();
 }
 
-function applySmoothingToUI() {
-  const s = getToolbarSettings();
-  const slider = document.getElementById('smoothingSlider');
-  const label  = document.getElementById('smoothingValue');
-  if (slider) slider.value = s.smoothing;
-  if (label)  label.innerText = s.smoothing;
+function closeOverflowMenu() {
+  // Chiude il menu ⋯ (rimuove .open da panel + backdrop)
+  document.getElementById('toolbarMenuPanel')?.classList.remove('open');
+  document.getElementById('toolbarMenuBackdrop')?.classList.remove('open');
 }
 
 function applyPalmRejectionToUI() {

@@ -12,7 +12,10 @@ import {
   installViewportResizeObserver, refreshCanvasResolution, centerViewport
 } from './pages.js';
 import { pagePool } from './page-pool.js';
-import { refreshPageCounter } from '../toolbar/toolbar.js';
+import {
+  refreshPageCounter,
+  applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI
+} from '../toolbar/toolbar.js';
 import { resetHistory, pushHistory } from '../history/history.js';
 import {
   setViewportChangeHandler, applyTransform, clampViewport, invalidateClampCache
@@ -49,11 +52,16 @@ export async function openNotebook(id) {
 
   setCurrentNotebook(nb);
   initToolbarSettings(nb.toolbarSettings || null);
-  applyToolbarControlsToUI();
 
   document.getElementById('docTitle').value = nb.title;
   state.bgPattern = nb.pattern || 'ruled';
-  document.getElementById('bgPatternSelect').value = state.bgPattern;
+
+  // Sincronizza la UI della toolbar v2 con il nuovo stato.
+  // NOTA: in v1 qui si faceva `#bgPatternSelect.value = ...`.
+  // Quel select non esiste più: il pattern ora è un popover con
+  // bottoni gestiti da toolbar.js. `applyBgPatternToUI()` riflette
+  // `state.bgPattern` nel bottone attivo del popover.
+  applyToolbarControlsToUI();
 
   pagePool.reset();
 
@@ -150,8 +158,17 @@ export function closeNotebookIfOpen(id) {
   }
 }
 
+/**
+ * Sincronizza la UI della toolbar v2 con lo stato corrente.
+ * - #smoothingSlider, #eraserModeSelect, #palmRejectionCheck esistono
+ *   ancora (dock Scrittura + dock Gomma + menu ⋯).
+ * - Il pattern NON è più un <select>: si aggiorna col popover Foglio
+ *   tramite applyBgPatternToUI().
+ * - I due toggle auto-shape v2 si aggiornano con applySnapTogglesToUI().
+ */
 function applyToolbarControlsToUI() {
   const s = getToolbarSettings();
+
   const slider = document.getElementById('smoothingSlider');
   const label  = document.getElementById('smoothingValue');
   if (slider) slider.value = s.smoothing;
@@ -162,4 +179,10 @@ function applyToolbarControlsToUI() {
 
   const palmCheck = document.getElementById('palmRejectionCheck');
   if (palmCheck) palmCheck.checked = getSettings().palmRejection !== false;
+
+  // Nuovi toggle v2
+  applySnapTogglesToUI();
+  applyEraserLevelToUI();
+  // Riflette state.bgPattern nel bottone del popover Foglio
+  applyBgPatternToUI();
 }

@@ -3,6 +3,11 @@
  *
  * TOOL INK — pen / pencil / marker / highlighter unificati.
  *
+ * Split auto-shape (v2):
+ *   - snapLines  → trySnapToLine (linee dritte)
+ *   - snapShapes → detectAndSnapShape (cerchio/rettangolo),
+ *                  trySnapHighlighter (evidenziatore raddrizzato)
+ *
  * Differenze per tool al blit:
  *   - pen/marker: source-over, alpha = stroke.opacity
  *   - pencil: source-over, alpha = stroke.opacity, ma il colore ha
@@ -109,17 +114,21 @@ export function endInkStroke(pageData) {
   const pts = stroke.points;
 
   let snapped = false;
-  if (pts.length > 2 && state.autoShapeEnabled) {
+  if (pts.length > 2) {
     if (state.activeTool === 'highlighter') {
-      if (trySnapHighlighter(stroke)) {
+      // Highlighter: solo snapShapes (raddrizzamento rettangoli).
+      if (state.snapShapes && trySnapHighlighter(stroke)) {
         showToast('Evidenziatore raddrizzato', '🖍️');
         snapped = true;
       }
     } else if (SHAPE_CAPABLE_TOOLS.includes(state.activeTool)) {
-      if (trySnapToLine(stroke)) {
+      // Pen/pencil/marker: prima linee, poi forme geometriche.
+      // Ordine: una linea retta non deve essere interpretata come
+      // "rettangolo degenere"; per questo linee vengono controllate prima.
+      if (state.snapLines && trySnapToLine(stroke)) {
         showToast('Linea agganciata', '📏');
         snapped = true;
-      } else if (detectAndSnapShape(stroke, pageData)) {
+      } else if (state.snapShapes && detectAndSnapShape(stroke, pageData)) {
         snapped = true;
       }
     }

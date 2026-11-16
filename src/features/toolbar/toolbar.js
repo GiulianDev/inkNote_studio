@@ -1,28 +1,22 @@
 /**
  * @module features/toolbar/toolbar
  *
- * FEATURE TOOLBAR — markup + UI + azioni utente.
+ * FEATURE TOOLBAR v2 — mainbar + dock contestuali.
  *
- * Layout priority+:
- *   - Ogni elemento ha data-priority (100 = essentials, mai nel panel;
- *     numeri più bassi = meno importanti, primi a essere spostati).
- *   - _layoutToolbar() riporta TUTTI gli opzionali in toolbar, poi
- *     sposta nel panel quelli che non ci stanno (priorità minima prima).
- *   - Se anche gli essentials (pen, lasso, eraser, swatch) non ci stanno,
- *     vengono spostati nel panel con priorità più bassa di menuBtn.
- *     menuBtn non viene MAI spostato: è sempre visibile in toolbar.
- *   - Quando lo spazio aumenta, gli elementi riappaiono uno ad uno
- *     in ordine di priorità.
+ * Struttura:
+ *   - mainbar (header): back, titolo, 5 menu (writing/selection/shapes/eraser/page),
+ *     azioni (⋯, ⚙️, 🌙, PDF, compact)
+ *   - dock contestuali: flottanti sotto la mainbar. Uno per menu.
+ *     Visibile solo quello del menu attivo.
+ *   - popover Foglio: one-shot, non è un dock.
+ *   - menu ⋯: azioni rare (nuova pagina, pulisci, palm rejection, impostazioni).
  *
- * Trigger di _layoutToolbar():
- *   - ResizeObserver su wrapper + toolbar
- *   - window.resize
- *   - MutationObserver su body (data-dock-size, class dark/light)
- *   - document.fonts.ready
- *   - window.load
- *   - Timer di safety a 100ms, 300ms, 600ms, 1000ms dopo il mount
- *   - Chiamata esplicita dopo setTool (cambia la visibilità degli
- *     elementi in base al tool attivo, es. opacity)
+ * Gestione stato menu:
+ *   - `_mainMenu` è runtime-only (non persistito). Vive in questo file.
+ *   - `setMainMenu(menu)` è la fonte di verità per il menu attivo.
+ *   - `setTool(toolName)` è chiamato da keyboard shortcut e pulsanti dock:
+ *     deriva `_mainMenu` dal tool (eccetto 'shapes' che è un menu "modale"
+ *     e non un tool).
  */
 
 import './toolbar.css';
@@ -35,9 +29,27 @@ import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
   updateToolbarSettings, getEraserRadius
 } from './toolbar-settings.js';
+import { changeBackgroundPattern } from '../editor/pages.js';
 import { clearSelection } from '../tools/lazo.js';
 
 let _mounted = false;
+
+// ============================================================
+// MENU CONTESTUALE (runtime-only)
+// ============================================================
+
+/** @type {'writing'|'selection'|'shapes'|'eraser'|'page'} */
+let _mainMenu = 'writing';
+
+const WRITING_TOOLS = ['pen', 'pencil', 'marker', 'highlighter'];
+
+const MENU_TO_DEFAULT_TOOL = {
+  writing:   'pen',
+  selection: 'lasso',
+  shapes:    null,
+  eraser:    'eraser',
+  page:      null
+};
 
 // ============================================================
 // MOUNT
@@ -52,15 +64,69 @@ export function mountToolbar() {
   if (!mount) return;
   mount.insertAdjacentHTML('beforebegin', toolbarHtml);
   mount.remove();
-  _setupEraserButton();
   _setupColorPopover();
-  _setupResponsiveToolbar();
+  _setupMenuOverflow();
+  _setupPagePopover();
+  _setupDockButtons();
+  _setMainMenu('writing', { silent: true });
   _mounted = true;
 }
 
 export function refreshPageCounter() {
   const el = document.getElementById('pageCounterText');
   if (el) el.innerText = `Pagina ${state.activePageIndex + 1} di ${state.pages.length}`;
+}
+
+// ============================================================
+// MENU CONTESTUALE
+// ============================================================
+
+export function getMainMenu() { return _mainMenu; }
+
+export function setMainMenu(menu, opts = {}) {
+  _setMainMenu(menu, opts);
+}
+
+function _setMainMenu(menu, opts = {}) {
+  if (!['writing', 'selection', 'shapes', 'eraser', 'page'].includes(menu)) return;
+
+  const defaultTool = MENU_TO_DEFAULT_TOOL[menu];
+  if (defaultTool && state.activeTool !== defaultTool) {
+    updateToolbarSettings({ activeTool: defaultTool });
+  }
+
+  _mainMenu = menu;
+  _applyMenuToDOM();
+
+  document.querySelectorAll('.main-menu-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.menu === menu);
+  });
+
+  if (menu === 'page') {
+    showPagePopover();
+  } else {
+    hidePagePopover();
+  }
+
+  if (!opts.silent) {
+    applyActiveToolToUI();
+    applySnapTogglesToUI();
+    applyEraserLevelToUI();
+  }
+}
+
+function _applyMenuToDOM() {
+  const docks = {
+    writing:   document.getElementById('dockWriting'),
+    selection: document.getElementById('dockSelection'),
+    shapes:    document.getElementById('dockShapes'),
+    eraser:    document.getElementById('dockEraser')
+  };
+  for (const [name, el] of Object.entries(docks)) {
+    if (!el) continue;
+    el.classList.toggle('hidden', name !== _mainMenu);
+  }
+  if (_mainMenu !== 'page') hidePagePopover();
 }
 
 // ============================================================
@@ -71,24 +137,34 @@ export function setTool(toolName) {
   updateToolbarSettings({ activeTool: toolName });
   clearSelection();
 
+  if (WRITING_TOOLS.includes(toolName)) {
+    _mainMenu = 'writing';
+  } else if (toolName === 'lasso') {
+    _mainMenu = 'selection';
+  } else if (toolName === 'eraser') {
+    _mainMenu = 'eraser';
+  }
+
+  _applyMenuToDOM();
+  document.querySelectorAll('.main-menu-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.menu === _mainMenu);
+  });
+
   document.querySelectorAll('.tool-btn').forEach(btn => {
-    btn.classList.remove('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+    btn.classList.remove('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
   });
   const activeBtn = document.getElementById(`btnTool-${toolName}`);
-  if (activeBtn) activeBtn.classList.add('bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  if (activeBtn) {
+    activeBtn.classList.add('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  }
 
   applyActiveToolToUI();
+  applyEraserLevelToUI();
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
-
-  // Il cambio tool può cambiare la visibilità degli elementi
-  // (es. opacity diversa nel popover, palette highlighter).
-  // Rilayout per sicurezza.
-  _requestLayout();
 }
 
 export function applyActiveToolToUI() {
   if (state.activeTool === 'eraser' || state.activeTool === 'lasso') {
-    _updateCurrentColorSwatch();
     return;
   }
 
@@ -106,14 +182,9 @@ export function applyActiveToolToUI() {
   const picker = document.getElementById('customColorPicker');
   if (picker) picker.value = conf.color;
 
-  _updateCurrentColorSwatch();
-}
-
-function _updateCurrentColorSwatch() {
-  const el = document.getElementById('currentColorSwatch');
-  if (!el) return;
-  const conf = getActiveToolConfig();
-  el.style.backgroundColor = conf.color;
+  const opacityVal = conf.opacity != null ? conf.opacity : 1.0;
+  const opacityEl = document.getElementById('opacityValue');
+  if (opacityEl) opacityEl.innerText = `${Math.round(opacityVal * 100)}%`;
 }
 
 // ============================================================
@@ -172,7 +243,6 @@ export function selectColor(colorHex, element) {
 
   saveRecentColor(colorHex);
   _refreshPopoverPreview();
-  _updateCurrentColorSwatch();
 }
 
 export function updateStrokeWidth(val) {
@@ -199,42 +269,45 @@ export function updateOpacity(val) {
     tools: { ...current.tools, [toolName]: { ...tool, opacity } }
   });
   _refreshPopoverPreview();
+  const opacityEl = document.getElementById('opacityValue');
+  if (opacityEl) opacityEl.innerText = `${Math.round(opacity * 100)}%`;
 }
 
 // ============================================================
-// AUTO-SHAPE / SMOOTHING / SUBBAR / COMPACT / THEME
+// SNAP TOGGLES (dock Forme)
 // ============================================================
 
-export function toggleAutoShape() {
-  const next = !getToolbarSettings().autoShapeEnabled;
-  updateToolbarSettings({ autoShapeEnabled: next });
-  updateAutoShapeButtonUI();
+export function toggleSnapLines() {
+  const next = !getToolbarSettings().snapLines;
+  updateToolbarSettings({ snapLines: next });
+  applySnapTogglesToUI();
   showToast(
-    next
-      ? 'Auto-Forme ATTIVE: le forme disegnate verranno raddrizzate'
-      : 'Auto-Forme DISATTIVATE: disegno libero',
-    next ? '✨' : '✏️'
+    next ? 'Linee dritte: riconoscimento attivo' : 'Linee dritte: riconoscimento disattivato',
+    next ? '📏' : '🚫'
   );
 }
 
-export function updateAutoShapeButtonUI() {
-  const btn = document.getElementById('btnToggleAutoShape');
-  if (!btn) return;
-  const icon  = document.getElementById('autoShapeIcon');
-  const label = document.getElementById('autoShapeLabel');
-  const enabled = getToolbarSettings().autoShapeEnabled;
-  if (enabled) {
-    btn.classList.add('auto-shape-on'); btn.classList.remove('auto-shape-off');
-    if (icon)  icon.innerText  = '✨';
-    if (label) label.innerText = 'Auto-Forme';
-    btn.title = 'Auto-Forme ATTIVE: clicca per disattivare';
-  } else {
-    btn.classList.remove('auto-shape-on'); btn.classList.add('auto-shape-off');
-    if (icon)  icon.innerText  = '🚫';
-    if (label) label.innerText = 'Auto-Forme OFF';
-    btn.title = 'Auto-Forme DISATTIVATE: clicca per attivare';
-  }
+export function toggleSnapShapes() {
+  const next = !getToolbarSettings().snapShapes;
+  updateToolbarSettings({ snapShapes: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Forme geometriche: riconoscimento attivo' : 'Forme geometriche: riconoscimento disattivato',
+    next ? '◻️' : '🚫'
+  );
 }
+
+export function applySnapTogglesToUI() {
+  const s = getToolbarSettings();
+  const linesEl = document.getElementById('snapLinesToggle');
+  const shapesEl = document.getElementById('snapShapesToggle');
+  if (linesEl)  linesEl.checked  = s.snapLines !== false;
+  if (shapesEl) shapesEl.checked = s.snapShapes !== false;
+}
+
+// ============================================================
+// SMOOTHING
+// ============================================================
 
 export function updateSmoothing(val) {
   const intVal = parseInt(val);
@@ -243,147 +316,187 @@ export function updateSmoothing(val) {
   if (label) label.innerText = intVal;
 }
 
-export function toggleSubbar() {
-  updateToolbarSettings({ subbarVisible: !state.subbarVisible });
-  setTimeout(() => window.dispatchEvent(new Event('resize')), 320);
-}
-
-export function toggleCompactMode() {
-  const next = !state.compactMode;
-  updateToolbarSettings({ compactMode: next });
-  try {
-    if (next && !document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else if (!next && document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-  } catch {}
-  showToast(
-    next ? 'Schermo intero attivo' : 'Modalità completa ripristinata',
-    next ? '⛶' : '↩️'
-  );
-  setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
-}
-
-export function initCompactFullscreenSync() {
-  document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && state.compactMode) {
-      updateToolbarSettings({ compactMode: false });
-      setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
-    }
-  });
-}
-
-export function toggleTheme() {
-  const next = state.isDarkMode ? 'light' : 'dark';
-  updateSettings({ theme: next });
-}
-
 // ============================================================
-// ERASER MENU
+// ERASER (dock Gomma)
 // ============================================================
 
-function _saveEraserSize(level) {
-  const n = Math.max(1, Math.min(5, level));
-  updateToolbarSettings({ eraserSize: n });
-}
-
-function _updateEraserMenuUI() {
-  const menu = document.getElementById('eraserSizeMenu');
-  if (!menu) return;
+export function applyEraserLevelToUI() {
   const lvl = state.eraserSize || 3;
-  menu.querySelectorAll('[data-eraser-level]').forEach(btn => {
+  document.querySelectorAll('.eraser-level-btn').forEach(btn => {
     const isActive = parseInt(btn.dataset.eraserLevel) === lvl;
-    btn.classList.toggle('ring-2', isActive);
-    btn.classList.toggle('ring-indigo-500', isActive);
-    btn.classList.toggle('bg-indigo-50', isActive);
-    btn.classList.toggle('dark:bg-indigo-900/40', isActive);
+    btn.classList.toggle('active', isActive);
   });
-}
-
-export function showEraserSizeMenu() {
-  const menu = document.getElementById('eraserSizeMenu');
-  const btn  = document.getElementById('btnTool-eraser');
-  if (!menu || !btn) return;
-  menu.classList.remove('hidden');
-  const r = btn.getBoundingClientRect();
-  const mw = menu.offsetWidth  || 220;
-  const mh = menu.offsetHeight || 56;
-  let left = r.left + r.width / 2 - mw / 2;
-  let top  = r.top - mh - 10;
-  left = Math.max(8, Math.min(window.innerWidth - mw - 8, left));
-  top  = Math.max(8, top);
-  menu.style.left = `${left}px`;
-  menu.style.top  = `${top}px`;
-  _updateEraserMenuUI();
-}
-
-export function hideEraserSizeMenu() {
-  const menu = document.getElementById('eraserSizeMenu');
-  if (menu) menu.classList.add('hidden');
+  const modeEl = document.getElementById('eraserModeSelect');
+  if (modeEl) modeEl.value = getToolbarSettings().eraserMode || 'stroke';
 }
 
 export function selectEraserLevel(level) {
-  _saveEraserSize(level);
-  _updateEraserMenuUI();
-  hideEraserSizeMenu();
+  const n = Math.max(1, Math.min(5, level));
+  updateToolbarSettings({ eraserSize: n });
+  applyEraserLevelToUI();
+  if (state.activeTool !== 'eraser') setTool('eraser');
   const labels = ['Piccola', 'Medio-piccola', 'Media', 'Medio-grande', 'Grande'];
-  showToast(`Gomma: ${labels[level - 1] || 'Media'}`, '🧹');
+  showToast(`Gomma: ${labels[n - 1] || 'Media'}`, '🧹');
 }
 
-function _setupEraserButton() {
-  const btn = document.getElementById('btnTool-eraser');
-  const menu = document.getElementById('eraserSizeMenu');
-  if (!btn || !menu) return;
+// ============================================================
+// PAGE POPOVER (Foglio)
+// ============================================================
 
-  let pressTimer = null;
-  let skipNextClick = false;
-
-  const cancelTimer = () => {
-    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-  };
-
-  btn.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return;
-    skipNextClick = false;
-    cancelTimer();
-    pressTimer = setTimeout(() => {
-      pressTimer = null;
-      skipNextClick = true;
-      showEraserSizeMenu();
-      if (navigator.vibrate) { try { navigator.vibrate(10); } catch (err) {} }
-    }, 500);
+function _setupPagePopover() {
+  document.querySelectorAll('.page-pattern-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      changeBackgroundPattern(btn.dataset.pattern);
+      _setActivePatternButton(btn.dataset.pattern);
+      hidePagePopover();
+      _mainMenu = 'writing';
+      _applyMenuToDOM();
+      document.querySelectorAll('.main-menu-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.menu === 'writing');
+      });
+    });
   });
+}
 
-  btn.addEventListener('pointerup', cancelTimer);
-  btn.addEventListener('pointercancel', () => { cancelTimer(); skipNextClick = true; });
-  btn.addEventListener('pointerleave', cancelTimer);
+export function showPagePopover() {
+  const popover = document.getElementById('pagePopover');
+  if (!popover) return;
+  _setActivePatternButton(state.bgPattern);
+  popover.classList.remove('hidden');
+}
+
+export function hidePagePopover() {
+  const popover = document.getElementById('pagePopover');
+  if (popover) popover.classList.add('hidden');
+}
+
+function _setActivePatternButton(pattern) {
+  document.querySelectorAll('.page-pattern-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.pattern === pattern);
+  });
+}
+
+/**
+ * Riflette `state.bgPattern` nel bottone attivo del popover Foglio.
+ * Chiamata da `editor.js` all'apertura di un notebook (in v1 faceva
+ * `document.getElementById('bgPatternSelect').value = ...`, ma quel
+ * select non esiste più).
+ */
+export function applyBgPatternToUI() {
+  _setActivePatternButton(state.bgPattern);
+}
+
+// ============================================================
+// MENU ⋯ (overflow)
+// ============================================================
+
+let _toolbarMenuOpen = false;
+
+function _setupMenuOverflow() {
+  const btn = document.getElementById('toolbarMenuBtn');
+  const backdrop = document.getElementById('toolbarMenuBackdrop');
+  if (!btn || !backdrop) return;
 
   btn.addEventListener('click', (e) => {
-    if (skipNextClick) { skipNextClick = false; e.preventDefault(); return; }
-    setTool('eraser');
+    e.stopPropagation();
+    _toggleToolbarMenu();
   });
 
-  btn.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    cancelTimer();
-    showEraserSizeMenu();
+  backdrop.addEventListener('click', _closeToolbarMenu);
+
+  document.addEventListener('pointerdown', (e) => {
+    if (!_toolbarMenuOpen) return;
+    const panel = document.getElementById('toolbarMenuPanel');
+    const button = document.getElementById('toolbarMenuBtn');
+    if (!panel || !button) return;
+    if (panel.contains(e.target) || button.contains(e.target)) return;
+    _closeToolbarMenu();
+  });
+}
+
+function _toggleToolbarMenu() {
+  if (_toolbarMenuOpen) _closeToolbarMenu();
+  else _openToolbarMenu();
+}
+
+function _openToolbarMenu() {
+  const panel = document.getElementById('toolbarMenuPanel');
+  const backdrop = document.getElementById('toolbarMenuBackdrop');
+  if (!panel || !backdrop) return;
+
+  panel.classList.add('open');
+  backdrop.classList.add('open');
+  _positionMenuPanel();
+  _toolbarMenuOpen = true;
+}
+
+function _closeToolbarMenu() {
+  const panel = document.getElementById('toolbarMenuPanel');
+  const backdrop = document.getElementById('toolbarMenuBackdrop');
+  if (!panel || !backdrop) return;
+
+  panel.classList.remove('open');
+  backdrop.classList.remove('open');
+  _toolbarMenuOpen = false;
+}
+
+function _positionMenuPanel() {
+  const btn = document.getElementById('toolbarMenuBtn');
+  const panel = document.getElementById('toolbarMenuPanel');
+  if (!btn || !panel) return;
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const margin = 8;
+
+  const r = btn.getBoundingClientRect();
+  const pw = panel.offsetWidth || 260;
+  const ph = panel.offsetHeight || 260;
+
+  let left = r.right - pw;
+  left = Math.max(margin, Math.min(vw - pw - margin, left));
+
+  let top = r.bottom + 6;
+  if (top + ph > vh - margin) {
+    const above = r.top - ph - 6;
+    if (above >= margin) top = above;
+    else top = Math.max(margin, Math.min(vh - ph - margin, top));
+  }
+
+  panel.style.left = `${left}px`;
+  panel.style.top  = `${top}px`;
+}
+
+// ============================================================
+// DOCK BUTTONS (tool writing + eraser levels)
+// ============================================================
+
+function _setupDockButtons() {
+  ['pen', 'pencil', 'marker', 'highlighter'].forEach(name => {
+    const btn = document.getElementById(`btnTool-${name}`);
+    if (!btn) return;
+    btn.addEventListener('click', () => setTool(name));
   });
 
-  menu.querySelectorAll('[data-eraser-level]').forEach(levelBtn => {
-    levelBtn.addEventListener('click', (e) => {
+  document.querySelectorAll('.eraser-level-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const lvl = parseInt(levelBtn.dataset.eraserLevel);
+      const lvl = parseInt(btn.dataset.eraserLevel);
       if (lvl >= 1 && lvl <= 5) selectEraserLevel(lvl);
-      if (state.activeTool !== 'eraser') setTool('eraser');
     });
   });
 
-  document.addEventListener('pointerdown', (e) => {
-    if (menu.classList.contains('hidden')) return;
-    if (menu.contains(e.target) || btn.contains(e.target)) return;
-    hideEraserSizeMenu();
-  });
+  document.getElementById('snapLinesToggle')
+    ?.addEventListener('change', toggleSnapLines);
+  document.getElementById('snapShapesToggle')
+    ?.addEventListener('change', toggleSnapShapes);
+
+  document.getElementById('opacityBtn')
+    ?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showColorPickerPopover(e.currentTarget);
+    });
 }
 
 // ============================================================
@@ -489,285 +602,36 @@ function _setupColorPopover() {
 }
 
 // ============================================================
-// RESPONSIVE TOOLBAR (priority+ pattern)
+// COMPACT / THEME
 // ============================================================
-//
-// Bug fix (menuBtn che "non sempre compare"):
-//   1. _layoutToolbar() ora è triggerata da più fonti (ResizeObserver
-//      wrapper+toolbar, window.resize, MutationObserver su body per
-//      data-dock-size e class, document.fonts.ready, window.load,
-//      timer multipli 100/300/600/1000ms).
-//   2. menuBtn viene mostrato SEMPRE se c'è overflow residuo
-//      (anche con panel vuoto), così l'utente ha un punto di
-//      accesso anche se gli essentials non ci stanno tutti.
-//   3. Se dopo aver spostato tutti gli opzionali la toolbar è
-//      ancora in overflow, vengono spostati nel panel anche gli
-//      essentials (pen, lasso, eraser, swatch) tranne menuBtn.
-//      Così menuBtn non viene MAI tagliato da overflow: hidden.
 
-let _layoutResizeTimer = null;
-let _layoutRO = null;
-let _layoutSafetyTimers = [];
-let _layoutMO = null;
-let _toolbarMenuOpen = false;
-let _toolbarItemsInOrder = [];
-let _layoutRafId = null;
-
-function _requestLayout() {
-  if (_layoutRafId !== null) return;
-  _layoutRafId = requestAnimationFrame(() => {
-    _layoutRafId = null;
-    _layoutToolbar();
-  });
-}
-
-function _setupResponsiveToolbar() {
-  const btn = document.getElementById('toolbarMenuBtn');
-  const backdrop = document.getElementById('toolbarMenuBackdrop');
-  const swatch = document.getElementById('currentColorSwatch');
-  if (!btn || !backdrop) return;
-
-  // Snapshot degli opzionali in ordine originale (tutti in toolbar al setup)
-  const toolbar = document.getElementById('drawingToolbar');
-  if (toolbar) {
-    _toolbarItemsInOrder = Array.from(toolbar.querySelectorAll('[data-priority]'))
-      .filter(el => parseInt(el.dataset.priority, 10) < 100);
-  }
-
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    _toggleToolbarMenu();
-  });
-
-  backdrop.addEventListener('click', _closeToolbarMenu);
-
-  swatch?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    showColorPickerPopover(swatch);
-  });
-
-  document.addEventListener('pointerdown', (e) => {
-    if (!_toolbarMenuOpen) return;
-    const panel = document.getElementById('toolbarMenuPanel');
-    const button = document.getElementById('toolbarMenuBtn');
-    if (!panel || !button) return;
-    if (panel.contains(e.target) || button.contains(e.target)) return;
-    _closeToolbarMenu();
-  });
-
-  // ResizeObserver su wrapper + toolbar
-  const wrapper = document.getElementById('toolbarCenterWrapper');
-  if (toolbar && wrapper && typeof ResizeObserver !== 'undefined') {
-    _layoutRO = new ResizeObserver(() => {
-      if (_layoutResizeTimer) clearTimeout(_layoutResizeTimer);
-      _layoutResizeTimer = setTimeout(_layoutToolbar, 80);
-    });
-    _layoutRO.observe(wrapper);
-    _layoutRO.observe(toolbar);
-  }
-
-  // Fallback e re-check su resize finestra
-  window.addEventListener('resize', () => {
-    if (_layoutResizeTimer) clearTimeout(_layoutResizeTimer);
-    _layoutResizeTimer = setTimeout(_layoutToolbar, 80);
-  });
-
-  // MutationObserver: quando cambia data-dock-size o la classe dark
-  // sul body, la dimensione dei bottoni cambia ma il wrapper no.
-  // Il ResizeObserver non triggera → serve questo observer.
-  if (typeof MutationObserver !== 'undefined') {
-    _layoutMO = new MutationObserver(() => {
-      if (_layoutResizeTimer) clearTimeout(_layoutResizeTimer);
-      _layoutResizeTimer = setTimeout(_layoutToolbar, 80);
-    });
-    _layoutMO.observe(document.body, {
-      attributes: true,
-      attributeFilter: ['data-dock-size', 'class']
-    });
-  }
-
-  // Primo layout
-  _requestLayout();
-
-  // Re-check dopo il caricamento dei font
-  if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(() => _requestLayout());
-  }
-
-  // Re-check dopo il load completo
-  if (document.readyState === 'complete') {
-    _requestLayout();
-  } else {
-    window.addEventListener('load', () => _requestLayout(), { once: true });
-  }
-
-  // Safety net: più tentativi per coprire device lenti e reflow
-  // successivi al mount (canvas, prediction, ecc.)
-  [100, 300, 600, 1000, 2000].forEach(ms => {
-    const t = setTimeout(_layoutToolbar, ms);
-    _layoutSafetyTimers.push(t);
-  });
-
-  _updateCurrentColorSwatch();
-}
-
-/**
- * Elementi spostabili nel panel: prima gli opzionali (priority < 100),
- * poi gli essentials in caso di necessità (pen, lasso, eraser, swatch).
- * menuBtn non è MAI spostabile.
- */
-function _getMoveableElements(toolbar) {
-  const order = [];
-  // 1. Opzionali in ordine di priorità crescente (i meno prioritari
-  //    vengono spostati per primi)
-  const optionals = _toolbarItemsInOrder
-    .filter(el => el.parentElement === toolbar)
-    .sort((a, b) =>
-      parseInt(a.dataset.priority, 10) - parseInt(b.dataset.priority, 10)
-    );
-  order.push(...optionals);
-
-  // 2. Essentials in ordine di priorità crescente, escluso menuBtn
-  const essentials = Array.from(toolbar.querySelectorAll('[data-priority]'))
-    .filter(el => {
-      const p = parseInt(el.dataset.priority, 10);
-      return p >= 100 && el.id !== 'toolbarMenuBtn';
-    })
-    .sort((a, b) =>
-      parseInt(a.dataset.priority, 10) - parseInt(b.dataset.priority, 10)
-    );
-  order.push(...essentials);
-
-  return order;
-}
-
-function _layoutToolbar() {
-  const toolbar = document.getElementById('drawingToolbar');
-  const panel = document.getElementById('toolbarMenuPanel');
-  const menuBtn = document.getElementById('toolbarMenuBtn');
-  const swatch = document.getElementById('currentColorSwatch');
-  const palette = document.getElementById('colorPalette');
-  if (!toolbar || !panel || !menuBtn || !swatch || !palette) return;
-
-  if (toolbar.clientWidth === 0) return;
-
-  // Fase 1: riporta TUTTI gli elementi spostabili in toolbar,
-  // in ordine originale, con DocumentFragment.
-  // (Include essentials spostati in caso di overflow estremo.)
-  if (panel.children.length > 0) {
-    const fragment = document.createDocumentFragment();
-    // Ordine: opzionali nell'ordine originale di _toolbarItemsInOrder,
-    // poi essentials nell'ordine originale del DOM (prima di swatch).
-    for (const el of _toolbarItemsInOrder) {
-      fragment.appendChild(el);
+export function toggleCompactMode() {
+  const next = !state.compactMode;
+  updateToolbarSettings({ compactMode: next });
+  try {
+    if (next && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else if (!next && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
     }
-    // Riporta anche eventuali essentials spostati (escluso menuBtn),
-    // nella loro posizione originale (prima di swatch).
-    const essentialsMoved = Array.from(panel.querySelectorAll('[data-priority]'))
-      .filter(el => parseInt(el.dataset.priority, 10) >= 100);
-    for (const el of essentialsMoved) {
-      fragment.appendChild(el);
+  } catch {}
+  showToast(
+    next ? 'Schermo intero attivo' : 'Modalità completa ripristinata',
+    next ? '⛶' : '↩️'
+  );
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+}
+
+export function initCompactFullscreenSync() {
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && state.compactMode) {
+      updateToolbarSettings({ compactMode: false });
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
     }
-    toolbar.insertBefore(fragment, swatch);
-  }
-
-  // Fase 2: while overflow, sposta nel panel l'elemento spostabile
-  // con priorità minima. Include essentials in caso di necessità.
-  let iterations = 0;
-  while (toolbar.scrollWidth > toolbar.clientWidth + 1 && iterations < 40) {
-    iterations++;
-    const moveable = _getMoveableElements(toolbar);
-    const victim = moveable[0];
-    if (!victim) break;
-    panel.appendChild(victim);
-  }
-
-  // Fase 3: currentColorSwatch visibile solo se palette è nel panel
-  const paletteInToolbar = palette.parentElement === toolbar;
-  swatch.style.display = paletteInToolbar ? 'none' : '';
-
-  // Fase 4: menuBtn visibile SEMPRE se:
-  //   - c'è almeno un elemento nel panel, OPPURE
-  //   - c'è overflow residuo (toolbar tagliata)
-  // Così l'utente ha sempre un punto di accesso quando qualcosa
-  // non ci sta, anche se il panel è vuoto (caso limite).
-  const overflow = toolbar.scrollWidth > toolbar.clientWidth + 1;
-  const shouldShowMenu = panel.children.length > 0 || overflow;
-  menuBtn.style.display = shouldShowMenu ? '' : 'none';
-
-  if (!shouldShowMenu && _toolbarMenuOpen) {
-    _closeToolbarMenu();
-  }
-
-  if (_toolbarMenuOpen) {
-    _positionMenuPanel();
-  }
+  });
 }
 
-function _positionMenuPanel() {
-  const toolbar = document.getElementById('drawingToolbar');
-  const panel = document.getElementById('toolbarMenuPanel');
-  if (!toolbar || !panel) return;
-
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const margin = 8;
-
-  const maxW = Math.min(480, vw - margin * 2);
-  const minW = Math.min(260, vw - margin * 2);
-  panel.style.width = '';
-  panel.style.maxWidth = `${maxW}px`;
-  panel.style.minWidth = `${minW}px`;
-  panel.style.right = 'auto';
-
-  const panelRect = panel.getBoundingClientRect();
-  const toolbarRect = toolbar.getBoundingClientRect();
-
-  let left = toolbarRect.left + toolbarRect.width / 2 - panelRect.width / 2;
-  left = Math.max(margin, Math.min(vw - panelRect.width - margin, left));
-
-  let top = toolbarRect.bottom + 8;
-  if (top + panelRect.height > vh - margin) {
-    const topAbove = toolbarRect.top - panelRect.height - 8;
-    if (topAbove >= margin) {
-      top = topAbove;
-    } else {
-      top = Math.max(margin, Math.min(vh - panelRect.height - margin, top));
-    }
-  }
-
-  panel.style.left = `${left}px`;
-  panel.style.top = `${top}px`;
-}
-
-function _toggleToolbarMenu() {
-  if (_toolbarMenuOpen) _closeToolbarMenu();
-  else _openToolbarMenu();
-}
-
-function _openToolbarMenu() {
-  const panel = document.getElementById('toolbarMenuPanel');
-  const backdrop = document.getElementById('toolbarMenuBackdrop');
-  if (!panel || !backdrop) return;
-  if (panel.children.length === 0) return;
-
-  // Rendi visibile il panel (con visibility hidden) per misurarlo
-  panel.style.visibility = 'hidden';
-  panel.classList.add('open');
-  backdrop.classList.add('open');
-
-  _positionMenuPanel();
-
-  panel.style.visibility = '';
-  _toolbarMenuOpen = true;
-}
-
-function _closeToolbarMenu() {
-  const panel = document.getElementById('toolbarMenuPanel');
-  const backdrop = document.getElementById('toolbarMenuBackdrop');
-  if (!panel || !backdrop) return;
-
-  panel.classList.remove('open');
-  backdrop.classList.remove('open');
-  _toolbarMenuOpen = false;
+export function toggleTheme() {
+  const next = state.isDarkMode ? 'light' : 'dark';
+  updateSettings({ theme: next });
 }

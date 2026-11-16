@@ -226,8 +226,11 @@ function _runPostBatchChecks(pageData) {
   if (!state.currentStroke || !state.isDrawing) return;
   if (state.pendingShape) return;
 
+  // Snap in tempo reale SOLO per linee dritte (snapLines).
+  // Le forme geometriche (cerchio/rettangolo) sono riconosciute
+  // solo al pointerup (endInkStroke) perché richiedono il path completo.
   // Batch B: throttle a 1 check ogni 10 punti.
-  if (!state.scribbleMode && state.autoShapeEnabled &&
+  if (!state.scribbleMode && state.snapLines &&
       SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
       pts.length >= 6 && pts.length < 200) {
     const lastCheck = state.currentStroke._lastSnapCheck || 0;

@@ -171,6 +171,7 @@
  * @typedef {Object} ToolConfig
  * @property {string} color hex
  * @property {number} width 1..25
+ * @property {number} opacity 0.1..1.0
  */
 
 /**
@@ -178,13 +179,19 @@
  * (`notebook.toolbarSettings`).
  * Vedi features/toolbar/toolbar-settings.js::DEFAULT_TOOLBAR_SETTINGS.
  *
+ * Cambiamenti v2:
+ *   - `autoShapeEnabled` (boolean) → sostituito da
+ *     `snapLines` + `snapShapes` (migrazione soft: se mancano entrambi,
+ *     vengono inizializzati dal vecchio `autoShapeEnabled`)
+ *   - `subbarVisible` rimosso (la subbar non esiste più)
+ *
  * @typedef {Object} ToolbarSettings
  * @property {Object.<StrokeTool, ToolConfig>} tools
  * @property {number} eraserSize        1..5
  * @property {'stroke'|'point'} eraserMode
- * @property {boolean} autoShapeEnabled
+ * @property {boolean} snapLines        riconoscimento linee dritte
+ * @property {boolean} snapShapes       riconoscimento forme geometriche
  * @property {number} smoothing         0..100
- * @property {boolean} subbarVisible
  * @property {boolean} compactMode
  * @property {string[]} recentColors    array di hex
  */

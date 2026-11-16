@@ -10,7 +10,7 @@
  * IMPORTANTE — ownership:
  *   Alcuni campi di `state` sono CACHE scritte SOLO dai rispettivi store:
  *     - activeTool, currentColor, strokeWidth, eraserSize, eraserMode,
- *       autoShapeEnabled, smoothing, subbarVisible, compactMode
+ *       snapLines, snapShapes, smoothing, compactMode
  *       ← scritti da features/toolbar/toolbar-settings.js
  *     - isDarkMode, palmRejection, settings
  *       ← scritti da core/app-settings.js
@@ -68,31 +68,6 @@
  * @property {string} bgPattern
  */
 
-/**
- * Le impostazioni persistenti GLOBALI vivono in `core/app-settings.js`:
- *   - theme, printTheme, handedness, dockSize
- *   - pressureLight/Heavy/Curve, scrollSensitivity
- *   - palmRejection
- * `state.settings` è uno snapshot read-only dell'oggetto corrente
- * (aggiornato dallo store ad ogni `updateSettings`).
- * NON scrivere direttamente su `state.settings`: usa `updateSettings`.
- *
- * Le impostazioni per-notebook della TOOLBAR vivono in
- * `features/toolbar/toolbar-settings.js`:
- *   - tools.{pen,pencil,marker,highlighter}.{color,width}
- *   - eraserSize, eraserMode, autoShapeEnabled, smoothing
- *   - subbarVisible, compactMode, recentColors
- *   - activeTool (RUNTIME ONLY, non persistito)
- *
- * I campi seguenti di `state` sono CACHE di lettura veloce sincronizzate
- * dagli store: NON vanno scritti da fuori.
- *   - activeTool, currentColor, strokeWidth
- *   - eraserSize, eraserMode, autoShapeEnabled
- *   - smoothing, subbarVisible, compactMode   ← toolbar-settings
- *   - isDarkMode, palmRejection               ← app-settings
- *   - settings                                ← app-settings (snapshot)
- */
-
 // ------------------------------------------------------------
 // Stato applicativo principale
 // ------------------------------------------------------------
@@ -120,7 +95,15 @@ export const state = {
   eraserSize: 3,
   /** @type {'stroke'|'point'} modalità gomma */
   eraserMode: 'stroke',
-  /** @type {boolean} */
+  /** @type {boolean} riconoscimento linee dritte (auto-shape) */
+  snapLines: true,
+  /** @type {boolean} riconoscimento forme geometriche (cerchio/rettangolo/highlighter) */
+  snapShapes: true,
+  /**
+   * @deprecated Usare snapLines / snapShapes.
+   * Alias mantenuto per retrocompatibilità: true se almeno uno dei due è ON.
+   * Verrà rimosso in una versione futura.
+   */
   autoShapeEnabled: true,
   /** @type {number} 0..1 (frazione dello slider 0..100) */
   smoothing: 0.5,
@@ -190,8 +173,6 @@ export const state = {
   pendingShape: null,
 
   // --- UI flags globali ---
-  /** @type {boolean} */
-  subbarVisible: true,
   /** @type {boolean} */
   compactMode: false
 };

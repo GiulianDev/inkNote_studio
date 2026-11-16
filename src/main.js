@@ -30,7 +30,8 @@ import { redrawPageCanvas, redrawSelectionOverlay } from './features/render/rend
 import { setupViewportGestures } from './features/viewport/gestures.js';
 import { setupKeyboardShortcuts } from './features/shortcuts/keyboard.js';
 import {
-  updateAutoShapeButtonUI, renderRecentColors, applyActiveToolToUI,
+  renderRecentColors, applyActiveToolToUI,
+  applySnapTogglesToUI, applyEraserLevelToUI,
   mountToolbar
 } from './features/toolbar/toolbar.js';
 import { flushHistory } from './features/history/history.js';
@@ -90,14 +91,15 @@ window.addEventListener('load', async () => {
   onToolbarSettingsChanged(({ changed }) => {
     if (changed.includes('init') || changed.includes('reset')) {
       applyActiveToolToUI();
-      updateAutoShapeButtonUI();
+      applySnapTogglesToUI();
+      applyEraserLevelToUI();
       renderRecentColors();
       return;
     }
     // activeTool è runtime-only, non va persistito nel notebook.
     if (changed.length === 1 && changed[0] === 'activeTool') return;
     // Cambio preferenza toolbar (colore, spessore, smoothing,
-    // auto-shape, subbar, compact, eraserSize, eraserMode,
+    // snapLines, snapShapes, compact, eraserSize, eraserMode,
     // recentColors): persisti nel notebook.
     scheduleSave({ markDirty: false });
   });
@@ -110,7 +112,7 @@ window.addEventListener('load', async () => {
   setupViewportGestures();
   setupKeyboardShortcuts();
   applyActiveToolToUI();
-  updateAutoShapeButtonUI();
+  applySnapTogglesToUI();
   renderRecentColors();
 
   window.addEventListener('resize', () => refreshCanvasResolution(true));
