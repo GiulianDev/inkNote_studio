@@ -308,3 +308,24 @@ body.printing-pdf #newNotebookModal {
     width: 100%;
   }
 }
+
+/* ============================================================
+   UNDO/REDO — stato "dragging" (long-press attivo)
+   Durante il trascinamento il pannello diventa più opaco e
+   con ombra più forte, per staccarsi ancora di più dalla carta.
+   ============================================================ */
+#undoRedoContainer.undo-redo-dragging {
+  box-shadow:
+    0 16px 40px -8px rgba(15, 23, 42, 0.55),
+    0 6px 16px -4px rgba(15, 23, 42, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: scale(1.03);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+body.dark #undoRedoContainer.undo-redo-dragging {
+  box-shadow:
+    0 16px 40px -8px rgba(0, 0, 0, 0.85),
+    0 6px 16px -4px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.15);
+}

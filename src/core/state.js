@@ -230,3 +230,13 @@ export const viewport = {
   /** @type {{x:number, y:number, scale:number}} */
   pinchStartTransform: { x: 0, y: 0, scale: 1 }
 };
+
+// ------------------------------------------------------------
+// Stato autenticazione (Firebase)
+// ------------------------------------------------------------
+export const authState = {
+  /** @type {import('firebase/auth').User|null} */
+  user: null,
+  /** @type {boolean} */
+  loading: true
+};

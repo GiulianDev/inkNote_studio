@@ -1,15 +1,10 @@
 /* ============================================================
    TOOLBAR FEATURE — stili del dock + subbar + modalità compact.
    Importato da features/toolbar/toolbar.js.
-   Contiene SOLO regole che riguardano elementi della feature:
-   #mainHeader, #drawingToolbar, #subbar, #subbarCollapse/Expand.
-   Le regole su #viewport in compact mode restano in style.css.
    ============================================================ */
 
 /* ============================================================
    DOCK SCALABILE
-   Livelli: small / medium / large, controllati via
-   data-dock-size sul <body>.
    ============================================================ */
 
 body[data-dock-size="small"] {
@@ -93,7 +88,25 @@ body[data-dock-size="large"] {
 }
 
 /* ============================================================
-   AUTO-SHAPE TOGGLE (dentro il dock)
+   TOOLBAR — LARGHEZZA NATURALE LIMITATA AL WRAPPER
+   La toolbar occupa la sua larghezza naturale (fino a 100%
+   del wrapper). Su schermi grandi mostra TUTTI gli strumenti
+   in una riga. Su schermi piccoli il priority+ sposta gli
+   elementi meno prioritari nel panel ⋯.
+   ============================================================ */
+
+#drawingToolbar {
+  max-width: 100%;
+  overflow: hidden;
+  min-width: 0;
+}
+
+#currentColorSwatch {
+  cursor: pointer;
+}
+
+/* ============================================================
+   AUTO-SHAPE TOGGLE
    ============================================================ */
 #btnToggleAutoShape.auto-shape-off {
   opacity: .6;
@@ -121,7 +134,19 @@ body.dark #btnToggleAutoShape.auto-shape-on {
 }
 
 /* ============================================================
-   HANDEDNESS — elementi della toolbar che si specchiano
+   PANEL OVERFLOW
+   ============================================================ */
+
+#toolbarMenuPanel.open {
+  display: flex !important;
+}
+
+#toolbarMenuBackdrop.open {
+  display: block !important;
+}
+
+/* ============================================================
+   HANDEDNESS
    ============================================================ */
 body.handed-left header,
 body.handed-left #subbarContent {
@@ -146,10 +171,7 @@ body.handed-left #subbarContent {
 }
 
 /* ============================================================
-   COMPACT MODE — transizione dock ↔ fullscreen.
-   L'header diventa un dock flottante stile macOS; headerLeft,
-   headerRight, subbar e subbarExpandContainer spariscono.
-   Il viewport che occupa tutto lo schermo è gestito in style.css.
+   COMPACT MODE
    ============================================================ */
 
 body.compact-mode #headerLeft,
@@ -184,7 +206,6 @@ body.compact-mode.dark #mainHeader {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
 }
 
-/* Il dock interno diventa trasparente: il contenitore visivo è l'header */
 body.compact-mode #drawingToolbar {
   background: transparent;
   border-color: transparent;
@@ -192,7 +213,47 @@ body.compact-mode #drawingToolbar {
 }
 
 /* ============================================================
-   PRINT — nascondi la feature in stampa/PDF
+   HEADER — layout mobile
+   Toolbar su riga sotto l'header, centrata nel wrapper.
+   ============================================================ */
+@media (max-width: 767px) {
+  #mainHeader {
+    flex-wrap: wrap;
+  }
+  #toolbarCenterWrapper {
+    flex-basis: 100%;
+    order: 3;
+    margin-top: 6px;
+    justify-content: center;
+  }
+  #headerLeft {
+    order: 1;
+    flex: 1;
+    min-width: 0;
+  }
+  #headerRight {
+    order: 2;
+  }
+  #headerLeft .h-4.w-px {
+    display: none;
+  }
+  #headerLeft #docTitle {
+    max-width: 110px;
+  }
+  #headerRight #exportPdfBtn {
+    display: none;
+  }
+  #headerRight .dock-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+  #drawingToolbar {
+    max-width: 100%;
+  }
+}
+
+/* ============================================================
+   PRINT
    ============================================================ */
 @media print {
   header, #subbar, #subbarExpandContainer {
