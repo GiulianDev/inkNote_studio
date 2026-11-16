@@ -1,55 +1,85 @@
 /**
  * @module features/backup/serialization-cloud
  *
- * Serializzazione compressa per backup su file `.inknote`.
- * Isolato dal serialization.js esistente (usato per IDB): nessuna
- * modifica al flusso locale.
+ * Dispatcher: usa un Web Worker (inline, blob URL) se disponibile,
+ * altrimenti fallback al main thread.
  *
- * Trasforma PackedStroke[] (Float32Array stride 7 = 28 byte/punto)
- * in formato quantizzato (9 byte/punto) + gzip. Risparmio ~85-90%.
+ * Il worker è importato con `?worker&inline`:
+ *   - Vite lo bundle e lo inlina come blob URL nel file HTML
+ *   - Funziona anche quando l'HTML è aperto da file://
+ *   - Se il browser blocca comunque il worker (raro), fallback
+ *     al main thread: l'export/import funziona, un po' più lento.
  *
- * Lavoro delegato a un Web Worker per non bloccare il main thread
- * su notebook grandi.
+ * La logica vera è in serialization-cloud-core.js, condivisa
+ * con il worker.
  */
 
+import SerializationWorker from './serialization-cloud.worker.js?worker&inline';
+import { compressPageData, decompressPageData } from './serialization-cloud-core.js';
+
 let _worker = null;
+let _workerFailed = false;
 let _nextId = 1;
 const _pending = new Map();
 
 function _getWorker() {
+  if (_workerFailed) return null;
   if (_worker) return _worker;
-  _worker = new Worker(
-    new URL('./serialization-cloud.worker.js', import.meta.url),
-    { type: 'module' }
-  );
-  _worker.onmessage = (e) => {
-    const { id, ok, result, error } = e.data;
-    const p = _pending.get(id);
-    if (!p) return;
-    _pending.delete(id);
-    if (ok) p.resolve(result);
-    else p.reject(new Error(error || 'worker error'));
-  };
-  _worker.onerror = (e) => {
-    const err = new Error(e.message || 'worker fatal error');
-    for (const p of _pending.values()) p.reject(err);
-    _pending.clear();
-    _worker = null;
-  };
-  return _worker;
+  try {
+    _worker = new SerializationWorker();
+    _worker.onmessage = (e) => {
+      const { id, ok, result, error } = e.data;
+      const p = _pending.get(id);
+      if (!p) return;
+      _pending.delete(id);
+      if (ok) p.resolve(result);
+      else p.reject(new Error(error || 'worker error'));
+    };
+    _worker.onerror = (e) => {
+      // Errore fatale del worker (es. import fallito, script bloccato).
+      // Rifiuta tutte le richieste pendenti e passa al fallback per le future.
+      console.warn('[serialization-cloud] Worker error, fallback main thread:', e.message || e);
+      const err = new Error(e.message || 'worker fatal error');
+      for (const p of _pending.values()) p.reject(err);
+      _pending.clear();
+      _worker = null;
+      _workerFailed = true;
+    };
+    return _worker;
+  } catch (err) {
+    console.warn('[serialization-cloud] Worker non disponibile, fallback main thread:', err);
+    _workerFailed = true;
+    return null;
+  }
 }
 
 function _call(type, payload, transfer = []) {
   return new Promise((resolve, reject) => {
+    const worker = _getWorker();
+    if (!worker) {
+      // Fallback: esegui nel main thread (async ma stesso processo)
+      _runInMainThread(type, payload).then(resolve, reject);
+      return;
+    }
     const id = _nextId++;
     _pending.set(id, { resolve, reject });
     try {
-      _getWorker().postMessage({ id, type, ...payload }, transfer);
+      worker.postMessage({ id, type, ...payload }, transfer);
     } catch (err) {
       _pending.delete(id);
       reject(err);
     }
   });
+}
+
+async function _runInMainThread(type, payload) {
+  if (type === 'compressPage') {
+    return compressPageData(payload.strokes);
+  }
+  if (type === 'decompressPage') {
+    return decompressPageData(payload.compressed);
+  }
+  throw new Error(`Unknown type: ${type}`);
 }
 
 /**
@@ -93,7 +123,7 @@ export function decompressPage(compressed) {
  */
 export function terminateWorker() {
   if (_worker) {
-    _worker.terminate();
+    try { _worker.terminate(); } catch (e) {}
     _worker = null;
     for (const p of _pending.values()) p.reject(new Error('worker terminated'));
     _pending.clear();
