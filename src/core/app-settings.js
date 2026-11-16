@@ -5,25 +5,8 @@
  *
  * Persistenza: localStorage, chiave `inknote_settings`.
  * Contiene: theme, printTheme, handedness, dockSize, pressure*,
- *           scrollSensitivity, palmRejection.
- *
- * NON contiene le impostazioni della toolbar (colore/spessore/
- * smoothing/…): quelle vivono in `features/toolbar/toolbar-settings.js`
- * perché sono per-notebook.
- *
- * API:
- *   - initSettings()        — idempotente, applica tema/dock/handedness al DOM
- *   - getSettings()         — accessor O(1), oggetto in memoria
- *   - updateSettings(partial, {persist?: boolean}) — persiste + sync + emit
- *   - onSettingsChanged(fn) — subscribe event bus
- *   - getPressureParams()   — derivato puro (curve/light/heavy → moltiplicatori)
- *   - getScrollSensitivity() — derivato puro (slider 0..100 → 0.2..2.0)
- *
- * Side effects di updateSettings():
- *   - scrive localStorage (se persist !== false)
- *   - scrive state.isDarkMode, state.palmRejection, state.settings (freeze)
- *   - applica classi CSS al body (dark, handed-left, data-dock-size)
- *   - emette `settings:changed`
+ *           scrollSensitivity, palmRejection,
+ *           mainMenuOrder, mainMenuHidden (personalizzazione mainbar).
  *
  * @see core/types.js  — AppSettings
  * @see features/toolbar/toolbar-settings.js
@@ -34,20 +17,62 @@ import { emit, on } from './utils.js';
 
 const STORAGE_KEY = 'inknote_settings';
 
+/** Menu validi per la mainbar (allineato a toolbar.js). */
+export const MAIN_MENU_IDS = ['writing', 'selection', 'shapes', 'eraser', 'page'];
+
 export const DEFAULT_SETTINGS = {
-  theme: 'auto',              // 'auto' | 'light' | 'dark'
-  printTheme: 'light',        // 'light' | 'dark'
-  handedness: 'right',        // 'right' | 'left'
-  dockSize: 'medium',         // 'small' | 'medium' | 'large'
-  pressureLight: 10,          // 0..100
-  pressureHeavy: 340,         // 100..500
-  pressureCurve: 60,          // 0..100
-  scrollSensitivity: 50,      // 0..100
-  palmRejection: true         // palm rejection globale
+  theme: 'auto',
+  printTheme: 'light',
+  handedness: 'right',
+  dockSize: 'medium',
+  pressureLight: 10,
+  pressureHeavy: 340,
+  pressureCurve: 60,
+  scrollSensitivity: 50,
+  palmRejection: true,
+
+  // Personalizzazione mainbar (gestita da toolbar.js, non da UI)
+  mainMenuOrder:  ['writing', 'selection', 'shapes', 'eraser', 'page'],
+  mainMenuHidden: []   // max 2 (min 3 visibili)
 };
 
 /** @type {typeof DEFAULT_SETTINGS|null} */
 let _current = null;
+
+// ------------------------------------------------------------
+// Normalizzazione
+// ------------------------------------------------------------
+function _normalizeSettings(raw) {
+  const out = { ...DEFAULT_SETTINGS, ...(raw || {}) };
+
+  // mainMenuOrder: array con tutte e 5 le voci, senza duplicati/invalidi
+  const seen = new Set();
+  const order = [];
+  for (const m of (Array.isArray(out.mainMenuOrder) ? out.mainMenuOrder : [])) {
+    if (MAIN_MENU_IDS.includes(m) && !seen.has(m)) {
+      order.push(m);
+      seen.add(m);
+    }
+  }
+  for (const m of MAIN_MENU_IDS) {
+    if (!seen.has(m)) order.push(m);
+  }
+  out.mainMenuOrder = order;
+
+  // mainMenuHidden: array di nomi validi, max 2 (min 3 visibili)
+  const hiddenSet = new Set();
+  for (const m of (Array.isArray(out.mainMenuHidden) ? out.mainMenuHidden : [])) {
+    if (MAIN_MENU_IDS.includes(m) && !hiddenSet.has(m)) hiddenSet.add(m);
+  }
+  if (hiddenSet.size > 2) {
+    const limited = [...hiddenSet].slice(0, 2);
+    hiddenSet.clear();
+    limited.forEach(m => hiddenSet.add(m));
+  }
+  out.mainMenuHidden = [...hiddenSet];
+
+  return out;
+}
 
 // ------------------------------------------------------------
 // Persistenza
@@ -55,9 +80,9 @@ let _current = null;
 function _readFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+    return _normalizeSettings(raw ? JSON.parse(raw) : null);
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return _normalizeSettings(null);
   }
 }
 
@@ -66,7 +91,7 @@ function _writeToStorage() {
 }
 
 // ------------------------------------------------------------
-// Derivazioni (valori "caldi" dello state, tema effettivo)
+// Derivazioni
 // ------------------------------------------------------------
 function _computeIsDark(settings) {
   if (settings.theme === 'dark')  return true;
@@ -75,9 +100,6 @@ function _computeIsDark(settings) {
 }
 
 function _syncRuntime(settings) {
-  // Cache in `state` per letture O(1) nel hot path (render/input).
-  // `state.settings` è uno snapshot read-only dell'oggetto completo:
-  // Object.freeze impedisce scritture accidentali (state.settings.x = ...).
   state.isDarkMode    = _computeIsDark(settings);
   state.palmRejection = settings.palmRejection !== false;
   state.settings      = Object.freeze({ ...settings });
@@ -105,10 +127,6 @@ function _applyDockSizeToDOM(dockSize) {
 // API pubblica
 // ------------------------------------------------------------
 
-/**
- * Inizializza lo store. Idempotente: chiamate successive non fanno nulla.
- * Va chiamato una sola volta all'avvio, prima di qualsiasi getSettings().
- */
 export function initSettings() {
   if (_current) return _current;
 
@@ -118,7 +136,6 @@ export function initSettings() {
   _applyHandednessToDOM(_current.handedness);
   _applyDockSizeToDOM(_current.dockSize);
 
-  // Segui prefers-color-scheme SOLO quando theme === 'auto'
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       if (_current.theme !== 'auto') return;
@@ -138,30 +155,16 @@ export function initSettings() {
   return _current;
 }
 
-/**
- * Accessor sincrono: O(1), legge dalla variabile in memoria.
- * @returns {typeof DEFAULT_SETTINGS}
- */
 export function getSettings() {
   if (!_current) initSettings();
   return _current;
 }
 
-/**
- * Aggiorna una o più impostazioni.
- * @param {Partial<typeof DEFAULT_SETTINGS>} partial
- * @param {{silent?: boolean, persist?: boolean}} [opts]
- *   - silent:  non emette `settings:changed` (raro; normalmente sempre false)
- *   - persist: se `false`, NON scrive su localStorage. Usato dalla modale
- *              impostazioni per l'anteprima live: `state` e DOM vengono
- *              aggiornati, ma nessun commit finché l'utente non preme Salva.
- *              Default: true.
- */
 export function updateSettings(partial, opts = {}) {
   if (!_current) initSettings();
 
   const before = _current;
-  _current = { ..._current, ...partial };
+  _current = _normalizeSettings({ ..._current, ...partial });
 
   const wasDark = state.isDarkMode;
   _syncRuntime(_current);
@@ -183,7 +186,6 @@ export function resetSettings() {
   return updateSettings({ ...DEFAULT_SETTINGS });
 }
 
-/** Subscribe tipizzata (wrapper di `on`). */
 export function onSettingsChanged(fn) {
   return on('settings:changed', fn);
 }
@@ -191,11 +193,6 @@ export function onSettingsChanged(fn) {
 // ------------------------------------------------------------
 // Derivati puri
 // ------------------------------------------------------------
-
-// Cache dei parametri pressione. Invalidata automaticamente quando
-// pressioneLight/Heavy/Curve cambiano (key cambia → cache miss).
-// Evita di allocare un oggetto per ogni punto nel hot path di
-// computeStrokeWidth (2 allocazioni per punto → 1000 per stroke 500pt).
 let _pressureCache = null;
 let _pressureCacheKey = '';
 
@@ -213,10 +210,6 @@ export function getPressureParams() {
   return _pressureCache;
 }
 
-/**
- * Slider 0-100 → moltiplicatore 0.2x-2.0x.
- *   0 → 0.2x · 25 → 0.5x · 50 → 1.0x · 75 → 1.5x · 100 → 2.0x
- */
 export function getScrollSensitivity() {
   const s = _current || getSettings();
   const v = (typeof s.scrollSensitivity === 'number') ? s.scrollSensitivity : 50;

@@ -1,12 +1,22 @@
 /**
  * @module features/toolbar/toolbar
  *
- * FEATURE TOOLBAR v2.1 — mainbar + dock contestuali + colori foglio.
+ * FEATURE TOOLBAR v2.2 — mainbar + dock contestuali + colori foglio
+ *                          + drag&drop mainbar (long-press).
  *
- * Aggiunte v2.1:
- *   - popover Foglio con colori custom (paperColor / patternColor)
- *   - updatePaperColor / updatePatternColor / resetPageColors
- *   - applyPageColorsToUI
+ * Interazione mainbar:
+ *   - Long-press (450ms) su un .main-menu-btn → drag mode
+ *   - Trascina orizzontale → riordina
+ *   - Trascina giù (sotto la mainbar) → nasconde (con regole min 3 + no attivo)
+ *   - Le modalità nascoste appaiono nel menu ⋯ con bottoni "Mostra X"
+ *
+ * NOTA drag: i listener pointermove/up sono su document (non sul bottone)
+ * e NON usiamo setPointerCapture. Motivo: durante il drag, per riordinare
+ * chiamiamo insertBefore(), che rimuove e reinserisce il nodo nel DOM.
+ * La spec Pointer Events dice che rimuovere un elemento con pointer capture
+ * attivo lo rilascia automaticamente → i pointermove successivi non
+ * arriverebbero più al bottone e il drag si bloccherebbe dopo il primo move.
+ * Con i listener su document il capture non serve e il drag resta stabile.
  */
 
 import './toolbar.css';
@@ -14,7 +24,9 @@ import toolbarHtml from './toolbar.html?raw';
 
 import { state } from '../../core/state.js';
 import { showToast, hexToRgbA } from '../../core/utils.js';
-import { updateSettings } from '../../core/app-settings.js';
+import {
+  updateSettings, getSettings, onSettingsChanged, MAIN_MENU_IDS
+} from '../../core/app-settings.js';
 import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
   updateToolbarSettings, getEraserRadius
@@ -24,6 +36,7 @@ import { redrawPageCanvas } from '../render/render.js';
 import { clearSelection } from '../tools/lazo.js';
 
 let _mounted = false;
+let _hintShownThisSession = false;
 
 // ============================================================
 // MENU CONTESTUALE (runtime-only)
@@ -40,6 +53,14 @@ const MENU_TO_DEFAULT_TOOL = {
   shapes:    null,
   eraser:    'eraser',
   page:      null
+};
+
+const MENU_META = {
+  writing:   { icon: '🖊️', label: 'Scrittura' },
+  selection: { icon: '✂️', label: 'Selezione' },
+  shapes:    { icon: '◻️', label: 'Forme' },
+  eraser:    { icon: '🧹', label: 'Gomma' },
+  page:      { icon: '📄', label: 'Foglio' }
 };
 
 // ============================================================
@@ -59,13 +80,250 @@ export function mountToolbar() {
   _setupMenuOverflow();
   _setupPagePopover();
   _setupDockButtons();
+  _setupMainMenuDrag();
   _setMainMenu('writing', { silent: true });
+  applyMainMenuOrderToUI();
+
+  onSettingsChanged(({ changed }) => {
+    if (changed.includes('mainMenuOrder') || changed.includes('mainMenuHidden')) {
+      applyMainMenuOrderToUI();
+      if (_toolbarMenuOpen) _renderOverflowMenu();
+    }
+  });
+
   _mounted = true;
 }
 
 export function refreshPageCounter() {
   const el = document.getElementById('pageCounterText');
   if (el) el.innerText = `Pagina ${state.activePageIndex + 1} di ${state.pages.length}`;
+}
+
+// ============================================================
+// PERSONALIZZAZIONE MAINBAR (ordine + nascosti)
+// ============================================================
+
+export function applyMainMenuOrderToUI() {
+  const mainBar = document.getElementById('mainMenuBar');
+  if (!mainBar) return;
+
+  const s = getSettings();
+  const order  = s.mainMenuOrder  || MAIN_MENU_IDS;
+  const hidden = new Set(s.mainMenuHidden || []);
+
+  order.forEach(menu => {
+    const btn = document.getElementById(`menuBtn-${menu}`);
+    if (!btn) return;
+    const shouldShow = !hidden.has(menu) || menu === _mainMenu;
+    btn.style.display = shouldShow ? '' : 'none';
+    mainBar.appendChild(btn);
+  });
+}
+
+// --- Drag & drop sulla mainbar ---
+
+const DRAG_LONG_PRESS_MS = 450;
+const DRAG_MOVE_CANCEL_PX = 8;
+const DRAG_HIDE_THRESHOLD_PX = 40;
+
+const _drag = {
+  btn: null,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  pressTimer: null,
+  isDragging: false,
+  skipNextClick: false,
+  outside: false
+};
+
+function _setupMainMenuDrag() {
+  const mainBar = document.getElementById('mainMenuBar');
+  if (!mainBar) return;
+
+  // Blocca il click "di uscita dal drag" in capture, prima che
+  // arrivi al listener di ui-bindings.js (bubbling).
+  mainBar.addEventListener('click', (e) => {
+    if (_drag.skipNextClick) {
+      e.stopPropagation();
+      e.preventDefault();
+      _drag.skipNextClick = false;
+    }
+  }, true);
+
+  mainBar.addEventListener('pointerdown', _onMenuPointerDown);
+}
+
+function _onMenuPointerDown(e) {
+  const btn = e.target.closest('.main-menu-btn');
+  if (!btn) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  _cancelDragPress();
+  _detachDragListeners();
+
+  _drag.btn = btn;
+  _drag.pointerId = e.pointerId;
+  _drag.startX = e.clientX;
+  _drag.startY = e.clientY;
+  _drag.isDragging = false;
+  _drag.skipNextClick = false;
+  _drag.outside = false;
+
+  // NIENTE setPointerCapture: insertBefore() durante il drag
+  // rilascerebbe il capture e romperebbe il drag dopo il primo move.
+  // I listener stanno su document così sopravvivono al riordino.
+  document.addEventListener('pointermove', _onMenuPointerMove);
+  document.addEventListener('pointerup',   _onMenuPointerUp);
+  document.addEventListener('pointercancel', _onMenuPointerUp);
+
+  _drag.pressTimer = setTimeout(() => {
+    _drag.pressTimer = null;
+    _enterDragMode(btn);
+  }, DRAG_LONG_PRESS_MS);
+}
+
+function _cancelDragPress() {
+  if (_drag.pressTimer) {
+    clearTimeout(_drag.pressTimer);
+    _drag.pressTimer = null;
+  }
+}
+
+function _enterDragMode(btn) {
+  _drag.isDragging = true;
+  _drag.skipNextClick = true;
+  btn.classList.add('dragging');
+  document.body.classList.add('menu-dragging');
+  if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
+
+  if (!_hintShownThisSession) {
+    _hintShownThisSession = true;
+    showToast('Trascina per riordinare, giù per nascondere', '↔️');
+  }
+}
+
+function _onMenuPointerMove(e) {
+  if (!_drag.btn || e.pointerId !== _drag.pointerId) return;
+
+  if (!_drag.isDragging) {
+    const dx = e.clientX - _drag.startX;
+    const dy = e.clientY - _drag.startY;
+    if (Math.hypot(dx, dy) > DRAG_MOVE_CANCEL_PX) {
+      _cancelDragPress();
+      _detachDragListeners();
+      _drag.btn = null;
+      _drag.pointerId = null;
+    }
+    return;
+  }
+
+  e.preventDefault();
+  const mainBar = document.getElementById('mainMenuBar');
+  if (!mainBar) return;
+  const rect = mainBar.getBoundingClientRect();
+
+  const isOutside = e.clientY > rect.bottom + DRAG_HIDE_THRESHOLD_PX;
+  if (isOutside !== _drag.outside) {
+    _drag.outside = isOutside;
+    mainBar.classList.toggle('drop-outside', isOutside);
+    _drag.btn.classList.toggle('will-hide', isOutside);
+  }
+
+  if (!isOutside) {
+    _updateDragPosition(e.clientX);
+  }
+}
+
+function _updateDragPosition(clientX) {
+  const btn = _drag.btn;
+  const mainBar = document.getElementById('mainMenuBar');
+  if (!btn || !mainBar) return;
+
+  const siblings = [...mainBar.querySelectorAll('.main-menu-btn')]
+    .filter(b => b !== btn && b.style.display !== 'none');
+
+  const next = siblings.find(el => {
+    const r = el.getBoundingClientRect();
+    return clientX < r.left + r.width / 2;
+  });
+
+  if (next) {
+    mainBar.insertBefore(btn, next);
+  } else if (siblings.length > 0) {
+    const last = siblings[siblings.length - 1];
+    mainBar.insertBefore(btn, last.nextSibling);
+  }
+}
+
+function _onMenuPointerUp(e) {
+  if (!_drag.btn || e.pointerId !== _drag.pointerId) return;
+
+  const btn = _drag.btn;
+  const wasDragging = _drag.isDragging;
+  const wasOutside = _drag.outside;
+
+  _cancelDragPress();
+  _detachDragListeners();
+
+  if (wasDragging) {
+    btn.classList.remove('dragging', 'will-hide');
+    document.body.classList.remove('menu-dragging');
+    document.getElementById('mainMenuBar')?.classList.remove('drop-outside');
+
+    if (wasOutside) {
+      _tryHideMenu(btn.dataset.menu);
+    } else {
+      _commitMenuOrder();
+    }
+
+    setTimeout(() => { _drag.skipNextClick = false; }, 60);
+  }
+
+  _drag.btn = null;
+  _drag.pointerId = null;
+  _drag.isDragging = false;
+  _drag.outside = false;
+}
+
+function _detachDragListeners() {
+  document.removeEventListener('pointermove', _onMenuPointerMove);
+  document.removeEventListener('pointerup',   _onMenuPointerUp);
+  document.removeEventListener('pointercancel', _onMenuPointerUp);
+}
+
+function _commitMenuOrder() {
+  const mainBar = document.getElementById('mainMenuBar');
+  if (!mainBar) return;
+  const newOrder = [...mainBar.querySelectorAll('.main-menu-btn')]
+    .map(b => b.dataset.menu)
+    .filter(m => m);
+  const current = getSettings().mainMenuOrder || [];
+  if (newOrder.join('|') === current.join('|')) return;
+  updateSettings({ mainMenuOrder: newOrder }, { persist: true });
+}
+
+function _tryHideMenu(menu) {
+  if (!MENU_META[menu]) return;
+  const s = getSettings();
+  const order = s.mainMenuOrder || MAIN_MENU_IDS;
+  const hidden = new Set(s.mainMenuHidden || []);
+
+  if (menu === _mainMenu) {
+    showToast('La modalità attiva non può essere nascosta', '🔒');
+    return;
+  }
+  if (hidden.has(menu)) return;
+
+  const visibleCount = order.filter(m => !hidden.has(m)).length;
+  if (visibleCount <= 3) {
+    showToast('Devi tenere almeno 3 modalità visibili', '⚠️');
+    return;
+  }
+
+  hidden.add(menu);
+  updateSettings({ mainMenuHidden: [...hidden] }, { persist: true });
+  showToast(`Modalità nascosta: ${MENU_META[menu].label}`, '👁️');
 }
 
 // ============================================================
@@ -79,7 +337,7 @@ export function setMainMenu(menu, opts = {}) {
 }
 
 function _setMainMenu(menu, opts = {}) {
-  if (!['writing', 'selection', 'shapes', 'eraser', 'page'].includes(menu)) return;
+  if (!MAIN_MENU_IDS.includes(menu)) return;
 
   const defaultTool = MENU_TO_DEFAULT_TOOL[menu];
   if (defaultTool && state.activeTool !== defaultTool) {
@@ -88,6 +346,7 @@ function _setMainMenu(menu, opts = {}) {
 
   _mainMenu = menu;
   _applyMenuToDOM();
+  applyMainMenuOrderToUI();
 
   document.querySelectorAll('.main-menu-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.menu === menu);
@@ -137,6 +396,8 @@ export function setTool(toolName) {
   }
 
   _applyMenuToDOM();
+  applyMainMenuOrderToUI();
+
   document.querySelectorAll('.main-menu-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.menu === _mainMenu);
   });
@@ -155,9 +416,7 @@ export function setTool(toolName) {
 }
 
 export function applyActiveToolToUI() {
-  if (state.activeTool === 'eraser' || state.activeTool === 'lasso') {
-    return;
-  }
+  if (state.activeTool === 'eraser' || state.activeTool === 'lasso') return;
 
   const conf = getActiveToolConfig();
   const swatch = document.querySelector(`.color-swatch[data-color="${conf.color}"]`);
@@ -265,7 +524,7 @@ export function updateOpacity(val) {
 }
 
 // ============================================================
-// SNAP TOGGLES (dock Forme)
+// SNAP TOGGLES
 // ============================================================
 
 export function toggleSnapLines() {
@@ -308,7 +567,7 @@ export function updateSmoothing(val) {
 }
 
 // ============================================================
-// ERASER (dock Gomma)
+// ERASER
 // ============================================================
 
 export function applyEraserLevelToUI() {
@@ -331,7 +590,7 @@ export function selectEraserLevel(level) {
 }
 
 // ============================================================
-// PAGE POPOVER (Foglio) — pattern + colori custom
+// PAGE POPOVER (Foglio)
 // ============================================================
 
 function _setupPagePopover() {
@@ -343,21 +602,19 @@ function _setupPagePopover() {
       hidePagePopover();
       _mainMenu = 'writing';
       _applyMenuToDOM();
+      applyMainMenuOrderToUI();
       document.querySelectorAll('.main-menu-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.menu === 'writing');
       });
     });
   });
 
-  // Colore foglio (live)
   document.getElementById('pagePaperColorInput')
     ?.addEventListener('input', (e) => updatePaperColor(e.target.value));
 
-  // Colore linee (live)
   document.getElementById('pagePatternColorInput')
     ?.addEventListener('input', (e) => updatePatternColor(e.target.value));
 
-  // Reset ai default del tema
   document.getElementById('pageColorsResetBtn')
     ?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -365,27 +622,18 @@ function _setupPagePopover() {
     });
 }
 
-/**
- * Imposta il colore del foglio. `null` = default del tema.
- */
 export function updatePaperColor(hex) {
   const color = (typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex)) ? hex.toLowerCase() : null;
   updateToolbarSettings({ paperColor: color });
   _redrawAllPagesThrottled();
 }
 
-/**
- * Imposta il colore di linee/quadretti/punti. `null` = default del tema.
- */
 export function updatePatternColor(hex) {
   const color = (typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex)) ? hex.toLowerCase() : null;
   updateToolbarSettings({ patternColor: color });
   _redrawAllPagesThrottled();
 }
 
-/**
- * Ripristina entrambi i colori al default del tema.
- */
 export function resetPageColors() {
   updateToolbarSettings({ paperColor: null, patternColor: null });
   applyPageColorsToUI();
@@ -393,10 +641,6 @@ export function resetPageColors() {
   showToast('Colori foglio: predefiniti del tema', '↺');
 }
 
-/**
- * Riflette `state.paperColor` / `state.patternColor` negli input del
- * popover Foglio. `null` = mostra il default corrente del tema.
- */
 export function applyPageColorsToUI() {
   const paperInput   = document.getElementById('pagePaperColorInput');
   const patternInput = document.getElementById('pagePatternColorInput');
@@ -440,16 +684,12 @@ function _setActivePatternButton(pattern) {
   });
 }
 
-/**
- * Riflette `state.bgPattern` nel bottone attivo del popover Foglio.
- * Chiamata da `editor.js` all'apertura di un notebook.
- */
 export function applyBgPatternToUI() {
   _setActivePatternButton(state.bgPattern);
 }
 
 // ============================================================
-// MENU ⋯ (overflow)
+// MENU ⋯ (overflow) — con sezione "Modalità nascoste"
 // ============================================================
 
 let _toolbarMenuOpen = false;
@@ -486,6 +726,7 @@ function _openToolbarMenu() {
   const backdrop = document.getElementById('toolbarMenuBackdrop');
   if (!panel || !backdrop) return;
 
+  _renderOverflowMenu();
   panel.classList.add('open');
   backdrop.classList.add('open');
   _positionMenuPanel();
@@ -500,6 +741,52 @@ function _closeToolbarMenu() {
   panel.classList.remove('open');
   backdrop.classList.remove('open');
   _toolbarMenuOpen = false;
+}
+
+function _renderOverflowMenu() {
+  const panel = document.getElementById('toolbarMenuPanel');
+  if (!panel) return;
+
+  panel.querySelector('#hiddenMenusSection')?.remove();
+
+  const s = getSettings();
+  const order  = s.mainMenuOrder  || MAIN_MENU_IDS;
+  const hidden = s.mainMenuHidden || [];
+  if (hidden.length === 0) return;
+
+  const section = document.createElement('div');
+  section.id = 'hiddenMenusSection';
+  section.className = 'menu-section';
+  section.innerHTML = `<div class="menu-section-title">Modalità nascoste</div>`;
+
+  const hiddenOrdered = order.filter(m => hidden.includes(m));
+  hiddenOrdered.forEach(menu => {
+    const meta = MENU_META[menu];
+    if (!meta) return;
+    const btn = document.createElement('button');
+    btn.className = 'menu-item menu-hidden-btn';
+    btn.dataset.menu = menu;
+    btn.innerHTML = `<span>${meta.icon}</span><span>Mostra ${meta.label}</span>`;
+    btn.addEventListener('click', () => {
+      _tryShowMenu(menu);
+      _renderOverflowMenu();
+      if (getSettings().mainMenuHidden.length === 0) _closeToolbarMenu();
+    });
+    section.appendChild(btn);
+  });
+
+  const lastSection = panel.querySelector('.menu-section:last-of-type');
+  if (lastSection) panel.insertBefore(section, lastSection);
+  else panel.appendChild(section);
+}
+
+function _tryShowMenu(menu) {
+  const s = getSettings();
+  const hidden = new Set(s.mainMenuHidden || []);
+  if (!hidden.has(menu)) return;
+  hidden.delete(menu);
+  updateSettings({ mainMenuHidden: [...hidden] }, { persist: true });
+  showToast(`${MENU_META[menu].label} di nuovo visibile`, '👁️');
 }
 
 function _positionMenuPanel() {

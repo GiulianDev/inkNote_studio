@@ -18,9 +18,6 @@ import { computeStrokeWidth } from '../render/render.js';
 
 import settingsHtml from './settings-modal.html?raw';
 
-// ------------------------------------------------------------
-// MOUNT — inietta il markup una volta sola (idempotente)
-// ------------------------------------------------------------
 let _mounted = false;
 let _isOpen  = false;
 /** @type {typeof DEFAULT_SETTINGS|null} */
@@ -36,14 +33,9 @@ export function mountSettingsModal() {
   _mounted = true;
 }
 
-// ------------------------------------------------------------
-// OPEN / CLOSE
-// ------------------------------------------------------------
 export function openSettingsModal() {
   mountSettingsModal();
 
-  // Snapshot all'apertura SOLO se non era già aperto:
-  // è il "punto di ripristino" per il bottone Annulla.
   if (!_isOpen) {
     _draftSnapshot = { ...getSettings() };
     _isOpen = true;
@@ -70,12 +62,6 @@ export function openSettingsModal() {
   requestAnimationFrame(() => _redrawPressureTest());
 }
 
-/**
- * Chiude la modale.
- * @param {{cancel?: boolean}} [opts]
- *   - cancel: true  (default) → ripristina lo snapshot iniziale
- *   - cancel: false           → mantiene lo stato corrente (commit)
- */
 export function closeSettingsModal({ cancel = true } = {}) {
   if (cancel && _draftSnapshot) {
     updateSettings(_draftSnapshot, { persist: true });
@@ -90,9 +76,6 @@ export function closeSettingsModal({ cancel = true } = {}) {
   modal.classList.remove('flex');
 }
 
-/**
- * Commit definitivo.
- */
 export function confirmSettings() {
   const printTheme = _getValue('settingPrintTheme') ?? getSettings().printTheme;
   const handedness = _getValue('settingHandedness') ?? getSettings().handedness;
@@ -122,7 +105,7 @@ function _refreshLabels() {
 }
 
 // ------------------------------------------------------------
-// BINDING — una sola volta, alla prima mount
+// BINDING
 // ------------------------------------------------------------
 let _bound = false;
 
