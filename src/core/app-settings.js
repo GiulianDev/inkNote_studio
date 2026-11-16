@@ -110,8 +110,9 @@ function _syncRuntime(settings) {
 // ------------------------------------------------------------
 function _applyThemeToDOM(isDark) {
   document.body.classList.toggle('dark', isDark);
-  const btn = document.getElementById('themeToggleBtn');
-  if (btn) btn.innerText = isDark ? '☀️' : '🌙';
+  // L'icona sole/luna in #themeToggleBtn è gestita via CSS
+  // (regole body.dark #themeToggleBtn .theme-icon-* in toolbar.css).
+  // Non serve cambiare innerHTML del bottone.
 }
 
 function _applyHandednessToDOM(handedness) {

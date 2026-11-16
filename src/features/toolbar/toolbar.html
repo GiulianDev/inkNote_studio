@@ -1,6 +1,7 @@
 <!-- features/toolbar/toolbar.html
      Markup della feature toolbar v2 (mainbar + dock contestuali).
-     Iniettato via `?raw` da toolbar.js tramite mountToolbar(). -->
+     Iniettato via `?raw` da toolbar.js tramite mountToolbar().
+     Icone: Lucide (https://lucide.dev, MIT). Inline SVG, stroke currentColor. -->
 
 <header id="mainHeader"
   class="bg-white/95 dark:bg-slate-900/95 border-b border-slate-300 dark:border-slate-800 px-2 py-2.5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-sm transition-all duration-200">
@@ -10,7 +11,11 @@
     <button id="backToLibraryBtn"
       class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
       title="Torna alla Libreria">
-      📚 <span class="hidden xl:inline">Libreria</span>
+      <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>
+      </svg>
+      <span class="hidden xl:inline">Libreria</span>
     </button>
     <div class="h-4 w-px bg-slate-300 dark:bg-slate-700 shrink-0 hidden md:block"></div>
     <div class="min-w-0">
@@ -26,20 +31,48 @@
 
   <!-- CENTER: 5 menu contestuali -->
   <div id="mainMenuBar" class="flex-1 flex justify-center items-center min-w-0 gap-0.5 px-2">
-    <button class="main-menu-btn" data-menu="writing"   id="menuBtn-writing"   title="Scrittura">
-      🖊️<span class="main-menu-label">Scrittura</span>
+    <button class="main-menu-btn" data-menu="writing" id="menuBtn-writing" title="Scrittura">
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
+      </svg>
+      <span class="main-menu-label">Scrittura</span>
     </button>
     <button class="main-menu-btn" data-menu="selection" id="menuBtn-selection" title="Selezione">
-      ✂️<span class="main-menu-label">Selezione</span>
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7 22a5 5 0 0 1-2-4"/>
+        <path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1"/>
+        <path d="M5 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+      </svg>
+      <span class="main-menu-label">Selezione</span>
     </button>
-    <button class="main-menu-btn" data-menu="shapes"    id="menuBtn-shapes"    title="Forme">
-      ◻️<span class="main-menu-label">Forme</span>
+    <button class="main-menu-btn" data-menu="shapes" id="menuBtn-shapes" title="Forme">
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/>
+        <circle cx="17.5" cy="17.5" r="3.5"/>
+      </svg>
+      <span class="main-menu-label">Forme</span>
     </button>
-    <button class="main-menu-btn" data-menu="eraser"    id="menuBtn-eraser"    title="Gomma">
-      🧹<span class="main-menu-label">Gomma</span>
+    <button class="main-menu-btn" data-menu="eraser" id="menuBtn-eraser" title="Gomma">
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>
+        <path d="M22 21H7"/>
+        <path d="m5 11 9 9"/>
+      </svg>
+      <span class="main-menu-label">Gomma</span>
     </button>
-    <button class="main-menu-btn" data-menu="page"      id="menuBtn-page"      title="Foglio">
-      📄<span class="main-menu-label">Foglio</span>
+    <button class="main-menu-btn" data-menu="page" id="menuBtn-page" title="Foglio">
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+        <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+        <path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>
+      </svg>
+      <span class="main-menu-label">Foglio</span>
     </button>
   </div>
 
@@ -48,27 +81,55 @@
     <button id="toolbarMenuBtn"
       class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95"
       title="Altri strumenti">
-      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
       </svg>
     </button>
     <button id="compactExitBtn"
       class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95"
       title="Schermo intero">
-      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path id="compactIconExpand" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
-        <path id="compactIconReduce" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9M20.25 20.25h-4.5m4.5 0v-4.5m0 4.5L15 15" style="display:none;" />
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path id="compactIconExpand" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"/>
+        <path id="compactIconReduce" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9M20.25 20.25h-4.5m4.5 0v-4.5m0 4.5L15 15" style="display:none;"/>
       </svg>
     </button>
     <button id="openSettingsBtnHeader"
       class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95"
-      title="Impostazioni">⚙️</button>
+      title="Impostazioni">
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+    </button>
     <button id="themeToggleBtn"
       class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95"
-      title="Tema chiaro/scuro">🌙</button>
+      title="Tema chiaro/scuro">
+      <svg class="ui-icon theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+      </svg>
+      <svg class="ui-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2"/><path d="M12 20v2"/>
+        <path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/>
+        <path d="M2 12h2"/><path d="M20 12h2"/>
+        <path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+      </svg>
+    </button>
     <button id="exportPdfBtn"
-      class="dock-pill-btn inline-flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 rounded-xl shadow-md transition active:scale-95"
-      title="Esporta PDF">📄<span class="hidden lg:inline ml-1">PDF</span></button>
+      class="dock-pill-btn inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 rounded-xl shadow-md transition active:scale-95"
+      title="Esporta PDF">
+      <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" x2="12" y1="15" y2="3"/>
+      </svg>
+      <span class="hidden lg:inline">PDF</span>
+    </button>
   </div>
 </header>
 
@@ -82,14 +143,35 @@
   <div class="context-dock-row">
     <!-- Tool writing -->
     <div class="context-dock-group">
-      <button id="btnTool-pen"
-        class="dock-tool-btn tool-btn" title="Stilografica">🖊️</button>
-      <button id="btnTool-pencil"
-        class="dock-tool-btn tool-btn" title="Matita">✏️</button>
-      <button id="btnTool-marker"
-        class="dock-tool-btn tool-btn" title="Pennarello">🖋️</button>
-      <button id="btnTool-highlighter"
-        class="dock-tool-btn tool-btn" title="Evidenziatore">🖍️</button>
+      <button id="btnTool-pen" class="dock-tool-btn tool-btn" title="Stilografica">
+        <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
+        </svg>
+      </button>
+      <button id="btnTool-pencil" class="dock-tool-btn tool-btn" title="Matita">
+        <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
+          <path d="m15 5 4 4"/>
+        </svg>
+      </button>
+      <button id="btnTool-marker" class="dock-tool-btn tool-btn" title="Pennarello">
+        <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m12 19 7-7 3 3-7 7-3-3z"/>
+          <path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+          <path d="m2 2 7.586 7.586"/>
+          <circle cx="11" cy="11" r="2"/>
+        </svg>
+      </button>
+      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn" title="Evidenziatore">
+        <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 11-6 6v3h9l3-3"/>
+          <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
+        </svg>
+      </button>
     </div>
 
     <div class="context-dock-divider"></div>
