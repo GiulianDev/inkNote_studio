@@ -1,17 +1,20 @@
 // ============================================================
 // LIBRERIA QUADERNI + BACKUP EXPORT/IMPORT
 //
-// Auth: Firebase (services/firebase.js). Mock services/auth.js
-// resta nel progetto per rollback veloce se necessario.
+// Auth: Firebase (services/firebase.js).
 //
-// Header ridisegnato:
-//   - [➕ Nuovo] [📥 Importa]  → azioni primarie/secondarie
-//   - [⋯ Azioni]               → menu contestuale (Esporta,
-//                                Seleziona tutto, Deseleziona tutto)
-//   - [⚙️] [👤]                → sistema + auth
+// Pattern selezione (Apple-like):
+//   - Long-press (500ms) su una card → entra in selection mode
+//     e seleziona la card
+//   - In selection mode: tap su una card → toggle selezione
+//   - "Fine" o tap fuori dalla griglia → esce
+//   - Se rimuovi l'ultima selezione → esce automaticamente
 //
-// L'export è nel menu ⋯ (nessun layout shift quando cambia la
-// selezione). Il badge sull'icona ⋯ mostra il conteggio selezioni.
+// Card moderne:
+//   - Cover con angoli arrotondati, dorso ombreggiato (no border-left)
+//   - Titolo + pagine sovrapposti in basso
+//   - Pallino selezione in alto a destra (visibile solo in selection mode)
+//   - Niente checkbox fissa
 // ============================================================
 
 import { escapeHtml, showToast, on } from '../../core/utils.js';
@@ -29,10 +32,21 @@ import { importNotebooks } from '../backup/backup-import.js';
 import { showProgressDialog } from '../backup/backup-progress.js';
 
 let selectedCoverColor = '#4f46e5';
+
+// ------------------------------------------------------------
+// STATO SELEZIONE
+// ------------------------------------------------------------
+let _selectionMode = false;
 const selectedNotebookIds = new Set();
 
+// ------------------------------------------------------------
+// LONG-PRESS CONFIG
+// ------------------------------------------------------------
+const LP_PRESS_MS = 500;
+const LP_MOVE_CANCEL_PX = 8;
+
 // ============================================================
-// AUTH — avatar circolare + dropdown
+// AUTH
 // ============================================================
 
 export function initAuth() {
@@ -42,18 +56,11 @@ export function initAuth() {
     updateAuthUI();
   });
 
-  // Chiudi dropdown auth + actions al click fuori
   document.addEventListener('click', (e) => {
     const authContainer = document.getElementById('authContainer');
     const authDropdown = document.getElementById('authDropdown');
     if (authContainer && authDropdown && !authDropdown.classList.contains('hidden')) {
       if (!authContainer.contains(e.target)) authDropdown.classList.add('hidden');
-    }
-
-    const actionsContainer = document.getElementById('actionsContainer');
-    const actionsMenu = document.getElementById('actionsMenu');
-    if (actionsContainer && actionsMenu && !actionsMenu.classList.contains('hidden')) {
-      if (!actionsContainer.contains(e.target)) actionsMenu.classList.add('hidden');
     }
   });
 }
@@ -95,7 +102,7 @@ function updateAuthUI() {
 
   if (authState.user) {
     btn.title = 'Profilo';
-    content.outerHTML = `<span id="authBtnContent">${_renderAvatar(authState.user, 40)}</span>`;
+    content.outerHTML = `<span id="authBtnContent" class="w-full h-full">${_renderAvatar(authState.user, 40)}</span>`;
 
     const dAvatar = document.getElementById('authDropdownAvatar');
     const dName = document.getElementById('authDropdownName');
@@ -105,7 +112,11 @@ function updateAuthUI() {
     if (dEmail) dEmail.textContent = authState.user.email || '';
   } else {
     btn.title = 'Accedi con Google';
-    content.outerHTML = `<span id="authBtnContent" class="text-base">👤</span>`;
+    content.outerHTML = `<span id="authBtnContent" class="text-base">
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
+      </svg>
+    </span>`;
     if (dropdown) dropdown.classList.add('hidden');
   }
 }
@@ -145,7 +156,177 @@ async function handleLogout() {
 }
 
 // ============================================================
-// LIBRERIA
+// SELEZIONE — modalità + toggle + barra
+// ============================================================
+
+function _enterSelectionMode(initialId = null) {
+  if (_selectionMode) return;
+  _selectionMode = true;
+
+  if (initialId) selectedNotebookIds.add(initialId);
+
+  document.getElementById('libraryHeader')?.classList.add('hidden');
+  const bar = document.getElementById('librarySelectionBar');
+  if (bar) {
+    bar.classList.remove('hidden');
+    bar.classList.add('flex');
+  }
+
+  // Applica stato visivo a tutte le card
+  _applySelectionStateToCards();
+  _updateSelectionBar();
+}
+
+function _exitSelectionMode() {
+  _selectionMode = false;
+  selectedNotebookIds.clear();
+
+  document.getElementById('libraryHeader')?.classList.remove('hidden');
+  const bar = document.getElementById('librarySelectionBar');
+  if (bar) {
+    bar.classList.add('hidden');
+    bar.classList.remove('flex');
+  }
+
+  _applySelectionStateToCards();
+}
+
+function _toggleSelection(id) {
+  if (!_selectionMode) return;
+
+  if (selectedNotebookIds.has(id)) {
+    selectedNotebookIds.delete(id);
+  } else {
+    selectedNotebookIds.add(id);
+  }
+
+  _applySelectionStateToCards();
+  _updateSelectionBar();
+
+  // Auto-exit se la selezione è vuota
+  if (selectedNotebookIds.size === 0) {
+    _exitSelectionMode();
+  }
+}
+
+function _applySelectionStateToCards() {
+  document.querySelectorAll('.notebook-card').forEach(card => {
+    const id = card.dataset.nbId;
+    if (!id) return;
+    const isSelected = selectedNotebookIds.has(id);
+    card.classList.toggle('is-selected', isSelected);
+    card.classList.toggle('selection-mode', _selectionMode);
+
+    // Aggiorna il checkmark del pallino
+    const dot = card.querySelector('.selection-dot');
+    if (dot) {
+      dot.classList.toggle('active', isSelected);
+    }
+  });
+}
+
+function _updateSelectionBar() {
+  const count = selectedNotebookIds.size;
+  const countEl = document.getElementById('selectionCount');
+  if (countEl) countEl.textContent = `${count} selezionat${count === 1 ? 'o' : 'i'}`;
+
+  const exportBtn = document.getElementById('selectionExportBtn');
+  const deleteBtn = document.getElementById('selectionDeleteBtn');
+  if (exportBtn) exportBtn.disabled = count === 0;
+  if (deleteBtn) deleteBtn.disabled = count === 0;
+}
+
+function _selectAll() {
+  document.querySelectorAll('.notebook-card').forEach(card => {
+    if (card.dataset.nbId) selectedNotebookIds.add(card.dataset.nbId);
+  });
+  _applySelectionStateToCards();
+  _updateSelectionBar();
+}
+
+// ============================================================
+// LONG-PRESS SULLE CARD
+// ============================================================
+
+/**
+ * Setup di long-press + click per una card.
+ * Cancella il timer se il pointer si sposta > LP_MOVE_CANCEL_PX.
+ */
+function _bindCardInteractions(card, nb) {
+  let pressTimer = null;
+  let pressStart = null;
+  let pressPointerId = null;
+  let skipClickAfterLongPress = false;
+
+  const cancelPress = () => {
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+    pressStart = null;
+    pressPointerId = null;
+  };
+
+  card.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Ignora il click sul pulsante delete
+    if (e.target.closest('.delete-nb-btn')) return;
+
+    cancelPress();
+    pressPointerId = e.pointerId;
+    pressStart = { x: e.clientX, y: e.clientY };
+    skipClickAfterLongPress = false;
+
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      if (pressPointerId !== e.pointerId) return;
+      skipClickAfterLongPress = true;
+      if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
+
+      if (!_selectionMode) {
+        _enterSelectionMode(nb.id);
+      } else {
+        _toggleSelection(nb.id);
+      }
+    }, LP_PRESS_MS);
+  });
+
+  card.addEventListener('pointermove', (e) => {
+    if (!pressStart || e.pointerId !== pressPointerId) return;
+    const dx = e.clientX - pressStart.x;
+    const dy = e.clientY - pressStart.y;
+    if (Math.hypot(dx, dy) > LP_MOVE_CANCEL_PX) cancelPress();
+  });
+
+  card.addEventListener('pointerup', cancelPress);
+  card.addEventListener('pointercancel', cancelPress);
+  card.addEventListener('pointerleave', cancelPress);
+
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.delete-nb-btn')) return;
+
+    // Click di coda del long-press: ignora
+    if (skipClickAfterLongPress) {
+      skipClickAfterLongPress = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    if (_selectionMode) {
+      e.preventDefault();
+      e.stopPropagation();
+      _toggleSelection(nb.id);
+      return;
+    }
+
+    // Click normale → apri notebook
+    openNotebook(nb.id);
+  });
+}
+
+// ============================================================
+// LIBRERIA — rendering
 // ============================================================
 
 export function renderLibraryView() {
@@ -158,6 +339,9 @@ export function renderLibraryView() {
     for (const id of Array.from(selectedNotebookIds)) {
       if (!notebooks.some(n => n.id === id)) selectedNotebookIds.delete(id);
     }
+    if (_selectionMode && selectedNotebookIds.size === 0) {
+      _exitSelectionMode();
+    }
 
     if (notebooks.length === 0) {
       emptyMsg.classList.remove('hidden');
@@ -169,47 +353,49 @@ export function renderLibraryView() {
 
       notebooks.forEach(nb => {
         const editIso = nb.lastEditAt || nb.updatedAt;
-        const dateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+        const dateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
         const pageCount = nb.pageCount || 1;
-        const isSelected = selectedNotebookIds.has(nb.id);
 
         const card = document.createElement('div');
-        card.className = 'notebook-card cursor-pointer flex flex-col group relative';
-        if (isSelected) card.classList.add('ring-2', 'ring-indigo-500', 'rounded-xl');
+        card.className = 'notebook-card group relative';
+        card.dataset.nbId = nb.id;
 
         card.innerHTML = `
-          <input type="checkbox" data-select-id="${nb.id}" ${isSelected ? 'checked' : ''}
-                 class="absolute top-2 left-2 z-10 w-5 h-5 rounded accent-indigo-600 cursor-pointer" />
-          <div class="w-full h-52 rounded-r-xl rounded-l-sm shadow-md relative overflow-hidden flex flex-col justify-between p-4"
-               style="background-color: ${nb.coverColor || '#4f46e5'}; border-left: 12px solid rgba(0,0,0,0.25);">
-            <div class="notebook-spine absolute left-0 top-0 bottom-0 w-3"></div>
-            <div class="bg-black/20 backdrop-blur-md rounded-lg p-2.5 text-white border border-white/10">
-              <h4 class="font-bold text-sm truncate">${escapeHtml(nb.title)}</h4>
-              <span class="text-[10px] opacity-80">${pageCount} pag.</span>
-            </div>
-            <div class="flex items-center justify-between text-white/90 text-[10px] font-medium">
-              <span>${dateStr}</span><span>📖 InkNote</span>
+          <!-- Pallino selezione (visibile solo in selection-mode) -->
+          <div class="selection-dot" aria-hidden="true">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 6 9 17l-5-5"/>
+            </svg>
+          </div>
+
+          <!-- Cover -->
+          <div class="notebook-cover" style="background-color: ${nb.coverColor || '#4f46e5'};">
+            <div class="notebook-spine"></div>
+            <div class="notebook-cover-content">
+              <div class="notebook-badge">
+                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+                  <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+                </svg>
+                <span>${pageCount} pag.</span>
+              </div>
+              <div class="notebook-cover-footer">
+                <h4 class="notebook-title">${escapeHtml(nb.title)}</h4>
+                <span class="notebook-date">${dateStr}</span>
+              </div>
             </div>
           </div>
-          <div class="flex items-center justify-between mt-2 px-1 text-xs">
-            <span class="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[120px]">${escapeHtml(nb.title)}</span>
-            <button data-delete-id="${nb.id}" class="delete-nb-btn text-slate-400 hover:text-rose-600 p-1 transition" title="Elimina Quaderno">🗑️</button>
-          </div>
+
+          <!-- Azioni hover (nascoste in selection-mode via CSS) -->
+          <button class="delete-nb-btn" data-delete-id="${nb.id}" title="Elimina Quaderno">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
         `;
 
-        const coverEl = card.querySelector('.w-full.h-52');
-        coverEl.addEventListener('click', () => openNotebook(nb.id));
-
-        const cb = card.querySelector('input[type="checkbox"]');
-        cb.addEventListener('click', (ev) => ev.stopPropagation());
-        cb.addEventListener('change', (ev) => {
-          ev.stopPropagation();
-          if (cb.checked) selectedNotebookIds.add(nb.id);
-          else selectedNotebookIds.delete(nb.id);
-          updateActionsMenuUI();
-          card.classList.toggle('ring-2', cb.checked);
-          card.classList.toggle('ring-indigo-500', cb.checked);
-        });
+        _bindCardInteractions(card, nb);
 
         card.querySelector('.delete-nb-btn').addEventListener('click', (ev) => {
           ev.stopPropagation();
@@ -218,81 +404,25 @@ export function renderLibraryView() {
 
         grid.appendChild(card);
       });
+
+      // Riapplica stato se eravamo in selection mode (es. dopo export)
+      if (_selectionMode) {
+        _applySelectionStateToCards();
+        _updateSelectionBar();
+      }
     }
 
-    updateActionsMenuUI();
     document.getElementById('libraryView').classList.remove('hidden');
   });
 }
 
-/**
- * Aggiorna il badge sul pulsante ⋯ e lo stato del bottone
- * "Esporta selezionati" nel menu.
- */
-function updateActionsMenuUI() {
-  const count = selectedNotebookIds.size;
-
-  const badge = document.getElementById('actionsBadge');
-  if (badge) {
-    if (count > 0) {
-      badge.textContent = String(count);
-      badge.classList.remove('hidden');
-    } else {
-      badge.classList.add('hidden');
-    }
-  }
-
-  const exportBtn = document.getElementById('exportMenuBtn');
-  const exportCount = document.getElementById('exportMenuCount');
-  if (exportBtn) {
-    exportBtn.disabled = count === 0;
-  }
-  if (exportCount) {
-    exportCount.textContent = count > 0 ? `(${count})` : '';
-  }
-}
-
-function toggleActionsMenu() {
-  const menu = document.getElementById('actionsMenu');
-  if (!menu) return;
-  menu.classList.toggle('hidden');
-  // Chiudi auth dropdown se aperto
-  const authDropdown = document.getElementById('authDropdown');
-  if (authDropdown) authDropdown.classList.add('hidden');
-}
-
-function handleSelectAll() {
-  document.querySelectorAll('[data-select-id]').forEach(cb => {
-    const id = cb.dataset.selectId;
-    if (!cb.checked) {
-      cb.checked = true;
-      selectedNotebookIds.add(id);
-      cb.closest('.notebook-card')?.classList.add('ring-2', 'ring-indigo-500');
-    }
-  });
-  updateActionsMenuUI();
-}
-
-function handleDeselectAll() {
-  selectedNotebookIds.clear();
-  document.querySelectorAll('[data-select-id]').forEach(cb => {
-    cb.checked = false;
-    cb.closest('.notebook-card')?.classList.remove('ring-2', 'ring-indigo-500');
-  });
-  updateActionsMenuUI();
-}
-
 // ============================================================
-// BACKUP EXPORT/IMPORT
+// AZIONI SELEZIONE (export, delete, select all)
 // ============================================================
 
-async function handleExportFromMenu() {
+async function handleExportSelection() {
   if (selectedNotebookIds.size === 0) return;
   const ids = Array.from(selectedNotebookIds);
-
-  // Chiudi menu prima di mostrare la progress
-  const menu = document.getElementById('actionsMenu');
-  if (menu) menu.classList.add('hidden');
 
   const progress = showProgressDialog('Esportazione in corso...');
   try {
@@ -300,7 +430,7 @@ async function handleExportFromMenu() {
       progress.update({ done, total, label: notebookTitle });
     });
     progress.close();
-    selectedNotebookIds.clear();
+    _exitSelectionMode();
     renderLibraryView();
   } catch (err) {
     console.error('[export] failed:', err);
@@ -308,6 +438,30 @@ async function handleExportFromMenu() {
     showToast('Esportazione fallita', '❌');
   }
 }
+
+async function handleDeleteSelection() {
+  if (selectedNotebookIds.size === 0) return;
+  const count = selectedNotebookIds.size;
+  if (!confirm(`Eliminare ${count} quadern${count === 1 ? 'o' : 'i'} e tutte le sue pagine?`)) return;
+
+  const ids = Array.from(selectedNotebookIds);
+  try {
+    for (const id of ids) {
+      await deleteNotebookFromDB(id);
+      closeNotebookIfOpen(id);
+    }
+    _exitSelectionMode();
+    renderLibraryView();
+    showToast(`${count} quadern${count === 1 ? 'o eliminato' : 'i eliminati'}`, '🗑️');
+  } catch (err) {
+    console.error('[delete-selection] failed:', err);
+    showToast('Eliminazione fallita', '❌');
+  }
+}
+
+// ============================================================
+// IMPORT
+// ============================================================
 
 async function handleImportFile(file) {
   if (!file) return;
@@ -409,14 +563,23 @@ export function bindLibraryUI() {
   document.getElementById('cancelNewNbBtn')
     ?.addEventListener('click', closeNewNotebookModal);
 
-  document.getElementById('actionsBtn')
-    ?.addEventListener('click', toggleActionsMenu);
-  document.getElementById('exportMenuBtn')
-    ?.addEventListener('click', handleExportFromMenu);
-  document.getElementById('selectAllMenuBtn')
-    ?.addEventListener('click', handleSelectAll);
-  document.getElementById('deselectAllMenuBtn')
-    ?.addEventListener('click', handleDeselectAll);
+  // Barra selezione
+  document.getElementById('selectionDoneBtn')
+    ?.addEventListener('click', _exitSelectionMode);
+  document.getElementById('selectionSelectAllBtn')
+    ?.addEventListener('click', _selectAll);
+  document.getElementById('selectionExportBtn')
+    ?.addEventListener('click', handleExportSelection);
+  document.getElementById('selectionDeleteBtn')
+    ?.addEventListener('click', handleDeleteSelection);
+
+  // Click fuori dalla griglia → esci da selection mode
+  document.addEventListener('pointerdown', (e) => {
+    if (!_selectionMode) return;
+    if (e.target.closest('.notebook-card')) return;
+    if (e.target.closest('#librarySelectionBar')) return;
+    _exitSelectionMode();
+  });
 
   const importBtn = document.getElementById('importBackupBtn');
   const fileInput = document.getElementById('importFileInput');
@@ -431,6 +594,13 @@ export function bindLibraryUI() {
 
   document.querySelectorAll('#coverColorOptions button').forEach(btn => {
     btn.addEventListener('click', () => selectCoverColor(btn));
+  });
+
+  // Esc per uscire dalla selection mode
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && _selectionMode) {
+      _exitSelectionMode();
+    }
   });
 }
 

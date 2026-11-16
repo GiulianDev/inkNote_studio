@@ -15,101 +15,133 @@
 
     <!-- VISTA 1: LIBRERIA -->
     <div id="libraryView" class="fixed inset-0 bg-slate-100 dark:bg-slate-950 z-50 overflow-y-auto p-6 md:p-10 flex flex-col">
-        
-        <div class="max-w-6xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between mb-8 pb-4 border-b border-slate-300 dark:border-slate-800 gap-4">
-            <div class="flex items-center space-x-3">
-                <div class="bg-indigo-600 text-white w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/30">📚</div>
-                <div>
-                    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">InkNote Library</h1>
-                    <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">I tuoi blocchetti salvati in locale</p>
+
+    <!-- HEADER default (nascosto in selection mode) -->
+    <div id="libraryHeader" class="max-w-6xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between mb-8 pb-4 border-b border-slate-300 dark:border-slate-800 gap-4">
+        <div class="flex items-center space-x-3">
+        <div class="bg-indigo-600 text-white w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>
+            </svg>
+        </div>
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">InkNote Library</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">I tuoi blocchetti salvati in locale</p>
+        </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+        <button id="newNotebookBtn"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14"/><path d="M12 5v14"/>
+            </svg>
+            Nuovo Quaderno
+        </button>
+        <button id="importBackupBtn"
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-4 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" x2="12" y1="3" y2="15"/>
+            </svg>
+            Importa
+        </button>
+
+        <div class="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
+
+        <button id="openSettingsBtnLib"
+            class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 w-10 h-10 rounded-xl transition active:scale-95 flex items-center justify-center"
+            title="Impostazioni">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+            </svg>
+        </button>
+
+        <div class="relative" id="authContainer">
+            <button id="authBtn"
+            class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition active:scale-95 overflow-hidden border border-slate-300 dark:border-slate-700"
+            title="Accedi">
+            <span id="authBtnContent" class="text-base">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
+                </svg>
+            </span>
+            </button>
+            <div id="authDropdown"
+            class="hidden absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3">
+                <div id="authDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-indigo-500 text-white font-bold flex-shrink-0"></div>
+                <div class="min-w-0">
+                    <div id="authDropdownName" class="text-sm font-semibold text-slate-900 dark:text-white truncate"></div>
+                    <div id="authDropdownEmail" class="text-[11px] text-slate-500 dark:text-slate-400 truncate"></div>
+                </div>
                 </div>
             </div>
-
-            <div class="flex items-center gap-2">
-                <!-- Azioni primarie -->
-                <button id="newNotebookBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
-                    ➕ Nuovo Quaderno
-                </button>
-                <button id="importBackupBtn" class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-4 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2">
-                    📥 Importa
-                </button>
-
-                <!-- Separatore visivo -->
-                <div class="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
-
-                <!-- Azioni contestuali (⋯) -->
-                <div class="relative" id="actionsContainer">
-                    <button id="actionsBtn"
-                            class="relative bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95"
-                            title="Altre azioni">
-                        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
-                        </svg>
-                        <span id="actionsBadge" class="hidden absolute -top-1 -right-1 bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none min-w-[16px] text-center"></span>
-                    </button>
-
-                    <div id="actionsMenu"
-                         class="hidden absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
-                        <button id="exportMenuBtn"
-                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-between gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
-                            <span>💾 Esporta selezionati</span>
-                            <span id="exportMenuCount" class="text-[10px] text-slate-500 dark:text-slate-400"></span>
-                        </button>
-                        <div class="h-px bg-slate-200 dark:bg-slate-800"></div>
-                        <button id="selectAllMenuBtn"
-                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-                            ☑️ Seleziona tutto
-                        </button>
-                        <button id="deselectAllMenuBtn"
-                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-                            ⬜ Deseleziona tutto
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Sistema -->
-                <button id="openSettingsBtnLib"
-                        class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition active:scale-95"
-                        title="Impostazioni">
-                    ⚙️
-                </button>
-
-                <!-- Auth -->
-                <div class="relative" id="authContainer">
-                    <button id="authBtn"
-                            class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition active:scale-95 overflow-hidden border border-slate-300 dark:border-slate-700"
-                            title="Accedi">
-                        <span id="authBtnContent" class="text-base">👤</span>
-                    </button>
-
-                    <div id="authDropdown"
-                        class="hidden absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
-                        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-                            <div class="flex items-center gap-3">
-                                <div id="authDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-indigo-500 text-white font-bold flex-shrink-0"></div>
-                                <div class="min-w-0">
-                                    <div id="authDropdownName" class="text-sm font-semibold text-slate-900 dark:text-white truncate"></div>
-                                    <div id="authDropdownEmail" class="text-[11px] text-slate-500 dark:text-slate-400 truncate"></div>
-                                </div>
-                            </div>
-                        </div>
-                        <button id="authLogoutBtn"
-                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition">
-                            Esci
-                        </button>
-                    </div>
-                </div>
+            <button id="authLogoutBtn"
+                class="w-full text-left px-4 py-2.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition">
+                Esci
+            </button>
             </div>
         </div>
-        
-        <div class="max-w-6xl w-full mx-auto flex-1">
-            <div id="notebooksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6"></div>
-            <div id="emptyLibraryMessage" class="hidden flex-col items-center justify-center py-20 text-center text-slate-400">
-                <span class="text-5xl mb-3">📓</span>
-                <p class="font-semibold text-base text-slate-600 dark:text-slate-300">Nessun quaderno presente</p>
-                <p class="text-xs text-slate-500 mt-1">Clicca su "Nuovo Quaderno" per iniziare a prendere appunti.</p>
-            </div>
         </div>
+    </div>
+
+    <!-- BARRA SELEZIONE (sostituisce l'header in selection mode) -->
+    <div id="librarySelectionBar"
+        class="hidden max-w-6xl w-full mx-auto mb-8 pb-4 border-b border-slate-300 dark:border-slate-800 items-center justify-between gap-4">
+        <div class="flex items-center gap-3 min-w-0">
+        <button id="selectionDoneBtn"
+            class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 w-10 h-10 rounded-xl transition active:scale-95 flex items-center justify-center"
+            title="Fine">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+            </svg>
+        </button>
+        <span id="selectionCount" class="text-sm font-semibold text-slate-900 dark:text-white tabular-nums whitespace-nowrap">0 selezionati</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+        <button id="selectionSelectAllBtn"
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2"
+            title="Seleziona tutto">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            <span class="hidden sm:inline">Tutto</span>
+        </button>
+        <button id="selectionExportBtn"
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+            title="Esporta selezionati">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+            </svg>
+            <span class="hidden sm:inline">Esporta</span>
+        </button>
+        <button id="selectionDeleteBtn"
+            class="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-3 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+            title="Elimina selezionati">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            <span class="hidden sm:inline">Elimina</span>
+        </button>
+        </div>
+    </div>
+
+    <div class="max-w-6xl w-full mx-auto flex-1">
+        <div id="notebooksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5"></div>
+        <div id="emptyLibraryMessage" class="hidden flex-col items-center justify-center py-20 text-center text-slate-400">
+        <span class="text-5xl mb-3">📓</span>
+        <p class="font-semibold text-base text-slate-600 dark:text-slate-300">Nessun quaderno presente</p>
+        <p class="text-xs text-slate-500 mt-1">Clicca su "Nuovo Quaderno" per iniziare a prendere appunti.</p>
+        </div>
+    </div>
     </div>
 
     <!-- MODALE NUOVO QUADERNO -->

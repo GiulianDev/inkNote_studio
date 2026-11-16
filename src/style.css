@@ -347,3 +347,256 @@ body.dark #undoRedoContainer.undo-redo-dragging {
      non deve ricalcolare il compositing dei canvas sotto. */
   transform: translateZ(0);
 }
+
+/* ============================================================
+   LIBRERIA — card moderne + pallino selezione + animazioni
+   ============================================================ */
+
+/* --- Card container --- */
+.notebook-card {
+  position: relative;
+  cursor: pointer;
+  transition: transform .18s ease, filter .18s ease;
+  border-radius: 1rem;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.notebook-card:hover {
+  transform: translateY(-4px);
+}
+
+.notebook-card:active {
+  transform: translateY(-2px) scale(0.98);
+}
+
+/* In selection mode niente hover lift (non vogliamo "salti") */
+.notebook-card.selection-mode:hover {
+  transform: none;
+}
+
+/* --- Cover --- */
+.notebook-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 1rem;
+  overflow: hidden;
+  box-shadow:
+    0 4px 12px -2px rgba(15, 23, 42, 0.15),
+    0 2px 4px -2px rgba(15, 23, 42, 0.10);
+  transition: box-shadow .2s ease, transform .2s ease;
+}
+
+body.dark .notebook-cover {
+  box-shadow:
+    0 6px 18px -4px rgba(0, 0, 0, 0.5),
+    0 2px 4px -2px rgba(0, 0, 0, 0.3);
+}
+
+.notebook-card:hover .notebook-cover {
+  box-shadow:
+    0 12px 28px -6px rgba(15, 23, 42, 0.25),
+    0 4px 8px -4px rgba(15, 23, 42, 0.15);
+}
+
+body.dark .notebook-card:hover .notebook-cover {
+  box-shadow:
+    0 14px 32px -6px rgba(0, 0, 0, 0.65),
+    0 4px 8px -4px rgba(0, 0, 0, 0.45);
+}
+
+/* Dorso (spine) — gradiente verticale sottile invece di bordo netto */
+.notebook-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  background: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0.28) 0%,
+    rgba(0, 0, 0, 0.12) 40%,
+    rgba(255, 255, 255, 0.08) 100%
+  );
+  pointer-events: none;
+}
+
+/* Contenuto interno della cover */
+.notebook-cover-content {
+  position: absolute;
+  inset: 0;
+  padding: 10px 10px 12px 18px; /* padding-left per il dorso */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #fff;
+  pointer-events: none;
+}
+
+/* Badge pagine in alto a destra */
+.notebook-badge {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* Titolo + data in basso */
+.notebook-cover-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.notebook-title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.notebook-date {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* --- Pulsante elimina (hover, nascosto in selection mode) --- */
+.delete-nb-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity .15s ease, background .15s ease, transform .12s ease;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  z-index: 10;
+  cursor: pointer;
+}
+
+.notebook-card:hover .delete-nb-btn {
+  opacity: 1;
+}
+
+.delete-nb-btn:hover {
+  background: rgba(225, 29, 72, 0.85);
+  color: #fff;
+}
+
+.delete-nb-btn:active {
+  transform: scale(0.92);
+}
+
+.notebook-card.selection-mode .delete-nb-btn {
+  display: none !important;
+}
+
+/* --- Pallino di selezione (Apple-like) --- */
+
+.selection-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  z-index: 20;
+  pointer-events: none;
+
+  /* Nascosto di default */
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity .18s ease, transform .18s ease, background .15s ease;
+}
+
+.notebook-card.selection-mode .selection-dot {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.selection-dot.active {
+  background: #6366f1; /* indigo-500 */
+  border-color: #6366f1;
+}
+
+.selection-dot svg {
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+.selection-dot.active svg {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Card selezionata: ring colorato + cover in scala */
+.notebook-card.is-selected .notebook-cover {
+  outline: 2.5px solid #6366f1;
+  outline-offset: 2px;
+  transform: scale(0.97);
+}
+
+body.dark .notebook-card.is-selected .notebook-cover {
+  outline-color: #818cf8;
+}
+
+.notebook-card.is-selected .notebook-cover-content {
+  /* Leggera sfumatura scura per enfatizzare la selezione */
+  background: linear-gradient(to bottom, transparent 60%, rgba(0, 0, 0, 0.15) 100%);
+}
+
+/* --- Barra selezione: piccola animazione di comparsa --- */
+
+#librarySelectionBar {
+  animation: selBarIn .18s ease-out;
+}
+
+@keyframes selBarIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   PRINT
+   ============================================================ */
+@media print {
+  #librarySelectionBar { display: none !important; }
+}
