@@ -1,22 +1,12 @@
 /**
  * @module features/toolbar/toolbar
  *
- * FEATURE TOOLBAR v2 — mainbar + dock contestuali.
+ * FEATURE TOOLBAR v2.1 — mainbar + dock contestuali + colori foglio.
  *
- * Struttura:
- *   - mainbar (header): back, titolo, 5 menu (writing/selection/shapes/eraser/page),
- *     azioni (⋯, ⚙️, 🌙, PDF, compact)
- *   - dock contestuali: flottanti sotto la mainbar. Uno per menu.
- *     Visibile solo quello del menu attivo.
- *   - popover Foglio: one-shot, non è un dock.
- *   - menu ⋯: azioni rare (nuova pagina, pulisci, palm rejection, impostazioni).
- *
- * Gestione stato menu:
- *   - `_mainMenu` è runtime-only (non persistito). Vive in questo file.
- *   - `setMainMenu(menu)` è la fonte di verità per il menu attivo.
- *   - `setTool(toolName)` è chiamato da keyboard shortcut e pulsanti dock:
- *     deriva `_mainMenu` dal tool (eccetto 'shapes' che è un menu "modale"
- *     e non un tool).
+ * Aggiunte v2.1:
+ *   - popover Foglio con colori custom (paperColor / patternColor)
+ *   - updatePaperColor / updatePatternColor / resetPageColors
+ *   - applyPageColorsToUI
  */
 
 import './toolbar.css';
@@ -30,6 +20,7 @@ import {
   updateToolbarSettings, getEraserRadius
 } from './toolbar-settings.js';
 import { changeBackgroundPattern } from '../editor/pages.js';
+import { redrawPageCanvas } from '../render/render.js';
 import { clearSelection } from '../tools/lazo.js';
 
 let _mounted = false;
@@ -340,7 +331,7 @@ export function selectEraserLevel(level) {
 }
 
 // ============================================================
-// PAGE POPOVER (Foglio)
+// PAGE POPOVER (Foglio) — pattern + colori custom
 // ============================================================
 
 function _setupPagePopover() {
@@ -357,12 +348,84 @@ function _setupPagePopover() {
       });
     });
   });
+
+  // Colore foglio (live)
+  document.getElementById('pagePaperColorInput')
+    ?.addEventListener('input', (e) => updatePaperColor(e.target.value));
+
+  // Colore linee (live)
+  document.getElementById('pagePatternColorInput')
+    ?.addEventListener('input', (e) => updatePatternColor(e.target.value));
+
+  // Reset ai default del tema
+  document.getElementById('pageColorsResetBtn')
+    ?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resetPageColors();
+    });
+}
+
+/**
+ * Imposta il colore del foglio. `null` = default del tema.
+ */
+export function updatePaperColor(hex) {
+  const color = (typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex)) ? hex.toLowerCase() : null;
+  updateToolbarSettings({ paperColor: color });
+  _redrawAllPagesThrottled();
+}
+
+/**
+ * Imposta il colore di linee/quadretti/punti. `null` = default del tema.
+ */
+export function updatePatternColor(hex) {
+  const color = (typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex)) ? hex.toLowerCase() : null;
+  updateToolbarSettings({ patternColor: color });
+  _redrawAllPagesThrottled();
+}
+
+/**
+ * Ripristina entrambi i colori al default del tema.
+ */
+export function resetPageColors() {
+  updateToolbarSettings({ paperColor: null, patternColor: null });
+  applyPageColorsToUI();
+  _redrawAllPagesThrottled();
+  showToast('Colori foglio: predefiniti del tema', '↺');
+}
+
+/**
+ * Riflette `state.paperColor` / `state.patternColor` negli input del
+ * popover Foglio. `null` = mostra il default corrente del tema.
+ */
+export function applyPageColorsToUI() {
+  const paperInput   = document.getElementById('pagePaperColorInput');
+  const patternInput = document.getElementById('pagePatternColorInput');
+  if (!paperInput || !patternInput) return;
+
+  const isDark = state.isDarkMode;
+  const defaultPaper   = isDark ? '#1e293b' : '#ffffff';
+  const defaultPattern = isDark ? '#475569' : '#cbd5e1';
+
+  paperInput.value   = state.paperColor   || defaultPaper;
+  patternInput.value = state.patternColor || defaultPattern;
+}
+
+let _redrawRaf = null;
+function _redrawAllPagesThrottled() {
+  if (_redrawRaf !== null) return;
+  _redrawRaf = requestAnimationFrame(() => {
+    _redrawRaf = null;
+    state.pages.forEach(p => {
+      if (p.canvas) redrawPageCanvas(p);
+    });
+  });
 }
 
 export function showPagePopover() {
   const popover = document.getElementById('pagePopover');
   if (!popover) return;
   _setActivePatternButton(state.bgPattern);
+  applyPageColorsToUI();
   popover.classList.remove('hidden');
 }
 
@@ -379,9 +442,7 @@ function _setActivePatternButton(pattern) {
 
 /**
  * Riflette `state.bgPattern` nel bottone attivo del popover Foglio.
- * Chiamata da `editor.js` all'apertura di un notebook (in v1 faceva
- * `document.getElementById('bgPatternSelect').value = ...`, ma quel
- * select non esiste più).
+ * Chiamata da `editor.js` all'apertura di un notebook.
  */
 export function applyBgPatternToUI() {
   _setActivePatternButton(state.bgPattern);
@@ -469,7 +530,7 @@ function _positionMenuPanel() {
 }
 
 // ============================================================
-// DOCK BUTTONS (tool writing + eraser levels)
+// DOCK BUTTONS
 // ============================================================
 
 function _setupDockButtons() {

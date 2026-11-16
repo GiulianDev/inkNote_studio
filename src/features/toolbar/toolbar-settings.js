@@ -1,16 +1,11 @@
 // ============================================================
 // TOOLBAR SETTINGS — impostazioni per-notebook della toolbar.
 //
-// Novità v2 (mainbar + dock contestuali):
-//   - snapLines / snapShapes sostituiscono autoShapeEnabled
-//     (migrazione soft: autoShapeEnabled → entrambi con lo stesso valore)
-//   - opacity per ogni tool (invariato)
-//   - highlighter default giallo (invariato)
-//   - rimosso subbarVisible (la subbar non esiste più in v2)
-//
-// NOTE:
-//   - `mainMenu` è runtime-only e vive in toolbar.js (non qui)
-//   - `autoShapeEnabled` è deprecato, viene migrato in _normalize
+// Novità v2.1:
+//   - paperColor / patternColor (colori custom del foglio)
+//     - null = usa il default del tema
+//     - hex  = override dell'utente
+//   - migrazione soft: notebook senza questi campi → null
 // ============================================================
 
 import { state } from '../../core/state.js';
@@ -32,7 +27,11 @@ export const DEFAULT_TOOLBAR_SETTINGS = {
   snapShapes: true,
   smoothing: 50,
   compactMode: false,
-  recentColors: []
+  recentColors: [],
+  /** Colore custom del foglio. null = default del tema. */
+  paperColor: null,
+  /** Colore custom di linee/quadretti/punti. null = default del tema. */
+  patternColor: null
 };
 
 export const ERASER_RADII = [3, 8, 16, 30, 50];
@@ -62,16 +61,17 @@ function _applyCompactToDOM(compact) {
 }
 
 function _syncRuntime() {
-  state.smoothing   = _current.smoothing / 100;
-  state.compactMode = !!_current.compactMode;
-  state.eraserSize  = _current.eraserSize;
-  state.eraserMode  = _current.eraserMode;
-  state.snapLines   = !!_current.snapLines;
-  state.snapShapes  = !!_current.snapShapes;
-  // Legacy alias: alcuni file storici potrebbero ancora leggerlo.
-  // Verrà rimosso quando tutti i consumatori useranno snapLines/snapShapes.
+  state.smoothing    = _current.smoothing / 100;
+  state.compactMode  = !!_current.compactMode;
+  state.eraserSize   = _current.eraserSize;
+  state.eraserMode   = _current.eraserMode;
+  state.snapLines    = !!_current.snapLines;
+  state.snapShapes   = !!_current.snapShapes;
   state.autoShapeEnabled = state.snapLines || state.snapShapes;
-  state.activeTool  = _activeTool;
+  state.activeTool   = _activeTool;
+  // Colori foglio (null = default del tema, gestito in render.js)
+  state.paperColor   = _current.paperColor   || null;
+  state.patternColor = _current.patternColor || null;
 
   const conf = _current.tools[_activeTool];
   if (conf) {
@@ -79,6 +79,17 @@ function _syncRuntime() {
     state.strokeWidth    = conf.width;
     state.currentOpacity = conf.opacity != null ? conf.opacity : 1.0;
   }
+}
+
+function _normalizeHexOrNull(v) {
+  if (v == null) return null;
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    return '#' + s.slice(1).split('').map(c => c + c).join('').toLowerCase();
+  }
+  return null;
 }
 
 function _normalize(raw) {
@@ -107,9 +118,7 @@ function _normalize(raw) {
       : _defaultOpacityFor('highlighter')
   };
 
-  // --- Migrazione legacy: autoShapeEnabled → snapLines/snapShapes
-  // Se il notebook ha solo autoShapeEnabled, lo espandiamo in due flag.
-  // Se ha già snapLines/snapShapes (nuova versione), non tocchiamo nulla.
+  // Migrazione legacy: autoShapeEnabled → snapLines/snapShapes
   if (raw && typeof raw.snapLines !== 'boolean' && typeof raw.snapShapes !== 'boolean') {
     if (typeof raw.autoShapeEnabled === 'boolean') {
       merged.snapLines  = raw.autoShapeEnabled;
@@ -123,6 +132,9 @@ function _normalize(raw) {
   merged.eraserMode   = merged.eraserMode === 'point' ? 'point' : 'stroke';
   merged.smoothing    = Math.max(0, Math.min(100, merged.smoothing ?? 50));
   merged.recentColors = Array.isArray(merged.recentColors) ? merged.recentColors.slice() : [];
+
+  merged.paperColor   = _normalizeHexOrNull(merged.paperColor);
+  merged.patternColor = _normalizeHexOrNull(merged.patternColor);
 
   delete merged.autoShapeEnabled;
   delete merged.subbarVisible;
@@ -169,7 +181,9 @@ export function getToolbarSettingsForSave() {
     snapShapes:   _current.snapShapes,
     smoothing:    _current.smoothing,
     compactMode:  _current.compactMode,
-    recentColors: _current.recentColors.slice()
+    recentColors: _current.recentColors.slice(),
+    paperColor:   _current.paperColor,
+    patternColor: _current.patternColor
   };
 }
 

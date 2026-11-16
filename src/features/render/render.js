@@ -862,21 +862,36 @@ export function drawPendingShape(ctx, forceTargetDark) {
 }
 
 // ============================================================
-// BACKGROUND
+// BACKGROUND (con colori custom del foglio)
+//
+// Legge `state.paperColor` e `state.patternColor`:
+//   - null  → default del tema (dark ? slate : white/slate)
+//   - hex   → override dell'utente
+//
+// La cache include i colori nella key: quando cambiano, la cache
+// missa e il background viene ricostruito.
 // ============================================================
 
-function getBackgroundCanvas(patternName, isDark) {
-  const key = `${patternName}|${isDark ? 'dark' : 'light'}`;
+function getBackgroundCanvas(patternName, isDark, paperColor, patternColor) {
+  const key = `${patternName}|${isDark ? 'dark' : 'light'}|${paperColor || 'auto'}|${patternColor || 'auto'}`;
   if (_bgCache.key === key) return _bgCache.canvas;
+
   const canvas = document.createElement('canvas');
   canvas.width = Math.floor(PAGE_WIDTH * BACKGROUND_DPR);
   canvas.height = Math.floor(PAGE_HEIGHT * BACKGROUND_DPR);
   const bctx = canvas.getContext('2d');
   bctx.scale(BACKGROUND_DPR, BACKGROUND_DPR);
-  bctx.fillStyle = isDark ? '#1E293B' : '#FFFFFF';
+
+  // Colori effettivi
+  const bgFill     = paperColor   || (isDark ? '#1E293B' : '#FFFFFF');
+  const lineColor  = patternColor || (isDark ? '#334155' : '#E2E8F0');
+  const dotColor   = patternColor || (isDark ? '#475569' : '#94A3B8');
+
+  bctx.fillStyle = bgFill;
   bctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-  bctx.strokeStyle = isDark ? '#334155' : '#E2E8F0';
+  bctx.strokeStyle = lineColor;
   bctx.lineWidth = 1;
+
   if (patternName === 'ruled') {
     for (let y = 60; y < PAGE_HEIGHT; y += 32) {
       bctx.beginPath(); bctx.moveTo(0, y); bctx.lineTo(PAGE_WIDTH, y); bctx.stroke();
@@ -889,19 +904,25 @@ function getBackgroundCanvas(patternName, isDark) {
       bctx.beginPath(); bctx.moveTo(0, y); bctx.lineTo(PAGE_WIDTH, y); bctx.stroke();
     }
   } else if (patternName === 'dots') {
-    bctx.fillStyle = isDark ? '#475569' : '#94A3B8';
+    bctx.fillStyle = dotColor;
     for (let x = 20; x < PAGE_WIDTH; x += 20) {
       for (let y = 20; y < PAGE_HEIGHT; y += 24) {
         bctx.beginPath(); bctx.arc(x, y, 1.2, 0, Math.PI * 2); bctx.fill();
       }
     }
   }
+
   _bgCache = { key, canvas };
   return canvas;
 }
 
 export function drawPaperBackground(ctx, isDark) {
-  const bg = getBackgroundCanvas(state.bgPattern, isDark);
+  const bg = getBackgroundCanvas(
+    state.bgPattern,
+    isDark,
+    state.paperColor,
+    state.patternColor
+  );
   ctx.drawImage(bg, 0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 }
 

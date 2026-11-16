@@ -200,6 +200,7 @@
 <!-- POPOVER FOGLIO (non è un dock: one-shot, si chiude dopo la scelta) -->
 <div id="pagePopover" class="hidden">
   <div class="page-popover-title">Foglio</div>
+
   <div class="page-popover-section">
     <label class="page-popover-label">Pattern</label>
     <div class="page-pattern-grid">
@@ -208,6 +209,25 @@
       <button class="page-pattern-btn" data-pattern="dots"   title="Puntinato">Punti</button>
       <button class="page-pattern-btn" data-pattern="blank"  title="Bianco">Bianco</button>
     </div>
+  </div>
+
+  <div class="page-popover-section" style="margin-top: 10px;">
+    <label class="page-popover-label">Colori</label>
+    <div class="page-colors-row">
+      <label class="page-color-field" title="Colore del foglio">
+        <span>Foglio</span>
+        <input type="color" id="pagePaperColorInput" value="#ffffff">
+      </label>
+      <label class="page-color-field" title="Colore di linee / quadretti / punti">
+        <span>Linee</span>
+        <input type="color" id="pagePatternColorInput" value="#cbd5e1">
+      </label>
+    </div>
+    <button id="pageColorsResetBtn"
+      class="page-colors-reset"
+      title="Ripristina i colori predefiniti del tema">
+      ↺ Auto (segui tema)
+    </button>
   </div>
 </div>
 

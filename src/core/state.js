@@ -10,7 +10,8 @@
  * IMPORTANTE — ownership:
  *   Alcuni campi di `state` sono CACHE scritte SOLO dai rispettivi store:
  *     - activeTool, currentColor, strokeWidth, eraserSize, eraserMode,
- *       snapLines, snapShapes, smoothing, compactMode
+ *       snapLines, snapShapes, smoothing, compactMode,
+ *       paperColor, patternColor
  *       ← scritti da features/toolbar/toolbar-settings.js
  *     - isDarkMode, palmRejection, settings
  *       ← scritti da core/app-settings.js
@@ -109,6 +110,20 @@ export const state = {
   smoothing: 0.5,
   /** @type {'ruled'|'grid'|'dots'|'blank'} */
   bgPattern: 'ruled',
+  /**
+   * Colore custom del foglio.
+   * - null = usa il default del tema (bianco in light, slate-800 in dark)
+   * - '#rrggbb' = override dell'utente
+   * @type {string|null}
+   */
+  paperColor: null,
+  /**
+   * Colore custom di linee/quadretti/punti.
+   * - null = usa il default del tema
+   * - '#rrggbb' = override dell'utente
+   * @type {string|null}
+   */
+  patternColor: null,
   /** @type {boolean} */
   isDarkMode: false,
   /** @type {boolean} */

@@ -680,6 +680,78 @@ body.compact-mode #pagePopover {
 }
 
 /* ============================================================
+   POPOVER FOGLIO — sezione Colori (paperColor / patternColor)
+   ============================================================ */
+
+.page-colors-row {
+  display: flex;
+  gap: 8px;
+}
+
+.page-color-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+body.dark .page-color-field {
+  color: #cbd5e1;
+}
+
+.page-color-field > span {
+  flex-shrink: 0;
+}
+
+.page-color-field input[type="color"] {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+body.dark .page-color-field input[type="color"] {
+  border-color: #475569;
+}
+
+.page-colors-reset {
+  margin-top: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+
+body.dark .page-colors-reset {
+  color: #cbd5e1;
+  background: #334155;
+}
+
+.page-colors-reset:hover {
+  background: #e2e8f0;
+  color: #4338ca;
+}
+
+body.dark .page-colors-reset:hover {
+  background: #475569;
+  color: #c7d2fe;
+}
+
+/* ============================================================
    PRINT
    ============================================================ */
 @media print {
@@ -687,3 +759,4 @@ body.compact-mode #pagePopover {
     display: none !important;
   }
 }
+
