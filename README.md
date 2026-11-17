@@ -5,6 +5,9 @@ App di note-taking con canvas per penna/stylus, in stile GoodNotes.
 Vanilla JS + ES Modules, bundlata con Vite. Predisposta per essere
 compilata come eseguibile desktop con Tauri.
 
+# online version
+[text](https://inknote-studio.web.app/)
+
 ## Prerequisiti
 
 - **Node.js** ≥ 18 (raccomandato 20+)
@@ -29,6 +32,12 @@ npm run build:singlefile
 # anteprima del build di produzione (NON durante lo sviluppo)
 npm run preview
 ```
+
+# firebase
+firebase login
+firebase init
+firebase deploy
+
 
 > ⚠️ **Durante lo sviluppo usa sempre `npm run dev`**, mai `npm run preview`.
 > Apri sempre `http://localhost:5173/` e **mai** il file `index.html` da
