@@ -36,7 +36,6 @@ import {
 import { changeBackgroundPattern } from '../editor/pages.js';
 import { redrawPageCanvas } from '../render/render.js';
 import { clearSelection } from '../tools/lazo.js';
-import { togglePagesSidebar } from '../pages-sidebar/pages-sidebar.js';
 
 let _mounted = false;
 let _hintShownThisSession = false;
@@ -85,7 +84,6 @@ export function mountToolbar() {
   _setupPagePopover();
   _setupDockButtons();
   _setupMainMenuDrag();
-  _setupPagesSidebarToggle();
   _setMainMenu('writing', { silent: true });
   applyMainMenuOrderToUI();
 
@@ -102,15 +100,6 @@ export function mountToolbar() {
 export function refreshPageCounter() {
   const el = document.getElementById('pageCounterText');
   if (el) el.innerText = `Pagina ${state.activePageIndex + 1} di ${state.pages.length}`;
-}
-
-// ============================================================
-// SIDEBAR PAGINE — toggle
-// ============================================================
-
-function _setupPagesSidebarToggle() {
-  document.getElementById('togglePagesSidebarBtn')
-    ?.addEventListener('click', togglePagesSidebar);
 }
 
 // ============================================================

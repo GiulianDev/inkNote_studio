@@ -7,6 +7,101 @@
   --pages-sidebar-header-height: 61px; /* fallback, JS la misura */
 }
 
+/* --- Linguetta laterale (sempre visibile, si sposta con la sidebar) --- */
+.pages-sidebar-tab {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 21;
+  width: 18px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  padding: 0;
+  transition: left 0.18s ease, right 0.18s ease,
+              background-color 0.12s, color 0.12s;
+}
+
+.pages-sidebar-tab:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+body.dark .pages-sidebar-tab {
+  background: #1e293b;
+  color: #cbd5e1;
+  border-color: #334155;
+}
+
+body.dark .pages-sidebar-tab:hover {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+.pages-sidebar-tab svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+/* Icona visibile per default: "apri" */
+.pages-sidebar-tab .pages-tab-icon-open  { display: block; }
+.pages-sidebar-tab .pages-tab-icon-close { display: none; }
+
+/* --- Posizionamento in base alla posizione della sidebar ---
+   Le classi body pages-sidebar-left/right indicano la posizione
+   configurata (indipendentemente da aperta/chiusa).
+   pages-sidebar-open indica lo stato. */
+
+/* Sidebar a SINISTRA, chiusa */
+body.pages-sidebar-left .pages-sidebar-tab {
+  left: 0;
+  right: auto;
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+}
+
+/* Sidebar a SINISTRA, aperta: linguetta al bordo destro della sidebar */
+body.pages-sidebar-left.pages-sidebar-open .pages-sidebar-tab {
+  left: var(--pages-sidebar-width);
+}
+
+/* Sidebar a DESTRA, chiusa */
+body.pages-sidebar-right .pages-sidebar-tab {
+  right: 0;
+  left: auto;
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+}
+
+/* Sidebar a DESTRA, aperta: linguetta al bordo sinistro della sidebar */
+body.pages-sidebar-right.pages-sidebar-open .pages-sidebar-tab {
+  right: var(--pages-sidebar-width);
+}
+
+/* --- Icone: cambia in base a posizione + stato --- */
+
+/* Sinistra chiusa → chevron right (apri verso destra) */
+body.pages-sidebar-left:not(.pages-sidebar-open) .pages-sidebar-tab .pages-tab-icon-open  { display: block; }
+body.pages-sidebar-left:not(.pages-sidebar-open) .pages-sidebar-tab .pages-tab-icon-close { display: none;  }
+
+/* Sinistra aperta → chevron left (chiudi verso sinistra) */
+body.pages-sidebar-left.pages-sidebar-open .pages-sidebar-tab .pages-tab-icon-open  { display: none;  }
+body.pages-sidebar-left.pages-sidebar-open .pages-sidebar-tab .pages-tab-icon-close { display: block; }
+
+/* Destra chiusa → chevron left (apri verso sinistra) */
+body.pages-sidebar-right:not(.pages-sidebar-open) .pages-sidebar-tab .pages-tab-icon-open  { display: none;  }
+body.pages-sidebar-right:not(.pages-sidebar-open) .pages-sidebar-tab .pages-tab-icon-close { display: block; }
+
+/* Destra aperta → chevron right (chiudi verso destra) */
+body.pages-sidebar-right.pages-sidebar-open .pages-sidebar-tab .pages-tab-icon-open  { display: block; }
+body.pages-sidebar-right.pages-sidebar-open .pages-sidebar-tab .pages-tab-icon-close { display: none;  }
+
 /* --- Sidebar --- */
 .pages-sidebar {
   position: fixed;
@@ -200,15 +295,20 @@ body.pages-sidebar-open.pages-sidebar-right #viewport {
   width: calc(100vw - var(--pages-sidebar-width));
 }
 
-/* Compact mode: la sidebar è nascosta (non ha senso in fullscreen) */
-body.compact-mode .pages-sidebar { display: none !important; }
-
-/* Mobile: sidebar più stretta */
-@media (max-width: 640px) {
-  :root { --pages-sidebar-width: 140px; }
+/* Compact mode: sidebar e linguetta nascoste (non hanno senso in fullscreen) */
+body.compact-mode .pages-sidebar,
+body.compact-mode .pages-sidebar-tab {
+  display: none !important;
 }
 
-/* Print: nascosta */
+/* Mobile: sidebar e linguetta più strette */
+@media (max-width: 640px) {
+  :root { --pages-sidebar-width: 140px; }
+  .pages-sidebar-tab { width: 16px; height: 56px; }
+}
+
+/* Print: nascoste */
 @media print {
-  .pages-sidebar { display: none !important; }
+  .pages-sidebar,
+  .pages-sidebar-tab { display: none !important; }
 }

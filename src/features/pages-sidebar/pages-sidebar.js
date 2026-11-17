@@ -4,15 +4,17 @@
  * SIDEBAR PAGINE — thumbnails, riordino via drag, eliminazione.
  *
  * Comportamento:
- *   - Collassabile (close btn, toggle da header)
+ *   - La sidebar si apre/chiude tramite la linguetta laterale
+ *     (#pagesSidebarTab) o dal pulsante X interno.
+ *   - La linguetta resta sempre visibile (tranne in compact mode)
+ *     e si sposta col bordo della sidebar quando questa è aperta.
  *   - Posizione left/right da settings (app-settings.pagesSidebar.position)
  *   - Aperta/chiusa persiste in settings (pagesSidebar.open)
  *   - Thumbnails: canvas 240×340 fisici (120×170 CSS @ 2x)
  *   - Render: stroke semplificati (no pressure), pattern non disegnato
  *   - Refresh:
  *       - Full rebuild su pages-changed / notebook-opened / theme change
- *       - Per-pagina (debounced) su pointerup del canvas (aggiorna
- *         la thumb della pagina attiva senza rebuildare tutto)
+ *       - Per-pagina (debounced) su pointerup del canvas
  *   - Sync: highlight pagina attiva + scroll into view
  *
  * @see features/editor/pages.js — deletePage, movePage, scrollToPage
@@ -56,15 +58,17 @@ export function mountPagesSidebar() {
   document.body.insertAdjacentHTML('beforeend', sidebarHtml);
   _mounted = true;
 
+  // Applica subito la posizione (prima di open) per evitare flash.
+  const s = getSettings().pagesSidebar;
+  _applyPosition(s.position);
+  _updateTabTitle();
+
   // Allinea top: header height (misurata).
   _syncSidebarTop();
   window.addEventListener('resize', _syncSidebarTop);
 
   _bindUI();
 
-  // Posizione e stato iniziali da settings.
-  const s = getSettings().pagesSidebar;
-  _applyPosition(s.position);
   if (s.open) openPagesSidebar({ silent: true });
 
   // Reagisce a cambi impostazioni (posizione, apertura).
@@ -72,6 +76,7 @@ export function mountPagesSidebar() {
     if (!changed.includes('pagesSidebar')) return;
     const next = getSettings().pagesSidebar;
     _applyPosition(next.position);
+    _updateTabTitle();
     if (next.open !== _isOpen) {
       if (next.open) openPagesSidebar({ silent: true });
       else closePagesSidebar({ silent: true });
@@ -142,6 +147,7 @@ export function openPagesSidebar({ silent = false } = {}) {
   sidebar.classList.remove('hidden');
   document.body.classList.add('pages-sidebar-open');
   _isOpen = true;
+  _updateTabTitle();
   refreshThumbnails();
   setTimeout(() => _highlightActivePage(true), 80);
   window.dispatchEvent(new Event('resize'));
@@ -168,6 +174,7 @@ export function closePagesSidebar({ silent = false } = {}) {
   sidebar.classList.add('hidden');
   document.body.classList.remove('pages-sidebar-open');
   _isOpen = false;
+  _updateTabTitle();
   window.dispatchEvent(new Event('resize'));
 
   if (!silent) {
@@ -179,7 +186,7 @@ export function closePagesSidebar({ silent = false } = {}) {
 }
 
 // ============================================================
-// POSIZIONE + ALTEZZA
+// POSIZIONE + ALTEZZA + TITOLO LINGUETTA
 // ============================================================
 
 function _applyPosition(position) {
@@ -192,6 +199,19 @@ function _applyPosition(position) {
   document.body.classList.toggle('pages-sidebar-right', pos === 'right');
 
   window.dispatchEvent(new Event('resize'));
+}
+
+/**
+ * Aggiorna il title/aria-label della linguetta in base allo stato.
+ * L'icona è gestita via CSS (body classi + stato), qui cambia solo
+ * il testo accessibile per hover e screen reader.
+ */
+function _updateTabTitle() {
+  const tab = document.getElementById('pagesSidebarTab');
+  if (!tab) return;
+  const label = _isOpen ? 'Nascondi pagine' : 'Mostra pagine';
+  tab.title = label;
+  tab.setAttribute('aria-label', label);
 }
 
 function _syncSidebarTop() {
@@ -209,12 +229,18 @@ function _syncSidebarTop() {
 // ============================================================
 
 function _bindUI() {
+  // Linguetta laterale: toggle open/close
+  document.getElementById('pagesSidebarTab')
+    ?.addEventListener('click', togglePagesSidebar);
+
+  // Bottone X nella sidebar
   document.getElementById('pagesSidebarCloseBtn')
     ?.addEventListener('click', () => closePagesSidebar());
+
+  // Bottone + nella sidebar (aggiunge pagina)
   document.getElementById('pagesSidebarAddBtn')
     ?.addEventListener('click', () => {
       addNewPage();
-      // scroll al fondo dopo il render
       setTimeout(() => _highlightActivePage(true), 120);
     });
 
@@ -262,7 +288,6 @@ export function refreshThumbnails() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
-  // Reset mappa e DOM.
   _thumbCanvases.clear();
   list.innerHTML = '';
 
@@ -332,8 +357,6 @@ function _redrawAllThumbCanvases() {
 /**
  * Disegno semplificato dello stroke (senza pressure/tilt).
  * Sufficiente per una thumbnail di 120×170 CSS.
- * @param {import('../../core/state.js').PageData} pageData
- * @param {HTMLCanvasElement} canvas
  */
 function _drawThumbnail(pageData, canvas) {
   const ctx = canvas.getContext('2d');
@@ -346,7 +369,6 @@ function _drawThumbnail(pageData, canvas) {
   ctx.setTransform(THUMB_DPR, 0, 0, THUMB_DPR, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  // Fondo pagina
   ctx.fillStyle = state.isDarkMode ? '#1e293b' : '#ffffff';
   ctx.fillRect(0, 0, cssW, cssH);
 
@@ -367,7 +389,6 @@ function _drawThumbnail(pageData, canvas) {
     ctx.globalAlpha = alpha;
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
-    // Spessore "visuale" per la thumb: minimo 1.5 altrimenti invisibile
     ctx.lineWidth = Math.max(1.5 / scale, (stroke.size || 3) * 0.6);
 
     if (stroke.points.length === 1) {
@@ -492,6 +513,5 @@ function _setupDragReorder() {
     if (finalIndex < 0 || finalIndex === st.startIndex) return;
 
     movePage(st.startIndex, finalIndex);
-    // movePage emette pages-changed → refreshThumbnails() ricostruisce il DOM
   }
 }
