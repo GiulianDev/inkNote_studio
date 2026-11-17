@@ -165,6 +165,9 @@ export function closeNotebookIfOpen(id) {
  * - Il pattern NON è più un <select>: si aggiorna col popover Foglio
  *   tramite applyBgPatternToUI().
  * - I due toggle auto-shape v2 si aggiornano con applySnapTogglesToUI().
+ *
+ * NOTA finger writing: il checkbox #palmRejectionCheck ora rappresenta
+ * "Scrittura con il dito" → checked = finger writing ON = palmRejection OFF.
  */
 function applyToolbarControlsToUI() {
   const s = getToolbarSettings();
@@ -177,8 +180,8 @@ function applyToolbarControlsToUI() {
   const eraserModeSel = document.getElementById('eraserModeSelect');
   if (eraserModeSel) eraserModeSel.value = s.eraserMode;
 
-  const palmCheck = document.getElementById('palmRejectionCheck');
-  if (palmCheck) palmCheck.checked = getSettings().palmRejection !== false;
+  const fingerWritingCheck = document.getElementById('palmRejectionCheck');
+  if (fingerWritingCheck) fingerWritingCheck.checked = getSettings().palmRejection === false;
 
   // Nuovi toggle v2
   applySnapTogglesToUI();

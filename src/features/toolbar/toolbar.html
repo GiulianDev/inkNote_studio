@@ -359,10 +359,17 @@
   </div>
 
   <div class="menu-section">
-    <div class="menu-section-title">Scrittura (globale)</div>
-    <label class="menu-item menu-item-toggle">
+    <div class="menu-section-title">Input (globale)</div>
+    <!--
+      "Scrittura con il dito":
+        OFF (default) → 1 dito fa pan, penna scrive, 2 dita pinch
+        ON            → 1 dito scrive,  2 dita fanno pan+pinch
+      L'id resta palmRejectionCheck per non toccare i binding esistenti.
+    -->
+    <label class="menu-item menu-item-toggle"
+           title="Se attivo: 1 dito disegna, 2 dita muovono e zoomano">
       <input type="checkbox" id="palmRejectionCheck" class="accent-indigo-600 w-4 h-4">
-      <span>Palm rejection</span>
+      <span>Scrittura con il dito</span>
     </label>
   </div>
 

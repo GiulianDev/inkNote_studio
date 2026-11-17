@@ -8,6 +8,11 @@
  *           scrollSensitivity, palmRejection,
  *           mainMenuOrder, mainMenuHidden (personalizzazione mainbar).
  *
+ * NOTA palmRejection / fingerWriting:
+ *   La preferenza salvata è `palmRejection` (storico).
+ *   `state.fingerWriting` è il derivato (`!palmRejection`) usato
+ *   da gestures.js per decidere se 1 dito disegna o fa pan.
+ *
  * @see core/types.js  — AppSettings
  * @see features/toolbar/toolbar-settings.js
  */
@@ -102,6 +107,9 @@ function _computeIsDark(settings) {
 function _syncRuntime(settings) {
   state.isDarkMode    = _computeIsDark(settings);
   state.palmRejection = settings.palmRejection !== false;
+  // Derivato: fingerWriting è l'inverso di palmRejection.
+  // Letto da gestures.js e dispatcher.js per decidere chi disegna.
+  state.fingerWriting = !state.palmRejection;
   state.settings      = Object.freeze({ ...settings });
 }
 

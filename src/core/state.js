@@ -13,7 +13,7 @@
  *       snapLines, snapShapes, smoothing, compactMode,
  *       paperColor, patternColor
  *       ← scritti da features/toolbar/toolbar-settings.js
- *     - isDarkMode, palmRejection, settings
+ *     - isDarkMode, palmRejection, fingerWriting, settings
  *       ← scritti da core/app-settings.js
  *   NON scriverli direttamente da altri moduli: usare gli store.
  *
@@ -128,8 +128,19 @@ export const state = {
   patternColor: null,
   /** @type {boolean} */
   isDarkMode: false,
-  /** @type {boolean} */
+  /**
+   * Palm rejection (solo penna disegna, dito fa pan/pinch).
+   * Derivato dallo store: vedi core/app-settings.js.
+   * @type {boolean}
+   */
   palmRejection: true,
+  /**
+   * Scrittura con il dito (derivato da `!palmRejection`).
+   * - true  → 1 dito disegna, 2 dita fanno pan/zoom
+   * - false → 1 dito fa pan, 2 dita fanno pinch, penna disegna
+   * @type {boolean}
+   */
+  fingerWriting: false,
 
   // --- Disegno in corso (hot path) ---
   /** @type {boolean} */

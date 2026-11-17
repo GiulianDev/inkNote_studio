@@ -7,6 +7,10 @@
 // Foglio, menu ⋯) sono gestiti internamente da
 // features/toolbar/toolbar.js. Qui restano solo i bind
 // "editor-specifici" e gli header/menu actions.
+//
+// NOTA finger writing: il checkbox #palmRejectionCheck nel menu ⋯
+// ora si chiama "Scrittura con il dito". La semantica è INVERTITA
+// rispetto al vecchio "palm rejection": checked = finger writing ON.
 // ============================================================
 
 import { state } from '../../core/state.js';
@@ -25,7 +29,7 @@ import { returnToLibrary, updateCurrentNotebookTitle } from './editor.js';
 import {
   addNewPage, clearCurrentPage, changeBackgroundPattern, resetZoom
 } from './pages.js';
-import { togglePalmRejection } from '../viewport/gestures.js';
+import { toggleFingerWriting } from '../viewport/gestures.js';
 import {
   clearSelection, deleteSelectedStrokes,
   previewSelectionColor, changeSelectionColor,
@@ -80,11 +84,14 @@ export function bindEditorUI() {
   document.getElementById('openSettingsFromMenu')
     ?.addEventListener('click', () => { openSettingsModal(); closeOverflowMenu(); });
 
-  // --- Menu ⋯: palm rejection (globale) ---
+  // --- Menu ⋯: Scrittura con il dito (globale) ---
+  // Semantica INVERTITA rispetto al vecchio "palm rejection":
+  //   checked = finger writing ON = palmRejection OFF
   document.getElementById('palmRejectionCheck')
     ?.addEventListener('change', (e) => {
-      updateSettings({ palmRejection: e.target.checked });
-      togglePalmRejection(e.target.checked);
+      const fingerWriting = e.target.checked;
+      updateSettings({ palmRejection: !fingerWriting });
+      toggleFingerWriting(fingerWriting);
     });
 
   // --- Dock Gomma: eraser mode ---
@@ -119,7 +126,7 @@ export function bindEditorUI() {
   initCompactFullscreenSync();
 
   // --- Sincronizza controlli con lo stato corrente ---
-  applyPalmRejectionToUI();
+  applyFingerWritingToUI();
   applyEraserModeToUI();
   applySnapTogglesToUI();
   applyEraserLevelToUI();
@@ -132,9 +139,10 @@ function closeOverflowMenu() {
   document.getElementById('toolbarMenuBackdrop')?.classList.remove('open');
 }
 
-function applyPalmRejectionToUI() {
+function applyFingerWritingToUI() {
   const check = document.getElementById('palmRejectionCheck');
-  if (check) check.checked = getSettings().palmRejection !== false;
+  // checked = finger writing ON (cioè palmRejection === false)
+  if (check) check.checked = getSettings().palmRejection === false;
 }
 
 function applyEraserModeToUI() {
