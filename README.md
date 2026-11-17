@@ -6,7 +6,7 @@ Vanilla JS + ES Modules, bundlata con Vite. Predisposta per essere
 compilata come eseguibile desktop con Tauri.
 
 # online version
-[text](https://inknote-studio.web.app/)
+[Link all'app funzionante](https://inknote-studio.web.app/)
 
 ## Prerequisiti
 
