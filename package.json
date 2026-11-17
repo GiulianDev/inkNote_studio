@@ -18,6 +18,8 @@
     "vite-plugin-singlefile-offline": "^0.1.0"
   },
   "dependencies": {
-    "firebase": "^13.3.0"
+    "firebase": "^13.3.0",
+    "hcg-sortable": "^1.0.0",
+    "sortablejs": "^1.15.7"
   }
 }

@@ -1,21 +1,15 @@
 /**
  * @module features/pages-sidebar/pages-sidebar
  *
- * SIDEBAR PAGINE — thumbnails, riordino via drag, eliminazione.
+ * SIDEBAR PAGINE — thumbnails, riordino via drag (hcg-sortable), eliminazione.
  *
- * Comportamento:
- *   - La sidebar si apre/chiude tramite la linguetta laterale
- *     (#pagesSidebarTab) o dal pulsante X interno.
- *   - La linguetta resta sempre visibile (tranne in compact mode)
- *     e si sposta col bordo della sidebar quando questa è aperta.
- *   - Posizione left/right da settings (app-settings.pagesSidebar.position)
- *   - Aperta/chiusa persiste in settings (pagesSidebar.open)
- *   - Thumbnails: canvas 240×340 fisici (120×170 CSS @ 2x)
- *   - Render: stroke semplificati (no pressure), pattern non disegnato
- *   - Refresh:
- *       - Full rebuild su pages-changed / notebook-opened / theme change
- *       - Per-pagina (debounced) su pointerup del canvas
- *   - Sync: highlight pagina attiva + scroll into view
+ * Riordino:
+ *   - Gestito da hcg-sortable (Pointer Events → mouse, touch, stylus).
+ *   - Drag attivabile solo dalla maniglia `.page-thumb-drag-handle`.
+ *   - `onUpdate` chiama movePage(oldIndex, newIndex) che riallinea
+ *     state.pages, i data-index e persiste su IndexedDB.
+ *   - Dopo ogni refreshThumbnails() l'istanza Sortable viene ricreata
+ *     perché il DOM delle thumbnail è stato ricostruito.
  *
  * @see features/editor/pages.js — deletePage, movePage, scrollToPage
  * @see core/app-settings.js     — pagesSidebar settings
@@ -23,6 +17,9 @@
 
 import './pages-sidebar.css';
 import sidebarHtml from './pages-sidebar.html?raw';
+
+import HcgSortable from 'hcg-sortable';
+import 'hcg-sortable/hcg-sortable.css';
 
 import { state } from '../../core/state.js';
 import { showToast, PAGE_WIDTH, PAGE_HEIGHT, on } from '../../core/utils.js';
@@ -45,6 +42,8 @@ let _mounted = false;
 let _isOpen = false;
 /** @type {Map<number, HTMLCanvasElement>} pageIndex -> canvas thumb */
 const _thumbCanvases = new Map();
+/** @type {HcgSortable|null} */
+let _sortableInstance = null;
 
 // ============================================================
 // MOUNT + BOOTSTRAP
@@ -58,12 +57,10 @@ export function mountPagesSidebar() {
   document.body.insertAdjacentHTML('beforeend', sidebarHtml);
   _mounted = true;
 
-  // Applica subito la posizione (prima di open) per evitare flash.
   const s = getSettings().pagesSidebar;
   _applyPosition(s.position);
   _updateTabTitle();
 
-  // Allinea top: header height (misurata).
   _syncSidebarTop();
   window.addEventListener('resize', _syncSidebarTop);
 
@@ -71,7 +68,6 @@ export function mountPagesSidebar() {
 
   if (s.open) openPagesSidebar({ silent: true });
 
-  // Reagisce a cambi impostazioni (posizione, apertura).
   onSettingsChanged(({ changed }) => {
     if (!changed.includes('pagesSidebar')) return;
     const next = getSettings().pagesSidebar;
@@ -83,27 +79,22 @@ export function mountPagesSidebar() {
     }
   });
 
-  // Refresh completo quando cambiano le pagine.
   window.addEventListener('inknote:pages-changed', () => {
     if (_isOpen) refreshThumbnails();
   });
 
-  // Refresh completo quando si apre un quaderno.
   window.addEventListener('inknote:notebook-opened', () => {
     if (_isOpen) refreshThumbnails();
   });
 
-  // Highlight pagina attiva.
   window.addEventListener('inknote:active-page-changed', () => {
     if (_isOpen) _highlightActivePage(true);
   });
 
-  // History restore (undo/redo) → ricostruisce DOM pagine.
   on('history:restore', () => {
     if (_isOpen) refreshThumbnails();
   });
 
-  // Tema cambiato → ridisegna thumbnails (sfondo + colori).
   onSettingsChanged(({ changed }) => {
     if (!_isOpen) return;
     if (changed.includes('theme') || changed.includes('theme.effective')) {
@@ -111,8 +102,6 @@ export function mountPagesSidebar() {
     }
   });
 
-  // Aggiorna la thumb della pagina attiva dopo ogni interazione
-  // (draw, erase, lasso delete, …). Debounced.
   let _pointerRefreshTimer = null;
   document.addEventListener('pointerup', () => {
     if (!_isOpen) return;
@@ -201,11 +190,6 @@ function _applyPosition(position) {
   window.dispatchEvent(new Event('resize'));
 }
 
-/**
- * Aggiorna il title/aria-label della linguetta in base allo stato.
- * L'icona è gestita via CSS (body classi + stato), qui cambia solo
- * il testo accessibile per hover e screen reader.
- */
 function _updateTabTitle() {
   const tab = document.getElementById('pagesSidebarTab');
   if (!tab) return;
@@ -229,15 +213,12 @@ function _syncSidebarTop() {
 // ============================================================
 
 function _bindUI() {
-  // Linguetta laterale: toggle open/close
   document.getElementById('pagesSidebarTab')
     ?.addEventListener('click', togglePagesSidebar);
 
-  // Bottone X nella sidebar
   document.getElementById('pagesSidebarCloseBtn')
     ?.addEventListener('click', () => closePagesSidebar());
 
-  // Bottone + nella sidebar (aggiunge pagina)
   document.getElementById('pagesSidebarAddBtn')
     ?.addEventListener('click', () => {
       addNewPage();
@@ -245,7 +226,7 @@ function _bindUI() {
     });
 
   _setupThumbDelegation();
-  _setupDragReorder();
+  // _setupDragReorder() rimosso: il riordino è gestito da hcg-sortable
 }
 
 function _setupThumbDelegation() {
@@ -254,6 +235,7 @@ function _setupThumbDelegation() {
 
   list.addEventListener('click', (e) => {
     if (e.target.closest('.page-thumb-delete')) return;
+    if (e.target.closest('.page-thumb-drag-handle')) return; // il click sulla maniglia non apre la pagina
     const thumb = e.target.closest('.page-thumb');
     if (!thumb) return;
     const idx = parseInt(thumb.dataset.index);
@@ -281,6 +263,36 @@ function _setupThumbDelegation() {
 }
 
 // ============================================================
+// SORTABLE (hcg-sortable) — riordino con maniglia
+// ============================================================
+
+function _setupSortable() {
+  const list = document.getElementById('pagesThumbnailsList');
+  if (!list) return;
+
+  // Distruggi l'istanza precedente (il DOM è stato ricostruito).
+  if (_sortableInstance) {
+    _sortableInstance.destroy();
+    _sortableInstance = null;
+  }
+
+  _sortableInstance = new HcgSortable(list, {
+    axis: 'y',
+    animation: 180,
+    handle: '.page-thumb-drag-handle',
+    dragThreshold: 3,
+    scroll: true,
+    onUpdate(detail) {
+      if (detail.oldIndex === detail.newIndex) return;
+      // movePage riallinea state.pages, data-index e persiste.
+      // Emette `inknote:pages-changed` → refreshThumbnails() → nuova
+      // istanza Sortable sul DOM aggiornato.
+      movePage(detail.oldIndex, detail.newIndex);
+    },
+  });
+}
+
+// ============================================================
 // RENDER THUMBNAILS
 // ============================================================
 
@@ -301,6 +313,9 @@ export function refreshThumbnails() {
   });
   list.appendChild(frag);
 
+  // Il DOM è nuovo: ricrea l'istanza Sortable.
+  _setupSortable();
+
   _highlightActivePage(true);
 }
 
@@ -308,6 +323,19 @@ function _buildThumbElement(index) {
   const div = document.createElement('div');
   div.className = 'page-thumb';
   div.dataset.index = String(index);
+
+  // Maniglia di drag (handle per hcg-sortable).
+  // Su touch/stylus è sempre visibile; su mouse appare/si scurisce su hover.
+  const handle = document.createElement('div');
+  handle.className = 'page-thumb-drag-handle';
+  handle.title = 'Trascina per riordinare';
+  handle.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/>
+      <circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/>
+      <circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/>
+    </svg>`;
+  div.appendChild(handle);
 
   const preview = document.createElement('div');
   preview.className = 'page-thumb-preview';
@@ -354,10 +382,6 @@ function _redrawAllThumbCanvases() {
   });
 }
 
-/**
- * Disegno semplificato dello stroke (senza pressure/tilt).
- * Sufficiente per una thumbnail di 120×170 CSS.
- */
 function _drawThumbnail(pageData, canvas) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -428,90 +452,5 @@ function _highlightActivePage(scrollIntoView) {
   const activeEl = list.querySelector(`.page-thumb[data-index="${activeIndex}"]`);
   if (activeEl) {
     activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-}
-
-// ============================================================
-// DRAG REORDER
-// ============================================================
-
-function _setupDragReorder() {
-  const list = document.getElementById('pagesThumbnailsList');
-  if (!list) return;
-
-  let dragState = null;
-
-  list.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.closest('.page-thumb-delete')) return;
-
-    const thumb = e.target.closest('.page-thumb');
-    if (!thumb) return;
-
-    dragState = {
-      thumb,
-      startIndex: parseInt(thumb.dataset.index),
-      startY: e.clientY,
-      dragging: false,
-      pointerId: e.pointerId
-    };
-
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
-  });
-
-  function onMove(e) {
-    if (!dragState || e.pointerId !== dragState.pointerId) return;
-
-    const dy = e.clientY - dragState.startY;
-    if (!dragState.dragging) {
-      if (Math.abs(dy) < 8) return;
-      dragState.dragging = true;
-      dragState.thumb.classList.add('dragging');
-    }
-
-    e.preventDefault();
-
-    const thumbs = [...list.querySelectorAll('.page-thumb')];
-    const currentIdx = thumbs.indexOf(dragState.thumb);
-    if (currentIdx < 0) return;
-
-    // Trova la posizione di drop in base al centro verticale.
-    let targetIdx = currentIdx;
-    for (let i = 0; i < thumbs.length; i++) {
-      if (i === currentIdx) continue;
-      const rect = thumbs[i].getBoundingClientRect();
-      const mid = rect.top + rect.height / 2;
-      if (e.clientY < mid) { targetIdx = i; break; }
-      targetIdx = i;
-    }
-    if (targetIdx === currentIdx) return;
-
-    // Riordina in DOM.
-    if (targetIdx < currentIdx) {
-      list.insertBefore(dragState.thumb, thumbs[targetIdx]);
-    } else {
-      list.insertBefore(dragState.thumb, thumbs[targetIdx].nextSibling);
-    }
-  }
-
-  function onUp(e) {
-    if (!dragState || e.pointerId !== dragState.pointerId) return;
-    const st = dragState;
-    dragState = null;
-
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    document.removeEventListener('pointercancel', onUp);
-
-    st.thumb.classList.remove('dragging');
-    if (!st.dragging) return;
-
-    const finalIndex = [...list.querySelectorAll('.page-thumb')]
-      .indexOf(st.thumb);
-    if (finalIndex < 0 || finalIndex === st.startIndex) return;
-
-    movePage(st.startIndex, finalIndex);
   }
 }
