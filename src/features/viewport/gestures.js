@@ -1,62 +1,73 @@
 /**
  * @module features/viewport/gestures
  *
- * GESTURE VIEWPORT — pan, pinch, wheel, pull-to-add-page.
+ * GESTURE VIEWPORT — pan (1 dito), pinch (2 dita), wheel, pull-to-add-page.
  *
- * Palm rejection (se state.palmRejection):
- *   - Touch > 40px (contact size) → ignora (palm)
- *   - Touch durante stroke penna (penDown) → ignora
- *   - Touch entro PEN_CONTACT_GRACE_MS dal pointerup → ignora
- *     (grace: palmo che appoggia nel momento del sollevamento)
- *   - Touch entro PEN_LEAVE_GRACE_MS dal pointerleave → ignora
- *     (grace: mignolo che appoggia appena la penna esce dal range)
- *   - Touch mentre penna è in hover (penInRange) → ignora
- *     (finché cursore visibile → no pan/pinch)
+ * ------------------------------------------------------------------
+ * PALM REJECTION (state.palmRejection)
+ * ------------------------------------------------------------------
+ *   - Penna a contatto (_penDown) → blocca qualsiasi touch
+ *   - Penna in hover (_penInRange) → blocca qualsiasi touch,
+ *     con safety net 800ms per driver che non emettono pointerleave
+ *   - Grace post pointerup penna: 150ms
+ *   - Grace post pointerleave penna: 300ms
+ *   - Tocco con dimensione > PALM_CONTACT_SIZE (50px) → rifiutato
+ *     come palmo/nocca, indipendentemente dal resto
  *
- * Tre timer con ruoli distinti:
+ * ------------------------------------------------------------------
+ * NUMERO MASSIMO DI TOCCHI
+ * ------------------------------------------------------------------
+ *   - Pan: 1 solo tocco valido
+ *   - Pinch: 2 tocchi, non di più
+ *   - >= 3 tocchi → BLOCCO TOTALE del gesto (rollback posizione,
+ *     reset pan/pinch) finché TUTTI i pointer non si alzano
+ *   - Durante il blocco, ogni nuovo pointerdown viene ignorato
  *
- *   PEN_CONTACT_GRACE_MS = 80ms
- *     - Parte SOLO al pointerup/pointercancel della penna
- *     - Copre: sollevo di scatto + allontano + dito appoggia
- *       entro 80ms → bloccato
+ * ------------------------------------------------------------------
+ * PINCH INTENZIONALE
+ * ------------------------------------------------------------------
+ * Il pinch parte solo se TUTTE queste condizioni sono vere:
  *
- *   PEN_LEAVE_GRACE_MS = 150ms
- *     - Parte SOLO al pointerleave della penna
- *     - Copre: penna esce dal range, mignolo appoggia subito dopo
- *     - 150ms distinguono un riposizionamento da un pan intenzionale
+ *   1) Timing: il 2° tocco arriva entro 200ms dal 1°
+ *      (nocca+palmo arrivano di solito a 200-500ms)
+ *   2) Dimensione: nessuno dei due tocchi ha dimensione > 50px
+ *   3) Conferma (entro 150ms):
+ *        a) entrambi i tocchi si spostano di almeno 3px, OPPURE
+ *        b) la distanza tra i due cambia di almeno 15px
  *
- *   PEN_HOVER_TIMEOUT_MS = 800ms
- *     - Safety net per device che NON emettono pointerleave
- *     - Si applica SOLO se _penInRange === true
- *     - Se non riceviamo eventi hover da 800ms, assume che la
- *       penna sia fuori range e sblocca i touch
- *     - 800ms tollera penna ferma in hover senza eventi (driver
- *       Windows non emette hover se la penna non si muove)
+ * Fase di conferma: se una delle due condizioni si verifica prima
+ * del timeout, il pinch parte subito. Se scade il timeout senza
+ * che nessuna si verifichi, il pinch parte comunque (l'utente
+ * tiene le dita ferme → è intenzionale).
  *
- * Ritardo post-pointerleave normale: 0ms se non appoggi un dito
- * subito dopo. Se appoggi un dito entro 150ms dal leave, bloccato.
+ * Se durante la conferma uno dei due tocchi si alza:
+ *   → rollback alla posizione pre-pinch
+ *   → il tocco rimasto torna a fare pan
  *
- * Blocco 3+ tocchi:
- *   - Se arriva un 3° dito, il gesto in corso (pan/pinch) viene
- *     annullato con ROLLBACK della trasformazione al punto di
- *     inizio. Il foglio non resta spostato a metà gesto.
+ * Distanza iniziale LIBERA:
+ *   - 2cm e allargare → zoom in
+ *   - 10cm e stringere → zoom out
+ *   L'utente può partire da qualunque distanza.
  *
- * Scroll momentum:
- *   - velocity samples (ultimi 6 eventi in 100ms)
- *   - axis lock one-shot (dominanza Y > 2.5× X entro 400ms)
- *   - speed boost progressivo (2.0 → 8.0 px/ms)
- *   - friction 0.997/ms, stop threshold 0.02
+ * ------------------------------------------------------------------
+ * PAN (1 DITO)
+ * ------------------------------------------------------------------
+ *   - 1 solo tocco → pan
+ *   - Se arriva un 2° tocco: tenta pinch (con i filtri sopra)
+ *     - pinch confermato → diventa pinch
+ *     - pinch rifiutato → il 2° tocco viene ignorato, pan continua
  *
- * Pull-to-add-page:
- *   - solo se il gesto è INIZIATO al fondo (overscroll "volontario")
- *   - soglia 80px
+ * ------------------------------------------------------------------
+ * PULL-TO-ADD-PAGE
+ * ------------------------------------------------------------------
+ *   - Attivo solo se il gesto è INIZIATO al fondo (overscroll
+ *     volontario). Soglia 80px. Si alza il dito per aggiungere.
  *
- * Wheel:
- *   - Ctrl+wheel = zoom (pivot al cursore)
- *   - wheel = pan
- *
- * Chiama abortCurrentDrawing() (tools/dispatcher.js) al pinch per
- * interrompere uno stroke in corso.
+ * ------------------------------------------------------------------
+ * WHEEL
+ * ------------------------------------------------------------------
+ *   - Ctrl+wheel → zoom pivot al cursore
+ *   - wheel → pan
  *
  * @see core/types.js
  * @see features/viewport/transform.js
@@ -73,40 +84,63 @@ import {
   clampViewport, invalidateClampCache
 } from './transform.js';
 
-// ------------------------------------------------------------
-// PALM REJECTION
-// ------------------------------------------------------------
-const PALM_CONTACT_SIZE = 40;
+// ============================================================
+// COSTANTI — PALM REJECTION
+// ============================================================
 
-// Grace post-pointerup: breve, copre il caso "sollevo di scatto +
-// allontano + dito appoggia". Si esaurisce in 80ms dal pointerup.
-const PEN_CONTACT_GRACE_MS = 80;
+/** Dimensione massima (px CSS) di un tocco valido come "dito". */
+const PALM_CONTACT_SIZE = 50;
 
-// Grace post-pointerleave: copre il caso "penna esce dal range,
-// mignolo appoggia subito dopo". 150ms distinguono un riposizionamento
-// da un pan intenzionale.
-const PEN_LEAVE_GRACE_MS = 150;
+/** Grace dopo pointerup/pointercancel penna. */
+const PEN_CONTACT_GRACE_MS = 150;
 
-// Safety net per device che non emettono pointerleave in modo
-// affidabile. Si attiva SOLO se _penInRange === true e non riceviamo
-// eventi penna da 800ms. 800ms tollera penna ferma in hover senza
-// eventi (driver Windows non emette hover se la penna non si muove).
+/** Grace dopo pointerleave penna (mignolo che appoggia). */
+const PEN_LEAVE_GRACE_MS = 300;
+
+/**
+ * Safety net per driver che non emettono pointerleave affidabile.
+ * Se non riceviamo eventi penna per 800ms, consideriamo la penna
+ * fuori range e sblocchiamo i touch.
+ */
 const PEN_HOVER_TIMEOUT_MS = 800;
 
-const PALM_PAN_CANCEL_WINDOW_MS = 400;
+/**
+ * Finestra (ms) entro cui un pan breve viene annullato se la penna
+ * entra in contatto. Pan più lunghi di così sono considerati
+ * volontari e non vengono annullati.
+ */
+const PEN_CANCEL_PAN_WINDOW_MS = 400;
 
-// ------------------------------------------------------------
-// SCROLL AXIS LOCK ONE-SHOT
-// ------------------------------------------------------------
+// ============================================================
+// COSTANTI — PINCH
+// ============================================================
+
+/** Timing massimo tra 1° e 2° tocco. */
+const PINCH_SECOND_TOUCH_MAX_MS = 200;
+
+/** Timeout della fase di conferma. */
+const PINCH_CONFIRM_MS = 150;
+
+/** Spostamento minimo di ENTRAMBI i tocchi per confermare. */
+const PINCH_CONFIRM_MIN_MOVE_PX = 3;
+
+/** Variazione minima della distanza tra i due per confermare. */
+const PINCH_CONFIRM_MIN_DIST_PX = 15;
+
+// ============================================================
+// COSTANTI — SCROLL AXIS LOCK
+// ============================================================
+
 const SCROLL_DECISION_WINDOW_MS = 400;
 const SCROLL_DECISION_WINDOW_PX = 80;
 const SCROLL_ENTER_SPEED = 1.0;
 const SCROLL_AXIS_DOMINANCE = 2.5;
 const SCROLL_MAX_CROSS_SPEED = 0.8;
 
-// ------------------------------------------------------------
-// MOMENTUM / FLICK SCROLLING
-// ------------------------------------------------------------
+// ============================================================
+// COSTANTI — MOMENTUM
+// ============================================================
+
 const MOMENTUM_FRICTION_PER_MS = 0.997;
 const MOMENTUM_VELOCITY_BOOST = 1.15;
 const MOMENTUM_MIN_FLING_VELOCITY = 0.08;
@@ -118,38 +152,50 @@ const MOMENTUM_SPEED_SLOPE = 0.30;
 const MOMENTUM_SPEED_MAX = 8.0;
 const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 
-// ------------------------------------------------------------
-// PEN STATE
-// ------------------------------------------------------------
-// _penDown                 true tra pointerdown e pointerup/cancel penna
-// _penInRange              true tra pointerenter e pointerleave penna
-// _lastPenContactEndTime   timestamp ultimo pointerup/cancel penna
-// _lastPenLeaveTime        timestamp ultimo pointerleave penna
-// _lastPenEventTime        timestamp ultimo evento penna (enter/move/down)
-//                          azzerato su pointerleave
+// ============================================================
+// STATO MODULO
+// ============================================================
+
+// --- Palm rejection ---
 let _penDown = false;
 let _penInRange = false;
 let _lastPenContactEndTime = 0;
 let _lastPenLeaveTime = 0;
 let _lastPenEventTime = 0;
 
-let _panStartTime = 0;
+// --- Blocco gesto (>= 3 tocchi) ---
+let _gestureBlocked = false;
 
+// --- Pan ---
+let _panStartTime = 0;
+let _firstTouchDownTime = 0;
+let _startedAtBottom = false;
 let _scrollDecisionMade = false;
 let _scrollAxisLocked = false;
 
-// True se al pointerdown la vista era già clampata al fondo del
-// contenuto. Il pull-to-add-page si attiva solo in questo caso:
-// se l'utente è arrivato al fondo durante lo scroll (o con il
-// momentum), il pull NON scatta nello stesso gesto. Deve prima
-// rilasciare, poi fare un nuovo gesto dal fondo verso l'alto.
-let _startedAtBottom = false;
+// --- Pinch ---
+/**
+ * @type {null | {
+ *   deadline: number,
+ *   confirmed: boolean,
+ *   startTransform: {x:number,y:number,scale:number},
+ *   startP0: {x:number,y:number},
+ *   startP1: {x:number,y:number},
+ *   startDist: number
+ * }}
+ */
+let _pinchConfirm = null;
 
+// --- Momentum ---
 let _momentumRaf = null;
 let _momentumVelX = 0;
 let _momentumVelY = 0;
 let _momentumLastTime = 0;
 const _velocitySamples = [];
+
+// ============================================================
+// HELPER
+// ============================================================
 
 function _isPenEvent(e) {
   return e.pointerType === 'pen' || e.pointerType === 'eraser';
@@ -162,14 +208,11 @@ function _isPalmContact(e) {
 /**
  * True se i touch devono essere ignorati per via della penna.
  *
- * Ordine di valutazione (i tre timer non si sovrappongono mai
- * sullo stesso evento):
- *   1. Stroke in corso → bloccato
- *   2. Grace post-pointerup (80ms) → bloccato
- *   3. Grace post-pointerleave (150ms) → bloccato
- *   4. Hover attivo → bloccato, MA se non arrivano eventi penna
- *      da 800ms il safety net considera la penna fuori range
- *      e sblocca i touch
+ * Ordine di valutazione:
+ *   1. Stroke in corso (pen down) → bloccato
+ *   2. Grace post-pointerup (150ms) → bloccato
+ *   3. Grace post-pointerleave (300ms) → bloccato
+ *   4. Hover attivo (con safety net 800ms) → bloccato
  *   5. Fuori range → touch liberi
  */
 function _isPenBlockingTouches() {
@@ -177,19 +220,16 @@ function _isPenBlockingTouches() {
 
   const now = performance.now();
 
-  // Grace post-pointerup
   if (_lastPenContactEndTime > 0 &&
       now - _lastPenContactEndTime < PEN_CONTACT_GRACE_MS) {
     return true;
   }
 
-  // Grace post-pointerleave
   if (_lastPenLeaveTime > 0 &&
       now - _lastPenLeaveTime < PEN_LEAVE_GRACE_MS) {
     return true;
   }
 
-  // Hover attivo (con safety net)
   if (_penInRange) {
     if (_lastPenEventTime > 0 &&
         now - _lastPenEventTime > PEN_HOVER_TIMEOUT_MS) {
@@ -203,9 +243,9 @@ function _isPenBlockingTouches() {
   return false;
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // MOMENTUM
-// ------------------------------------------------------------
+// ============================================================
 
 function _cancelMomentum() {
   if (_momentumRaf !== null) {
@@ -311,31 +351,62 @@ function _momentumStep(now) {
   _momentumRaf = requestAnimationFrame(_momentumStep);
 }
 
-// ------------------------------------------------------------
+// ============================================================
+// RESET / ROLLBACK
+// ============================================================
+
+/**
+ * Annulla pan/pinch in corso, riporta la vista a uno stato stabile.
+ * Usato quando la penna entra in contatto durante un gesto touch,
+ * quando arrivano >= 3 tocchi, o quando un pinch viene rifiutato.
+ *
+ * @param {boolean} rollbackPosition  se true, riporta x/y/scale
+ *                                    allo stato pre-gesto
+ */
+function _cancelCurrentGesture(rollbackPosition) {
+  if (rollbackPosition) {
+    if (_pinchConfirm && !_pinchConfirm.confirmed) {
+      viewport.x = _pinchConfirm.startTransform.x;
+      viewport.y = _pinchConfirm.startTransform.y;
+      viewport.scale = _pinchConfirm.startTransform.scale;
+    } else if (viewport.isPanning && viewport.panStartTransform) {
+      viewport.x = viewport.panStartTransform.x;
+      viewport.y = viewport.panStartTransform.y;
+    }
+    applyTransform(false);
+  }
+  viewport.isPanning = false;
+  viewport.isPinching = false;
+  _pinchConfirm = null;
+  _startedAtBottom = false;
+  _scrollDecisionMade = false;
+  _scrollAxisLocked = false;
+  state.pullOverscrollY = 0;
+  hidePullIndicator();
+}
+
+// ============================================================
 // SETUP
-// ------------------------------------------------------------
+// ============================================================
 
 export function setupViewportGestures() {
   const viewportEl = document.getElementById('viewport');
 
   window.addEventListener('resize', invalidateClampCache);
 
-  // Reset su blur: se il tab va in background mentre la penna è a
-  // contatto o in hover, al ritorno potremmo non ricevere
-  // pointerup/pointerleave → flag bloccati. Reset esplicito.
   window.addEventListener('blur', () => {
     _penDown = false;
     _penInRange = false;
     _lastPenContactEndTime = 0;
     _lastPenLeaveTime = 0;
     _lastPenEventTime = 0;
+    _gestureBlocked = false;
   });
 
   // ----------------------------------------------------------
-  // PEN TRACKING (enter / leave / down / up)
+  // PEN TRACKING
   // ----------------------------------------------------------
 
-  // Penna entra nel viewport (hover visibile).
   viewportEl.addEventListener('pointerenter', (e) => {
     if (_isPenEvent(e)) {
       _penInRange = true;
@@ -343,17 +414,12 @@ export function setupViewportGestures() {
     }
   }, { capture: true, passive: true });
 
-  // Penna si muove nel viewport (hover o contact). Tiene fresco
-  // il safety net di _penInRange.
   viewportEl.addEventListener('pointermove', (e) => {
     if (_isPenEvent(e)) {
       _lastPenEventTime = performance.now();
     }
   }, { capture: true, passive: true });
 
-  // Penna esce dal viewport (fuori range). Sblocca i touch, ma
-  // salva il timestamp per il leave grace (mignolo che appoggia
-  // subito dopo il leave).
   viewportEl.addEventListener('pointerleave', (e) => {
     if (_isPenEvent(e)) {
       _penInRange = false;
@@ -362,7 +428,6 @@ export function setupViewportGestures() {
     }
   }, { capture: true, passive: true });
 
-  // Penna a contatto: blocca touch fino a pointerup/cancel.
   viewportEl.addEventListener('pointerdown', (e) => {
     if (_isPenEvent(e)) {
       _penDown = true;
@@ -396,38 +461,36 @@ export function setupViewportGestures() {
       _scrollDecisionMade = false;
       _startedAtBottom = false;
 
+      // Cancella gli eventuali touch attivi (palmo appoggiato prima
+      // che la penna arrivasse). Il gesto touch viene annullato.
+      const hadTouchGesture = viewport.isPanning || viewport.isPinching;
       for (const [id, ptr] of [...viewport.activePointers]) {
         if (ptr.pointerType !== 'pen' && ptr.pointerType !== 'eraser') {
           viewport.activePointers.delete(id);
           try { viewportEl.releasePointerCapture(id); } catch (err) {}
         }
       }
-
-      if (viewport.isPanning) {
+      if (hadTouchGesture) {
         const panDuration = performance.now() - _panStartTime;
-        if (viewport.panStartTransform && panDuration < PALM_PAN_CANCEL_WINDOW_MS) {
-          viewport.x = viewport.panStartTransform.x;
-          viewport.y = viewport.panStartTransform.y;
-          applyTransform(false);
-        }
-        viewport.isPanning = false;
+        // Rollback solo se il pan era breve (probabilmente palmo
+        // appena appoggiato). Pan più lunghi sono volontari.
+        const shouldRollback = viewport.isPinching
+          ? true
+          : panDuration < PEN_CANCEL_PAN_WINDOW_MS;
+        _cancelCurrentGesture(shouldRollback);
       }
-
-      viewport.isPinching = false;
-      state.pullOverscrollY = 0;
-      hidePullIndicator();
+      _gestureBlocked = false;
       return;
     }
 
     // ---- TOCCO ----
-    const palmCheck = state.palmRejection;
-    if (palmCheck) {
-      // Blocca touch se penna a contatto, in grace post-pointerup,
-      // in grace post-leave, o in hover (con safety net).
+    if (state.palmRejection) {
       if (_isPenBlockingTouches()) return;
-      // Blocca se contatto > 40px (palm).
       if (_isPalmContact(e)) return;
     }
+
+    // Durante il blocco (>= 3 tocchi), ignora qualsiasi nuovo tocco
+    if (_gestureBlocked) return;
 
     _cancelMomentum();
     _resetVelocitySamples();
@@ -438,58 +501,83 @@ export function setupViewportGestures() {
       x: e.clientX, y: e.clientY, pointerType: e.pointerType
     });
 
-    if (viewport.activePointers.size > 2) {
-      // Rollback della trasformazione al punto di inizio gesto.
-      // Se il 3° dito arriva durante un pan, torniamo a
-      // panStartTransform. Se durante un pinch, torniamo a
-      // pinchStartTransform. Il foglio non resta spostato a metà.
-      if (viewport.isPanning && viewport.panStartTransform) {
-        viewport.x = viewport.panStartTransform.x;
-        viewport.y = viewport.panStartTransform.y;
-        applyTransform(false);
-      } else if (viewport.isPinching && viewport.pinchStartTransform) {
-        viewport.x = viewport.pinchStartTransform.x;
-        viewport.y = viewport.pinchStartTransform.y;
-        viewport.scale = viewport.pinchStartTransform.scale;
-        applyTransform(false);
-      }
-      viewport.isPanning = false;
-      viewport.isPinching = false;
-      _startedAtBottom = false;
-      state.pullOverscrollY = 0;
-      hidePullIndicator();
+    const count = viewport.activePointers.size;
+
+    // ---- BLOCCO: 3+ TOCCHI ----
+    if (count >= 3) {
+      _gestureBlocked = true;
+      _cancelCurrentGesture(true);
       return;
     }
 
-    if (viewport.activePointers.size === 1) {
-      if (palmCheck) {
-        viewport.isPanning = true;
-        viewport.panStart = { x: e.clientX, y: e.clientY };
-        viewport.panStartTransform = { x: viewport.x, y: viewport.y };
-        _panStartTime = performance.now();
-        _pushVelocitySample(e.clientX, e.clientY);
+    // ---- PRIMO TOCCO: PAN ----
+    if (count === 1) {
+      _firstTouchDownTime = performance.now();
 
-        const c0 = clampViewport(viewport.x, viewport.y);
-        _startedAtBottom = !!(c0.bounds &&
-          Math.abs(viewport.y - c0.bounds.minY) < 2);
+      viewport.isPanning = true;
+      viewport.panStart = { x: e.clientX, y: e.clientY };
+      viewport.panStartTransform = { x: viewport.x, y: viewport.y };
+      _panStartTime = performance.now();
+      _pushVelocitySample(e.clientX, e.clientY);
 
-        try { viewportEl.setPointerCapture(e.pointerId); } catch (err) {}
+      const c0 = clampViewport(viewport.x, viewport.y);
+      _startedAtBottom = !!(c0.bounds &&
+        Math.abs(viewport.y - c0.bounds.minY) < 2);
+
+      try { viewportEl.setPointerCapture(e.pointerId); } catch (err) {}
+      return;
+    }
+
+    // ---- SECONDO TOCCO: TENTA PINCH ----
+    if (count === 2) {
+      const now = performance.now();
+      const timeSinceFirst = now - _firstTouchDownTime;
+
+      // Filtro 1: timing
+      if (timeSinceFirst > PINCH_SECOND_TOUCH_MAX_MS) {
+        viewport.activePointers.delete(e.pointerId);
+        try { viewportEl.releasePointerCapture(e.pointerId); } catch (err) {}
+        return;
       }
-    } else if (viewport.activePointers.size === 2) {
-      if (viewport.isPanning) viewport.isPanning = false;
+
+      // Filtro 2: dimensione (appena arrivato)
+      if (state.palmRejection && _isPalmContact(e)) {
+        viewport.activePointers.delete(e.pointerId);
+        try { viewportEl.releasePointerCapture(e.pointerId); } catch (err) {}
+        return;
+      }
+
+      // Ok, potenziale pinch. Avvia fase di conferma.
+      const pts = Array.from(viewport.activePointers.values());
+      const p0 = pts[0];
+      const p1 = pts[1];
+      const startDist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+
+      viewport.isPanning = false;
+      viewport.isPinching = true;
       _startedAtBottom = false;
       abortCurrentDrawing();
-      viewport.isPinching = true;
-      const pts = Array.from(viewport.activePointers.values());
-      viewport.pinchStartDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-      viewport.pinchStartCenter = {
-        x: (pts[0].x + pts[1].x) / 2,
-        y: (pts[0].y + pts[1].y) / 2
+
+      const startCenter = {
+        x: (p0.x + p1.x) / 2,
+        y: (p0.y + p1.y) / 2
       };
-      viewport.pinchStartTransform = {
-        x: viewport.x, y: viewport.y, scale: viewport.scale
+
+      _pinchConfirm = {
+        deadline: now + PINCH_CONFIRM_MS,
+        confirmed: false,
+        startTransform: { x: viewport.x, y: viewport.y, scale: viewport.scale },
+        startP0: { x: p0.x, y: p0.y },
+        startP1: { x: p1.x, y: p1.y },
+        startDist
       };
+
+      viewport.pinchStartDist = startDist;
+      viewport.pinchStartCenter = startCenter;
+      viewport.pinchStartTransform = { x: viewport.x, y: viewport.y, scale: viewport.scale };
+
       try { viewportEl.setPointerCapture(e.pointerId); } catch (err) {}
+      return;
     }
   };
 
@@ -498,12 +586,14 @@ export function setupViewportGestures() {
   // ----------------------------------------------------------
   const onPointerMove = (e) => {
     if (_isPenEvent(e)) return;
+    if (_gestureBlocked) return;
 
     if (!viewport.activePointers.has(e.pointerId)) return;
     viewport.activePointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, pointerType: e.pointerType
     });
 
+    // ---- PAN (1 dito) ----
     if (viewport.isPanning && viewport.activePointers.size === 1) {
       e.preventDefault();
       _pushVelocitySample(e.clientX, e.clientY);
@@ -554,14 +644,35 @@ export function setupViewportGestures() {
         hidePullIndicator();
       }
 
+    // ---- PINCH (2 dita) ----
     } else if (viewport.isPinching && viewport.activePointers.size === 2) {
       e.preventDefault();
       const pts = Array.from(viewport.activePointers.values());
-      const currentDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const p0 = pts[0];
+      const p1 = pts[1];
+      const currentDist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
       const newCenter = {
-        x: (pts[0].x + pts[1].x) / 2,
-        y: (pts[0].y + pts[1].y) / 2
+        x: (p0.x + p1.x) / 2,
+        y: (p0.y + p1.y) / 2
       };
+
+      // ---- Fase di conferma ----
+      if (_pinchConfirm && !_pinchConfirm.confirmed) {
+        const now = performance.now();
+        const moveP0 = Math.hypot(p0.x - _pinchConfirm.startP0.x, p0.y - _pinchConfirm.startP0.y);
+        const moveP1 = Math.hypot(p1.x - _pinchConfirm.startP1.x, p1.y - _pinchConfirm.startP1.y);
+        const bothMoved = (moveP0 >= PINCH_CONFIRM_MIN_MOVE_PX &&
+                           moveP1 >= PINCH_CONFIRM_MIN_MOVE_PX);
+        const distChanged = Math.abs(currentDist - _pinchConfirm.startDist) >= PINCH_CONFIRM_MIN_DIST_PX;
+        const timeExpired = now >= _pinchConfirm.deadline;
+
+        if (bothMoved || distChanged || timeExpired) {
+          _pinchConfirm.confirmed = true;
+        } else {
+          return;  // aspetta conferma
+        }
+      }
+
       if (viewport.pinchStartDist > 0) {
         const factor = currentDist / viewport.pinchStartDist;
         const targetScale = Math.min(
@@ -584,14 +695,28 @@ export function setupViewportGestures() {
   const onPointerEnd = (e) => {
     if (_isPenEvent(e)) return;
 
-    const wasPanning = viewport.isPanning;
     viewport.activePointers.delete(e.pointerId);
 
+    // ---- Nessun tocco residuo ----
     if (viewport.activePointers.size === 0) {
+      _gestureBlocked = false;
+      _firstTouchDownTime = 0;
+
+      // Pinch non confermato: rollback
+      if (_pinchConfirm && !_pinchConfirm.confirmed) {
+        viewport.x = _pinchConfirm.startTransform.x;
+        viewport.y = _pinchConfirm.startTransform.y;
+        viewport.scale = _pinchConfirm.startTransform.scale;
+        applyTransform(false);
+      }
+      _pinchConfirm = null;
+
       const shouldAddPage = _startedAtBottom && state.pullOverscrollY >= PULL_THRESHOLD;
 
       state.pullOverscrollY = 0;
       hidePullIndicator();
+
+      const wasPanning = viewport.isPanning;
       viewport.isPanning = false;
       viewport.isPinching = false;
 
@@ -623,12 +748,54 @@ export function setupViewportGestures() {
       } else {
         scheduleResolutionRefresh();
       }
+
       _resetVelocitySamples();
       _scrollAxisLocked = false;
       _scrollDecisionMade = false;
       _startedAtBottom = false;
-    } else if (viewport.activePointers.size === 1) {
-      viewport.isPinching = false;
+      return;
+    }
+
+    // ---- Un tocco residuo: forse pinch rifiutato o uno dei due si è alzato ----
+    if (viewport.activePointers.size === 1) {
+      // Pinch in fase di conferma e uno sparisce → rollback + pan
+      if (_pinchConfirm && !_pinchConfirm.confirmed) {
+        viewport.x = _pinchConfirm.startTransform.x;
+        viewport.y = _pinchConfirm.startTransform.y;
+        viewport.scale = _pinchConfirm.startTransform.scale;
+        applyTransform(false);
+        _pinchConfirm = null;
+        viewport.isPinching = false;
+
+        const entries = Array.from(viewport.activePointers.entries());
+        const [, remaining] = entries[0];
+        viewport.isPanning = true;
+        viewport.panStart = { x: remaining.x, y: remaining.y };
+        viewport.panStartTransform = { x: viewport.x, y: viewport.y };
+        _panStartTime = performance.now();
+        _resetVelocitySamples();
+        _pushVelocitySample(remaining.x, remaining.y);
+        _startedAtBottom = false;
+        _firstTouchDownTime = performance.now();
+        return;
+      }
+
+      // Pinch confermato e uno sparisce → fine pinch, continua con pan
+      if (viewport.isPinching) {
+        _pinchConfirm = null;
+        viewport.isPinching = false;
+
+        const entries = Array.from(viewport.activePointers.entries());
+        const [, remaining] = entries[0];
+        viewport.isPanning = true;
+        viewport.panStart = { x: remaining.x, y: remaining.y };
+        viewport.panStartTransform = { x: viewport.x, y: viewport.y };
+        _panStartTime = performance.now();
+        _resetVelocitySamples();
+        _pushVelocitySample(remaining.x, remaining.y);
+        _startedAtBottom = false;
+        _firstTouchDownTime = performance.now();
+      }
     }
   };
 
@@ -637,6 +804,9 @@ export function setupViewportGestures() {
   viewportEl.addEventListener('pointerup', onPointerEnd, { capture: true });
   viewportEl.addEventListener('pointercancel', onPointerEnd, { capture: true });
 
+  // ----------------------------------------------------------
+  // WHEEL
+  // ----------------------------------------------------------
   viewportEl.addEventListener('wheel', (e) => {
     e.preventDefault();
     _cancelMomentum();
@@ -666,30 +836,40 @@ export function setupViewportGestures() {
   }, { passive: false });
 }
 
+// ============================================================
+// PULL INDICATOR
+// ============================================================
+
 function showPullIndicator(isReady) {
   const ind = document.getElementById('pullPageIndicator');
   const txt = document.getElementById('pullText');
   const icon = document.getElementById('pullIcon');
+  if (!ind) return;
   ind.classList.remove('hidden');
   ind.classList.add('flex');
   if (isReady) {
     ind.classList.remove('bg-indigo-600', 'dark:bg-indigo-500');
     ind.classList.add('bg-emerald-600', 'dark:bg-emerald-500', 'scale-105');
-    txt.innerText = 'Rilascia per creare una nuova pagina!';
-    icon.innerText = '✨';
+    if (txt)  txt.innerText  = 'Rilascia per creare una nuova pagina!';
+    if (icon) icon.innerText = '✨';
   } else {
     ind.classList.remove('bg-emerald-600', 'dark:bg-emerald-500', 'scale-105');
     ind.classList.add('bg-indigo-600', 'dark:bg-indigo-500');
-    txt.innerText = 'Scorri in su per aggiungere una nuova pagina...';
-    icon.innerText = '⬆️';
+    if (txt)  txt.innerText  = 'Scorri in su per aggiungere una nuova pagina...';
+    if (icon) icon.innerText = '⬆️';
   }
 }
 
 function hidePullIndicator() {
   const ind = document.getElementById('pullPageIndicator');
+  if (!ind) return;
   ind.classList.add('hidden');
   ind.classList.remove('flex');
 }
+
+// ============================================================
+// TOGGLE PALM REJECTION
+// ============================================================
 
 export function togglePalmRejection(enabled) {
   showToast(
