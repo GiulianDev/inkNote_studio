@@ -36,6 +36,14 @@ export const DEFAULT_SETTINGS = {
   scrollSensitivity: 50,
   palmRejection: true,
 
+  // Sidebar pagine (thumbnails, drag, delete)
+  // open:    se true, la sidebar viene mostrata al boot
+  // position: 'left' | 'right'
+  pagesSidebar: {
+    open: false,
+    position: 'left'
+  },
+
   // Personalizzazione mainbar (gestita da toolbar.js, non da UI)
   mainMenuOrder:  ['writing', 'selection', 'shapes', 'eraser', 'page'],
   mainMenuHidden: []   // max 2 (min 3 visibili)
@@ -75,6 +83,13 @@ function _normalizeSettings(raw) {
     limited.forEach(m => hiddenSet.add(m));
   }
   out.mainMenuHidden = [...hiddenSet];
+
+  // pagesSidebar: normalizza
+  const ps = out.pagesSidebar || {};
+  out.pagesSidebar = {
+    open: !!ps.open,
+    position: ps.position === 'right' ? 'right' : 'left'
+  };
 
   return out;
 }

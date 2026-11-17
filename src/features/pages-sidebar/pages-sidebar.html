@@ -1,0 +1,23 @@
+<!-- features/pages-sidebar/pages-sidebar.html
+     Sidebar con thumbnails delle pagine. Markup iniettato via `?raw`. -->
+<aside id="pagesSidebar" class="pages-sidebar hidden" data-position="left">
+  <div class="pages-sidebar-header">
+    <span class="pages-sidebar-title">Pagine</span>
+    <button id="pagesSidebarAddBtn" class="pages-sidebar-icon-btn" title="Nuova pagina">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"/><path d="M12 5v14"/>
+      </svg>
+    </button>
+    <button id="pagesSidebarCloseBtn" class="pages-sidebar-icon-btn" title="Chiudi sidebar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  <div id="pagesThumbnailsList" class="pages-thumbnails custom-scrollbar">
+    <!-- thumbnails inserite runtime da pages-sidebar.js -->
+  </div>
+</aside>

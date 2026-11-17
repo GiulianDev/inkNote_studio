@@ -1,10 +1,13 @@
 /**
  * @module features/editor/pages
  *
- * PAGINE — creazione wrapper DOM, gestione canvas via pool, pagina attiva.
+ * PAGINE — creazione wrapper DOM, gestione canvas via pool, pagina attiva,
+ * eliminazione/riordino/scroll.
  *
  * @see features/editor/page-pool.js
  * @see features/persistence/serialization.js
+ * @see features/pages-sidebar/pages-sidebar.js — consuma gli eventi
+ *      `inknote:pages-changed` e `inknote:active-page-changed`
  */
 
 import { state, viewport } from '../../core/state.js';
@@ -78,6 +81,12 @@ export function addNewPage() {
     viewport.y = c.y;
     applyTransform(true);
   });
+
+  // Notifica la sidebar pagine (per refresh thumbnails + scroll)
+  window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
+  window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
+    detail: { index: newIndex }
+  }));
 }
 
 // ============================================================
@@ -190,6 +199,11 @@ export function updateActivePageFromViewport() {
     // Salva solo il metadata (lastPageIndex) — niente dirty page,
     // niente badge "Salvataggio...". Debounce 500ms.
     scheduleSave({ markDirty: false, silent: true });
+
+    // Notifica la sidebar pagine (highlight)
+    window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
+      detail: { index: page.index }
+    }));
   }, ACTIVE_PAGE_CHECK_INTERVAL);
 }
 
@@ -220,6 +234,11 @@ export function changeBackgroundPattern(pattern) {
     if (p.canvas) redrawPageCanvas(p);
   });
   pushHistory();
+
+  // Notifica la sidebar (le thumbnails andrebbero ridisegnate
+  // se in futuro includeranno il pattern; oggi è comunque
+  // corretto emettere per coerenza).
+  window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
 }
 
 export function clearCurrentPage() {
@@ -232,6 +251,146 @@ export function clearCurrentPage() {
   scheduleSave();
   pushHistory();
   showToast('Pagina pulita', '🧹');
+
+  window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
+}
+
+// ============================================================
+// ELIMINA / RIORDINA / SCROLL-TO-PAGE
+// ============================================================
+
+/**
+ * Elimina la pagina all'indice `index`.
+ * Non elimina l'ultima pagina. Reset della history perché
+ * gli snapshot sono per-index e diventerebbero invalidi.
+ * @param {number} index
+ * @returns {boolean} true se eliminata
+ */
+export function deletePage(index) {
+  if (state.pages.length <= 1) return false;
+  if (index < 0 || index >= state.pages.length) return false;
+
+  const page = state.pages[index];
+  if (!page) return false;
+
+  // 1. Pool reset PRIMA di modificare state.pages:
+  //    pagePool._releaseSlot usa state.pages[slot.pageIndex] e
+  //    gli indici sono ancora coerenti.
+  pagePool.reset();
+
+  // 2. Se la pagina attiva è quella eliminata, libera la selezione.
+  if (state.activePageIndex === index) {
+    clearSelection();
+  }
+
+  // 3. Rimuovi wrapper DOM e slice state.pages.
+  page.wrapper.remove();
+  state.pages.splice(index, 1);
+
+  // 4. Reindex + aggiorna dataset (ordine DOM invariato per i superstiti).
+  state.pages.forEach((p, i) => {
+    p.index = i;
+    p.wrapper.dataset.index = String(i);
+  });
+
+  // 5. Aggiusta activePageIndex.
+  if (state.activePageIndex >= state.pages.length) {
+    state.activePageIndex = state.pages.length - 1;
+  } else if (state.activePageIndex > index) {
+    state.activePageIndex--;
+  }
+
+  // 6. Refresh + save.
+  refreshPageCounter();
+  pagePool.updateAround(state.activePageIndex);
+  invalidateClampCache();
+  resetHistory();
+  scheduleSave();
+
+  window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
+  window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
+    detail: { index: state.activePageIndex }
+  }));
+
+  return true;
+}
+
+/**
+ * Sposta la pagina da `from` a `to`.
+ * @param {number} from
+ * @param {number} to
+ * @returns {boolean}
+ */
+export function movePage(from, to) {
+  if (from === to) return false;
+  if (from < 0 || from >= state.pages.length) return false;
+  if (to < 0 || to >= state.pages.length) return false;
+
+  const container = document.getElementById('canvasContainer');
+
+  // 1. Pool reset PRIMA (indici coerenti con state.pages).
+  pagePool.reset();
+
+  // 2. Riordina state.pages.
+  const [moved] = state.pages.splice(from, 1);
+  state.pages.splice(to, 0, moved);
+
+  // 3. Reindex + riordina DOM wrappers.
+  state.pages.forEach((p, i) => {
+    p.index = i;
+    p.wrapper.dataset.index = String(i);
+    container.appendChild(p.wrapper); // appendChild sposta (idempotente se già ultimo)
+  });
+
+  // 4. Aggiusta activePageIndex.
+  if (state.activePageIndex === from) {
+    state.activePageIndex = to;
+  } else if (from < state.activePageIndex && to >= state.activePageIndex) {
+    state.activePageIndex--;
+  } else if (from > state.activePageIndex && to <= state.activePageIndex) {
+    state.activePageIndex++;
+  }
+
+  refreshPageCounter();
+  pagePool.updateAround(state.activePageIndex);
+  invalidateClampCache();
+  resetHistory();
+  scheduleSave();
+
+  window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
+  window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
+    detail: { index: state.activePageIndex }
+  }));
+
+  return true;
+}
+
+/**
+ * Porta la pagina `index` in cima al viewport e la rende attiva.
+ * @param {number} index
+ */
+export function scrollToPage(index) {
+  const page = state.pages[index];
+  if (!page) return;
+  const vp = document.getElementById('viewport');
+  if (!vp) return;
+
+  const targetY = -page.wrapper.offsetTop * viewport.scale + 20;
+  viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
+  viewport.y = targetY;
+  const c = clampViewport(viewport.x, viewport.y);
+  viewport.x = c.x;
+  viewport.y = c.y;
+  applyTransform(true);
+
+  state.activePageIndex = index;
+  refreshPageCounter();
+  pagePool.updateAround(index);
+  scheduleSave({ markDirty: false, silent: true });
+
+  window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
+    detail: { index }
+  }));
 }
 
 // ============================================================
