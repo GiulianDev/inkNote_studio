@@ -1,39 +1,81 @@
 // ============================================================
-// IndexedDB — v4:
-//   - notebooks:  metadati leggeri (keyPath 'id')
-//   - pageOrders: mapping ordine { notebookId, order: string[] }
-//   - pages:      contenuto pagine (keyPath ['notebookId', 'pageId'])
-//
-// Verifica lo schema reale (keyPath) e migra da v1, v2 e v3 senza perdere dati.
+// IndexedDB — v4 con `pageOrders` + `pages` indicizzate per pageId
+// e tracciamento formato (`CURRENT_NOTEBOOK_FORMAT`).
 // ============================================================
 
 import { generatePageId } from '../core/utils.js';
 
+const DB_NAME = 'InkNoteStudioDB';
+const DB_VERSION = 4;
+export const CURRENT_NOTEBOOK_FORMAT = 4;
+
 let db = null;
 
-function _dedupOrder(list) {
-  const seen = new Set();
+function _isV4PagesKeyPath(keyPath) {
+  return Array.isArray(keyPath) &&
+    keyPath.length === 2 &&
+    keyPath[0] === 'notebookId' &&
+    keyPath[1] === 'pageId';
+}
+
+function _strokeNeedsUpgrade(s) {
+  if (!s) return false;
+  if (!s.packed && Array.isArray(s.points)) return true;
+  if (s.opacity == null) return true;
+  if (s.tool === 'highlighter' && (!s.color || s.color === '#000000' || s.color === '#000' || s.color === 'black')) {
+    return true;
+  }
+  return false;
+}
+
+function _dedupOrder(rawOrder) {
   const out = [];
-  for (const id of list) {
-    if (typeof id === 'string' && id && !seen.has(id)) {
-      seen.add(id);
-      out.push(id);
-    }
+  const seen = new Set();
+  if (!Array.isArray(rawOrder)) return out;
+  for (const pid of rawOrder) {
+    if (typeof pid !== 'string' || !pid || seen.has(pid)) continue;
+    seen.add(pid);
+    out.push(pid);
   }
   return out;
 }
 
 export function initDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('InkNoteStudioDB', 4);
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = (e) => {
       const database = e.target.result;
       const tx = e.target.transaction;
+      const oldVersion = e.oldVersion;
 
-      if (e.oldVersion === 0) {
+      if (oldVersion > 0 && oldVersion < 2) {
+        if (database.objectStoreNames.contains('notebooks')) {
+          database.deleteObjectStore('notebooks');
+        }
+      }
+
+      if (!database.objectStoreNames.contains('notebooks')) {
         database.createObjectStore('notebooks', { keyPath: 'id' });
+      }
+
+      const hadPageOrders = database.objectStoreNames.contains('pageOrders');
+      if (!hadPageOrders) {
         database.createObjectStore('pageOrders', { keyPath: 'notebookId' });
+      }
+
+      const hasPages = database.objectStoreNames.contains('pages');
+      let needsPagesRebuild = false;
+      if (hasPages) {
+        try {
+          const existingStore = tx.objectStore('pages');
+          needsPagesRebuild = !_isV4PagesKeyPath(existingStore.keyPath);
+        } catch {
+          needsPagesRebuild = true;
+        }
+      }
+
+      if (!hasPages) {
         const pageStore = database.createObjectStore('pages', {
           keyPath: ['notebookId', 'pageId']
         });
@@ -41,239 +83,238 @@ export function initDB() {
         return;
       }
 
-      const hasNotebooks = database.objectStoreNames.contains('notebooks');
-      const hasPages = database.objectStoreNames.contains('pages');
-      const hasPageOrders = database.objectStoreNames.contains('pageOrders');
+      if (needsPagesRebuild) {
+        const oldPagesStore = tx.objectStore('pages');
+        const oldPagesReq = oldPagesStore.getAll();
+        const nbsReq = tx.objectStore('notebooks').getAll();
+        const existingOrdersReq = hadPageOrders ? tx.objectStore('pageOrders').getAll() : null;
 
-      const existingKeyPath = hasPages ? tx.objectStore('pages').keyPath : null;
-      const needsPagesRebuild = !hasPages ||
-        !Array.isArray(existingKeyPath) ||
-        existingKeyPath[0] !== 'notebookId' ||
-        existingKeyPath[1] !== 'pageId';
+        let oldPages = null;
+        let allNbs = null;
+        let existingOrders = existingOrdersReq ? null : [];
+        let pending = existingOrdersReq ? 3 : 2;
 
-      const nbReq = hasNotebooks ? tx.objectStore('notebooks').getAll() : null;
-      const pagesReq = hasPages ? tx.objectStore('pages').getAll() : null;
-      const ordersReq = hasPageOrders ? tx.objectStore('pageOrders').getAll() : null;
+        const finishToV4 = () => {
+          pending--;
+          if (pending > 0) return;
 
-      let oldNotebooks = [];
-      let oldPages = [];
-      let oldOrders = [];
-      let pending = (nbReq ? 1 : 0) + (pagesReq ? 1 : 0) + (ordersReq ? 1 : 0);
-
-      const finalizeUpgrade = () => {
-        if (!hasNotebooks) {
-          database.createObjectStore('notebooks', { keyPath: 'id' });
-        }
-        const pageOrdersStore = hasPageOrders
-          ? tx.objectStore('pageOrders')
-          : database.createObjectStore('pageOrders', { keyPath: 'notebookId' });
-
-        let targetPagesStore;
-        if (needsPagesRebuild) {
-          if (hasPages) database.deleteObjectStore('pages');
-          targetPagesStore = database.createObjectStore('pages', {
+          database.deleteObjectStore('pages');
+          const newPagesStore = database.createObjectStore('pages', {
             keyPath: ['notebookId', 'pageId']
           });
-          targetPagesStore.createIndex('notebookId', 'notebookId');
-        } else {
-          targetPagesStore = tx.objectStore('pages');
-        }
+          newPagesStore.createIndex('notebookId', 'notebookId');
 
-        const nbStore = tx.objectStore('notebooks');
-
-        const ordersByNb = new Map();
-        for (const rec of oldOrders) {
-          if (rec && rec.notebookId && Array.isArray(rec.order)) {
-            ordersByNb.set(rec.notebookId, rec.order);
+          const existingOrderMap = new Map();
+          for (const rec of (existingOrders || [])) {
+            if (rec && rec.notebookId) {
+              existingOrderMap.set(rec.notebookId, _dedupOrder(rec.order));
+            }
           }
-        }
 
-        const pagesByNb = new Map();
-        for (const p of oldPages) {
-          if (!p || !p.notebookId) continue;
-          if (!pagesByNb.has(p.notebookId)) pagesByNb.set(p.notebookId, []);
-          pagesByNb.get(p.notebookId).push(p);
-        }
+          const byNb = new Map();
+          for (const rec of (oldPages || [])) {
+            if (!rec || !rec.notebookId) continue;
+            if (!byNb.has(rec.notebookId)) byNb.set(rec.notebookId, []);
+            byNb.get(rec.notebookId).push(rec);
+          }
 
-        for (const nb of oldNotebooks) {
-          if (!nb || !nb.id) continue;
+          const pagesOrderStore = tx.objectStore('pageOrders');
+          const handledNb = new Set();
 
-          let order = [];
-          const existingList = pagesByNb.get(nb.id) || [];
+          for (const nb of (allNbs || [])) {
+            if (!nb || !nb.id) continue;
+            handledNb.add(nb.id);
 
-          if (!needsPagesRebuild) {
-            const existingOrder = ordersByNb.get(nb.id) ||
-              (Array.isArray(nb.pageOrder) ? nb.pageOrder : null);
-            order = _dedupOrder(
-              existingOrder && existingOrder.length > 0
-                ? existingOrder
-                : existingList.map(p => p.pageId)
-            );
-          } else if (Array.isArray(nb.pages) && nb.pages.length > 0 && existingList.length === 0) {
-            for (const p of nb.pages) {
-              const pageId = (p && typeof p.pageId === 'string' && p.pageId) ? p.pageId : generatePageId();
-              order.push(pageId);
-              targetPagesStore.put({
+            const rawList = byNb.get(nb.id) || [];
+            rawList.sort((a, b) => (a.pageIndex ?? 0) - (b.pageIndex ?? 0));
+
+            const idMap = new Map();
+            const generatedIds = [];
+            for (const rec of rawList) {
+              const pid = (typeof rec.pageId === 'string' && rec.pageId)
+                ? rec.pageId
+                : generatePageId();
+              idMap.set(pid, rec.strokes || []);
+              generatedIds.push(pid);
+              newPagesStore.put({
                 notebookId: nb.id,
-                pageId,
-                strokes: (p && p.strokes) || []
+                pageId: pid,
+                strokes: rec.strokes || []
               });
             }
-            delete nb.pages;
-          } else {
-            const hasPageIdRecords = existingList.some(p => typeof p.pageId === 'string' && p.pageId);
-            if (hasPageIdRecords) {
-              const byId = new Map();
-              for (const p of existingList) {
-                const pid = (typeof p.pageId === 'string' && p.pageId) ? p.pageId : generatePageId();
-                byId.set(pid, p.strokes || []);
+
+            const existingOrder = existingOrderMap.get(nb.id);
+            let finalOrder = [];
+            if (existingOrder && existingOrder.length > 0) {
+              const seen = new Set();
+              for (const pid of existingOrder) {
+                if (!seen.has(pid) && idMap.has(pid)) {
+                  seen.add(pid);
+                  finalOrder.push(pid);
+                }
               }
-              const preferred = Array.isArray(nb.pageOrder) && nb.pageOrder.length > 0
-                ? _dedupOrder(nb.pageOrder)
-                : Array.from(byId.keys());
-              for (const pid of preferred) {
-                order.push(pid);
-                targetPagesStore.put({
-                  notebookId: nb.id,
-                  pageId: pid,
-                  strokes: byId.get(pid) || []
-                });
-              }
-              for (const [pid, strokes] of byId.entries()) {
-                if (!order.includes(pid)) {
-                  order.push(pid);
-                  targetPagesStore.put({ notebookId: nb.id, pageId: pid, strokes });
+              for (const pid of generatedIds) {
+                if (!seen.has(pid)) {
+                  seen.add(pid);
+                  finalOrder.push(pid);
                 }
               }
             } else {
-              const byIndex = new Map();
-              let maxIdx = -1;
-              for (const p of existingList) {
-                const idx = typeof p.pageIndex === 'number' ? p.pageIndex : 0;
-                byIndex.set(idx, p);
-                if (idx > maxIdx) maxIdx = idx;
-              }
-              const total = Math.max(
-                1,
-                typeof nb.pageCount === 'number' && nb.pageCount > 0 ? nb.pageCount : (maxIdx + 1)
-              );
-              for (let i = 0; i < total; i++) {
-                const oldP = byIndex.get(i);
-                const pageId = generatePageId();
-                order.push(pageId);
-                targetPagesStore.put({
-                  notebookId: nb.id,
-                  pageId,
-                  strokes: (oldP && oldP.strokes) || []
-                });
-              }
+              finalOrder = generatedIds;
+            }
+
+            const targetCount = Math.max(1, nb.pageCount || finalOrder.length || 1);
+            while (finalOrder.length < targetCount) {
+              const pid = generatePageId();
+              finalOrder.push(pid);
+              newPagesStore.put({ notebookId: nb.id, pageId: pid, strokes: [] });
+            }
+
+            pagesOrderStore.put({ notebookId: nb.id, order: finalOrder });
+          }
+
+          for (const [nbId, rawList] of byNb.entries()) {
+            if (handledNb.has(nbId)) continue;
+            rawList.sort((a, b) => (a.pageIndex ?? 0) - (b.pageIndex ?? 0));
+            const order = [];
+            for (const rec of rawList) {
+              const pid = (typeof rec.pageId === 'string' && rec.pageId)
+                ? rec.pageId
+                : generatePageId();
+              order.push(pid);
+              newPagesStore.put({
+                notebookId: nbId,
+                pageId: pid,
+                strokes: rec.strokes || []
+              });
+            }
+            if (order.length > 0) {
+              pagesOrderStore.put({ notebookId: nbId, order });
             }
           }
-
-          order = _dedupOrder(order);
-          if (order.length === 0) {
-            const firstId = generatePageId();
-            order.push(firstId);
-            targetPagesStore.put({ notebookId: nb.id, pageId: firstId, strokes: [] });
-          }
-
-          pageOrdersStore.put({ notebookId: nb.id, order });
-          delete nb.pageOrder;
-          nb.pageCount = order.length;
-          nbStore.put(nb);
-        }
-      };
-
-      if (pending === 0) {
-        finalizeUpgrade();
-      } else {
-        const onPartDone = () => {
-          pending--;
-          if (pending === 0) finalizeUpgrade();
         };
-        if (nbReq) nbReq.onsuccess = () => { oldNotebooks = nbReq.result || []; onPartDone(); };
-        if (pagesReq) pagesReq.onsuccess = () => { oldPages = pagesReq.result || []; onPartDone(); };
-        if (ordersReq) ordersReq.onsuccess = () => { oldOrders = ordersReq.result || []; onPartDone(); };
+
+        oldPagesReq.onsuccess = () => { oldPages = oldPagesReq.result || []; finishToV4(); };
+        nbsReq.onsuccess = () => { allNbs = nbsReq.result || []; finishToV4(); };
+        if (existingOrdersReq) {
+          existingOrdersReq.onsuccess = () => { existingOrders = existingOrdersReq.result || []; finishToV4(); };
+        }
+      } else if (oldVersion < 4 && hadPageOrders) {
+        const ordersReq = tx.objectStore('pageOrders').getAll();
+        ordersReq.onsuccess = () => {
+          const store = tx.objectStore('pageOrders');
+          for (const rec of (ordersReq.result || [])) {
+            if (!rec || !rec.notebookId) continue;
+            const deduped = _dedupOrder(rec.order);
+            if (!Array.isArray(rec.order) || deduped.length !== rec.order.length) {
+              store.put({ notebookId: rec.notebookId, order: deduped });
+            }
+          }
+        };
       }
     };
 
     request.onsuccess = (e) => { db = e.target.result; resolve(db); };
-    request.onerror = (e) => reject(e.target.error || e);
+    request.onerror = (e) => reject(e.target.error);
   });
 }
 
+/**
+ * Salva metadata + (opzionalmente) ordine pagine + pagine dirty/eliminate.
+ *
+ * @param {object} notebook
+ * @param {Array<string|number>} dirtyPageIds
+ * @param {object} [opts]
+ *   - preserveLastEditAt: true → mantiene notebook.lastEditAt
+ *   - preserveUpdatedAt: true  → mantiene notebook.updatedAt (usato dalla migrazione automatica)
+ *   - deletedPageIds: string[] → elimina questi pageId da `pages`
+ *   - orderChanged: boolean    → salva `pageOrders`
+ *   - saveOrder: boolean       → salva `pageOrders`
+ *   - replaceAllPages: boolean → rimuove da `pages` eventuali pageId non più nell'ordine
+ */
 export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return resolve();
 
     const now = new Date().toISOString();
-    notebook.updatedAt = now;
-
-    const deletedIds = Array.isArray(opts.deletedPageIds) ? opts.deletedPageIds : [];
-    const shouldWriteOrder = Boolean(
-      opts.orderChanged || opts.replaceAllPages || opts.saveOrder || deletedIds.length > 0
-    );
-    const hasContentEdit =
-      dirtyPageIds.length > 0 || deletedIds.length > 0 || opts.orderChanged === true;
-
-    if (hasContentEdit && !opts.preserveLastEditAt) {
+    if (!opts.preserveUpdatedAt || !notebook.updatedAt) {
+      notebook.updatedAt = now;
+    }
+    if (dirtyPageIds.length > 0 && !opts.preserveLastEditAt) {
       notebook.lastEditAt = now;
     }
     if (!notebook.lastEditAt) {
       notebook.lastEditAt = notebook.updatedAt;
     }
+    notebook.formatVersion = CURRENT_NOTEBOOK_FORMAT;
 
-    const rawOrder = Array.isArray(notebook.pageOrder)
-      ? notebook.pageOrder
-      : (Array.isArray(notebook.pages) ? notebook.pages.map(p => p.pageId) : []);
-    const pageOrder = _dedupOrder(rawOrder);
+    const pages = Array.isArray(notebook.pages) ? notebook.pages : [];
+    const order = [];
+    const seenIds = new Set();
+    const pageById = new Map();
+
+    for (const p of pages) {
+      if (!p) continue;
+      if (!p.pageId) p.pageId = generatePageId();
+      if (!seenIds.has(p.pageId)) {
+        seenIds.add(p.pageId);
+        order.push(p.pageId);
+        pageById.set(p.pageId, p);
+      }
+    }
+    notebook.pageOrder = order.slice();
 
     const meta = {
       id: notebook.id,
       title: notebook.title,
       coverColor: notebook.coverColor,
-      pattern: notebook.pattern,
-      createdAt: notebook.createdAt,
+      pattern: notebook.pattern || 'ruled',
+      createdAt: notebook.createdAt || now,
       updatedAt: notebook.updatedAt,
       lastEditAt: notebook.lastEditAt,
-      toolbarSettings: notebook.toolbarSettings,
-      pageCount: pageOrder.length,
-      lastPageIndex: typeof notebook.lastPageIndex === 'number' ? notebook.lastPageIndex : 0
+      toolbarSettings: notebook.toolbarSettings || null,
+      pageCount: order.length,
+      lastPageIndex: typeof notebook.lastPageIndex === 'number' ? notebook.lastPageIndex : 0,
+      formatVersion: CURRENT_NOTEBOOK_FORMAT
     };
-
-    const pageById = new Map();
-    if (Array.isArray(notebook.pages)) {
-      for (const p of notebook.pages) {
-        if (p && p.pageId) pageById.set(p.pageId, p);
-      }
-    }
 
     const tx = db.transaction(['notebooks', 'pageOrders', 'pages'], 'readwrite');
     try {
       tx.objectStore('notebooks').put(meta);
 
-      if (shouldWriteOrder) {
-        tx.objectStore('pageOrders').put({
-          notebookId: notebook.id,
-          order: pageOrder
-        });
+      const pageOrdersStore = tx.objectStore('pageOrders');
+      if (opts.saveOrder || opts.orderChanged || opts.replaceAllPages) {
+        pageOrdersStore.put({ notebookId: notebook.id, order });
       }
 
       const pagesStore = tx.objectStore('pages');
+
       if (opts.replaceAllPages) {
-        pagesStore.delete(IDBKeyRange.bound([notebook.id, ''], [notebook.id, []]));
-      } else {
-        for (const pageId of deletedIds) {
-          if (pageId) pagesStore.delete([notebook.id, pageId]);
+        const range = IDBKeyRange.only(notebook.id);
+        pagesStore.index('notebookId').openCursor(range).onsuccess = (ev) => {
+          const cursor = ev.target.result;
+          if (!cursor) return;
+          if (!seenIds.has(cursor.value.pageId)) {
+            cursor.delete();
+          }
+          cursor.continue();
+        };
+      }
+
+      if (Array.isArray(opts.deletedPageIds)) {
+        for (const delId of opts.deletedPageIds) {
+          if (typeof delId === 'string' && delId) {
+            pagesStore.delete([notebook.id, delId]);
+          }
         }
       }
 
-      for (const pageId of dirtyPageIds) {
-        const page = pageById.get(pageId);
-        if (!page) continue;
+      for (const key of dirtyPageIds) {
+        const page = typeof key === 'number' ? pages[key] : pageById.get(key);
+        if (!page || !page.pageId) continue;
         pagesStore.put({
           notebookId: notebook.id,
-          pageId,
+          pageId: page.pageId,
           strokes: page.strokes || []
         });
       }
@@ -284,8 +325,8 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
     }
 
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction error'));
-    tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
@@ -303,32 +344,110 @@ export function loadNotebookWithPages(id) {
       const nb = nbReq.result;
       if (!nb) return resolve(null);
 
-      const pageMap = new Map();
-      (pagesReq.result || []).forEach(p => {
-        if (p && p.pageId) pageMap.set(p.pageId, p.strokes || []);
-      });
-
       const orderRec = orderReq.result;
-      let order = _dedupOrder(
-        (orderRec && Array.isArray(orderRec.order) ? orderRec.order : null) ||
-        (Array.isArray(nb.pageOrder) ? nb.pageOrder : [])
-      );
+      const rawPages = pagesReq.result || [];
 
-      if (order.length === 0) {
-        if (pageMap.size > 0) {
-          order = Array.from(pageMap.keys());
+      let orderAdjusted = !orderRec || !Array.isArray(orderRec.order);
+      let pagesAdjusted = false;
+
+      const rawMap = new Map();
+      const rawWithoutId = [];
+      for (const rec of rawPages) {
+        if (!rec) continue;
+        if (typeof rec.pageId === 'string' && rec.pageId) {
+          rawMap.set(rec.pageId, rec.strokes || []);
         } else {
-          const total = Math.max(1, nb.pageCount || 1);
-          order = Array.from({ length: total }, () => generatePageId());
+          pagesAdjusted = true;
+          rawWithoutId.push(rec);
+        }
+      }
+      if (rawWithoutId.length > 0) {
+        rawWithoutId.sort((a, b) => (a.pageIndex ?? 0) - (b.pageIndex ?? 0));
+        for (const rec of rawWithoutId) {
+          const pid = generatePageId();
+          rawMap.set(pid, rec.strokes || []);
         }
       }
 
-      nb.pageOrder = order;
-      nb.pageCount = order.length;
-      nb.pages = order.map(pageId => ({
-        pageId,
-        strokes: pageMap.get(pageId) || []
-      }));
+      const order = [];
+      const seen = new Set();
+      if (orderRec && Array.isArray(orderRec.order)) {
+        for (const pid of orderRec.order) {
+          if (typeof pid !== 'string' || !pid || seen.has(pid)) {
+            orderAdjusted = true;
+            continue;
+          }
+          seen.add(pid);
+          order.push(pid);
+        }
+      }
+
+      // Eventuali record in `pages` non presenti in `pageOrders`
+      for (const pid of rawMap.keys()) {
+        if (!seen.has(pid)) {
+          seen.add(pid);
+          order.push(pid);
+          orderAdjusted = true;
+        }
+      }
+
+      if (order.length === 0) {
+        const pid = generatePageId();
+        order.push(pid);
+        rawMap.set(pid, []);
+        orderAdjusted = true;
+        pagesAdjusted = true;
+      }
+
+      const expectedCount = typeof nb.pageCount === 'number' ? nb.pageCount : order.length;
+      while (order.length < expectedCount) {
+        const pid = generatePageId();
+        order.push(pid);
+        rawMap.set(pid, []);
+        orderAdjusted = true;
+        pagesAdjusted = true;
+      }
+
+      const legacyPageIds = [];
+      const fullPages = order.map((pageId, i) => {
+        const hasRec = rawMap.has(pageId);
+        const strokes = hasRec ? rawMap.get(pageId) : [];
+        if (!hasRec) {
+          pagesAdjusted = true;
+        }
+        if (!hasRec || strokes.some(_strokeNeedsUpgrade)) {
+          legacyPageIds.push(pageId);
+        }
+        return {
+          pageIndex: i,
+          pageId,
+          strokes
+        };
+      });
+
+      const hasLegacyMeta =
+        (nb.formatVersion || 0) < CURRENT_NOTEBOOK_FORMAT ||
+        !nb.lastEditAt ||
+        !nb.pattern ||
+        !nb.toolbarSettings ||
+        typeof nb.toolbarSettings.autoShapeEnabled === 'boolean';
+
+      nb.pages = fullPages;
+      nb.pageOrder = order.slice();
+
+      const needsUpgrade =
+        hasLegacyMeta ||
+        orderAdjusted ||
+        pagesAdjusted ||
+        legacyPageIds.length > 0;
+
+      // Proprietà non enumerabili: usate solo da openNotebook(), mai serializzate
+      Object.defineProperties(nb, {
+        _needsFormatUpgrade: { value: needsUpgrade, enumerable: false, configurable: true, writable: true },
+        _orderReconstructed: { value: orderAdjusted || pagesAdjusted, enumerable: false, configurable: true, writable: true },
+        _legacyPageIds: { value: legacyPageIds, enumerable: false, configurable: true, writable: true }
+      });
+
       resolve(nb);
     };
     tx.onerror = () => reject(tx.error);
@@ -351,8 +470,15 @@ export function deleteNotebookFromDB(id) {
     const tx = db.transaction(['notebooks', 'pageOrders', 'pages'], 'readwrite');
     tx.objectStore('notebooks').delete(id);
     tx.objectStore('pageOrders').delete(id);
-    const range = IDBKeyRange.bound([id, ''], [id, []]);
-    tx.objectStore('pages').delete(range);
+
+    const pagesStore = tx.objectStore('pages');
+    pagesStore.index('notebookId').openKeyCursor(IDBKeyRange.only(id)).onsuccess = (ev) => {
+      const cursor = ev.target.result;
+      if (!cursor) return;
+      pagesStore.delete(cursor.primaryKey);
+      cursor.continue();
+    };
+
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
