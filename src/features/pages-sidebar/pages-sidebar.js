@@ -1,8 +1,19 @@
 /**
  * @module features/pages-sidebar/pages-sidebar
  *
- * SIDEBAR PAGINE — thumbnails ancorate a `pageId`, riordino via drag,
- * eliminazione e riallineamento garantito su `state.pages`.
+ * SIDEBAR PAGINE — thumbnails, riordino via drag (hcg-sortable), eliminazione.
+ *
+ * Identità basata su `pageId` immutabile:
+ *   - `_thumbCanvases` e `data-page-id` usano `page.pageId` (non l'indice).
+ *   - Dopo un reorder (`inknote:pages-reordered`), aggiorna in place
+ *     `data-index` e numeri pagina senza distruggere il DOM né Sortable.
+ *   - Rendering thumbnail allineato a `render.js` (pattern, paperColor,
+ *     patternColor, Dark Mode via `getEffectiveColor`, tratteggi, pencil
+ *     alpha 0.55 ed evidenziatore `baseSize * 4` con multiply/screen).
+ *
+ * @see features/editor/pages.js — deletePage, movePage, scrollToPage
+ * @see features/render/render.js — computeStrokeWidth, _buildLineDash
+ * @see core/app-settings.js     — pagesSidebar settings
  */
 
 import './pages-sidebar.css';
@@ -12,10 +23,15 @@ import HcgSortable from 'hcg-sortable';
 import 'hcg-sortable/hcg-sortable.css';
 
 import { state } from '../../core/state.js';
-import { showToast, PAGE_WIDTH, on } from '../../core/utils.js';
+import {
+  showToast, PAGE_WIDTH, PAGE_HEIGHT, on,
+  getEffectiveColor, sliderToBaseSize
+} from '../../core/utils.js';
 import {
   getSettings, updateSettings, onSettingsChanged
 } from '../../core/app-settings.js';
+import { onToolbarSettingsChanged } from '../toolbar/toolbar-settings.js';
+import { computeStrokeWidth, _buildLineDash } from '../render/render.js';
 import {
   deletePage, movePage, addNewPage, scrollToPage
 } from '../editor/pages.js';
@@ -30,10 +46,15 @@ const REFRESH_DEBOUNCE_MS = 300;
 
 let _mounted = false;
 let _isOpen = false;
-/** @type {Map<string, HTMLCanvasElement>} pageId -> canvas thumb */
+/** @type {Map<string|number, HTMLCanvasElement>} pageId -> canvas thumb */
 const _thumbCanvases = new Map();
 /** @type {HcgSortable|null} */
 let _sortableInstance = null;
+let _redrawAllRaf = null;
+
+// ============================================================
+// MOUNT + BOOTSTRAP
+// ============================================================
 
 export function mountPagesSidebar() {
   if (_mounted || document.getElementById('pagesSidebar')) {
@@ -55,20 +76,39 @@ export function mountPagesSidebar() {
   if (s.open) openPagesSidebar({ silent: true });
 
   onSettingsChanged(({ changed }) => {
-    if (!changed.includes('pagesSidebar')) return;
-    const next = getSettings().pagesSidebar;
-    _applyPosition(next.position);
-    _updateTabTitle();
-    if (next.open !== _isOpen) {
-      if (next.open) openPagesSidebar({ silent: true });
-      else closePagesSidebar({ silent: true });
+    if (changed.includes('pagesSidebar')) {
+      const next = getSettings().pagesSidebar;
+      _applyPosition(next.position);
+      _updateTabTitle();
+      if (next.open !== _isOpen) {
+        if (next.open) openPagesSidebar({ silent: true });
+        else closePagesSidebar({ silent: true });
+      }
+    }
+    if (_isOpen && (changed.includes('theme') || changed.includes('theme.effective'))) {
+      _scheduleRedrawAllThumbs();
     }
   });
 
+  // Colori foglio/pattern o reset toolbar → ridisegna le thumbnail
+  onToolbarSettingsChanged(({ changed }) => {
+    if (!_isOpen) return;
+    if (
+      changed.includes('paperColor') ||
+      changed.includes('patternColor') ||
+      changed.includes('reset') ||
+      changed.includes('init')
+    ) {
+      _scheduleRedrawAllThumbs();
+    }
+  });
+
+  // Struttura pagine cambiata (add/delete/clear/pattern) → rebuild completo.
   window.addEventListener('inknote:pages-changed', () => {
     if (_isOpen) refreshThumbnails();
   });
 
+  // Riordino (drag): aggiorna solo data-index + numeri in place.
   window.addEventListener('inknote:pages-reordered', () => {
     if (_isOpen) _syncThumbsAfterReorder();
   });
@@ -78,7 +118,7 @@ export function mountPagesSidebar() {
   });
 
   window.addEventListener('inknote:notebook-closed', () => {
-    _clearThumbnails();
+    _clearThumbnailsDOM();
   });
 
   window.addEventListener('inknote:active-page-changed', () => {
@@ -89,23 +129,30 @@ export function mountPagesSidebar() {
     if (_isOpen) refreshThumbnails();
   });
 
-  onSettingsChanged(({ changed }) => {
-    if (!_isOpen) return;
-    if (changed.includes('theme') || changed.includes('theme.effective')) {
-      _redrawAllThumbCanvases();
-    }
-  });
-
   let _pointerRefreshTimer = null;
-  document.addEventListener('pointerup', () => {
+  document.addEventListener('pointerup', (e) => {
     if (!_isOpen) return;
+    if (e.target && e.target.closest && e.target.closest('#pagesSidebar')) return;
+
+    const wrapper = e.target && e.target.closest ? e.target.closest('.page-wrapper') : null;
+    const idxFromTarget = wrapper ? parseInt(wrapper.dataset.index, 10) : NaN;
+    const page = Number.isFinite(idxFromTarget)
+      ? state.pages[idxFromTarget]
+      : state.pages[state.activePageIndex];
+    const targetKey = page ? (page.pageId ?? page.index) : null;
+    if (targetKey == null) return;
+
     if (_pointerRefreshTimer) clearTimeout(_pointerRefreshTimer);
     _pointerRefreshTimer = setTimeout(() => {
       _pointerRefreshTimer = null;
-      _updateThumbnail(state.pages[state.activePageIndex]);
+      _updateThumbnail(targetKey);
     }, REFRESH_DEBOUNCE_MS);
   }, { passive: true });
 }
+
+// ============================================================
+// OPEN / CLOSE / TOGGLE
+// ============================================================
 
 export function togglePagesSidebar() {
   if (_isOpen) closePagesSidebar();
@@ -164,6 +211,10 @@ export function closePagesSidebar({ silent = false } = {}) {
   }
 }
 
+// ============================================================
+// POSIZIONE + ALTEZZA + TITOLO LINGUETTA
+// ============================================================
+
 function _applyPosition(position) {
   const sidebar = document.getElementById('pagesSidebar');
   if (!sidebar) return;
@@ -194,6 +245,10 @@ function _syncSidebarTop() {
   );
 }
 
+// ============================================================
+// BIND UI
+// ============================================================
+
 function _bindUI() {
   document.getElementById('pagesSidebarTab')
     ?.addEventListener('click', togglePagesSidebar);
@@ -210,14 +265,15 @@ function _bindUI() {
   _setupThumbDelegation();
 }
 
-function _resolvePageIndexFromThumb(thumb) {
-  const pid = thumb?.dataset?.pageId;
-  if (pid) {
-    const idx = state.pages.findIndex(p => p && p.pageId === pid);
-    if (idx !== -1) return idx;
+function _resolveThumbIndex(thumb) {
+  if (!thumb) return -1;
+  const pageId = thumb.dataset.pageId;
+  if (pageId) {
+    const byId = state.pages.findIndex(p => p.pageId === pageId);
+    if (byId !== -1) return byId;
   }
-  const parsed = parseInt(thumb?.dataset?.index);
-  return Number.isFinite(parsed) ? parsed : -1;
+  const idx = parseInt(thumb.dataset.index, 10);
+  return Number.isFinite(idx) ? idx : -1;
 }
 
 function _setupThumbDelegation() {
@@ -228,8 +284,7 @@ function _setupThumbDelegation() {
     if (e.target.closest('.page-thumb-delete')) return;
     if (e.target.closest('.page-thumb-drag-handle')) return;
     const thumb = e.target.closest('.page-thumb');
-    if (!thumb) return;
-    const idx = _resolvePageIndexFromThumb(thumb);
+    const idx = _resolveThumbIndex(thumb);
     if (idx >= 0) scrollToPage(idx);
   });
 
@@ -238,8 +293,7 @@ function _setupThumbDelegation() {
     if (!delBtn) return;
     e.stopPropagation();
     const thumb = delBtn.closest('.page-thumb');
-    if (!thumb) return;
-    const idx = _resolvePageIndexFromThumb(thumb);
+    const idx = _resolveThumbIndex(thumb);
     if (idx < 0) return;
 
     if (state.pages.length <= 1) {
@@ -252,6 +306,10 @@ function _setupThumbDelegation() {
     if (ok) showToast(`Pagina ${idx + 1} eliminata`, '🗑️');
   });
 }
+
+// ============================================================
+// SORTABLE (hcg-sortable) — riordino con maniglia
+// ============================================================
 
 function _setupSortable() {
   const list = document.getElementById('pagesThumbnailsList');
@@ -275,13 +333,17 @@ function _setupSortable() {
   });
 }
 
-function _clearThumbnails() {
-  const list = document.getElementById('pagesThumbnailsList');
+// ============================================================
+// RENDER THUMBNAILS
+// ============================================================
+
+function _clearThumbnailsDOM() {
   if (_sortableInstance) {
     try { _sortableInstance.destroy(); } catch (e) {}
     _sortableInstance = null;
   }
   _thumbCanvases.clear();
+  const list = document.getElementById('pagesThumbnailsList');
   if (list) list.innerHTML = '';
 }
 
@@ -289,14 +351,15 @@ export function refreshThumbnails() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
-  _clearThumbnails();
+  _clearThumbnailsDOM();
 
   const frag = document.createDocumentFragment();
   state.pages.forEach((page, i) => {
-    const thumb = _buildThumbElement(i, page.pageId);
+    const thumb = _buildThumbElement(page, i);
     frag.appendChild(thumb);
     const canvas = thumb.querySelector('.page-thumb-canvas');
-    if (page.pageId) _thumbCanvases.set(page.pageId, canvas);
+    const key = page.pageId ?? i;
+    _thumbCanvases.set(key, canvas);
     _drawThumbnail(page, canvas);
   });
   list.appendChild(frag);
@@ -305,46 +368,51 @@ export function refreshThumbnails() {
   _highlightActivePage(true);
 }
 
+/**
+ * Sync leggero dopo un reorder: aggiorna in place `data-index` e numeri
+ * sui thumb già nel DOM. Se l'ordine DOM diverge da `state.pages`,
+ * pianifica un rebuild asincrono (mai sincrono dentro onUpdate di Sortable).
+ */
 function _syncThumbsAfterReorder() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
-  const indexById = new Map();
-  state.pages.forEach((p, i) => {
-    if (p && p.pageId) indexById.set(p.pageId, i);
-  });
-
   const thumbs = [...list.querySelectorAll('.page-thumb')];
-  let orderMatches = thumbs.length === state.pages.length;
+  let outOfSync = thumbs.length !== state.pages.length;
 
   _thumbCanvases.clear();
-  thumbs.forEach((el, domIdx) => {
-    const pid = el.dataset.pageId;
-    const realIdx = pid && indexById.has(pid) ? indexById.get(pid) : domIdx;
-    if (!pid || realIdx !== domIdx) orderMatches = false;
-
-    el.dataset.index = String(realIdx);
+  thumbs.forEach((el, i) => {
+    el.dataset.index = String(i);
     const num = el.querySelector('.page-thumb-number');
-    if (num) num.textContent = String(realIdx + 1);
+    if (num) num.textContent = String(i + 1);
+
+    const pageId = el.dataset.pageId;
+    const expectedId = state.pages[i]?.pageId;
+    if (expectedId && pageId !== expectedId) {
+      outOfSync = true;
+    }
 
     const canvas = el.querySelector('.page-thumb-canvas');
-    if (pid && canvas) _thumbCanvases.set(pid, canvas);
+    if (canvas) _thumbCanvases.set(pageId || i, canvas);
   });
 
-  _highlightActivePage(true);
-
-  if (!orderMatches) {
+  if (outOfSync) {
     requestAnimationFrame(() => {
       if (_isOpen) refreshThumbnails();
     });
+    return;
   }
+
+  _highlightActivePage(true);
 }
 
-function _buildThumbElement(index, pageId) {
+function _buildThumbElement(pageData, index) {
   const div = document.createElement('div');
   div.className = 'page-thumb';
   div.dataset.index = String(index);
-  if (pageId) div.dataset.pageId = pageId;
+  if (pageData && pageData.pageId) {
+    div.dataset.pageId = pageData.pageId;
+  }
 
   const handle = document.createElement('div');
   handle.className = 'page-thumb-drag-handle';
@@ -388,16 +456,34 @@ function _buildThumbElement(index, pageId) {
   return div;
 }
 
-function _updateThumbnail(page) {
-  if (!page || !page.pageId) return;
-  const canvas = _thumbCanvases.get(page.pageId);
-  if (!canvas) return;
+function _updateThumbnail(pageKey) {
+  let page = null;
+  let canvas = null;
+
+  if (typeof pageKey === 'string') {
+    page = state.pages.find(p => p.pageId === pageKey) || null;
+    canvas = _thumbCanvases.get(pageKey) || null;
+  } else if (typeof pageKey === 'number') {
+    page = state.pages[pageKey] || null;
+    const key = page ? (page.pageId ?? pageKey) : pageKey;
+    canvas = _thumbCanvases.get(key) || _thumbCanvases.get(pageKey) || null;
+  }
+
+  if (!page || !canvas) return;
   _drawThumbnail(page, canvas);
 }
 
+function _scheduleRedrawAllThumbs() {
+  if (_redrawAllRaf !== null) return;
+  _redrawAllRaf = requestAnimationFrame(() => {
+    _redrawAllRaf = null;
+    if (_isOpen) _redrawAllThumbCanvases();
+  });
+}
+
 function _redrawAllThumbCanvases() {
-  state.pages.forEach((page) => {
-    const canvas = page && page.pageId ? _thumbCanvases.get(page.pageId) : null;
+  state.pages.forEach((page, i) => {
+    const canvas = _thumbCanvases.get(page.pageId ?? i) || _thumbCanvases.get(i);
     if (canvas) _drawThumbnail(page, canvas);
   });
 }
@@ -406,76 +492,147 @@ function _drawThumbnail(pageData, canvas) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
+  const isDark = !!state.isDarkMode;
   const cssW = THUMB_W / THUMB_DPR;
   const cssH = THUMB_H / THUMB_DPR;
-  const scale = cssW / PAGE_WIDTH;
+  const scaleX = cssW / PAGE_WIDTH;
+  const scaleY = cssH / PAGE_HEIGHT;
+  const scale = scaleX;
 
   ctx.setTransform(THUMB_DPR, 0, 0, THUMB_DPR, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  ctx.fillStyle = state.isDarkMode ? '#1e293b' : '#ffffff';
-  ctx.fillRect(0, 0, cssW, cssH);
-
-  if (!pageData.strokes || pageData.strokes.length === 0) return;
-
   ctx.save();
-  ctx.scale(scale, scale);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  ctx.scale(scaleX, scaleY);
 
-  for (const stroke of pageData.strokes) {
-    if (!stroke || !stroke.points || stroke.points.length === 0) continue;
+  // 1. Sfondo carta e pattern (allineato a render.js::getBackgroundCanvas)
+  const bgFill    = state.paperColor   || (isDark ? '#1E293B' : '#FFFFFF');
+  const lineColor = state.patternColor || (isDark ? '#334155' : '#E2E8F0');
+  const dotColor  = state.patternColor || (isDark ? '#475569' : '#94A3B8');
 
-    const color = stroke.color || '#000000';
-    const alpha = stroke.opacity != null ? stroke.opacity : 1.0;
+  ctx.fillStyle = bgFill;
+  ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = Math.max(1.5 / scale, (stroke.size || 3) * 0.6);
-
-    if (stroke.points.length === 1) {
-      const p = stroke.points[0];
-      const r = ctx.lineWidth / 2;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-      for (let i = 1; i < stroke.points.length; i++) {
-        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
-      }
-      ctx.stroke();
+  const pattern = state.bgPattern || 'ruled';
+  if (pattern === 'ruled') {
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = Math.max(1, 0.55 / scale);
+    ctx.beginPath();
+    for (let y = 60; y < PAGE_HEIGHT; y += 32) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(PAGE_WIDTH, y);
     }
-    ctx.restore();
+    ctx.stroke();
+  } else if (pattern === 'grid') {
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = Math.max(1, 0.55 / scale);
+    ctx.beginPath();
+    for (let x = 0; x < PAGE_WIDTH; x += 25) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, PAGE_HEIGHT);
+    }
+    for (let y = 0; y < PAGE_HEIGHT; y += 25) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(PAGE_WIDTH, y);
+    }
+    ctx.stroke();
+  } else if (pattern === 'dots') {
+    ctx.fillStyle = dotColor;
+    const r = Math.max(1.2, 0.48 / scale);
+    ctx.beginPath();
+    for (let x = 20; x < PAGE_WIDTH; x += 20) {
+      for (let y = 20; y < PAGE_HEIGHT; y += 24) {
+        ctx.moveTo(x + r, y);
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+      }
+    }
+    ctx.fill();
   }
+
+  // 2. Tratti (strokes)
+  if (pageData.strokes && pageData.strokes.length > 0) {
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (const stroke of pageData.strokes) {
+      if (!stroke || !stroke.points || stroke.points.length === 0) continue;
+
+      const tool = stroke.tool || 'pen';
+      const baseOpacity = stroke.opacity != null ? stroke.opacity : 1.0;
+      const baseSize = sliderToBaseSize(stroke.size);
+
+      let color;
+      let alpha = baseOpacity;
+      let gco = 'source-over';
+      let lineWidth;
+
+      if (tool === 'highlighter') {
+        color = stroke.color || '#FFEB3B';
+        gco = isDark ? 'screen' : 'multiply';
+        lineWidth = Math.max(1.2 / scale, baseSize * 4.0);
+      } else {
+        color = getEffectiveColor(stroke.color || '#000000', isDark);
+        if (tool === 'pencil') alpha *= 0.55;
+        const realW = computeStrokeWidth(tool, stroke.size, 0.5, 0, 0, 1.0, baseSize);
+        lineWidth = Math.max(0.55 / scale, realW);
+      }
+
+      ctx.save();
+      ctx.globalCompositeOperation = gco;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = lineWidth;
+
+      if (tool !== 'highlighter') {
+        const lineDash = _buildLineDash(stroke.style, Math.max(baseSize, lineWidth * 0.8));
+        if (lineDash) {
+          ctx.setLineDash(lineDash);
+          ctx.lineDashOffset = 0;
+        }
+      }
+
+      const pts = stroke.points;
+      if (pts.length === 1) {
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(pts[0].x, pts[0].y, lineWidth / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          ctx.lineTo(pts[i].x, pts[i].y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
   ctx.restore();
 }
+
+// ============================================================
+// HIGHLIGHT + SCROLL TO ACTIVE
+// ============================================================
 
 function _highlightActivePage(scrollIntoView) {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
-  const activePage = state.pages[state.activePageIndex];
-  const activePageId = activePage ? activePage.pageId : null;
+  const activeIndex = state.activePageIndex;
+  const activePageId = state.pages[activeIndex]?.pageId;
 
+  let activeEl = null;
   list.querySelectorAll('.page-thumb').forEach((el) => {
     const isMatch = activePageId
       ? el.dataset.pageId === activePageId
-      : parseInt(el.dataset.index) === state.activePageIndex;
+      : parseInt(el.dataset.index, 10) === activeIndex;
     el.classList.toggle('active', isMatch);
+    if (isMatch) activeEl = el;
   });
 
-  if (!scrollIntoView) return;
-  const escapedId = activePageId && typeof CSS !== 'undefined' && CSS.escape
-    ? CSS.escape(activePageId)
-    : activePageId;
-  const selector = activePageId
-    ? `.page-thumb[data-page-id="${escapedId}"]`
-    : `.page-thumb[data-index="${state.activePageIndex}"]`;
-  const activeEl = list.querySelector(selector);
-  if (activeEl) {
+  if (scrollIntoView && activeEl) {
     activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 }
