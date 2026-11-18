@@ -1,7 +1,8 @@
 /**
  * @module features/pages-sidebar/pages-sidebar
  *
- * SIDEBAR PAGINE — thumbnails, riordino via drag (hcg-sortable), eliminazione.
+ * SIDEBAR PAGINE — thumbnails, riordino via drag (hcg-sortable), eliminazione,
+ * scroll nativo touch + drag-scroll con penna (stylus).
  *
  * Identità basata su `pageId` immutabile:
  *   - `_thumbCanvases` e `data-page-id` usano `page.pageId` (non l'indice).
@@ -43,6 +44,7 @@ const THUMB_W = THUMB_CSS_W * THUMB_DPR;
 const THUMB_H = THUMB_CSS_H * THUMB_DPR;
 
 const REFRESH_DEBOUNCE_MS = 300;
+const PEN_SCROLL_THRESHOLD_PX = 6;
 
 let _mounted = false;
 let _isOpen = false;
@@ -51,6 +53,7 @@ const _thumbCanvases = new Map();
 /** @type {HcgSortable|null} */
 let _sortableInstance = null;
 let _redrawAllRaf = null;
+let _suppressClickUntil = 0;
 
 // ============================================================
 // MOUNT + BOOTSTRAP
@@ -126,7 +129,9 @@ export function mountPagesSidebar() {
   });
 
   on('history:restore', () => {
-    if (_isOpen) refreshThumbnails();
+    queueMicrotask(() => {
+      if (_isOpen) refreshThumbnails();
+    });
   });
 
   let _pointerRefreshTimer = null;
@@ -246,7 +251,7 @@ function _syncSidebarTop() {
 }
 
 // ============================================================
-// BIND UI
+// BIND UI + SCROLL CON PENNA (STYLUS)
 // ============================================================
 
 function _bindUI() {
@@ -263,6 +268,7 @@ function _bindUI() {
     });
 
   _setupThumbDelegation();
+  _setupPenScroll();
 }
 
 function _resolveThumbIndex(thumb) {
@@ -281,6 +287,11 @@ function _setupThumbDelegation() {
   if (!list) return;
 
   list.addEventListener('click', (e) => {
+    if (performance.now() < _suppressClickUntil) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.target.closest('.page-thumb-delete')) return;
     if (e.target.closest('.page-thumb-drag-handle')) return;
     const thumb = e.target.closest('.page-thumb');
@@ -289,6 +300,7 @@ function _setupThumbDelegation() {
   });
 
   list.addEventListener('click', (e) => {
+    if (performance.now() < _suppressClickUntil) return;
     const delBtn = e.target.closest('.page-thumb-delete');
     if (!delBtn) return;
     e.stopPropagation();
@@ -305,6 +317,111 @@ function _setupThumbDelegation() {
     const ok = deletePage(idx);
     if (ok) showToast(`Pagina ${idx + 1} eliminata`, '🗑️');
   });
+}
+
+/**
+ * Permette lo scroll verticale della lista miniature trascinando con la penna
+ * (i browser su tablet gestiscono nativamente solo `touch` con `touch-action: pan-y`,
+ * non `pointerType === 'pen'`). Ignora maniglia di drag e pulsante elimina.
+ */
+function _setupPenScroll() {
+  const list = document.getElementById('pagesThumbnailsList');
+  if (!list) return;
+
+  let penState = null;
+  let inertiaRaf = null;
+  let inertiaVy = 0;
+  let inertiaLastTime = 0;
+
+  const stopInertia = () => {
+    if (inertiaRaf !== null) {
+      cancelAnimationFrame(inertiaRaf);
+      inertiaRaf = null;
+    }
+    inertiaVy = 0;
+  };
+
+  const stepInertia = (now) => {
+    inertiaRaf = null;
+    if (!inertiaLastTime) inertiaLastTime = now;
+    const dt = Math.min(now - inertiaLastTime, 32);
+    inertiaLastTime = now;
+
+    const prevTop = list.scrollTop;
+    list.scrollTop = prevTop + inertiaVy * dt;
+    inertiaVy *= Math.pow(0.995, dt);
+
+    if (Math.abs(inertiaVy) < 0.03 || list.scrollTop === prevTop) {
+      stopInertia();
+      return;
+    }
+    inertiaRaf = requestAnimationFrame(stepInertia);
+  };
+
+  list.addEventListener('pointerdown', (e) => {
+    stopInertia();
+    if (e.pointerType !== 'pen') return;
+    if (e.target.closest('.page-thumb-drag-handle, .page-thumb-delete')) return;
+
+    penState = {
+      id: e.pointerId,
+      startY: e.clientY,
+      startScrollTop: list.scrollTop,
+      lastY: e.clientY,
+      lastTime: performance.now(),
+      vy: 0,
+      dragging: false
+    };
+  }, { passive: true });
+
+  list.addEventListener('pointermove', (e) => {
+    if (!penState || e.pointerId !== penState.id) return;
+
+    const dy = e.clientY - penState.startY;
+    if (!penState.dragging) {
+      if (Math.abs(dy) < PEN_SCROLL_THRESHOLD_PX) return;
+      penState.dragging = true;
+      try { list.setPointerCapture(e.pointerId); } catch {}
+    }
+
+    const now = performance.now();
+    const dt = now - penState.lastTime;
+    if (dt > 0) {
+      const instVy = -(e.clientY - penState.lastY) / dt;
+      penState.vy = penState.vy * 0.5 + instVy * 0.5;
+    }
+    penState.lastY = e.clientY;
+    penState.lastTime = now;
+
+    list.scrollTop = penState.startScrollTop - dy;
+    e.preventDefault();
+  }, { passive: false });
+
+  const endPen = (e) => {
+    if (!penState || e.pointerId !== penState.id) return;
+    const wasDragging = penState.dragging;
+    const vy = penState.vy;
+    const stale = performance.now() - penState.lastTime > 90;
+    try {
+      if (list.hasPointerCapture && list.hasPointerCapture(e.pointerId)) {
+        list.releasePointerCapture(e.pointerId);
+      }
+    } catch {}
+    penState = null;
+
+    if (wasDragging) {
+      _suppressClickUntil = performance.now() + 180;
+      if (!stale && Math.abs(vy) > 0.12) {
+        inertiaVy = vy;
+        inertiaLastTime = 0;
+        inertiaRaf = requestAnimationFrame(stepInertia);
+      }
+    }
+  };
+
+  list.addEventListener('pointerup', endPen);
+  list.addEventListener('pointercancel', endPen);
+  list.addEventListener('wheel', stopInertia, { passive: true });
 }
 
 // ============================================================

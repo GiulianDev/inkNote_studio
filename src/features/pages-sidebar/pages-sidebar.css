@@ -1,6 +1,6 @@
 /* ============================================================
    PAGES SIDEBAR — thumbnails verticali, collassabile
-   + maniglia di drag (hcg-sortable)
+   + maniglia di drag (hcg-sortable) + scroll touch/stylus
    ============================================================ */
 
 :root {
@@ -24,6 +24,7 @@
   color: #475569;
   border: 1px solid #e2e8f0;
   padding: 0;
+  touch-action: manipulation;
   transition: left 0.18s ease, right 0.18s ease,
               background-color 0.12s, color 0.12s;
 }
@@ -136,6 +137,7 @@ body.dark .pages-sidebar-title { color: #cbd5e1; }
   justify-content: center;
   color: #475569;
   cursor: pointer;
+  touch-action: manipulation;
   transition: background-color 0.12s, color 0.12s;
   flex-shrink: 0;
 }
@@ -154,6 +156,17 @@ body.dark .pages-sidebar-icon-btn:hover { background: #1e293b; color: #f1f5f9; }
   flex-direction: column;
   gap: 8px;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+/* Neutralizza `* { touch-action: none }` sui figli scrollabili delle thumbnail */
+.pages-thumbnails .page-thumb,
+.pages-thumbnails .page-thumb-preview,
+.pages-thumbnails .page-thumb-canvas,
+.pages-thumbnails .page-thumb-footer,
+.pages-thumbnails .page-thumb-number {
+  touch-action: pan-y;
 }
 
 /* --- Singola thumbnail --- */
@@ -168,7 +181,6 @@ body.dark .pages-sidebar-icon-btn:hover { background: #1e293b; color: #f1f5f9; }
   transition: background-color 0.12s;
   user-select: none;
   -webkit-user-select: none;
-  touch-action: none;
 }
 .page-thumb:hover { background: #e2e8f0; }
 body.dark .page-thumb:hover { background: #1e293b; }
@@ -178,8 +190,8 @@ body.dark .page-thumb:hover { background: #1e293b; }
   position: absolute;
   top: 6px;
   left: 6px;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -209,11 +221,6 @@ body.dark .page-thumb:hover .page-thumb-drag-handle {
 }
 .page-thumb-drag-handle:active { cursor: grabbing; }
 .page-thumb-drag-handle svg { width: 16px; height: 16px; pointer-events: none; }
-
-/* Su touch/stylus non c'è hover: maniglia sempre visibile e cliccabile */
-@media (hover: none) {
-  .page-thumb-drag-handle { opacity: 0.85; }
-}
 
 /* --- Anteprima canvas --- */
 .page-thumb-preview {
@@ -260,7 +267,7 @@ body.dark .page-thumb.active .page-thumb-number { color: #818cf8; }
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 22px; height: 22px;
+  width: 24px; height: 24px;
   border-radius: 6px;
   background: rgba(15, 23, 42, 0.7);
   color: #ffffff;
@@ -270,11 +277,18 @@ body.dark .page-thumb.active .page-thumb-number { color: #818cf8; }
   opacity: 0;
   transition: opacity 0.12s, background 0.12s;
   cursor: pointer;
+  touch-action: manipulation;
   z-index: 5;
 }
-.page-thumb-delete svg { width: 12px; height: 12px; }
+.page-thumb-delete svg { width: 12px; height: 12px; pointer-events: none; }
 .page-thumb:hover .page-thumb-delete { opacity: 1; }
 .page-thumb-delete:hover { background: #e11d48; }
+
+/* Su touch/stylus non c'è hover: maniglia e delete sempre accessibili */
+@media (hover: none) {
+  .page-thumb-drag-handle { opacity: 0.85; }
+  .page-thumb-delete { opacity: 0.85; }
+}
 
 /* --- Classi hcg-sortable --- */
 .hcg-sortable-drag {

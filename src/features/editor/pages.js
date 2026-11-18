@@ -1,18 +1,27 @@
 /**
  * @module features/editor/pages
+ *
+ * PAGINE — creazione wrapper DOM, gestione canvas via pool, pagina attiva,
+ * eliminazione/riordino/scroll con identità immutabile `pageId`.
+ *
+ * @see features/editor/page-pool.js
+ * @see features/persistence/session.js
+ * @see features/pages-sidebar/pages-sidebar.js
  */
 
 import { state, viewport } from '../../core/state.js';
 import {
   PAGE_WIDTH, PAGE_HEIGHT, showToast, on, generatePageId
 } from '../../core/utils.js';
-import { redrawPageCanvas } from '../render/render.js';
+import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
 import { attachPointerListeners } from '../tools/dispatcher.js';
 import { pushHistory, resetHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
+import {
+  markPageDirty, markPageDeleted, markOrderDirty
+} from '../persistence/session.js';
 import { clearSelection } from '../tools/lazo.js';
-import { finalizePendingShape } from '../tools/shapes.js';
-import { refreshPageCounter, applyBgPatternToUI } from '../toolbar/toolbar.js';
+import { refreshPageCounter } from '../toolbar/toolbar.js';
 import {
   applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
@@ -25,20 +34,27 @@ let _resolutionRefreshTimer = null;
 let _viewportResizeObserver = null;
 let _lastVpW = 0;
 let _lastVpH = 0;
+let _programmaticScrollUntil = 0;
 
-export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = generatePageId()) {
+// ============================================================
+// CREAZIONE PAGINA
+// ============================================================
+
+export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null) {
   const container = document.getElementById('canvasContainer');
+  const pid = (typeof pageId === 'string' && pageId) ? pageId : generatePageId();
+
   const pageWrapper = document.createElement('div');
   pageWrapper.className = 'page-wrapper';
-  pageWrapper.dataset.index = pageIndex;
-  pageWrapper.dataset.pageId = pageId;
+  pageWrapper.dataset.index = String(pageIndex);
+  pageWrapper.dataset.pageId = pid;
 
   container.appendChild(pageWrapper);
 
   const strokes = unpackStrokes(initialStrokes);
 
   const pageData = {
-    pageId,
+    pageId: pid,
     index: pageIndex,
     wrapper: pageWrapper,
     canvas: null,
@@ -59,16 +75,31 @@ export function addNewPage() {
   const newIndex = state.pages.length;
   const newPage = createNewPageDOM(newIndex, []);
   state.activePageIndex = newIndex;
+
+  markPageDirty(newPage.pageId);
+  markOrderDirty();
+
   refreshPageCounter();
-  scheduleSave({ pageId: newPage.pageId, orderDirty: true, immediate: true });
+  scheduleSave({ markDirty: false, immediate: true });
   pushHistory();
   scheduleResolutionRefresh();
   invalidateClampCache();
 
+  _programmaticScrollUntil = performance.now() + 420;
+  if (_activePageCheckTimer !== null) {
+    clearTimeout(_activePageCheckTimer);
+    _activePageCheckTimer = null;
+  }
+
   requestAnimationFrame(() => {
+    const vp = document.getElementById('viewport');
     const pageTop = newPage.wrapper.offsetTop;
-    const targetY = -pageTop * viewport.scale + 20;
-    viewport.y = targetY;
+    if (vp) {
+      const pageLeft = newPage.wrapper.offsetLeft;
+      const pageW = newPage.wrapper.offsetWidth || PAGE_WIDTH;
+      viewport.x = vp.clientWidth / 2 - (pageLeft + pageW / 2) * viewport.scale;
+    }
+    viewport.y = -pageTop * viewport.scale + 20;
     const c = clampViewport(viewport.x, viewport.y);
     viewport.x = c.x;
     viewport.y = c.y;
@@ -77,13 +108,25 @@ export function addNewPage() {
 
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
-    detail: { index: newIndex }
+    detail: { index: newIndex, pageId: newPage.pageId }
   }));
 }
 
+// ============================================================
+// VIEWPORT (centratura, zoom, resize observer)
+// ============================================================
+
 export function centerViewport() {
   const vp = document.getElementById('viewport');
-  viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
+  if (!vp) return;
+  const firstPage = state.pages[0];
+  if (firstPage && firstPage.wrapper) {
+    const pageLeft = firstPage.wrapper.offsetLeft;
+    const pageW = firstPage.wrapper.offsetWidth || PAGE_WIDTH;
+    viewport.x = vp.clientWidth / 2 - (pageLeft + pageW / 2) * viewport.scale;
+  } else {
+    viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
+  }
   viewport.y = 20;
   applyTransform();
 }
@@ -121,6 +164,10 @@ export function installViewportResizeObserver() {
 
   _viewportResizeObserver.observe(vp);
 }
+
+// ============================================================
+// PAGINA ATTIVA (basata sul viewport)
+// ============================================================
 
 const ACTIVE_PAGE_SCAN_RADIUS = 3;
 
@@ -168,9 +215,11 @@ let _activePageCheckTimer = null;
 const ACTIVE_PAGE_CHECK_INTERVAL = 100;
 
 export function updateActivePageFromViewport() {
+  if (performance.now() < _programmaticScrollUntil) return;
   if (_activePageCheckTimer !== null) return;
   _activePageCheckTimer = setTimeout(() => {
     _activePageCheckTimer = null;
+    if (performance.now() < _programmaticScrollUntil) return;
     const page = getMostCenteredPage();
     if (!page || page.index === state.activePageIndex) return;
     if (state.selectedStrokes.length > 0) {
@@ -183,10 +232,14 @@ export function updateActivePageFromViewport() {
     scheduleSave({ markDirty: false, silent: true });
 
     window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
-      detail: { index: page.index }
+      detail: { index: page.index, pageId: page.pageId }
     }));
   }, ACTIVE_PAGE_CHECK_INTERVAL);
 }
+
+// ============================================================
+// POOL — delega
+// ============================================================
 
 export function refreshCanvasResolution(force = false) {
   pagePool.updateAround(state.activePageIndex, force);
@@ -200,9 +253,13 @@ export function scheduleResolutionRefresh() {
   }, 200);
 }
 
+// ============================================================
+// AZIONI PAGINA
+// ============================================================
+
 export function changeBackgroundPattern(pattern) {
   state.bgPattern = pattern;
-  scheduleSave();
+  scheduleSave({ markDirty: false });
   state.pages.forEach(p => {
     if (p.canvas) redrawPageCanvas(p);
   });
@@ -218,12 +275,17 @@ export function clearCurrentPage() {
   if (state.selectedStrokes.length > 0) clearSelection();
   page.strokes = [];
   if (page.canvas) redrawPageCanvas(page);
-  scheduleSave();
+  markPageDirty(page.pageId);
+  scheduleSave({ markDirty: false });
   pushHistory();
   showToast('Pagina pulita', '🧹');
 
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
 }
+
+// ============================================================
+// ELIMINA / RIORDINA / SCROLL-TO-PAGE
+// ============================================================
 
 export function deletePage(index) {
   if (state.pages.length <= 1) return false;
@@ -232,11 +294,10 @@ export function deletePage(index) {
   const page = state.pages[index];
   if (!page) return false;
 
-  if (state.pendingShape) {
-    if (state.activePageIndex === index) state.pendingShape = null;
-    else finalizePendingShape();
+  if (state.activePageIndex === index) {
+    state.pendingShape = null;
+    if (state.selectedStrokes.length > 0) clearSelection();
   }
-  clearSelection();
 
   pagePool.reset();
 
@@ -254,25 +315,26 @@ export function deletePage(index) {
     state.activePageIndex--;
   }
 
+  markPageDeleted(page.pageId);
+  markOrderDirty();
+
+  invalidateClampCache();
+  const c = clampViewport(viewport.x, viewport.y);
+  if (c.x !== viewport.x || c.y !== viewport.y) {
+    viewport.x = c.x;
+    viewport.y = c.y;
+    applyTransform(false);
+  }
+
   refreshPageCounter();
   pagePool.updateAround(state.activePageIndex);
-  invalidateClampCache();
-  const clamped = clampViewport(viewport.x, viewport.y);
-  viewport.x = clamped.x;
-  viewport.y = clamped.y;
-  applyTransform(false);
-
   resetHistory();
-  scheduleSave({
-    markDirty: false,
-    deletedPageId: page.pageId,
-    orderDirty: true,
-    immediate: true
-  });
+  scheduleSave({ markDirty: false, immediate: true });
 
+  const activePage = state.pages[state.activePageIndex];
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
-    detail: { index: state.activePageIndex }
+    detail: { index: state.activePageIndex, pageId: activePage?.pageId }
   }));
 
   return true;
@@ -284,9 +346,6 @@ export function movePage(from, to) {
   if (to < 0 || to >= state.pages.length) return false;
 
   const container = document.getElementById('canvasContainer');
-
-  if (state.pendingShape) finalizePendingShape();
-  clearSelection();
 
   pagePool.reset();
 
@@ -307,45 +366,83 @@ export function movePage(from, to) {
     state.activePageIndex++;
   }
 
+  markOrderDirty();
+
   refreshPageCounter();
   pagePool.updateAround(state.activePageIndex);
   invalidateClampCache();
   resetHistory();
-  scheduleSave({ markDirty: false, orderDirty: true, immediate: true });
+  scheduleSave({ markDirty: false, immediate: true });
 
+  const activePage = state.pages[state.activePageIndex];
   window.dispatchEvent(new CustomEvent('inknote:pages-reordered'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
-    detail: { index: state.activePageIndex }
+    detail: { index: state.activePageIndex, pageId: activePage?.pageId }
   }));
 
   return true;
 }
 
+/**
+ * Porta la pagina `index` centrata nel viewport e la rende attiva.
+ * @param {number} index
+ */
 export function scrollToPage(index) {
   const page = state.pages[index];
   if (!page) return;
   const vp = document.getElementById('viewport');
   if (!vp) return;
 
-  const targetY = -page.wrapper.offsetTop * viewport.scale + 20;
-  viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
+  // Evita che updateActivePageFromViewport() sovrascriva activePageIndex
+  // durante i 300ms della transizione CSS di applyTransform(true).
+  _programmaticScrollUntil = performance.now() + 420;
+  if (_activePageCheckTimer !== null) {
+    clearTimeout(_activePageCheckTimer);
+    _activePageCheckTimer = null;
+  }
+
+  const scale = viewport.scale || 1;
+  const pageLeft = page.wrapper.offsetLeft;
+  const pageTop = page.wrapper.offsetTop;
+  const pageW = page.wrapper.offsetWidth || PAGE_WIDTH;
+  const pageH = page.wrapper.offsetHeight || PAGE_HEIGHT;
+
+  // Centra orizzontalmente tenendo conto di zoom e padding di #canvasContainer
+  const targetX = vp.clientWidth / 2 - (pageLeft + pageW / 2) * scale;
+
+  // Se la pagina entra interamente in altezza, centrala; altrimenti mostra la cima (+20px)
+  const scaledH = pageH * scale;
+  const targetY = scaledH <= vp.clientHeight
+    ? vp.clientHeight / 2 - (pageTop + pageH / 2) * scale
+    : -pageTop * scale + 20;
+
+  viewport.x = targetX;
   viewport.y = targetY;
   const c = clampViewport(viewport.x, viewport.y);
   viewport.x = c.x;
   viewport.y = c.y;
-  applyTransform(true);
+
+  if (state.selectedStrokes.length > 0 && state.activePageIndex !== index) {
+    clearSelection();
+  }
 
   state.activePageIndex = index;
   refreshPageCounter();
+  applyTransform(true);
   pagePool.updateAround(index);
   scheduleSave({ markDirty: false, silent: true });
 
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
-    detail: { index }
+    detail: { index, pageId: page.pageId }
   }));
 }
 
+// ============================================================
+// RESTORE DA HISTORY
+// ============================================================
+
 function restorePageFromSnapshot(snap) {
+  if (!snap) return;
   let page = snap.pageId
     ? state.pages.find(p => p.pageId === snap.pageId)
     : null;
@@ -354,8 +451,16 @@ function restorePageFromSnapshot(snap) {
   }
   if (!page) return;
 
-  page.strokes = unpackStrokes(snap.strokes);
-  applyBgPatternToUI();
+  page.strokes = unpackStrokes(snap.strokes || []);
+  markPageDirty(page.pageId);
+
+  if (page.canvas) {
+    redrawPageCanvas(page);
+    if (page.index === state.activePageIndex && state.selectedStrokes.length > 0) {
+      redrawSelectionOverlay(page);
+    }
+  }
+
   refreshPageCounter();
   invalidateClampCache();
   refreshCanvasResolution(true);
