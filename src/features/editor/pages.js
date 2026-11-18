@@ -159,6 +159,7 @@ export function installViewportResizeObserver() {
     _lastVpW = newW;
     _lastVpH = newH;
 
+    invalidateClampCache();
     applyTransform();
   });
 

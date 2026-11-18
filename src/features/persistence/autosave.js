@@ -35,9 +35,17 @@ export function scheduleSave(opts = {}) {
   if (!getCurrentNotebook()) return Promise.resolve();
 
   if (opts.markDirty !== false) {
-    const pageId = opts.pageId || state.pages[state.activePageIndex]?.pageId;
+    const activePage = state.pages[state.activePageIndex];
+    const pageId = opts.pageId || activePage?.pageId;
     if (pageId) markPageDirty(pageId);
+    const thumbKey = pageId ?? activePage?.index;
+    if (thumbKey != null) {
+      window.dispatchEvent(new CustomEvent('inknote:page-content-dirty', {
+        detail: { key: thumbKey }
+      }));
+    }
   }
+  
   if (opts.deletedPageId) {
     markPageDeleted(opts.deletedPageId);
   }

@@ -197,9 +197,7 @@ body.dark .page-thumb:hover { background: #1e293b; }
   align-items: center;
   justify-content: center;
   color: #64748b;
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(255, 255, 255, 0.85);
   cursor: grab;
   z-index: 6;
   opacity: 0.55;
@@ -213,7 +211,7 @@ body.dark .page-thumb:hover { background: #1e293b; }
 }
 body.dark .page-thumb-drag-handle {
   color: #94a3b8;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(15, 23, 42, 0.82);
 }
 body.dark .page-thumb:hover .page-thumb-drag-handle {
   background: rgba(15, 23, 42, 0.9);

@@ -4,13 +4,13 @@
  * SIDEBAR PAGINE — thumbnails, riordino via drag (hcg-sortable), eliminazione,
  * scroll nativo touch + drag-scroll con penna (stylus).
  *
- * Identità basata su `pageId` immutabile:
- *   - `_thumbCanvases` e `data-page-id` usano `page.pageId` (non l'indice).
- *   - Dopo un reorder (`inknote:pages-reordered`), aggiorna in place
- *     `data-index` e numeri pagina senza distruggere il DOM né Sortable.
- *   - Rendering thumbnail allineato a `render.js` (pattern, paperColor,
- *     patternColor, Dark Mode via `getEffectiveColor`, tratteggi, pencil
- *     alpha 0.55 ed evidenziatore `baseSize * 4` con multiply/screen).
+ * Ottimizzazioni tablet:
+ *   - Nessun `window.dispatchEvent(new Event('resize'))` su open/close
+ *     (evita 10 redraw completi del pagePool ad ogni toggle).
+ *   - Cache DOM + dirty tracking (`_thumbsNeedFullRebuild`, `_dirtyThumbKeys`):
+ *     riaprire la sidebar senza modifiche è istantaneo.
+ *   - Disegno progressivo prioritizzato attorno a `activePageIndex`.
+ *   - Refresh thumbnail legato a `inknote:page-content-dirty` (niente pointerup globale).
  *
  * @see features/editor/pages.js — deletePage, movePage, scrollToPage
  * @see features/render/render.js — computeStrokeWidth, _buildLineDash
@@ -33,6 +33,7 @@ import {
 } from '../../core/app-settings.js';
 import { onToolbarSettingsChanged } from '../toolbar/toolbar-settings.js';
 import { computeStrokeWidth, _buildLineDash } from '../render/render.js';
+import { invalidateClampCache } from '../viewport/transform.js';
 import {
   deletePage, movePage, addNewPage, scrollToPage
 } from '../editor/pages.js';
@@ -45,6 +46,8 @@ const THUMB_H = THUMB_CSS_H * THUMB_DPR;
 
 const REFRESH_DEBOUNCE_MS = 300;
 const PEN_SCROLL_THRESHOLD_PX = 6;
+const THUMB_SYNC_INITIAL_COUNT = 8;
+const THUMB_BATCH_SIZE = 6;
 
 let _mounted = false;
 let _isOpen = false;
@@ -54,6 +57,18 @@ const _thumbCanvases = new Map();
 let _sortableInstance = null;
 let _redrawAllRaf = null;
 let _suppressClickUntil = 0;
+
+// Dirty tracking per evitare rebuild/redraw inutili all'apertura
+let _thumbsNeedFullRebuild = true;
+let _thumbsNeedFullRedraw = false;
+const _dirtyThumbKeys = new Set();
+let _contentRefreshTimer = null;
+const _pendingContentKeys = new Set();
+
+// Batch progressivo per disegno thumbnail
+let _drawQueue = [];
+let _drawBatchRaf = null;
+let _drawBatchToken = 0;
 
 // ============================================================
 // MOUNT + BOOTSTRAP
@@ -68,7 +83,7 @@ export function mountPagesSidebar() {
   _mounted = true;
 
   const s = getSettings().pagesSidebar;
-  _applyPosition(s.position);
+  _applyPosition(s.position, { notifyResize: false });
   _updateTabTitle();
 
   _syncSidebarTop();
@@ -88,40 +103,48 @@ export function mountPagesSidebar() {
         else closePagesSidebar({ silent: true });
       }
     }
-    if (_isOpen && (changed.includes('theme') || changed.includes('theme.effective'))) {
-      _scheduleRedrawAllThumbs();
+    if (changed.includes('theme') || changed.includes('theme.effective')) {
+      if (_isOpen) _scheduleRedrawAllThumbs();
+      else _thumbsNeedFullRedraw = true;
     }
   });
 
   // Colori foglio/pattern o reset toolbar → ridisegna le thumbnail
   onToolbarSettingsChanged(({ changed }) => {
-    if (!_isOpen) return;
     if (
       changed.includes('paperColor') ||
       changed.includes('patternColor') ||
       changed.includes('reset') ||
       changed.includes('init')
     ) {
-      _scheduleRedrawAllThumbs();
+      if (_isOpen) _scheduleRedrawAllThumbs();
+      else _thumbsNeedFullRedraw = true;
     }
   });
 
   // Struttura pagine cambiata (add/delete/clear/pattern) → rebuild completo.
   window.addEventListener('inknote:pages-changed', () => {
+    _thumbsNeedFullRebuild = true;
     if (_isOpen) refreshThumbnails();
   });
 
   // Riordino (drag): aggiorna solo data-index + numeri in place.
   window.addEventListener('inknote:pages-reordered', () => {
     if (_isOpen) _syncThumbsAfterReorder();
+    else _thumbsNeedFullRebuild = true;
   });
 
   window.addEventListener('inknote:notebook-opened', () => {
+    _thumbsNeedFullRebuild = true;
+    _dirtyThumbKeys.clear();
     if (_isOpen) refreshThumbnails();
   });
 
   window.addEventListener('inknote:notebook-closed', () => {
     _clearThumbnailsDOM();
+    _thumbsNeedFullRebuild = true;
+    _thumbsNeedFullRedraw = false;
+    _dirtyThumbKeys.clear();
   });
 
   window.addEventListener('inknote:active-page-changed', () => {
@@ -130,29 +153,35 @@ export function mountPagesSidebar() {
 
   on('history:restore', () => {
     queueMicrotask(() => {
+      _thumbsNeedFullRebuild = true;
       if (_isOpen) refreshThumbnails();
     });
   });
 
-  let _pointerRefreshTimer = null;
-  document.addEventListener('pointerup', (e) => {
-    if (!_isOpen) return;
-    if (e.target && e.target.closest && e.target.closest('#pagesSidebar')) return;
-
-    const wrapper = e.target && e.target.closest ? e.target.closest('.page-wrapper') : null;
-    const idxFromTarget = wrapper ? parseInt(wrapper.dataset.index, 10) : NaN;
-    const page = Number.isFinite(idxFromTarget)
-      ? state.pages[idxFromTarget]
-      : state.pages[state.activePageIndex];
-    const targetKey = page ? (page.pageId ?? page.index) : null;
+  window.addEventListener('inknote:page-content-dirty', (e) => {
+    const targetKey = e.detail?.key;
     if (targetKey == null) return;
 
-    if (_pointerRefreshTimer) clearTimeout(_pointerRefreshTimer);
-    _pointerRefreshTimer = setTimeout(() => {
-      _pointerRefreshTimer = null;
-      _updateThumbnail(targetKey);
+    if (!_isOpen) {
+      _dirtyThumbKeys.add(targetKey);
+      return;
+    }
+
+    _pendingContentKeys.add(targetKey);
+    if (_contentRefreshTimer) clearTimeout(_contentRefreshTimer);
+    _contentRefreshTimer = setTimeout(() => {
+      _contentRefreshTimer = null;
+      if (!_isOpen) {
+        for (const key of _pendingContentKeys) _dirtyThumbKeys.add(key);
+        _pendingContentKeys.clear();
+        return;
+      }
+      for (const key of _pendingContentKeys) {
+        _updateThumbnail(key);
+      }
+      _pendingContentKeys.clear();
     }, REFRESH_DEBOUNCE_MS);
-  }, { passive: true });
+  });
 }
 
 // ============================================================
@@ -175,13 +204,28 @@ export function openPagesSidebar({ silent = false } = {}) {
     }
     return;
   }
+
   sidebar.classList.remove('hidden');
   document.body.classList.add('pages-sidebar-open');
   _isOpen = true;
   _updateTabTitle();
-  refreshThumbnails();
-  setTimeout(() => _highlightActivePage(true), 80);
-  window.dispatchEvent(new Event('resize'));
+  _syncSidebarTop();
+  invalidateClampCache();
+
+  if (_thumbsNeedFullRebuild) {
+    refreshThumbnails();
+  } else if (_thumbsNeedFullRedraw) {
+    _redrawAllThumbCanvases();
+    _highlightActivePage(true);
+  } else if (_dirtyThumbKeys.size > 0) {
+    for (const key of _dirtyThumbKeys) {
+      _updateThumbnail(key);
+    }
+    _dirtyThumbKeys.clear();
+    _highlightActivePage(true);
+  } else {
+    _highlightActivePage(true);
+  }
 
   if (!silent) {
     updateSettings(
@@ -202,11 +246,13 @@ export function closePagesSidebar({ silent = false } = {}) {
     }
     return;
   }
+
+  _pausePendingDrawBatch();
   sidebar.classList.add('hidden');
   document.body.classList.remove('pages-sidebar-open');
   _isOpen = false;
   _updateTabTitle();
-  window.dispatchEvent(new Event('resize'));
+  invalidateClampCache();
 
   if (!silent) {
     updateSettings(
@@ -220,7 +266,7 @@ export function closePagesSidebar({ silent = false } = {}) {
 // POSIZIONE + ALTEZZA + TITOLO LINGUETTA
 // ============================================================
 
-function _applyPosition(position) {
+function _applyPosition(position, { notifyResize = true } = {}) {
   const sidebar = document.getElementById('pagesSidebar');
   if (!sidebar) return;
   const pos = position === 'right' ? 'right' : 'left';
@@ -229,7 +275,7 @@ function _applyPosition(position) {
   document.body.classList.toggle('pages-sidebar-left',  pos === 'left');
   document.body.classList.toggle('pages-sidebar-right', pos === 'right');
 
-  window.dispatchEvent(new Event('resize'));
+  if (notifyResize) invalidateClampCache();
 }
 
 function _updateTabTitle() {
@@ -319,11 +365,6 @@ function _setupThumbDelegation() {
   });
 }
 
-/**
- * Permette lo scroll verticale della lista miniature trascinando con la penna
- * (i browser su tablet gestiscono nativamente solo `touch` con `touch-action: pan-y`,
- * non `pointerType === 'pen'`). Ignora maniglia di drag e pulsante elimina.
- */
 function _setupPenScroll() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
@@ -451,10 +492,77 @@ function _setupSortable() {
 }
 
 // ============================================================
-// RENDER THUMBNAILS
+// RENDER THUMBNAILS (progressivo + prioritizzato)
 // ============================================================
 
+function _cancelDrawBatch() {
+  _drawBatchToken++;
+  if (_drawBatchRaf !== null) {
+    cancelAnimationFrame(_drawBatchRaf);
+    _drawBatchRaf = null;
+  }
+  _drawQueue = [];
+}
+
+function _pausePendingDrawBatch() {
+  _drawBatchToken++;
+  if (_drawBatchRaf !== null) {
+    cancelAnimationFrame(_drawBatchRaf);
+    _drawBatchRaf = null;
+  }
+  for (const item of _drawQueue) {
+    if (item && item.key != null) _dirtyThumbKeys.add(item.key);
+  }
+  _drawQueue = [];
+}
+
+function _startProgressiveDraw() {
+  _cancelDrawBatch();
+  if (state.pages.length === 0) return;
+
+  const active = Math.max(0, state.activePageIndex || 0);
+  const items = state.pages.map((page, i) => {
+    const key = page.pageId ?? i;
+    const canvas = _thumbCanvases.get(key) || _thumbCanvases.get(i);
+    return { page, canvas, key, dist: Math.abs(i - active), idx: i };
+  }).filter(item => !!item.canvas);
+
+  // Disegna prima le pagine visibili attorno alla pagina attiva
+  items.sort((a, b) => (a.dist - b.dist) || (a.idx - b.idx));
+
+  const immediate = items.slice(0, THUMB_SYNC_INITIAL_COUNT);
+  for (const item of immediate) {
+    _drawThumbnail(item.page, item.canvas);
+  }
+
+  if (items.length <= THUMB_SYNC_INITIAL_COUNT) return;
+
+  const myToken = ++_drawBatchToken;
+  _drawQueue = items.slice(THUMB_SYNC_INITIAL_COUNT);
+
+  const pump = () => {
+    _drawBatchRaf = null;
+    if (!_isOpen || myToken !== _drawBatchToken) return;
+
+    const batch = _drawQueue.splice(0, THUMB_BATCH_SIZE);
+    for (const item of batch) {
+      _drawThumbnail(item.page, item.canvas);
+    }
+    if (_drawQueue.length > 0) {
+      _drawBatchRaf = requestAnimationFrame(pump);
+    }
+  };
+
+  _drawBatchRaf = requestAnimationFrame(pump);
+}
+
 function _clearThumbnailsDOM() {
+  _cancelDrawBatch();
+  if (_contentRefreshTimer) {
+    clearTimeout(_contentRefreshTimer);
+    _contentRefreshTimer = null;
+  }
+  _pendingContentKeys.clear();
   if (_sortableInstance) {
     try { _sortableInstance.destroy(); } catch (e) {}
     _sortableInstance = null;
@@ -469,6 +577,9 @@ export function refreshThumbnails() {
   if (!list) return;
 
   _clearThumbnailsDOM();
+  _thumbsNeedFullRebuild = false;
+  _thumbsNeedFullRedraw = false;
+  _dirtyThumbKeys.clear();
 
   const frag = document.createDocumentFragment();
   state.pages.forEach((page, i) => {
@@ -477,19 +588,14 @@ export function refreshThumbnails() {
     const canvas = thumb.querySelector('.page-thumb-canvas');
     const key = page.pageId ?? i;
     _thumbCanvases.set(key, canvas);
-    _drawThumbnail(page, canvas);
   });
   list.appendChild(frag);
 
   _setupSortable();
   _highlightActivePage(true);
+  _startProgressiveDraw();
 }
 
-/**
- * Sync leggero dopo un reorder: aggiorna in place `data-index` e numeri
- * sui thumb già nel DOM. Se l'ordine DOM diverge da `state.pages`,
- * pianifica un rebuild asincrono (mai sincrono dentro onUpdate di Sortable).
- */
 function _syncThumbsAfterReorder() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
@@ -599,10 +705,9 @@ function _scheduleRedrawAllThumbs() {
 }
 
 function _redrawAllThumbCanvases() {
-  state.pages.forEach((page, i) => {
-    const canvas = _thumbCanvases.get(page.pageId ?? i) || _thumbCanvases.get(i);
-    if (canvas) _drawThumbnail(page, canvas);
-  });
+  _thumbsNeedFullRedraw = false;
+  _dirtyThumbKeys.clear();
+  _startProgressiveDraw();
 }
 
 function _drawThumbnail(pageData, canvas) {

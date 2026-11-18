@@ -38,12 +38,6 @@ class PageRendererPool {
     this._lru = this.slots.slice();
   }
 
-  /**
-   * Pulisce esplicitamente i canvas dello slot (main + overlay)
-   * e resetta lo stile CSS dell'overlay. Chiamato da reset() e
-   * _releaseSlot(): senza, il contenuto precedente resta visibile
-   * quando lo slot viene riassegnato a una pagina diversa.
-   */
   _clearSlotCanvas(slot) {
     try {
       slot.ctx.save();
@@ -163,10 +157,6 @@ class PageRendererPool {
       if (existing) {
         if (force) {
           _resizeSlot(existing, state.pages[i]);
-          redrawPageCanvas(state.pages[i]);
-          if (i === state.activePageIndex && state.selectedStrokes.length > 0) {
-            redrawSelectionOverlay(state.pages[i]);
-          }
         }
         continue;
       }
