@@ -6,7 +6,7 @@ import { state, viewport } from '../../core/state.js';
 import { showToast, emit, PAGE_WIDTH } from '../../core/utils.js';
 import { loadNotebookWithPages } from '../../services/db.js';
 import { setCurrentNotebook, getCurrentNotebook } from '../persistence/session.js';
-import { scheduleSave, forceSave } from '../persistence/autosave.js';
+import { scheduleSave, forceSave, cancelPendingSave } from '../persistence/autosave.js';
 import {
   createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
   installViewportResizeObserver, refreshCanvasResolution, centerViewport
@@ -16,7 +16,7 @@ import {
   refreshPageCounter,
   applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI
 } from '../toolbar/toolbar.js';
-import { resetHistory, pushHistory } from '../history/history.js';
+import { resetHistory } from '../history/history.js';
 import {
   setViewportChangeHandler, applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
@@ -26,6 +26,8 @@ import {
   initToolbarSettings, resetToolbarSettings, getToolbarSettings
 } from '../toolbar/toolbar-settings.js';
 import { getSettings } from '../../core/app-settings.js';
+
+let _openToken = 0;
 
 export function initEditorHandlers() {
   setViewportChangeHandler(() => {
@@ -40,6 +42,8 @@ export function initEditorHandlers() {
 }
 
 export async function openNotebook(id) {
+  const token = ++_openToken;
+
   let nb;
   try {
     nb = await loadNotebookWithPages(id);
@@ -48,7 +52,7 @@ export async function openNotebook(id) {
     showToast('Errore nel caricamento del quaderno', '❌');
     return;
   }
-  if (!nb) return;
+  if (token !== _openToken || !nb) return;
 
   setCurrentNotebook(nb);
   initToolbarSettings(nb.toolbarSettings || null);
@@ -56,16 +60,12 @@ export async function openNotebook(id) {
   document.getElementById('docTitle').value = nb.title;
   state.bgPattern = nb.pattern || 'ruled';
 
-  // Sincronizza la UI della toolbar v2 con il nuovo stato.
-  // NOTA: in v1 qui si faceva `#bgPatternSelect.value = ...`.
-  // Quel select non esiste più: il pattern ora è un popover con
-  // bottoni gestiti da toolbar.js. `applyBgPatternToUI()` riflette
-  // `state.bgPattern` nel bottone attivo del popover.
   applyToolbarControlsToUI();
 
   pagePool.reset();
 
-  document.getElementById('canvasContainer').innerHTML = '';
+  const container = document.getElementById('canvasContainer');
+  if (container) container.innerHTML = '';
   state.pages = [];
   state.pendingShape = null;
   state.selectedStrokes = [];
@@ -76,27 +76,25 @@ export async function openNotebook(id) {
   state.isDrawing = false;
 
   if (nb.pages && nb.pages.length > 0) {
-    // `loadNotebookWithPages` ricostruisce SEMPRE tutte le pagine
-    // 0..pageCount-1, riempiendo le mancanti con strokes vuoti.
-    // `pageData.pageIndex` coincide con l'indice, ma lo usiamo
-    // esplicitamente per difenderci da qualsiasi divergenza futura.
-    nb.pages.forEach((pageData) => {
-      createNewPageDOM(pageData.pageIndex, pageData.strokes || []);
+    nb.pages.forEach((pageData, idx) => {
+      createNewPageDOM(idx, pageData.strokes || [], pageData.pageId);
     });
   } else {
-    createNewPageDOM(0, []);
+    const first = createNewPageDOM(0, []);
+    nb.pageOrder = [first.pageId];
+    nb.pages = [{ pageId: first.pageId, strokes: [] }];
+    scheduleSave({ pageId: first.pageId, orderDirty: true, immediate: true, silent: true });
   }
 
-  // Ripristina la pagina salvata (o 0 se non c'è)
   const targetIndex = Math.min(
     typeof nb.lastPageIndex === 'number' ? nb.lastPageIndex : 0,
     state.pages.length - 1
   );
   state.activePageIndex = Math.max(0, targetIndex);
 
-  // Aspetta il layout (offsetTop dei wrapper) prima di posizionare il viewport
   await new Promise(resolve => {
     requestAnimationFrame(() => {
+      if (token !== _openToken) { resolve(); return; }
       const targetPage = state.pages[state.activePageIndex];
       if (targetPage) {
         const vp = document.getElementById('viewport');
@@ -117,25 +115,33 @@ export async function openNotebook(id) {
     });
   });
 
+  if (token !== _openToken) return;
+
   refreshPageCounter();
   resetHistory();
   document.getElementById('libraryView').classList.add('hidden');
+  window.dispatchEvent(new CustomEvent('inknote:notebook-opened'));
   showToast(`Quaderno "${nb.title}" aperto`, '📖');
 }
 
 export async function returnToLibrary() {
+  _openToken++;
   if (state.pendingShape) finalizePendingShape();
-  // forceSave() cancella il timer pendente (se c'è) e salva SEMPRE
-  // (metadata + pagine dirty). Awaitato: aspettiamo il commit IDB
-  // prima di tornare alla libreria, così `renderLibraryView` vede
-  // i metadata aggiornati (pageCount, lastPageIndex).
   try {
     await forceSave();
   } catch (err) {
     // errore già loggato in autosave; procediamo comunque
   }
+  setCurrentNotebook(null);
+  pagePool.reset();
+  state.pages = [];
+  state.activePageIndex = 0;
+  const container = document.getElementById('canvasContainer');
+  if (container) container.innerHTML = '';
+
   resetToolbarSettings();
   resetHistory();
+  window.dispatchEvent(new CustomEvent('inknote:notebook-closed'));
   document.getElementById('libraryView').classList.remove('hidden');
   emit('library:refresh');
 }
@@ -144,31 +150,25 @@ export function updateCurrentNotebookTitle(newTitle) {
   const nb = getCurrentNotebook();
   if (!nb) return;
   nb.title = newTitle;
-  // Solo save (metadata); niente pushHistory: il titolo non
-  // modifica gli stroke, quindi uno snapshot di undo sarebbe
-  // solo rumore (no-op per hash check, ma concettualmente errato).
   scheduleSave({ markDirty: false });
 }
 
 export function closeNotebookIfOpen(id) {
   const nb = getCurrentNotebook();
   if (nb && nb.id === id) {
-    resetToolbarSettings();
+    _openToken++;
+    cancelPendingSave();
     setCurrentNotebook(null);
+    pagePool.reset();
+    state.pages = [];
+    state.activePageIndex = 0;
+    const container = document.getElementById('canvasContainer');
+    if (container) container.innerHTML = '';
+    resetToolbarSettings();
+    window.dispatchEvent(new CustomEvent('inknote:notebook-closed'));
   }
 }
 
-/**
- * Sincronizza la UI della toolbar v2 con lo stato corrente.
- * - #smoothingSlider, #eraserModeSelect, #palmRejectionCheck esistono
- *   ancora (dock Scrittura + dock Gomma + menu ⋯).
- * - Il pattern NON è più un <select>: si aggiorna col popover Foglio
- *   tramite applyBgPatternToUI().
- * - I due toggle auto-shape v2 si aggiornano con applySnapTogglesToUI().
- *
- * NOTA finger writing: il checkbox #palmRejectionCheck ora rappresenta
- * "Scrittura con il dito" → checked = finger writing ON = palmRejection OFF.
- */
 function applyToolbarControlsToUI() {
   const s = getToolbarSettings();
 
@@ -183,9 +183,7 @@ function applyToolbarControlsToUI() {
   const fingerWritingCheck = document.getElementById('palmRejectionCheck');
   if (fingerWritingCheck) fingerWritingCheck.checked = getSettings().palmRejection === false;
 
-  // Nuovi toggle v2
   applySnapTogglesToUI();
   applyEraserLevelToUI();
-  // Riflette state.bgPattern nel bottone del popover Foglio
   applyBgPatternToUI();
 }

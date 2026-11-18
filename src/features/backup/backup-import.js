@@ -2,14 +2,6 @@
  * @module features/backup/backup-import
  *
  * Import di backup `.inknote` con match per ID.
- *
- * Regole:
- *   - Match per ID (immutabile), non per nome (modificabile).
- *   - Conflitto = stesso ID già presente in locale.
- *   - Dialog mostra "Ultima modifica" (lastEditAt) locale vs
- *     importata. Suggerisce azione in base a quale è più recente.
- *   - Al save, opts.preserveLastEditAt=true per non sovrascrivere
- *     il valore del file con now().
  */
 
 import { deserializeBackup, peekBackup } from './backup-format.js';
@@ -53,7 +45,7 @@ export async function importNotebooks(file, onProgress) {
     const localNb = localById.get(nb.id);
 
     if (!localNb) {
-      imported.push(nb);
+      imported.push({ nb, replaceAllPages: false });
       existingNames.add((nb.title || '').toLowerCase());
       continue;
     }
@@ -62,7 +54,7 @@ export async function importNotebooks(file, onProgress) {
 
     if (strategy === 'overwrite') {
       nb.id = localNb.id;
-      imported.push(nb);
+      imported.push({ nb, replaceAllPages: true });
       continue;
     }
 
@@ -76,14 +68,17 @@ export async function importNotebooks(file, onProgress) {
     nb.title = newName;
     nb.id = 'nb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
     existingNames.add(newName.toLowerCase());
-    imported.push(nb);
+    imported.push({ nb, replaceAllPages: false });
   }
 
-  // preserveLastEditAt: l'utente non ha ancora scritto nulla dopo
-  // l'import. Il lastEditAt deve restare quello del file originale.
-  for (const nb of imported) {
-    const dirtyPages = nb.pages.map((_, i) => i);
-    await saveNotebookToDB(nb, dirtyPages, { preserveLastEditAt: true });
+  for (const item of imported) {
+    const { nb, replaceAllPages } = item;
+    const dirtyPageIds = nb.pages.map(p => p.pageId).filter(Boolean);
+    await saveNotebookToDB(nb, dirtyPageIds, {
+      preserveLastEditAt: true,
+      replaceAllPages,
+      saveOrder: true
+    });
   }
 
   if (imported.length === 0) {
@@ -91,7 +86,7 @@ export async function importNotebooks(file, onProgress) {
   } else {
     showToast(`Importati ${imported.length} notebook`, '📥');
   }
-  return imported;
+  return imported.map(item => item.nb);
 }
 
 // ============================================================

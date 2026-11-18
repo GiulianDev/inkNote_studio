@@ -7,6 +7,13 @@ export const PAGE_HEIGHT = 1123;
 export const PULL_THRESHOLD = 80;
 export const SHAPE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
 
+export function generatePageId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return 'pg_' + crypto.randomUUID();
+  }
+  return 'pg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+}
+
 export function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -41,11 +48,6 @@ const _baseSizeCache = { raw: -1, size: 0 };
 export function sliderToBaseSize(rawSliderValue) {
   const v = Math.max(1, Math.min(25, rawSliderValue || 3));
   if (_baseSizeCache.raw === v) return _baseSizeCache.size;
-  // Mappatura: più granularità nella parte bassa dello slider.
-  //   v=1 → size(1)    (invariato)
-  //   v=2 → size(1.5)  (nuovo livello intermedio)
-  //   v=3 → size(2)    (ex size del 2)
-  //   v>=4 → size(v)   (invariato)
   let mapped;
   if (v === 1) mapped = 1;
   else if (v === 2) mapped = 1.5;
@@ -57,8 +59,6 @@ export function sliderToBaseSize(rawSliderValue) {
   return s;
 }
 
-// Distanza euclidea 2D veloce. Math.hypot in V8 è 2-4× più lento
-// per gestire overflow/NaN che qui non servono (coordinate < 10000).
 export function fastHypot(dx, dy) {
   return Math.sqrt(dx * dx + dy * dy);
 }

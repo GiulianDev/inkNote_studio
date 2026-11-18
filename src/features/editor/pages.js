@@ -1,46 +1,18 @@
 /**
  * @module features/editor/pages
- *
- * PAGINE — creazione wrapper DOM, gestione canvas via pool, pagina attiva,
- * eliminazione/riordino/scroll.
- *
- * Eventi emessi:
- *   - `inknote:pages-changed`      → il numero/struttura delle pagine è
- *                                     cambiato (add, delete, clear, pattern).
- *                                     La sidebar DEVE ricostruire le thumbnails.
- *   - `inknote:pages-reordered`    → solo l'ordine delle pagine è cambiato
- *                                     (drag reorder da hcg-sortable). Il DOM
- *                                     dei thumb è già nell'ordine giusto
- *                                     (hcg-sortable l'ha spostato). La sidebar
- *                                     DEVE solo aggiornare data-index e numeri
- *                                     SENZA ricostruire il DOM né distruggere
- *                                     l'istanza Sortable.
- *   - `inknote:active-page-changed`→ l'indice attivo è cambiato.
- *
- * Nota importante sul reorder:
- *   `movePage` NON emette `pages-changed`. Emette `pages-reordered`.
- *   Motivo: `movePage` viene chiamato dentro `onUpdate` di hcg-sortable,
- *   mentre la libreria sta ancora finalizzando il drag (pointerup handler
- *   sullo stack). Se triggerassimo un rebuild del DOM (innerHTML = '')
- *   + destroy() dell'istanza Sortable in quel momento, la libreria
- *   finirebbe di eseguire con riferimenti a nodi DOM già rimossi,
- *   lasciando listener orfani su document. Al drag successivo, due
- *   handler (nuovo + residuo) chiamerebbero onUpdate → movePage con
- *   indici incoerenti → state.pages corrotto → pagine duplicate/sparse.
- *
- * @see features/editor/page-pool.js
- * @see features/persistence/serialization.js
- * @see features/pages-sidebar/pages-sidebar.js — consuma gli eventi
  */
 
 import { state, viewport } from '../../core/state.js';
-import { PAGE_WIDTH, PAGE_HEIGHT, showToast, on } from '../../core/utils.js';
-import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
+import {
+  PAGE_WIDTH, PAGE_HEIGHT, showToast, on, generatePageId
+} from '../../core/utils.js';
+import { redrawPageCanvas } from '../render/render.js';
 import { attachPointerListeners } from '../tools/dispatcher.js';
 import { pushHistory, resetHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import { clearSelection } from '../tools/lazo.js';
-import { refreshPageCounter } from '../toolbar/toolbar.js';
+import { finalizePendingShape } from '../tools/shapes.js';
+import { refreshPageCounter, applyBgPatternToUI } from '../toolbar/toolbar.js';
 import {
   applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
@@ -54,21 +26,19 @@ let _viewportResizeObserver = null;
 let _lastVpW = 0;
 let _lastVpH = 0;
 
-// ============================================================
-// CREAZIONE PAGINA
-// ============================================================
-
-export function createNewPageDOM(pageIndex, initialStrokes = []) {
+export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = generatePageId()) {
   const container = document.getElementById('canvasContainer');
   const pageWrapper = document.createElement('div');
   pageWrapper.className = 'page-wrapper';
   pageWrapper.dataset.index = pageIndex;
+  pageWrapper.dataset.pageId = pageId;
 
   container.appendChild(pageWrapper);
 
   const strokes = unpackStrokes(initialStrokes);
 
   const pageData = {
+    pageId,
     index: pageIndex,
     wrapper: pageWrapper,
     canvas: null,
@@ -90,7 +60,7 @@ export function addNewPage() {
   const newPage = createNewPageDOM(newIndex, []);
   state.activePageIndex = newIndex;
   refreshPageCounter();
-  scheduleSave();
+  scheduleSave({ pageId: newPage.pageId, orderDirty: true, immediate: true });
   pushHistory();
   scheduleResolutionRefresh();
   invalidateClampCache();
@@ -105,16 +75,11 @@ export function addNewPage() {
     applyTransform(true);
   });
 
-  // Struttura pagine cambiata → la sidebar ricostruisce le thumbnails.
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
     detail: { index: newIndex }
   }));
 }
-
-// ============================================================
-// VIEWPORT (centratura, zoom, resize observer)
-// ============================================================
 
 export function centerViewport() {
   const vp = document.getElementById('viewport');
@@ -156,10 +121,6 @@ export function installViewportResizeObserver() {
 
   _viewportResizeObserver.observe(vp);
 }
-
-// ============================================================
-// PAGINA ATTIVA (basata sul viewport)
-// ============================================================
 
 const ACTIVE_PAGE_SCAN_RADIUS = 3;
 
@@ -219,20 +180,13 @@ export function updateActivePageFromViewport() {
     refreshPageCounter();
     resetHistory();
     pagePool.updateAround(state.activePageIndex);
-    // Salva solo il metadata (lastPageIndex) — niente dirty page,
-    // niente badge "Salvataggio...". Debounce 500ms.
     scheduleSave({ markDirty: false, silent: true });
 
-    // Notifica la sidebar pagine (highlight)
     window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
       detail: { index: page.index }
     }));
   }, ACTIVE_PAGE_CHECK_INTERVAL);
 }
-
-// ============================================================
-// POOL — delega
-// ============================================================
 
 export function refreshCanvasResolution(force = false) {
   pagePool.updateAround(state.activePageIndex, force);
@@ -246,10 +200,6 @@ export function scheduleResolutionRefresh() {
   }, 200);
 }
 
-// ============================================================
-// AZIONI PAGINA
-// ============================================================
-
 export function changeBackgroundPattern(pattern) {
   state.bgPattern = pattern;
   scheduleSave();
@@ -258,8 +208,6 @@ export function changeBackgroundPattern(pattern) {
   });
   pushHistory();
 
-  // Contenuto pagine cambiato (sfondo) → la sidebar può ridisegnare
-  // le thumbnail. Non è un reorder: rebuild completo ha senso.
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
 }
 
@@ -274,21 +222,9 @@ export function clearCurrentPage() {
   pushHistory();
   showToast('Pagina pulita', '🧹');
 
-  // Contenuto pagina cambiato → ridisegna thumb.
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
 }
 
-// ============================================================
-// ELIMINA / RIORDINA / SCROLL-TO-PAGE
-// ============================================================
-
-/**
- * Elimina la pagina all'indice `index`.
- * Non elimina l'ultima pagina. Reset della history perché
- * gli snapshot sono per-index e diventerebbero invalidi.
- * @param {number} index
- * @returns {boolean} true se eliminata
- */
 export function deletePage(index) {
   if (state.pages.length <= 1) return false;
   if (index < 0 || index >= state.pages.length) return false;
@@ -296,41 +232,44 @@ export function deletePage(index) {
   const page = state.pages[index];
   if (!page) return false;
 
-  // 1. Pool reset PRIMA di modificare state.pages:
-  //    pagePool._releaseSlot usa state.pages[slot.pageIndex] e
-  //    gli indici sono ancora coerenti.
+  if (state.pendingShape) {
+    if (state.activePageIndex === index) state.pendingShape = null;
+    else finalizePendingShape();
+  }
+  clearSelection();
+
   pagePool.reset();
 
-  // 2. Se la pagina attiva è quella eliminata, libera la selezione.
-  if (state.activePageIndex === index) {
-    clearSelection();
-  }
-
-  // 3. Rimuovi wrapper DOM e slice state.pages.
   page.wrapper.remove();
   state.pages.splice(index, 1);
 
-  // 4. Reindex + aggiorna dataset (ordine DOM invariato per i superstiti).
   state.pages.forEach((p, i) => {
     p.index = i;
     p.wrapper.dataset.index = String(i);
   });
 
-  // 5. Aggiusta activePageIndex.
   if (state.activePageIndex >= state.pages.length) {
     state.activePageIndex = state.pages.length - 1;
   } else if (state.activePageIndex > index) {
     state.activePageIndex--;
   }
 
-  // 6. Refresh + save.
   refreshPageCounter();
   pagePool.updateAround(state.activePageIndex);
   invalidateClampCache();
-  resetHistory();
-  scheduleSave();
+  const clamped = clampViewport(viewport.x, viewport.y);
+  viewport.x = clamped.x;
+  viewport.y = clamped.y;
+  applyTransform(false);
 
-  // Struttura pagine cambiata (una in meno) → rebuild thumbnails.
+  resetHistory();
+  scheduleSave({
+    markDirty: false,
+    deletedPageId: page.pageId,
+    orderDirty: true,
+    immediate: true
+  });
+
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
     detail: { index: state.activePageIndex }
@@ -339,17 +278,6 @@ export function deletePage(index) {
   return true;
 }
 
-/**
- * Sposta la pagina da `from` a `to`.
- * NON emette `pages-changed` (vedi nota in cima al file):
- * emette `pages-reordered` perché il DOM delle thumbnail è già
- * nell'ordine corretto (hcg-sortable l'ha spostato durante il drag).
- * La sidebar deve solo aggiornare data-index e numeri in place.
- *
- * @param {number} from
- * @param {number} to
- * @returns {boolean}
- */
 export function movePage(from, to) {
   if (from === to) return false;
   if (from < 0 || from >= state.pages.length) return false;
@@ -357,21 +285,20 @@ export function movePage(from, to) {
 
   const container = document.getElementById('canvasContainer');
 
-  // 1. Pool reset PRIMA (indici coerenti con state.pages).
+  if (state.pendingShape) finalizePendingShape();
+  clearSelection();
+
   pagePool.reset();
 
-  // 2. Riordina state.pages.
   const [moved] = state.pages.splice(from, 1);
   state.pages.splice(to, 0, moved);
 
-  // 3. Reindex + riordina DOM wrappers.
   state.pages.forEach((p, i) => {
     p.index = i;
     p.wrapper.dataset.index = String(i);
-    container.appendChild(p.wrapper); // appendChild sposta (idempotente se già ultimo)
+    container.appendChild(p.wrapper);
   });
 
-  // 4. Aggiusta activePageIndex.
   if (state.activePageIndex === from) {
     state.activePageIndex = to;
   } else if (from < state.activePageIndex && to >= state.activePageIndex) {
@@ -384,13 +311,8 @@ export function movePage(from, to) {
   pagePool.updateAround(state.activePageIndex);
   invalidateClampCache();
   resetHistory();
-  scheduleSave();
+  scheduleSave({ markDirty: false, orderDirty: true, immediate: true });
 
-  // IMPORTANTE: evento DIVERSO da pages-changed.
-  // Il DOM delle thumbnails è già nell'ordine giusto (hcg-sortable
-  // l'ha spostato durante il drag). La sidebar deve solo aggiornare
-  // data-index e numeri in place, SENZA rebuild + destroy dell'istanza
-  // Sortable (che sta ancora finalizzando il drag → reentrancy).
   window.dispatchEvent(new CustomEvent('inknote:pages-reordered'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
     detail: { index: state.activePageIndex }
@@ -399,10 +321,6 @@ export function movePage(from, to) {
   return true;
 }
 
-/**
- * Porta la pagina `index` in cima al viewport e la rende attiva.
- * @param {number} index
- */
 export function scrollToPage(index) {
   const page = state.pages[index];
   if (!page) return;
@@ -427,27 +345,17 @@ export function scrollToPage(index) {
   }));
 }
 
-// ============================================================
-// RESTORE DA HISTORY
-// ============================================================
-
 function restorePageFromSnapshot(snap) {
-  const pageIndex = snap.pageIndex;
-  const container = document.getElementById('canvasContainer');
+  let page = snap.pageId
+    ? state.pages.find(p => p.pageId === snap.pageId)
+    : null;
+  if (!page && typeof snap.pageIndex === 'number') {
+    page = state.pages[snap.pageIndex] || null;
+  }
+  if (!page) return;
 
-  const oldWrapper = container.querySelector(`.page-wrapper[data-index="${pageIndex}"]`);
-  if (oldWrapper) oldWrapper.remove();
-
-  pagePool.reset();
-
-  state.pages.splice(pageIndex, 1);
-  createNewPageDOM(snap.pageIndex, snap.strokes);
-
-  state.pages.sort((a, b) => a.index - b.index);
-  const wrappers = Array.from(container.querySelectorAll('.page-wrapper'));
-  wrappers.sort((a, b) => parseInt(a.dataset.index) - parseInt(b.dataset.index));
-  wrappers.forEach(w => container.appendChild(w));
-
+  page.strokes = unpackStrokes(snap.strokes);
+  applyBgPatternToUI();
   refreshPageCounter();
   invalidateClampCache();
   refreshCanvasResolution(true);

@@ -1,27 +1,8 @@
 /**
  * @module features/pages-sidebar/pages-sidebar
  *
- * SIDEBAR PAGINE — thumbnails, riordino via drag (hcg-sortable), eliminazione.
- *
- * Riordino:
- *   - Gestito da hcg-sortable (Pointer Events → mouse, touch, stylus).
- *   - Drag attivabile solo dalla maniglia `.page-thumb-drag-handle`.
- *   - `onUpdate` chiama movePage(oldIndex, newIndex).
- *   - Dopo un reorder, riceviamo `inknote:pages-reordered`:
- *     aggiorniamo SOLO data-index e numeri in place, senza ricostruire
- *     il DOM e senza distruggere l'istanza Sortable. Motivo: `movePage`
- *     viene chiamato dentro `onUpdate` di hcg-sortable, mentre la
- *     libreria ha ancora il suo pointerup handler sullo stack. Fare
- *     innerHTML='' + destroy() in quel momento lascia listener orfani
- *     su document → al drag successivo due handler chiamano onUpdate
- *     → state.pages corrotto (bug pagine duplicate/sparse).
- *   - `inknote:pages-changed` (add / delete / clear / pattern) invece
- *     provoca rebuild completo + destroy/recreate dell'istanza
- *     Sortable: in quei casi la struttura DOM è cambiata davvero e
- *     il rebuild è sicuro (non avviene dentro onUpdate di Sortable).
- *
- * @see features/editor/pages.js — deletePage, movePage, scrollToPage
- * @see core/app-settings.js     — pagesSidebar settings
+ * SIDEBAR PAGINE — thumbnails ancorate a `pageId`, riordino via drag,
+ * eliminazione e riallineamento garantito su `state.pages`.
  */
 
 import './pages-sidebar.css';
@@ -31,7 +12,7 @@ import HcgSortable from 'hcg-sortable';
 import 'hcg-sortable/hcg-sortable.css';
 
 import { state } from '../../core/state.js';
-import { showToast, PAGE_WIDTH, PAGE_HEIGHT, on } from '../../core/utils.js';
+import { showToast, PAGE_WIDTH, on } from '../../core/utils.js';
 import {
   getSettings, updateSettings, onSettingsChanged
 } from '../../core/app-settings.js';
@@ -49,14 +30,10 @@ const REFRESH_DEBOUNCE_MS = 300;
 
 let _mounted = false;
 let _isOpen = false;
-/** @type {Map<number, HTMLCanvasElement>} pageIndex -> canvas thumb */
+/** @type {Map<string, HTMLCanvasElement>} pageId -> canvas thumb */
 const _thumbCanvases = new Map();
 /** @type {HcgSortable|null} */
 let _sortableInstance = null;
-
-// ============================================================
-// MOUNT + BOOTSTRAP
-// ============================================================
 
 export function mountPagesSidebar() {
   if (_mounted || document.getElementById('pagesSidebar')) {
@@ -88,19 +65,20 @@ export function mountPagesSidebar() {
     }
   });
 
-  // Struttura pagine cambiata (add/delete/clear/pattern) → rebuild completo.
   window.addEventListener('inknote:pages-changed', () => {
     if (_isOpen) refreshThumbnails();
   });
 
-  // Riordino (drag): il DOM è già nell'ordine giusto. Aggiorna
-  // solo data-index + numeri, SENZA rebuild e SENZA destroy Sortable.
   window.addEventListener('inknote:pages-reordered', () => {
     if (_isOpen) _syncThumbsAfterReorder();
   });
 
   window.addEventListener('inknote:notebook-opened', () => {
     if (_isOpen) refreshThumbnails();
+  });
+
+  window.addEventListener('inknote:notebook-closed', () => {
+    _clearThumbnails();
   });
 
   window.addEventListener('inknote:active-page-changed', () => {
@@ -124,14 +102,10 @@ export function mountPagesSidebar() {
     if (_pointerRefreshTimer) clearTimeout(_pointerRefreshTimer);
     _pointerRefreshTimer = setTimeout(() => {
       _pointerRefreshTimer = null;
-      _updateThumbnail(state.activePageIndex);
+      _updateThumbnail(state.pages[state.activePageIndex]);
     }, REFRESH_DEBOUNCE_MS);
   }, { passive: true });
 }
-
-// ============================================================
-// OPEN / CLOSE / TOGGLE
-// ============================================================
 
 export function togglePagesSidebar() {
   if (_isOpen) closePagesSidebar();
@@ -190,10 +164,6 @@ export function closePagesSidebar({ silent = false } = {}) {
   }
 }
 
-// ============================================================
-// POSIZIONE + ALTEZZA + TITOLO LINGUETTA
-// ============================================================
-
 function _applyPosition(position) {
   const sidebar = document.getElementById('pagesSidebar');
   if (!sidebar) return;
@@ -224,10 +194,6 @@ function _syncSidebarTop() {
   );
 }
 
-// ============================================================
-// BIND UI
-// ============================================================
-
 function _bindUI() {
   document.getElementById('pagesSidebarTab')
     ?.addEventListener('click', togglePagesSidebar);
@@ -244,17 +210,27 @@ function _bindUI() {
   _setupThumbDelegation();
 }
 
+function _resolvePageIndexFromThumb(thumb) {
+  const pid = thumb?.dataset?.pageId;
+  if (pid) {
+    const idx = state.pages.findIndex(p => p && p.pageId === pid);
+    if (idx !== -1) return idx;
+  }
+  const parsed = parseInt(thumb?.dataset?.index);
+  return Number.isFinite(parsed) ? parsed : -1;
+}
+
 function _setupThumbDelegation() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
   list.addEventListener('click', (e) => {
     if (e.target.closest('.page-thumb-delete')) return;
-    if (e.target.closest('.page-thumb-drag-handle')) return; // il click sulla maniglia non apre la pagina
+    if (e.target.closest('.page-thumb-drag-handle')) return;
     const thumb = e.target.closest('.page-thumb');
     if (!thumb) return;
-    const idx = parseInt(thumb.dataset.index);
-    if (Number.isFinite(idx)) scrollToPage(idx);
+    const idx = _resolvePageIndexFromThumb(thumb);
+    if (idx >= 0) scrollToPage(idx);
   });
 
   list.addEventListener('click', (e) => {
@@ -263,8 +239,8 @@ function _setupThumbDelegation() {
     e.stopPropagation();
     const thumb = delBtn.closest('.page-thumb');
     if (!thumb) return;
-    const idx = parseInt(thumb.dataset.index);
-    if (!Number.isFinite(idx)) return;
+    const idx = _resolvePageIndexFromThumb(thumb);
+    if (idx < 0) return;
 
     if (state.pages.length <= 1) {
       showToast('Non puoi eliminare l\'unica pagina', '⚠️');
@@ -277,17 +253,10 @@ function _setupThumbDelegation() {
   });
 }
 
-// ============================================================
-// SORTABLE (hcg-sortable) — riordino con maniglia
-// ============================================================
-
 function _setupSortable() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
-  // Distruggi l'istanza precedente prima di crearne una nuova.
-  // Questo viene chiamato SOLO da refreshThumbnails() (rebuild
-  // completo), MAI da onUpdate di Sortable → nessuna reentrancy.
   if (_sortableInstance) {
     try { _sortableInstance.destroy(); } catch (e) {}
     _sortableInstance = null;
@@ -301,38 +270,33 @@ function _setupSortable() {
     scroll: true,
     onUpdate(detail) {
       if (detail.oldIndex === detail.newIndex) return;
-      // movePage emette `pages-reordered` (NON `pages-changed`).
-      // Il DOM è già nell'ordine corretto (hcg-sortable l'ha spostato).
-      // La sidebar aggiorna solo data-index + numeri, senza rebuild.
       movePage(detail.oldIndex, detail.newIndex);
     },
   });
 }
 
-// ============================================================
-// RENDER THUMBNAILS
-// ============================================================
+function _clearThumbnails() {
+  const list = document.getElementById('pagesThumbnailsList');
+  if (_sortableInstance) {
+    try { _sortableInstance.destroy(); } catch (e) {}
+    _sortableInstance = null;
+  }
+  _thumbCanvases.clear();
+  if (list) list.innerHTML = '';
+}
 
 export function refreshThumbnails() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
-  // Distruggi Sortable PRIMA di svuotare la lista (cleanup dei
-  // listener interni). Poi svuota, ricostruisci, ricrea.
-  if (_sortableInstance) {
-    try { _sortableInstance.destroy(); } catch (e) {}
-    _sortableInstance = null;
-  }
-
-  _thumbCanvases.clear();
-  list.innerHTML = '';
+  _clearThumbnails();
 
   const frag = document.createDocumentFragment();
   state.pages.forEach((page, i) => {
-    const thumb = _buildThumbElement(i);
+    const thumb = _buildThumbElement(i, page.pageId);
     frag.appendChild(thumb);
     const canvas = thumb.querySelector('.page-thumb-canvas');
-    _thumbCanvases.set(i, canvas);
+    if (page.pageId) _thumbCanvases.set(page.pageId, canvas);
     _drawThumbnail(page, canvas);
   });
   list.appendChild(frag);
@@ -341,41 +305,46 @@ export function refreshThumbnails() {
   _highlightActivePage(true);
 }
 
-/**
- * Sync leggero dopo un reorder: aggiorna SOLO `data-index` e numero
- * testuale sui thumb già nel DOM, in place. Non ricostruisce i nodi,
- * non tocca l'istanza Sortable, non ricalcola i canvas.
- *
- * Viene invocata dal listener `inknote:pages-reordered` quando
- * `movePage` è stato chiamato da `onUpdate` di hcg-sortable.
- */
 function _syncThumbsAfterReorder() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
-  const thumbs = [...list.querySelectorAll('.page-thumb')];
-  thumbs.forEach((el, i) => {
-    el.dataset.index = String(i);
-    const num = el.querySelector('.page-thumb-number');
-    if (num) num.textContent = String(i + 1);
+  const indexById = new Map();
+  state.pages.forEach((p, i) => {
+    if (p && p.pageId) indexById.set(p.pageId, i);
   });
 
-  // Aggiorna la mappa canvas: dopo il reorder il canvas di una pagina
-  // si trova in un thumb diverso (stesso nodo, indice diverso). La
-  // mappa `_thumbCanvases` è index-based: va ricostruita dai dati DOM.
+  const thumbs = [...list.querySelectorAll('.page-thumb')];
+  let orderMatches = thumbs.length === state.pages.length;
+
   _thumbCanvases.clear();
-  thumbs.forEach((el, i) => {
+  thumbs.forEach((el, domIdx) => {
+    const pid = el.dataset.pageId;
+    const realIdx = pid && indexById.has(pid) ? indexById.get(pid) : domIdx;
+    if (!pid || realIdx !== domIdx) orderMatches = false;
+
+    el.dataset.index = String(realIdx);
+    const num = el.querySelector('.page-thumb-number');
+    if (num) num.textContent = String(realIdx + 1);
+
     const canvas = el.querySelector('.page-thumb-canvas');
-    if (canvas) _thumbCanvases.set(i, canvas);
+    if (pid && canvas) _thumbCanvases.set(pid, canvas);
   });
 
   _highlightActivePage(true);
+
+  if (!orderMatches) {
+    requestAnimationFrame(() => {
+      if (_isOpen) refreshThumbnails();
+    });
+  }
 }
 
-function _buildThumbElement(index) {
+function _buildThumbElement(index, pageId) {
   const div = document.createElement('div');
   div.className = 'page-thumb';
   div.dataset.index = String(index);
+  if (pageId) div.dataset.pageId = pageId;
 
   const handle = document.createElement('div');
   handle.className = 'page-thumb-drag-handle';
@@ -419,16 +388,16 @@ function _buildThumbElement(index) {
   return div;
 }
 
-function _updateThumbnail(pageIndex) {
-  const page = state.pages[pageIndex];
-  const canvas = _thumbCanvases.get(pageIndex);
-  if (!page || !canvas) return;
+function _updateThumbnail(page) {
+  if (!page || !page.pageId) return;
+  const canvas = _thumbCanvases.get(page.pageId);
+  if (!canvas) return;
   _drawThumbnail(page, canvas);
 }
 
 function _redrawAllThumbCanvases() {
-  state.pages.forEach((page, i) => {
-    const canvas = _thumbCanvases.get(i);
+  state.pages.forEach((page) => {
+    const canvas = page && page.pageId ? _thumbCanvases.get(page.pageId) : null;
     if (canvas) _drawThumbnail(page, canvas);
   });
 }
@@ -485,22 +454,27 @@ function _drawThumbnail(pageData, canvas) {
   ctx.restore();
 }
 
-// ============================================================
-// HIGHLIGHT + SCROLL TO ACTIVE
-// ============================================================
-
 function _highlightActivePage(scrollIntoView) {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
-  const activeIndex = state.activePageIndex;
+  const activePage = state.pages[state.activePageIndex];
+  const activePageId = activePage ? activePage.pageId : null;
 
   list.querySelectorAll('.page-thumb').forEach((el) => {
-    const idx = parseInt(el.dataset.index);
-    el.classList.toggle('active', idx === activeIndex);
+    const isMatch = activePageId
+      ? el.dataset.pageId === activePageId
+      : parseInt(el.dataset.index) === state.activePageIndex;
+    el.classList.toggle('active', isMatch);
   });
 
   if (!scrollIntoView) return;
-  const activeEl = list.querySelector(`.page-thumb[data-index="${activeIndex}"]`);
+  const escapedId = activePageId && typeof CSS !== 'undefined' && CSS.escape
+    ? CSS.escape(activePageId)
+    : activePageId;
+  const selector = activePageId
+    ? `.page-thumb[data-page-id="${escapedId}"]`
+    : `.page-thumb[data-index="${state.activePageIndex}"]`;
+  const activeEl = list.querySelector(selector);
   if (activeEl) {
     activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
