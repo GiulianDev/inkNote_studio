@@ -323,9 +323,18 @@ body.pages-sidebar-open.pages-sidebar-right #viewport {
   width: calc(100vw - var(--pages-sidebar-width));
 }
 
-/* Compact mode */
-body.compact-mode .pages-sidebar,
-body.compact-mode .pages-sidebar-tab { display: none !important; }
+/* Compact mode (schermo intero): la sidebar resta disponibile a tutta altezza */
+body.compact-mode .pages-sidebar {
+  top: 0;
+}
+body.compact-mode.pages-sidebar-open.pages-sidebar-left #viewport {
+  margin-left: var(--pages-sidebar-width);
+  width: calc(100vw - var(--pages-sidebar-width));
+}
+body.compact-mode.pages-sidebar-open.pages-sidebar-right #viewport {
+  margin-right: var(--pages-sidebar-width);
+  width: calc(100vw - var(--pages-sidebar-width));
+}
 
 /* Mobile */
 @media (max-width: 640px) {
