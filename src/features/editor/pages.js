@@ -4,10 +4,33 @@
  * PAGINE — creazione wrapper DOM, gestione canvas via pool, pagina attiva,
  * eliminazione/riordino/scroll.
  *
+ * Eventi emessi:
+ *   - `inknote:pages-changed`      → il numero/struttura delle pagine è
+ *                                     cambiato (add, delete, clear, pattern).
+ *                                     La sidebar DEVE ricostruire le thumbnails.
+ *   - `inknote:pages-reordered`    → solo l'ordine delle pagine è cambiato
+ *                                     (drag reorder da hcg-sortable). Il DOM
+ *                                     dei thumb è già nell'ordine giusto
+ *                                     (hcg-sortable l'ha spostato). La sidebar
+ *                                     DEVE solo aggiornare data-index e numeri
+ *                                     SENZA ricostruire il DOM né distruggere
+ *                                     l'istanza Sortable.
+ *   - `inknote:active-page-changed`→ l'indice attivo è cambiato.
+ *
+ * Nota importante sul reorder:
+ *   `movePage` NON emette `pages-changed`. Emette `pages-reordered`.
+ *   Motivo: `movePage` viene chiamato dentro `onUpdate` di hcg-sortable,
+ *   mentre la libreria sta ancora finalizzando il drag (pointerup handler
+ *   sullo stack). Se triggerassimo un rebuild del DOM (innerHTML = '')
+ *   + destroy() dell'istanza Sortable in quel momento, la libreria
+ *   finirebbe di eseguire con riferimenti a nodi DOM già rimossi,
+ *   lasciando listener orfani su document. Al drag successivo, due
+ *   handler (nuovo + residuo) chiamerebbero onUpdate → movePage con
+ *   indici incoerenti → state.pages corrotto → pagine duplicate/sparse.
+ *
  * @see features/editor/page-pool.js
  * @see features/persistence/serialization.js
  * @see features/pages-sidebar/pages-sidebar.js — consuma gli eventi
- *      `inknote:pages-changed` e `inknote:active-page-changed`
  */
 
 import { state, viewport } from '../../core/state.js';
@@ -82,7 +105,7 @@ export function addNewPage() {
     applyTransform(true);
   });
 
-  // Notifica la sidebar pagine (per refresh thumbnails + scroll)
+  // Struttura pagine cambiata → la sidebar ricostruisce le thumbnails.
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
     detail: { index: newIndex }
@@ -235,9 +258,8 @@ export function changeBackgroundPattern(pattern) {
   });
   pushHistory();
 
-  // Notifica la sidebar (le thumbnails andrebbero ridisegnate
-  // se in futuro includeranno il pattern; oggi è comunque
-  // corretto emettere per coerenza).
+  // Contenuto pagine cambiato (sfondo) → la sidebar può ridisegnare
+  // le thumbnail. Non è un reorder: rebuild completo ha senso.
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
 }
 
@@ -252,6 +274,7 @@ export function clearCurrentPage() {
   pushHistory();
   showToast('Pagina pulita', '🧹');
 
+  // Contenuto pagina cambiato → ridisegna thumb.
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
 }
 
@@ -307,6 +330,7 @@ export function deletePage(index) {
   resetHistory();
   scheduleSave();
 
+  // Struttura pagine cambiata (una in meno) → rebuild thumbnails.
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
     detail: { index: state.activePageIndex }
@@ -317,6 +341,11 @@ export function deletePage(index) {
 
 /**
  * Sposta la pagina da `from` a `to`.
+ * NON emette `pages-changed` (vedi nota in cima al file):
+ * emette `pages-reordered` perché il DOM delle thumbnail è già
+ * nell'ordine corretto (hcg-sortable l'ha spostato durante il drag).
+ * La sidebar deve solo aggiornare data-index e numeri in place.
+ *
  * @param {number} from
  * @param {number} to
  * @returns {boolean}
@@ -357,7 +386,12 @@ export function movePage(from, to) {
   resetHistory();
   scheduleSave();
 
-  window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
+  // IMPORTANTE: evento DIVERSO da pages-changed.
+  // Il DOM delle thumbnails è già nell'ordine giusto (hcg-sortable
+  // l'ha spostato durante il drag). La sidebar deve solo aggiornare
+  // data-index e numeri in place, SENZA rebuild + destroy dell'istanza
+  // Sortable (che sta ancora finalizzando il drag → reentrancy).
+  window.dispatchEvent(new CustomEvent('inknote:pages-reordered'));
   window.dispatchEvent(new CustomEvent('inknote:active-page-changed', {
     detail: { index: state.activePageIndex }
   }));

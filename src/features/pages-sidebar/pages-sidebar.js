@@ -6,10 +6,19 @@
  * Riordino:
  *   - Gestito da hcg-sortable (Pointer Events → mouse, touch, stylus).
  *   - Drag attivabile solo dalla maniglia `.page-thumb-drag-handle`.
- *   - `onUpdate` chiama movePage(oldIndex, newIndex) che riallinea
- *     state.pages, i data-index e persiste su IndexedDB.
- *   - Dopo ogni refreshThumbnails() l'istanza Sortable viene ricreata
- *     perché il DOM delle thumbnail è stato ricostruito.
+ *   - `onUpdate` chiama movePage(oldIndex, newIndex).
+ *   - Dopo un reorder, riceviamo `inknote:pages-reordered`:
+ *     aggiorniamo SOLO data-index e numeri in place, senza ricostruire
+ *     il DOM e senza distruggere l'istanza Sortable. Motivo: `movePage`
+ *     viene chiamato dentro `onUpdate` di hcg-sortable, mentre la
+ *     libreria ha ancora il suo pointerup handler sullo stack. Fare
+ *     innerHTML='' + destroy() in quel momento lascia listener orfani
+ *     su document → al drag successivo due handler chiamano onUpdate
+ *     → state.pages corrotto (bug pagine duplicate/sparse).
+ *   - `inknote:pages-changed` (add / delete / clear / pattern) invece
+ *     provoca rebuild completo + destroy/recreate dell'istanza
+ *     Sortable: in quei casi la struttura DOM è cambiata davvero e
+ *     il rebuild è sicuro (non avviene dentro onUpdate di Sortable).
  *
  * @see features/editor/pages.js — deletePage, movePage, scrollToPage
  * @see core/app-settings.js     — pagesSidebar settings
@@ -79,8 +88,15 @@ export function mountPagesSidebar() {
     }
   });
 
+  // Struttura pagine cambiata (add/delete/clear/pattern) → rebuild completo.
   window.addEventListener('inknote:pages-changed', () => {
     if (_isOpen) refreshThumbnails();
+  });
+
+  // Riordino (drag): il DOM è già nell'ordine giusto. Aggiorna
+  // solo data-index + numeri, SENZA rebuild e SENZA destroy Sortable.
+  window.addEventListener('inknote:pages-reordered', () => {
+    if (_isOpen) _syncThumbsAfterReorder();
   });
 
   window.addEventListener('inknote:notebook-opened', () => {
@@ -226,7 +242,6 @@ function _bindUI() {
     });
 
   _setupThumbDelegation();
-  // _setupDragReorder() rimosso: il riordino è gestito da hcg-sortable
 }
 
 function _setupThumbDelegation() {
@@ -270,9 +285,11 @@ function _setupSortable() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
-  // Distruggi l'istanza precedente (il DOM è stato ricostruito).
+  // Distruggi l'istanza precedente prima di crearne una nuova.
+  // Questo viene chiamato SOLO da refreshThumbnails() (rebuild
+  // completo), MAI da onUpdate di Sortable → nessuna reentrancy.
   if (_sortableInstance) {
-    _sortableInstance.destroy();
+    try { _sortableInstance.destroy(); } catch (e) {}
     _sortableInstance = null;
   }
 
@@ -284,9 +301,9 @@ function _setupSortable() {
     scroll: true,
     onUpdate(detail) {
       if (detail.oldIndex === detail.newIndex) return;
-      // movePage riallinea state.pages, data-index e persiste.
-      // Emette `inknote:pages-changed` → refreshThumbnails() → nuova
-      // istanza Sortable sul DOM aggiornato.
+      // movePage emette `pages-reordered` (NON `pages-changed`).
+      // Il DOM è già nell'ordine corretto (hcg-sortable l'ha spostato).
+      // La sidebar aggiorna solo data-index + numeri, senza rebuild.
       movePage(detail.oldIndex, detail.newIndex);
     },
   });
@@ -299,6 +316,13 @@ function _setupSortable() {
 export function refreshThumbnails() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
+
+  // Distruggi Sortable PRIMA di svuotare la lista (cleanup dei
+  // listener interni). Poi svuota, ricostruisci, ricrea.
+  if (_sortableInstance) {
+    try { _sortableInstance.destroy(); } catch (e) {}
+    _sortableInstance = null;
+  }
 
   _thumbCanvases.clear();
   list.innerHTML = '';
@@ -313,8 +337,37 @@ export function refreshThumbnails() {
   });
   list.appendChild(frag);
 
-  // Il DOM è nuovo: ricrea l'istanza Sortable.
   _setupSortable();
+  _highlightActivePage(true);
+}
+
+/**
+ * Sync leggero dopo un reorder: aggiorna SOLO `data-index` e numero
+ * testuale sui thumb già nel DOM, in place. Non ricostruisce i nodi,
+ * non tocca l'istanza Sortable, non ricalcola i canvas.
+ *
+ * Viene invocata dal listener `inknote:pages-reordered` quando
+ * `movePage` è stato chiamato da `onUpdate` di hcg-sortable.
+ */
+function _syncThumbsAfterReorder() {
+  const list = document.getElementById('pagesThumbnailsList');
+  if (!list) return;
+
+  const thumbs = [...list.querySelectorAll('.page-thumb')];
+  thumbs.forEach((el, i) => {
+    el.dataset.index = String(i);
+    const num = el.querySelector('.page-thumb-number');
+    if (num) num.textContent = String(i + 1);
+  });
+
+  // Aggiorna la mappa canvas: dopo il reorder il canvas di una pagina
+  // si trova in un thumb diverso (stesso nodo, indice diverso). La
+  // mappa `_thumbCanvases` è index-based: va ricostruita dai dati DOM.
+  _thumbCanvases.clear();
+  thumbs.forEach((el, i) => {
+    const canvas = el.querySelector('.page-thumb-canvas');
+    if (canvas) _thumbCanvases.set(i, canvas);
+  });
 
   _highlightActivePage(true);
 }
@@ -324,8 +377,6 @@ function _buildThumbElement(index) {
   div.className = 'page-thumb';
   div.dataset.index = String(index);
 
-  // Maniglia di drag (handle per hcg-sortable).
-  // Su touch/stylus è sempre visibile; su mouse appare/si scurisce su hover.
   const handle = document.createElement('div');
   handle.className = 'page-thumb-drag-handle';
   handle.title = 'Trascina per riordinare';
