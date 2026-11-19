@@ -18,6 +18,8 @@ let selectedCoverColor = '#4f46e5';
 
 let _selectionMode = false;
 let _isDuplicating = false;
+let _isCreatingNotebook = false;
+let _renderRequestToken = 0;
 const selectedNotebookIds = new Set();
 
 const LP_PRESS_MS = 500;
@@ -300,7 +302,9 @@ function _bindCardInteractions(card, nb) {
 // ============================================================
 
 export function renderLibraryView() {
+  const token = ++_renderRequestToken;
   loadAllNotebooksFromDB().then(notebooks => {
+    if (token !== _renderRequestToken) return;
     const grid = document.getElementById('notebooksGrid');
     const emptyMsg = document.getElementById('emptyLibraryMessage');
     grid.innerHTML = '';
@@ -598,21 +602,32 @@ export function selectCoverColor(btn) {
 }
 
 export async function confirmCreateNotebook() {
-  const title = document.getElementById('modalNbTitle').value.trim() || 'Nuovo Quaderno';
-  const pattern = document.getElementById('modalNbPattern').value;
-  const firstPageId = generatePageId();
-  const newNb = {
-    id: 'nb_' + Date.now(),
-    title, coverColor: selectedCoverColor, pattern,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    pageOrder: [firstPageId],
-    pages: [{ pageId: firstPageId, strokes: [] }],
-    lastPageIndex: 0
-  };
-  await saveNotebookToDB(newNb, [firstPageId], { saveOrder: true });
-  closeNewNotebookModal();
-  openNotebook(newNb.id);
+  if (_isCreatingNotebook) return;
+  _isCreatingNotebook = true;
+  const confirmBtn = document.getElementById('confirmCreateNbBtn');
+  if (confirmBtn) confirmBtn.disabled = true;
+
+  try {
+    const title = document.getElementById('modalNbTitle').value.trim() || 'Nuovo Quaderno';
+    const pattern = document.getElementById('modalNbPattern').value;
+    const firstPageId = generatePageId();
+    const rand = Math.random().toString(36).slice(2, 7);
+    const newNb = {
+      id: `nb_${Date.now()}_${rand}`,
+      title, coverColor: selectedCoverColor, pattern,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      pageOrder: [firstPageId],
+      pages: [{ pageId: firstPageId, strokes: [] }],
+      lastPageIndex: 0
+    };
+    await saveNotebookToDB(newNb, [firstPageId], { saveOrder: true });
+    closeNewNotebookModal();
+    openNotebook(newNb.id);
+  } finally {
+    _isCreatingNotebook = false;
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
 }
 
 export async function deleteNotebook(e, id) {
@@ -664,7 +679,7 @@ export function bindLibraryUI() {
   document.getElementById('selectionDuplicateBtn')
     ?.addEventListener('click', handleDuplicateSelection);
 
-  document.addEventListener('pointerdown', (e) => {
+  document.addEventListener('click', (e) => {
     if (!_selectionMode) return;
     if (e.target.closest('.notebook-card')) return;
     if (e.target.closest('#librarySelectionBar')) return;
