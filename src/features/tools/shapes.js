@@ -183,6 +183,7 @@ export function trySnapToLineDuringDraw(pageData, currentPoint) {
     opacity: stroke.opacity != null ? stroke.opacity : 1.0,
     style: stroke.style || 'solid',
     activeHandle: 'end',
+    pageId: pageData.pageId,
     pageIndex: pageData.index,
     _snapAxis: snapRes.axis,
     _snapRejected: snapRes.rejected
@@ -239,10 +240,15 @@ export function finalizePendingShape() {
   if (!state.pendingShape) return;
   const ps = state.pendingShape;
 
-  const targetIndex = typeof ps.pageIndex === 'number' ? ps.pageIndex : state.activePageIndex;
-  const curr = state.pages[targetIndex];
+  let curr = ps.pageId
+    ? state.pages.find(p => p.pageId === ps.pageId)
+    : null;
+  if (!curr) {
+    const targetIndex = typeof ps.pageIndex === 'number' ? ps.pageIndex : state.activePageIndex;
+    curr = state.pages[targetIndex] || null;
+  }
 
-  if (curr && curr.canvas) {
+  if (curr) {
     const startPt = { x: ps.start.x, y: ps.start.y, pressure: 0.5 };
     const endPt = { x: ps.end.x, y: ps.end.y, pressure: 0.5 };
     const steps = Math.max(8, Math.floor(Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y) / 4));
@@ -264,14 +270,20 @@ export function finalizePendingShape() {
       points: straightPts
     };
     curr.strokes.push(newStroke);
-    const pctx = curr.ctx, dpr = curr.dpr || 1;
-    pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    renderFullStroke(pctx, newStroke, state.isDarkMode);
-    pctx.restore();
-    clearOverlay(curr);
-    scheduleSave();
-    pushHistory();
-    triggerSnapAnimation(curr);
+
+    if (curr.canvas && curr.ctx) {
+      const pctx = curr.ctx, dpr = curr.dpr || 1;
+      pctx.save(); pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      renderFullStroke(pctx, newStroke, state.isDarkMode);
+      pctx.restore();
+      clearOverlay(curr);
+      triggerSnapAnimation(curr);
+    }
+
+    scheduleSave({ pageId: curr.pageId });
+    if (curr.index === state.activePageIndex) {
+      pushHistory();
+    }
   }
   state.pendingShape = null;
 }
