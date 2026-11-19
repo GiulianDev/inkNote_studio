@@ -25,7 +25,7 @@ import 'hcg-sortable/hcg-sortable.css';
 
 import { state } from '../../core/state.js';
 import {
-  showToast, PAGE_WIDTH, PAGE_HEIGHT, on,
+  showToast, showConfirmDialog, PAGE_WIDTH, PAGE_HEIGHT, on,
   getEffectiveColor, sliderToBaseSize
 } from '../../core/utils.js';
 import {
@@ -332,36 +332,44 @@ function _setupThumbDelegation() {
   const list = document.getElementById('pagesThumbnailsList');
   if (!list) return;
 
-  list.addEventListener('click', (e) => {
+  list.addEventListener('click', async (e) => {
     if (performance.now() < _suppressClickUntil) {
       e.preventDefault();
       e.stopPropagation();
       return;
     }
-    if (e.target.closest('.page-thumb-delete')) return;
-    if (e.target.closest('.page-thumb-drag-handle')) return;
-    const thumb = e.target.closest('.page-thumb');
-    const idx = _resolveThumbIndex(thumb);
-    if (idx >= 0) scrollToPage(idx);
-  });
 
-  list.addEventListener('click', (e) => {
-    if (performance.now() < _suppressClickUntil) return;
+    if (e.target.closest('.page-thumb-drag-handle')) return;
+
     const delBtn = e.target.closest('.page-thumb-delete');
-    if (!delBtn) return;
-    e.stopPropagation();
-    const thumb = delBtn.closest('.page-thumb');
+    const thumb = (delBtn || e.target).closest('.page-thumb');
     const idx = _resolveThumbIndex(thumb);
     if (idx < 0) return;
 
-    if (state.pages.length <= 1) {
-      showToast('Non puoi eliminare l\'unica pagina', '⚠️');
+    if (delBtn) {
+      e.stopPropagation();
+      if (state.pages.length <= 1) {
+        showToast('Non puoi eliminare l\'unica pagina', '⚠️');
+        return;
+      }
+
+      const confirmed = await showConfirmDialog({
+        title: `Eliminare la pagina ${idx + 1}?`,
+        message: 'L\'operazione non è reversibile.',
+        confirmText: 'Elimina',
+        danger: true
+      });
+      if (!confirmed) return;
+
+      const currentIdx = _resolveThumbIndex(thumb);
+      if (currentIdx < 0 || state.pages.length <= 1) return;
+
+      const ok = deletePage(currentIdx);
+      if (ok) showToast(`Pagina ${currentIdx + 1} eliminata`, '🗑️');
       return;
     }
-    if (!confirm(`Eliminare la pagina ${idx + 1}? L'operazione non è reversibile.`)) return;
 
-    const ok = deletePage(idx);
-    if (ok) showToast(`Pagina ${idx + 1} eliminata`, '🗑️');
+    scrollToPage(idx);
   });
 }
 
