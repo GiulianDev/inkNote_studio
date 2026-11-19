@@ -17,6 +17,29 @@ const MAX_POOL_SIZE = 2000;
 const HOLD_SNAP_DELAY_MS = 260;
 const HOLD_MOVE_TOLERANCE_PX = 8;
 
+// Rilevamento piattaforma eseguito UNA volta al caricamento (zero overhead sul hot path)
+const _platform = (() => {
+  if (typeof navigator === 'undefined') return 'desktop';
+  const ua = navigator.userAgent || '';
+  if (/iPad|iPhone|iPod/.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+    return 'ios';
+  }
+  if (/Android/i.test(ua)) return 'android';
+  return 'desktop';
+})();
+
+const _normalizePenPressure =
+  _platform === 'ios'
+    ? (raw) => Math.min(1, Math.max(0.14, Math.pow(raw, 0.55)))
+    : (raw) => raw;
+
+const _DEFAULT_PEN_DOWN_PRESSURE = _platform === 'ios' ? 0.25 : 0.5;
+const _PRESSURE_SMOOTH_NEW_W = _platform === 'ios' ? 0.45 : 0.6;
+const _PRESSURE_SMOOTH_OLD_W = 1 - _PRESSURE_SMOOTH_NEW_W;
+
+let _lastValidPenPressure = 0;
+
 export const _useRawPointerUpdate =
   typeof window !== 'undefined' && 'onpointerrawupdate' in window;
 
@@ -115,17 +138,33 @@ export function getCanvasCoords(e, canvas) {
   if (_pointPoolIdx < _pointPool.length) {
     p = _pointPool[_pointPoolIdx++];
   } else {
-    p = { x: 0, y: 0, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 0, pointerType: 'pen' };
+    p = { x: 0, y: 0, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 0, pointerType: 'pen', timeStamp: 0 };
     _pointPool.push(p);
     _pointPoolIdx++;
   }
   p.x = (e.clientX - rect.left) * rect.scaleX;
   p.y = (e.clientY - rect.top) * rect.scaleY;
-  p.pressure = (e.pointerType === 'pen' && e.pressure > 0) ? e.pressure : 0.5;
+
+  if (e.pointerType === 'pen') {
+    if (e.pressure > 0) {
+      const norm = _normalizePenPressure(e.pressure);
+      _lastValidPenPressure = norm;
+      p.pressure = norm;
+    } else if (state.isDrawing && _lastValidPenPressure > 0) {
+      p.pressure = _lastValidPenPressure;
+    } else {
+      p.pressure = _DEFAULT_PEN_DOWN_PRESSURE;
+      _lastValidPenPressure = p.pressure;
+    }
+  } else {
+    p.pressure = 0.5;
+  }
+
   p.tiltX = e.tiltX || 0;
   p.tiltY = e.tiltY || 0;
   p.speed = 0;
   p.pointerType = e.pointerType;
+  p.timeStamp = e.timeStamp || 0;
   return p;
 }
 
@@ -135,8 +174,8 @@ export function getCanvasCoords(e, canvas) {
 function smoothPressure(points, newPressure) {
   const n = points.length;
   if (n === 0) return newPressure;
-  const wNew = 0.6, count = Math.min(3, n), wOld = 0.4 / count;
-  let acc = newPressure * wNew;
+  const count = Math.min(3, n), wOld = _PRESSURE_SMOOTH_OLD_W / count;
+  let acc = newPressure * _PRESSURE_SMOOTH_NEW_W;
   for (let i = n - count; i < n; i++) acc += (points[i].pressure || 0.5) * wOld;
   return Math.max(0.05, Math.min(1, acc));
 }
@@ -191,8 +230,26 @@ function _processPointerPoint(rawPoint, pageData) {
     const dy = smoothedPos.y - prevSmoothed.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < minDist) return;
-    speedPx = dist;
+
+    const rawTs = rawPoint.timeStamp || 0;
+    const lastTs = stroke._lastPointTs || 0;
+    let instantSpeed = dist;
+    if (rawTs > 0 && lastTs > 0) {
+      const rawDt = rawTs - lastTs;
+      if (rawDt >= 2 && rawDt <= 64) {
+        instantSpeed = (dist / rawDt) * 16.67;
+      } else if (rawDt >= 0 && rawDt < 2) {
+        instantSpeed = (dist / 4) * 16.67;
+      }
+    }
+    const ema = stroke._emaSpeed !== undefined
+      ? stroke._emaSpeed * 0.65 + instantSpeed * 0.35
+      : instantSpeed;
+    stroke._emaSpeed = ema;
+    speedPx = ema;
   }
+  if (rawPoint.timeStamp > 0) stroke._lastPointTs = rawPoint.timeStamp;
+
   const smoothedPoint = {
     x: smoothedPos.x, y: smoothedPos.y, pressure: smoothedPressure,
     tiltX: rawPoint.tiltX, tiltY: rawPoint.tiltY, speed: speedPx, pointerType: rawPoint.pointerType
