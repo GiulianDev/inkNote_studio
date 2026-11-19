@@ -72,6 +72,7 @@ export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null) 
 }
 
 export function addNewPage() {
+  if (state.selectedStrokes.length > 0) clearSelection();
   const newIndex = state.pages.length;
   const newPage = createNewPageDOM(newIndex, []);
   state.activePageIndex = newIndex;
@@ -81,7 +82,7 @@ export function addNewPage() {
 
   refreshPageCounter();
   scheduleSave({ markDirty: false, immediate: true });
-  pushHistory();
+  resetHistory();
   scheduleResolutionRefresh();
   invalidateClampCache();
 
@@ -423,12 +424,14 @@ export function scrollToPage(index) {
   viewport.x = c.x;
   viewport.y = c.y;
 
-  if (state.selectedStrokes.length > 0 && state.activePageIndex !== index) {
+  const pageChanged = state.activePageIndex !== index;
+  if (state.selectedStrokes.length > 0 && pageChanged) {
     clearSelection();
   }
 
   state.activePageIndex = index;
   refreshPageCounter();
+  if (pageChanged) resetHistory();
   applyTransform(true);
   pagePool.updateAround(index);
   scheduleSave({ markDirty: false, silent: true });

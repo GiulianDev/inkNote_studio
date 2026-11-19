@@ -82,8 +82,11 @@ export function clearSelection() {
 
 function snapshotSelectedStrokes() {
   return state.selectedStrokes.map(s => ({
-    color: s.color, size: s.size, tool: s.tool,
-    points: s.points.map(p => ({ x: p.x, y: p.y, pressure: p.pressure }))
+    points: s.points.map(p => ({
+      x: p.x, y: p.y, pressure: p.pressure,
+      tiltX: p.tiltX, tiltY: p.tiltY,
+      speed: p.speed, pointerType: p.pointerType
+    }))
   }));
 }
 
@@ -136,18 +139,28 @@ export function applyResizeSelection(point) {
   if (Math.abs(deltaAngle - nearest) < snapThreshold) effectiveAngle = nearest;
   state.resizeCurrentAngle = effectiveAngle;
   const cos = Math.cos(effectiveAngle), sin = Math.sin(effectiveAngle);
-  state.selectedStrokes.forEach((stroke, i) => {
-    const snap = state.initialStrokesSnapshot[i];
-    stroke.points = snap.points.map(p => {
-      const px = p.x - pivot.x, py = p.y - pivot.y;
-      return {
-        x: pivot.x + (px * cos - py * sin) * scale,
-        y: pivot.y + (px * sin + py * cos) * scale,
-        pressure: p.pressure
-      };
-    });
-    invalidateStrokeBitmap(stroke);
-  });
+  for (let i = 0; i < state.selectedStrokes.length; i++) {
+    const stroke = state.selectedStrokes[i];
+    const snapPts = state.initialStrokesSnapshot[i].points;
+    const pts = stroke.points;
+    for (let j = 0; j < snapPts.length; j++) {
+      const sp = snapPts[j];
+      const px = sp.x - pivot.x, py = sp.y - pivot.y;
+      const nx = pivot.x + (px * cos - py * sin) * scale;
+      const ny = pivot.y + (px * sin + py * cos) * scale;
+      if (pts[j]) {
+        pts[j].x = nx;
+        pts[j].y = ny;
+      } else {
+        pts[j] = {
+          x: nx, y: ny, pressure: sp.pressure,
+          tiltX: sp.tiltX, tiltY: sp.tiltY,
+          speed: sp.speed, pointerType: sp.pointerType
+        };
+      }
+    }
+    if (stroke._cacheCanvas) invalidateStrokeBitmap(stroke);
+  }
   state.selectionMoved = true;
   const current = state.pages[state.activePageIndex];
   if (current && current.canvas) redrawSelectionOverlay(current);
@@ -353,7 +366,12 @@ export function moveSelectionDrag(pageData, rawPoint) {
   if (incX !== 0 || incY !== 0) {
     state.selectionMoved = true;
     state.selectedStrokes.forEach(stroke => {
-      stroke.points.forEach(p => { p.x += incX; p.y += incY; });
+      const pts = stroke.points;
+      for (let i = 0; i < pts.length; i++) {
+        pts[i].x += incX;
+        pts[i].y += incY;
+      }
+      if (stroke._cacheCanvas) invalidateStrokeBitmap(stroke);
     });
     _dragAccX = desiredX;
     _dragAccY = desiredY;
