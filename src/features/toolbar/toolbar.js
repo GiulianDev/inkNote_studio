@@ -92,6 +92,9 @@ export function mountToolbar() {
       applyMainMenuOrderToUI();
       if (_toolbarMenuOpen) _renderOverflowMenu();
     }
+    if (changed.includes('theme') || changed.includes('theme.effective')) {
+      applyPageColorsToUI();
+    }
   });
 
   _mounted = true;
