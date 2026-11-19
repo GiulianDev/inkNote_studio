@@ -2,7 +2,7 @@
 // LIBRERIA QUADERNI + BACKUP EXPORT/IMPORT
 // ============================================================
 
-import { escapeHtml, showToast, on, generatePageId } from '../../core/utils.js';
+import { escapeHtml, showToast, showConfirmDialog, on, generatePageId } from '../../core/utils.js';
 import {
   loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB
 } from '../../services/db.js';
@@ -405,10 +405,16 @@ async function handleExportSelection() {
 
 async function handleDeleteSelection() {
   if (selectedNotebookIds.size === 0) return;
-  const count = selectedNotebookIds.size;
-  if (!confirm(`Eliminare ${count} quadern${count === 1 ? 'o' : 'i'} e tutte le sue pagine?`)) return;
-
   const ids = Array.from(selectedNotebookIds);
+  const count = ids.length;
+  const confirmed = await showConfirmDialog({
+    title: `Eliminare ${count} quadern${count === 1 ? 'o' : 'i'}?`,
+    message: 'Verranno eliminate definitivamente anche tutte le relative pagine.',
+    confirmText: 'Elimina',
+    danger: true
+  });
+  if (!confirmed) return;
+
   try {
     for (const id of ids) {
       await deleteNotebookFromDB(id);
@@ -499,13 +505,19 @@ export async function confirmCreateNotebook() {
 }
 
 export async function deleteNotebook(e, id) {
-  if (confirm('Sei sicuro di voler eliminare questo quaderno e tutte le sue pagine?')) {
-    await deleteNotebookFromDB(id);
-    closeNotebookIfOpen(id);
-    selectedNotebookIds.delete(id);
-    renderLibraryView();
-    showToast('Quaderno eliminato', '🗑️');
-  }
+  const confirmed = await showConfirmDialog({
+    title: 'Eliminare questo quaderno?',
+    message: 'Verranno eliminate definitivamente anche tutte le sue pagine.',
+    confirmText: 'Elimina',
+    danger: true
+  });
+  if (!confirmed) return;
+
+  await deleteNotebookFromDB(id);
+  closeNotebookIfOpen(id);
+  selectedNotebookIds.delete(id);
+  renderLibraryView();
+  showToast('Quaderno eliminato', '🗑️');
 }
 
 // ============================================================
