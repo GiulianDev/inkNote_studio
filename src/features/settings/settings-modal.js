@@ -6,6 +6,11 @@
 // Inoltre applichiamo un "paint containment" via classe CSS
 // (vedi style.css → #settingsModal) per isolare il repaint
 // del modal dal resto della pagina.
+//
+// NOTA sidebar pagine: il select "settingPagesSidebarPosition"
+// aggiorna `pagesSidebar.position` in app-settings. La sidebar
+// (feature/pages-sidebar) sottoscrive `settings:changed` e si
+// riposiziona automaticamente senza rebuild.
 // ============================================================
 
 import { state } from '../../core/state.js';
@@ -46,6 +51,7 @@ export function openSettingsModal() {
   _setValue('settingPrintTheme',       s.printTheme);
   _setValue('settingHandedness',       s.handedness);
   _setValue('settingDockSize',         s.dockSize);
+  _setValue('settingPagesSidebarPosition', s.pagesSidebar?.position || 'left');
   _setValue('pressureLightSlider',     s.pressureLight);
   _setValue('pressureHeavySlider',     s.pressureHeavy);
   _setValue('pressureCurveSlider',     s.pressureCurve);
@@ -116,6 +122,18 @@ function _bindAll() {
   document.getElementById('settingTheme')
     ?.addEventListener('change', (e) =>
       updateSettings({ theme: e.target.value }, { persist: false }));
+
+  // Sidebar pagine: la posizione è global e persistita subito.
+  // La sidebar (feature/pages-sidebar) sottoscrive `settings:changed`
+  // e si riposiziona senza rebuild.
+  document.getElementById('settingPagesSidebarPosition')
+    ?.addEventListener('change', (e) => {
+      const pos = e.target.value === 'right' ? 'right' : 'left';
+      updateSettings(
+        { pagesSidebar: { ...getSettings().pagesSidebar, position: pos } },
+        { persist: true }
+      );
+    });
 
   ['pressureLightSlider', 'pressureHeavySlider', 'pressureCurveSlider'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', () => {

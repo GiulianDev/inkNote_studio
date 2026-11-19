@@ -4,13 +4,20 @@
  * COMPOSITION ROOT. Unico entry point dell'app.
  *
  * Ordine di boot (non modificare — l'ordine conta):
- *   1. mountToolbar() + mountSettingsModal()  → markup nel DOM
+ *   1. mountToolbar() + mountSettingsModal() + mountPagesSidebar()  → markup nel DOM
  *   2. initSettings()                          → applica tema/dock al body
  *   3. initToolbarSettings(null)               → default toolbar (no notebook)
  *   4. initDB()                                → apre IndexedDB
  *   5. initEditorHandlers() + bindEditorUI() + bindLibraryUI()
  *   6. onSettingsChanged / onToolbarSettingsChanged (subscription)
  *   7. renderLibraryView() + setupViewportGestures() + setupKeyboardShortcuts()
+ *
+ * NOTA ordine mount:
+ *   - mountToolbar()        → crea #mainHeader (necessario per
+ *                             pages-sidebar che misura l'header)
+ *   - mountSettingsModal()  → crea il modale impostazioni
+ *   - mountPagesSidebar()   → sidebar pagine (dipende dall'header)
+ *   Tutti e tre PRIMA di initSettings().
  *
  * Subscription attive:
  *   - settings:changed → ridisegna pagine se cambia tema
@@ -38,6 +45,7 @@ import { flushHistory } from './features/history/history.js';
 import { initEditorHandlers } from './features/editor/editor.js';
 import { bindEditorUI } from './features/editor/ui-bindings.js';
 import { mountSettingsModal } from './features/settings/settings-modal.js';
+import { mountPagesSidebar } from './features/pages-sidebar/pages-sidebar.js';
 import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
 import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
 import { handleRedirectResult } from './services/firebase.js';
@@ -45,10 +53,14 @@ import { handleRedirectResult } from './services/firebase.js';
 window.addEventListener('load', async () => {
   // 1. Componenti grafiche. Devono esistere PRIMA di initSettings():
   //    lo store applica tema/dock al DOM e cerca gli elementi della toolbar.
+  //    Ordine: toolbar → settings modal → pages sidebar.
+  //    La sidebar misura #mainHeader al mount, quindi va DOPO la toolbar.
   mountToolbar();
   mountSettingsModal();
+  mountPagesSidebar();
 
-  // 2. Store globale impostazioni (tema, dock, handedness, palm rejection).
+  // 2. Store globale impostazioni (tema, dock, handedness, palm rejection,
+  //    sidebar pagine).
   initSettings();
 
   // 3. Store toolbar: default all'avvio (nessun notebook aperto).

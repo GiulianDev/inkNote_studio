@@ -1,26 +1,9 @@
 // ============================================================
 // LIBRERIA QUADERNI + BACKUP EXPORT/IMPORT
-//
-// Auth: Firebase (services/firebase.js).
-//
-// Pattern selezione (Apple-like):
-//   - Long-press (500ms) su una card → entra in selection mode
-//     e seleziona la card
-//   - In selection mode: tap su una card → toggle selezione
-//   - "Fine" o tap fuori dalla griglia → esce
-//   - Se rimuovi l'ultima selezione → esce automaticamente
-//
-// Card moderne:
-//   - Cover con angoli arrotondati, dorso ombreggiato (no border-left)
-//   - Titolo + pagine sovrapposti in basso
-//   - Pallino selezione in alto a destra (visibile solo in selection mode)
-//   - Niente checkbox fissa
 // ============================================================
 
-import { escapeHtml, showToast, on } from '../../core/utils.js';
-import {
-  loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB
-} from '../../services/db.js';
+import { escapeHtml, showToast, showConfirmDialog, on, generatePageId } from '../../core/utils.js';
+import { loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB, loadNotebookWithPages } from '../../services/db.js';
 import {
   signInWithGoogle, signOutGoogle, onAuthChange
 } from '../../services/firebase.js';
@@ -33,15 +16,10 @@ import { showProgressDialog } from '../backup/backup-progress.js';
 
 let selectedCoverColor = '#4f46e5';
 
-// ------------------------------------------------------------
-// STATO SELEZIONE
-// ------------------------------------------------------------
 let _selectionMode = false;
+let _isDuplicating = false;
 const selectedNotebookIds = new Set();
 
-// ------------------------------------------------------------
-// LONG-PRESS CONFIG
-// ------------------------------------------------------------
 const LP_PRESS_MS = 500;
 const LP_MOVE_CANCEL_PX = 8;
 
@@ -156,7 +134,7 @@ async function handleLogout() {
 }
 
 // ============================================================
-// SELEZIONE — modalità + toggle + barra
+// SELEZIONE
 // ============================================================
 
 function _enterSelectionMode(initialId = null) {
@@ -172,7 +150,6 @@ function _enterSelectionMode(initialId = null) {
     bar.classList.add('flex');
   }
 
-  // Applica stato visivo a tutte le card
   _applySelectionStateToCards();
   _updateSelectionBar();
 }
@@ -203,7 +180,6 @@ function _toggleSelection(id) {
   _applySelectionStateToCards();
   _updateSelectionBar();
 
-  // Auto-exit se la selezione è vuota
   if (selectedNotebookIds.size === 0) {
     _exitSelectionMode();
   }
@@ -217,7 +193,6 @@ function _applySelectionStateToCards() {
     card.classList.toggle('is-selected', isSelected);
     card.classList.toggle('selection-mode', _selectionMode);
 
-    // Aggiorna il checkmark del pallino
     const dot = card.querySelector('.selection-dot');
     if (dot) {
       dot.classList.toggle('active', isSelected);
@@ -230,8 +205,10 @@ function _updateSelectionBar() {
   const countEl = document.getElementById('selectionCount');
   if (countEl) countEl.textContent = `${count} selezionat${count === 1 ? 'o' : 'i'}`;
 
+  const duplicateBtn = document.getElementById('selectionDuplicateBtn');
   const exportBtn = document.getElementById('selectionExportBtn');
   const deleteBtn = document.getElementById('selectionDeleteBtn');
+  if (duplicateBtn) duplicateBtn.disabled = count === 0 || _isDuplicating;
   if (exportBtn) exportBtn.disabled = count === 0;
   if (deleteBtn) deleteBtn.disabled = count === 0;
 }
@@ -248,10 +225,6 @@ function _selectAll() {
 // LONG-PRESS SULLE CARD
 // ============================================================
 
-/**
- * Setup di long-press + click per una card.
- * Cancella il timer se il pointer si sposta > LP_MOVE_CANCEL_PX.
- */
 function _bindCardInteractions(card, nb) {
   let pressTimer = null;
   let pressStart = null;
@@ -269,7 +242,6 @@ function _bindCardInteractions(card, nb) {
 
   card.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    // Ignora il click sul pulsante delete
     if (e.target.closest('.delete-nb-btn')) return;
 
     cancelPress();
@@ -305,7 +277,6 @@ function _bindCardInteractions(card, nb) {
   card.addEventListener('click', (e) => {
     if (e.target.closest('.delete-nb-btn')) return;
 
-    // Click di coda del long-press: ignora
     if (skipClickAfterLongPress) {
       skipClickAfterLongPress = false;
       e.preventDefault();
@@ -320,7 +291,6 @@ function _bindCardInteractions(card, nb) {
       return;
     }
 
-    // Click normale → apri notebook
     openNotebook(nb.id);
   });
 }
@@ -335,7 +305,6 @@ export function renderLibraryView() {
     const emptyMsg = document.getElementById('emptyLibraryMessage');
     grid.innerHTML = '';
 
-    // Rimuovi selezioni obsolete
     for (const id of Array.from(selectedNotebookIds)) {
       if (!notebooks.some(n => n.id === id)) selectedNotebookIds.delete(id);
     }
@@ -361,14 +330,12 @@ export function renderLibraryView() {
         card.dataset.nbId = nb.id;
 
         card.innerHTML = `
-          <!-- Pallino selezione (visibile solo in selection-mode) -->
           <div class="selection-dot" aria-hidden="true">
             <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20 6 9 17l-5-5"/>
             </svg>
           </div>
 
-          <!-- Cover -->
           <div class="notebook-cover" style="background-color: ${nb.coverColor || '#4f46e5'};">
             <div class="notebook-spine"></div>
             <div class="notebook-cover-content">
@@ -386,7 +353,6 @@ export function renderLibraryView() {
             </div>
           </div>
 
-          <!-- Azioni hover (nascoste in selection-mode via CSS) -->
           <button class="delete-nb-btn" data-delete-id="${nb.id}" title="Elimina Quaderno">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
@@ -405,7 +371,6 @@ export function renderLibraryView() {
         grid.appendChild(card);
       });
 
-      // Riapplica stato se eravamo in selection mode (es. dopo export)
       if (_selectionMode) {
         _applySelectionStateToCards();
         _updateSelectionBar();
@@ -419,6 +384,116 @@ export function renderLibraryView() {
 // ============================================================
 // AZIONI SELEZIONE (export, delete, select all)
 // ============================================================
+
+function _deepClone(val) {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(val);
+  }
+  if (val === null || typeof val !== 'object') return val;
+  if (ArrayBuffer.isView(val)) {
+    return new val.constructor(val);
+  }
+  if (Array.isArray(val)) {
+    return val.map(_deepClone);
+  }
+  const copy = {};
+  for (const k of Object.keys(val)) {
+    copy[k] = _deepClone(val[k]);
+  }
+  return copy;
+}
+
+function _generateDuplicateTitle(rawTitle, existingTitles) {
+  const trimmed = (rawTitle || 'Senza titolo').trim() || 'Senza titolo';
+  const match = trimmed.match(/^(.*?)\s*\(([2-9]\d*)\)$/);
+
+  let baseTitle = trimmed;
+  let nextNum = 2;
+  if (match && match[1].trim()) {
+    baseTitle = match[1].trim();
+    nextNum = parseInt(match[2], 10) + 1;
+  }
+
+  let candidate = `${baseTitle} (${nextNum})`;
+  while (existingTitles.has(candidate.toLowerCase())) {
+    nextNum++;
+    candidate = `${baseTitle} (${nextNum})`;
+  }
+  return candidate;
+}
+
+async function handleDuplicateSelection() {
+  if (_isDuplicating || selectedNotebookIds.size === 0) return;
+
+  _isDuplicating = true;
+  _updateSelectionBar();
+
+  const ids = Array.from(selectedNotebookIds);
+  try {
+    const allNotebooks = await loadAllNotebooksFromDB();
+    const existingTitles = new Set(
+      allNotebooks.map(n => (n.title || '').trim().toLowerCase())
+    );
+
+    let duplicatedCount = 0;
+    const baseTs = Date.now();
+
+    for (let i = 0; i < ids.length; i++) {
+      const src = await loadNotebookWithPages(ids[i]);
+      if (!src) continue;
+
+      const newTitle = _generateDuplicateTitle(src.title, existingTitles);
+      existingTitles.add(newTitle.toLowerCase());
+
+      const now = new Date().toISOString();
+      const newPages = (src.pages || []).map(p => ({
+        pageId: generatePageId(),
+        strokes: _deepClone(p.strokes || [])
+      }));
+      if (newPages.length === 0) {
+        newPages.push({ pageId: generatePageId(), strokes: [] });
+      }
+      const newPageIds = newPages.map(p => p.pageId);
+
+      const dupNb = {
+        id: `nb_${baseTs}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+        title: newTitle,
+        coverColor: src.coverColor || '#4f46e5',
+        pattern: src.pattern || 'ruled',
+        createdAt: now,
+        updatedAt: now,
+        lastEditAt: now,
+        toolbarSettings: src.toolbarSettings ? _deepClone(src.toolbarSettings) : null,
+        pageOrder: newPageIds.slice(),
+        pages: newPages,
+        lastPageIndex: typeof src.lastPageIndex === 'number'
+          ? Math.min(Math.max(0, src.lastPageIndex), newPages.length - 1)
+          : 0
+      };
+
+      await saveNotebookToDB(dupNb, newPageIds, { saveOrder: true });
+      duplicatedCount++;
+    }
+
+    _exitSelectionMode();
+    renderLibraryView();
+
+    if (duplicatedCount > 0) {
+      showToast(
+        duplicatedCount === 1
+          ? 'Quaderno duplicato'
+          : `${duplicatedCount} quaderni duplicati`,
+        '📄'
+      );
+    }
+  } catch (err) {
+    console.error('[duplicate-selection] failed:', err);
+    showToast('Duplicazione fallita', '❌');
+  } finally {
+    _isDuplicating = false;
+    _updateSelectionBar();
+  }
+}
 
 async function handleExportSelection() {
   if (selectedNotebookIds.size === 0) return;
@@ -441,10 +516,16 @@ async function handleExportSelection() {
 
 async function handleDeleteSelection() {
   if (selectedNotebookIds.size === 0) return;
-  const count = selectedNotebookIds.size;
-  if (!confirm(`Eliminare ${count} quadern${count === 1 ? 'o' : 'i'} e tutte le sue pagine?`)) return;
-
   const ids = Array.from(selectedNotebookIds);
+  const count = ids.length;
+  const confirmed = await showConfirmDialog({
+    title: `Eliminare ${count} quadern${count === 1 ? 'o' : 'i'}?`,
+    message: 'Verranno eliminate definitivamente anche tutte le relative pagine.',
+    confirmText: 'Elimina',
+    danger: true
+  });
+  if (!confirmed) return;
+
   try {
     for (const id of ids) {
       await deleteNotebookFromDB(id);
@@ -519,27 +600,35 @@ export function selectCoverColor(btn) {
 export async function confirmCreateNotebook() {
   const title = document.getElementById('modalNbTitle').value.trim() || 'Nuovo Quaderno';
   const pattern = document.getElementById('modalNbPattern').value;
+  const firstPageId = generatePageId();
   const newNb = {
     id: 'nb_' + Date.now(),
     title, coverColor: selectedCoverColor, pattern,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    pages: [{ pageIndex: 0, strokes: [] }],
+    pageOrder: [firstPageId],
+    pages: [{ pageId: firstPageId, strokes: [] }],
     lastPageIndex: 0
   };
-  await saveNotebookToDB(newNb);
+  await saveNotebookToDB(newNb, [firstPageId], { saveOrder: true });
   closeNewNotebookModal();
   openNotebook(newNb.id);
 }
 
 export async function deleteNotebook(e, id) {
-  if (confirm('Sei sicuro di voler eliminare questo quaderno e tutte le sue pagine?')) {
-    await deleteNotebookFromDB(id);
-    closeNotebookIfOpen(id);
-    selectedNotebookIds.delete(id);
-    renderLibraryView();
-    showToast('Quaderno eliminato', '🗑️');
-  }
+  const confirmed = await showConfirmDialog({
+    title: 'Eliminare questo quaderno?',
+    message: 'Verranno eliminate definitivamente anche tutte le sue pagine.',
+    confirmText: 'Elimina',
+    danger: true
+  });
+  if (!confirmed) return;
+
+  await deleteNotebookFromDB(id);
+  closeNotebookIfOpen(id);
+  selectedNotebookIds.delete(id);
+  renderLibraryView();
+  showToast('Quaderno eliminato', '🗑️');
 }
 
 // ============================================================
@@ -563,7 +652,6 @@ export function bindLibraryUI() {
   document.getElementById('cancelNewNbBtn')
     ?.addEventListener('click', closeNewNotebookModal);
 
-  // Barra selezione
   document.getElementById('selectionDoneBtn')
     ?.addEventListener('click', _exitSelectionMode);
   document.getElementById('selectionSelectAllBtn')
@@ -573,7 +661,9 @@ export function bindLibraryUI() {
   document.getElementById('selectionDeleteBtn')
     ?.addEventListener('click', handleDeleteSelection);
 
-  // Click fuori dalla griglia → esci da selection mode
+  document.getElementById('selectionDuplicateBtn')
+    ?.addEventListener('click', handleDuplicateSelection);
+
   document.addEventListener('pointerdown', (e) => {
     if (!_selectionMode) return;
     if (e.target.closest('.notebook-card')) return;
@@ -596,7 +686,6 @@ export function bindLibraryUI() {
     btn.addEventListener('click', () => selectCoverColor(btn));
   });
 
-  // Esc per uscire dalla selection mode
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && _selectionMode) {
       _exitSelectionMode();

@@ -2,104 +2,6 @@
  * @module features/viewport/gestures
  *
  * GESTURE VIEWPORT — pan (1 dito), pinch (2 dita), wheel, pull-to-add-page.
- *
- * ------------------------------------------------------------------
- * DUE MODALITÀ DI INPUT (state.fingerWriting)
- * ------------------------------------------------------------------
- *   fingerWriting = false (default, "palm rejection"):
- *     - 1 dito  → pan
- *     - 2 dita  → pinch + pan
- *     - penna   → disegna
- *
- *   fingerWriting = true ("scrittura con il dito"):
- *     - 1 dito  → DISEGNA (il gesto pan è soppresso)
- *     - 2 dita  → pinch + pan
- *     - penna   → disegna
- *
- * In fingerWriting, il 2° dito che arriva mentre si sta disegnando
- * col 1° aborta lo stroke (abortCurrentDrawing) e fa partire il pinch.
- * Se il pinch viene rifiutato, NON c'è fallback a 1-finger pan:
- * l'utente deve sollevare il dito e riprovare.
- *
- * ------------------------------------------------------------------
- * PALM REJECTION (state.palmRejection)
- * ------------------------------------------------------------------
- *   Indipendente da fingerWriting, la penna ha priorità sui touch:
- *   - Penna a contatto (_penDown) → blocca qualsiasi touch
- *   - Penna in hover (_penInRange) → blocca qualsiasi touch,
- *     con safety net 800ms per driver che non emettono pointerleave
- *   - Grace post pointerup penna: 150ms
- *   - Grace post pointerleave penna: 500ms
- *   - Tocco con dimensione > PALM_CONTACT_SIZE (60px) → rifiutato
- *     come palmo/nocca, indipendentemente dal resto
- *
- * ------------------------------------------------------------------
- * MOMENTUM
- * ------------------------------------------------------------------
- *   - Qualsiasi pointerdown touch cancella il momentum (prima dei
- *     filtri palm). Il foglio si ferma subito quando l'utente
- *     tocca, e riparte solo se lui muove il dito di nuovo.
- *   - Nessun momentum residuo se il dito resta fermo > 100ms prima
- *     del rilascio (velocity samples scartati).
- *   - In fingerWriting non c'è momentum dopo il drawing (non c'è pan).
- *
- * ------------------------------------------------------------------
- * NUMERO MASSIMO DI TOCCHI
- * ------------------------------------------------------------------
- *   - Pan (solo palm rejection): 1 tocco
- *   - Pinch: 2 tocchi, non di più
- *   - >= 3 tocchi → BLOCCO TOTALE del gesto (rollback posizione,
- *     reset pan/pinch) finché TUTTI i pointer non si alzano
- *   - Durante il blocco, ogni nuovo pointerdown viene ignorato
- *
- * ------------------------------------------------------------------
- * PINCH INTENZIONALE — timing asimmetrico
- * ------------------------------------------------------------------
- * Il pinch parte solo se TUTTE queste condizioni sono vere:
- *
- *   1) Timing del 2° tocco (asimmetrico per evitare falsi negativi
- *      su zoom out e falsi positivi da palmo):
- *        - dita vicine (< 200px, ~5cm) → 350ms
- *          (zoom in: pollice+indice appoggiati in momenti diversi)
- *        - dita larghe (>= 200px)      → 200ms
- *          (zoom out: mano già aperta, appoggi quasi insieme)
- *   2) Dimensione: nessuno dei due tocchi > 60px
- *   3) Distanza iniziale tra 30 e 600px (sanity check)
- *   4) Conferma (entro 250ms):
- *        a) ENTRAMBI i tocchi si spostano di ≥ 10px, OPPURE
- *        b) la distanza tra i due cambia di ≥ 20px
- *
- * Se la conferma non avviene entro 250ms → pinch RIFIUTATO:
- *   - rollback della posizione
- *   - il 2° tocco viene rimosso
- *   - pan riparte col 1° tocco SOLO in modalità palm rejection
- *     (in fingerWriting l'utente deve sollevare e riprovare)
- *
- * ------------------------------------------------------------------
- * PENNA CHE ENTRA IN HOVER DURANTE UN GESTO TOUCH
- * ------------------------------------------------------------------
- * Se la penna entra in hover mentre un pan/pinch è in corso:
- *   - rimuove tutti i touch attivi
- *   - rollback (pan breve < 400ms o pinch non confermato)
- *   - il gesto touch viene annullato
- * Questo copre il caso "palmo appoggiato mentre sto scrivendo".
- *
- * ------------------------------------------------------------------
- * PULL-TO-ADD-PAGE
- * ------------------------------------------------------------------
- *   - Attivo solo in modalità palm rejection (fingerWriting = false),
- *     perché richiede pan a 1 dito partendo dal fondo pagina.
- *   - Soglia 80px. Si alza il dito per aggiungere.
- *
- * ------------------------------------------------------------------
- * WHEEL
- * ------------------------------------------------------------------
- *   - Ctrl+wheel → zoom pivot al cursore
- *   - wheel → pan
- *
- * @see core/types.js
- * @see features/viewport/transform.js
- * @see features/tools/dispatcher.js
  */
 
 import { state, viewport } from '../../core/state.js';
@@ -112,12 +14,22 @@ import {
   clampViewport, invalidateClampCache
 } from './transform.js';
 
+// Rilevamento iPadOS / iOS WebKit (iPadOS 13+ si dichiara MacIntel + maxTouchPoints > 1)
+const _isIOS = typeof navigator !== 'undefined' && (
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+);
+
 // ============================================================
 // COSTANTI — PALM REJECTION
 // ============================================================
 
-/** Dimensione massima (px CSS) di un tocco valido come "dito". */
-const PALM_CONTACT_SIZE = 60;
+/**
+ * Dimensione massima (px CSS) di un tocco valido come "dito".
+ * Su iPadOS WebKit `e.width`/`e.height` = 2 * majorRadius, quindi un dito
+ * appoggiato normalmente supera facilmente 60px; su Surface/Android resta 60.
+ */
+const PALM_CONTACT_SIZE = _isIOS ? 100 : 60;
 
 /** Grace dopo pointerup/pointercancel penna. */
 const PEN_CONTACT_GRACE_MS = 150;
@@ -125,47 +37,25 @@ const PEN_CONTACT_GRACE_MS = 150;
 /** Grace dopo pointerleave penna (palmo che appoggia dopo). */
 const PEN_LEAVE_GRACE_MS = 500;
 
-/**
- * Safety net per driver che non emettono pointerleave affidabile.
- * Se non riceviamo eventi penna per 800ms, consideriamo la penna
- * fuori range e sblocchiamo i touch.
- */
+/** Safety net per driver che non emettono pointerleave affidabile. */
 const PEN_HOVER_TIMEOUT_MS = 800;
 
-/**
- * Finestra (ms) entro cui un pan breve viene annullato se la penna
- * entra in contatto/hover. Pan più lunghi di così sono considerati
- * volontari e non vengono annullati.
- */
+/** Finestra (ms) entro cui un pan breve viene annullato se arriva la penna. */
 const PEN_CANCEL_PAN_WINDOW_MS = 400;
 
 // ============================================================
 // COSTANTI — PINCH
 // ============================================================
 
-/**
- * Timing massimo tra 1° e 2° tocco, ASIMMETRICO in base alla
- * distanza iniziale:
- *   - dita vicine (< PINCH_NEAR_DIST_THRESHOLD) → permissivo
- *     (zoom in: pollice+indice appoggiati in momenti diversi)
- *   - dita larghe (>= soglia) → severo
- *     (zoom out: mano già aperta, appoggi quasi insieme)
- */
 const PINCH_SECOND_TOUCH_MAX_MS_NEAR = 350;
-const PINCH_SECOND_TOUCH_MAX_MS_FAR  = 200;
+const PINCH_SECOND_TOUCH_MAX_MS_FAR  = _isIOS ? 300 : 200;
 const PINCH_NEAR_DIST_THRESHOLD      = 200;
 
-/** Sanity check: distanza iniziale min/max accettabile. */
-const PINCH_MIN_INITIAL_DIST = 30;    // 0.8cm
-const PINCH_MAX_INITIAL_DIST = 600;   // 16cm
+const PINCH_MIN_INITIAL_DIST = 30;
+const PINCH_MAX_INITIAL_DIST = _isIOS ? 850 : 600;
 
-/** Timeout della fase di conferma. */
 const PINCH_CONFIRM_MS = 250;
-
-/** Movimento minimo di ENTRAMBI i tocchi per confermare. */
 const PINCH_CONFIRM_MIN_MOVE_PX = 10;
-
-/** Variazione minima della distanza tra i due per confermare. */
 const PINCH_CONFIRM_MIN_DIST_PX = 20;
 
 // ============================================================
@@ -197,38 +87,22 @@ const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 // STATO MODULO
 // ============================================================
 
-// --- Palm rejection ---
 let _penDown = false;
 let _penInRange = false;
 let _lastPenContactEndTime = 0;
 let _lastPenLeaveTime = 0;
 let _lastPenEventTime = 0;
 
-// --- Blocco gesto (>= 3 tocchi) ---
 let _gestureBlocked = false;
 
-// --- Pan ---
 let _panStartTime = 0;
 let _firstTouchDownTime = 0;
 let _startedAtBottom = false;
 let _scrollDecisionMade = false;
 let _scrollAxisLocked = false;
 
-// --- Pinch ---
-/**
- * @type {null | {
- *   deadline: number,
- *   confirmed: boolean,
- *   secondTouchId: number,
- *   startTransform: {x:number,y:number,scale:number},
- *   startP0: {x:number,y:number},
- *   startP1: {x:number,y:number},
- *   startDist: number
- * }}
- */
 let _pinchConfirm = null;
 
-// --- Momentum ---
 let _momentumRaf = null;
 let _momentumVelX = 0;
 let _momentumVelY = 0;
@@ -387,15 +261,6 @@ function _momentumStep(now) {
 // RESET / ROLLBACK
 // ============================================================
 
-/**
- * Annulla pan/pinch in corso, riporta la vista a uno stato stabile.
- * Usato quando la penna entra in contatto/hover durante un gesto
- * touch, quando arrivano >= 3 tocchi, o quando un pinch viene
- * rifiutato.
- *
- * @param {boolean} rollbackPosition  se true, riporta x/y/scale
- *                                    allo stato pre-gesto
- */
 function _cancelCurrentGesture(rollbackPosition) {
   if (rollbackPosition) {
     if (_pinchConfirm && !_pinchConfirm.confirmed) {
@@ -434,7 +299,28 @@ export function setupViewportGestures() {
     _lastPenLeaveTime = 0;
     _lastPenEventTime = 0;
     _gestureBlocked = false;
+    viewport.activePointers.clear();
+    _cancelCurrentGesture(false);
   });
+
+  // Safety net globale se la penna viene sollevata fuori da #viewport
+  const onGlobalPenEnd = (e) => {
+    if (_isPenEvent(e) && _penDown) {
+      _penDown = false;
+      _lastPenContactEndTime = performance.now();
+    }
+  };
+  window.addEventListener('pointerup', onGlobalPenEnd, { capture: true, passive: true });
+  window.addEventListener('pointercancel', onGlobalPenEnd, { capture: true, passive: true });
+
+  // Safari/iPadOS: blocca zoom/scroll nativo browser su #viewport
+  const preventNativeGesture = (e) => e.preventDefault();
+  viewportEl.addEventListener('gesturestart', preventNativeGesture, { passive: false });
+  viewportEl.addEventListener('gesturechange', preventNativeGesture, { passive: false });
+  viewportEl.addEventListener('gestureend', preventNativeGesture, { passive: false });
+  if (_isIOS) {
+    viewportEl.addEventListener('touchmove', preventNativeGesture, { passive: false });
+  }
 
   // ----------------------------------------------------------
   // PEN TRACKING
@@ -445,9 +331,6 @@ export function setupViewportGestures() {
       _penInRange = true;
       _lastPenEventTime = performance.now();
 
-      // Se c'è un gesto touch in corso, cancellalo.
-      // Scenario tipico: pan attivo (palmo) → arriva la penna →
-      // il pan deve fermarsi immediatamente.
       if (viewport.isPanning || viewport.isPinching) {
         const panDuration = performance.now() - _panStartTime;
         const shouldRollback = viewport.isPinching
@@ -504,7 +387,6 @@ export function setupViewportGestures() {
   // POINTER DOWN
   // ----------------------------------------------------------
   const onPointerDown = (e) => {
-    // ---- PENNA ----
     if (_isPenEvent(e)) {
       _cancelMomentum();
       _resetVelocitySamples();
@@ -530,8 +412,6 @@ export function setupViewportGestures() {
       return;
     }
 
-    // ---- TOCCO ----
-    // Qualunque touch cancella il momentum, prima dei filtri palm.
     _cancelMomentum();
 
     if (state.palmRejection) {
@@ -551,27 +431,19 @@ export function setupViewportGestures() {
 
     const count = viewport.activePointers.size;
 
-    // ---- BLOCCO: 3+ TOCCHI ----
     if (count >= 3) {
       _gestureBlocked = true;
       _cancelCurrentGesture(true);
       return;
     }
 
-    // ---- PRIMO TOCCO ----
     if (count === 1) {
       _firstTouchDownTime = performance.now();
 
-      // FINGER WRITING: 1 dito disegna.
-      // Non impostiamo isPanning e non facciamo setPointerCapture:
-      // il dispatcher della pagina si occuperà del drawing.
-      // Il pointer è già registrato in activePointers (sopra),
-      // così il 2° dito può attivare il pinch.
       if (state.fingerWriting) {
         return;
       }
 
-      // Palm rejection: 1 dito = pan (comportamento originale)
       viewport.isPanning = true;
       viewport.panStart = { x: e.clientX, y: e.clientY };
       viewport.panStartTransform = { x: viewport.x, y: viewport.y };
@@ -586,7 +458,6 @@ export function setupViewportGestures() {
       return;
     }
 
-    // ---- SECONDO TOCCO: TENTA PINCH ----
     if (count === 2) {
       const now = performance.now();
       const timeSinceFirst = now - _firstTouchDownTime;
@@ -595,14 +466,12 @@ export function setupViewportGestures() {
       const p0 = pts[0], p1 = pts[1];
       const initDist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
 
-      // Filtro 1: dimensione (appena arrivato)
       if (state.palmRejection && _isPalmContact(e)) {
         viewport.activePointers.delete(e.pointerId);
         try { viewportEl.releasePointerCapture(e.pointerId); } catch (err) {}
         return;
       }
 
-      // Filtro 2: timing asimmetrico (near vs far)
       const isNearPinch = initDist < PINCH_NEAR_DIST_THRESHOLD;
       const maxTime = isNearPinch
         ? PINCH_SECOND_TOUCH_MAX_MS_NEAR
@@ -613,15 +482,12 @@ export function setupViewportGestures() {
         return;
       }
 
-      // Filtro 3: sanity check distanza iniziale
       if (initDist < PINCH_MIN_INITIAL_DIST || initDist > PINCH_MAX_INITIAL_DIST) {
         viewport.activePointers.delete(e.pointerId);
         try { viewportEl.releasePointerCapture(e.pointerId); } catch (err) {}
         return;
       }
 
-      // Ok, potenziale pinch. Avvia fase di conferma.
-      // Questo abortisce anche l'eventuale stroke in corso (finger writing).
       viewport.isPanning = false;
       viewport.isPinching = true;
       _startedAtBottom = false;
@@ -663,7 +529,6 @@ export function setupViewportGestures() {
       x: e.clientX, y: e.clientY, pointerType: e.pointerType
     });
 
-    // ---- PAN (1 dito, solo palm rejection) ----
     if (viewport.isPanning && viewport.activePointers.size === 1) {
       e.preventDefault();
       _pushVelocitySample(e.clientX, e.clientY);
@@ -714,7 +579,6 @@ export function setupViewportGestures() {
         hidePullIndicator();
       }
 
-    // ---- PINCH (2 dita) ----
     } else if (viewport.isPinching && viewport.activePointers.size === 2) {
       e.preventDefault();
       const pts = Array.from(viewport.activePointers.values());
@@ -726,7 +590,6 @@ export function setupViewportGestures() {
         y: (p0.y + p1.y) / 2
       };
 
-      // ---- Fase di conferma ----
       if (_pinchConfirm && !_pinchConfirm.confirmed) {
         const now = performance.now();
         const moveP0 = Math.hypot(p0.x - _pinchConfirm.startP0.x, p0.y - _pinchConfirm.startP0.y);
@@ -739,7 +602,6 @@ export function setupViewportGestures() {
         if (bothMoved || distChanged) {
           _pinchConfirm.confirmed = true;
         } else if (timeExpired) {
-          // Timeout → RIFIUTA pinch. Rollback.
           viewport.x = _pinchConfirm.startTransform.x;
           viewport.y = _pinchConfirm.startTransform.y;
           viewport.scale = _pinchConfirm.startTransform.scale;
@@ -753,9 +615,6 @@ export function setupViewportGestures() {
           viewport.isPinching = false;
           _firstTouchDownTime = performance.now();
 
-          // Fallback a 1-finger pan: SOLO in modalità palm rejection.
-          // In finger writing, il dito rimasto NON deve pan-are:
-          // l'utente deve sollevare e riprovare (disegno già abortito).
           if (!state.fingerWriting) {
             const entries = Array.from(viewport.activePointers.entries());
             if (entries.length >= 1) {
@@ -770,7 +629,7 @@ export function setupViewportGestures() {
           }
           return;
         } else {
-          return;  // aspetta conferma
+          return;
         }
       }
 
@@ -798,7 +657,6 @@ export function setupViewportGestures() {
 
     viewport.activePointers.delete(e.pointerId);
 
-    // ---- Nessun tocco residuo ----
     if (viewport.activePointers.size === 0) {
       _gestureBlocked = false;
       _firstTouchDownTime = 0;
@@ -856,10 +714,7 @@ export function setupViewportGestures() {
       return;
     }
 
-    // ---- Un tocco residuo ----
     if (viewport.activePointers.size === 1) {
-      // Pinch in conferma e uno sparisce → rollback.
-      // Riparte come pan SOLO in modalità palm rejection.
       if (_pinchConfirm && !_pinchConfirm.confirmed) {
         viewport.x = _pinchConfirm.startTransform.x;
         viewport.y = _pinchConfirm.startTransform.y;
@@ -883,8 +738,6 @@ export function setupViewportGestures() {
         return;
       }
 
-      // Pinch confermato e uno sparisce → fine pinch.
-      // Continua col pan SOLO in modalità palm rejection.
       if (viewport.isPinching) {
         _pinchConfirm = null;
         viewport.isPinching = false;

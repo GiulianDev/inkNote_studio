@@ -3,7 +3,8 @@
  *
  * FEATURE TOOLBAR v2.3 — mainbar + dock contestuali + colori foglio
  *                          + drag&drop mainbar (long-press)
- *                          + stile tratto (solid/dashed/dotted/dash-dot).
+ *                          + stile tratto (solid/dashed/dotted/dash-dot)
+ *                          + toggle sidebar pagine.
  *
  * Interazione mainbar:
  *   - Long-press (450ms) su un .main-menu-btn → drag mode
@@ -90,6 +91,9 @@ export function mountToolbar() {
     if (changed.includes('mainMenuOrder') || changed.includes('mainMenuHidden')) {
       applyMainMenuOrderToUI();
       if (_toolbarMenuOpen) _renderOverflowMenu();
+    }
+    if (changed.includes('theme') || changed.includes('theme.effective')) {
+      applyPageColorsToUI();
     }
   });
 

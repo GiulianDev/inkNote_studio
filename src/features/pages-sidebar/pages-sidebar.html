@@ -1,0 +1,36 @@
+<!-- features/pages-sidebar/pages-sidebar.html
+     Sidebar con thumbnails delle pagine. Markup iniettato via `?raw`.
+     La linguetta (#pagesSidebarTab) è FUORI dalla <aside> così resta
+     visibile anche a sidebar chiusa; si sposta con la sidebar. -->
+<button id="pagesSidebarTab" class="pages-sidebar-tab" title="Mostra pagine" aria-label="Mostra pagine">
+  <svg class="pages-tab-icon-open" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="m9 18 6-6-6-6"/>
+  </svg>
+  <svg class="pages-tab-icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="m15 18-6-6 6-6"/>
+  </svg>
+</button>
+
+<aside id="pagesSidebar" class="pages-sidebar hidden">
+  <div class="pages-sidebar-header">
+    <span class="pages-sidebar-title">Pagine</span>
+    <button id="pagesSidebarAddBtn" class="pages-sidebar-icon-btn" title="Nuova pagina">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"/><path d="M12 5v14"/>
+      </svg>
+    </button>
+    <button id="pagesSidebarCloseBtn" class="pages-sidebar-icon-btn" title="Chiudi sidebar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  <div id="pagesThumbnailsList" class="pages-thumbnails custom-scrollbar">
+    <!-- thumbnails inserite runtime da pages-sidebar.js -->
+  </div>
+</aside>

@@ -3,10 +3,10 @@
  *
  * Serializzazione packed per IDB e history.
  *
- * Novità:
  *   - campo `opacity` per stroke (0.1..1.0), fuori dal packed buffer
+ *   - campo `style` per stroke ('solid' | 'dashed' | 'dashed-large' | 'dotted' | 'dash-dot')
  *   - migrazione soft: highlighter legacy nero → giallo, opacity
- *     undefined → default tool
+ *     undefined → default tool, style undefined → 'solid'
  */
 
 export const PACKED_STRIDE = 7;
@@ -61,6 +61,7 @@ export function packStroke(s) {
     color: s.color,
     size: s.size,
     opacity: s.opacity != null ? s.opacity : 1.0,
+    style: s.style || 'solid',
     packed: buf,
     count: n
   };
@@ -81,8 +82,10 @@ export function unpackStroke(s) {
     opacity = s.tool === 'highlighter' ? HIGHLIGHTER_LEGACY_OPACITY : 1.0;
   }
 
+  const style = s.style || 'solid';
+
   if (!s.packed) {
-    return { tool: s.tool, color, size: s.size, opacity, points: s.points };
+    return { tool: s.tool, color, size: s.size, opacity, style, points: s.points };
   }
 
   const buf = s.packed;
@@ -101,7 +104,7 @@ export function unpackStroke(s) {
     };
   }
 
-  return { tool: s.tool, color, size: s.size, opacity, points: pts };
+  return { tool: s.tool, color, size: s.size, opacity, style, points: pts };
 }
 
 export function packStrokes(strokes) {

@@ -2,26 +2,14 @@
  * @module features/backup/backup-format
  *
  * Container `.inknote` — formato multi-notebook.
- *
- * Struttura:
- *   MAGIC: "INKN" (uint32 BE)
- *   VERSION: uint16 (2 byte)
- *   FLAGS: uint16 (2 byte)
- *   NOTEBOOK_COUNT: uint32
- *   Per ogni notebook:
- *     META_LEN: uint32
- *     META: UTF-8 JSON (include lastEditAt)
- *     PAGE_COUNT: uint32
- *     Per ogni pagina:
- *       PAGE_INDEX: uint32
- *       PAGE_LEN: uint32
- *       PAGE_DATA: bytes (gzip quantizzato)
+ * Supporta lettura v1 (solo pageIndex) e lettura/scrittura v2 (pageOrder con pageId).
  */
 
+import { generatePageId } from '../../core/utils.js';
 import { compressPage, decompressPage } from './serialization-cloud.js';
 
 export const MAGIC = 0x494E4B4E; // "INKN"
-export const VERSION = 1;
+export const VERSION = 2;
 
 export async function serializeBackup(notebooks, onProgress) {
   const chunks = [];
@@ -42,6 +30,13 @@ export async function serializeBackup(notebooks, onProgress) {
   chunks.push(header);
 
   for (const nb of notebooks) {
+    const pageCount = (nb.pages && nb.pages.length) || 0;
+    const pageOrder = new Array(pageCount);
+    for (let i = 0; i < pageCount; i++) {
+      const p = nb.pages[i];
+      pageOrder[i] = (p && p.pageId) || (nb.pageOrder && nb.pageOrder[i]) || generatePageId();
+    }
+
     const meta = {
       id: nb.id,
       title: nb.title || '',
@@ -49,10 +44,9 @@ export async function serializeBackup(notebooks, onProgress) {
       pattern: nb.pattern || 'ruled',
       createdAt: nb.createdAt || new Date().toISOString(),
       updatedAt: nb.updatedAt || new Date().toISOString(),
-      // lastEditAt: ultima scrittura reale. Fallback a updatedAt
-      // per notebook creati prima di questa modifica.
       lastEditAt: nb.lastEditAt || nb.updatedAt || new Date().toISOString(),
-      pageCount: (nb.pages && nb.pages.length) || 0,
+      pageCount,
+      pageOrder,
       lastPageIndex: nb.lastPageIndex || 0,
       toolbarSettings: nb.toolbarSettings || null
     };
@@ -62,7 +56,6 @@ export async function serializeBackup(notebooks, onProgress) {
     const nbDv = new DataView(nbHeader.buffer);
     nbDv.setUint32(0, metaBytes.length, false);
     nbHeader.set(metaBytes, 4);
-    const pageCount = (nb.pages && nb.pages.length) || 0;
     nbDv.setUint32(4 + metaBytes.length, pageCount, false);
     chunks.push(nbHeader);
 
@@ -97,8 +90,8 @@ export async function deserializeBackup(input, onProgress) {
   const magic = dv.getUint32(0, false);
   if (magic !== MAGIC) throw new Error('File non valido (magic mismatch)');
   const version = dv.getUint16(4, false);
-  if (version !== VERSION) {
-    throw new Error(`Versione ${version} non supportata (attesa ${VERSION})`);
+  if (version !== 1 && version !== VERSION) {
+    throw new Error(`Versione ${version} non supportata (attesa <= ${VERSION})`);
   }
   const notebookCount = dv.getUint32(8, false);
 
@@ -106,6 +99,7 @@ export async function deserializeBackup(input, onProgress) {
   const decoder = new TextDecoder();
   const notebooks = [];
   let totalPages = 0;
+
   for (let ni = 0; ni < notebookCount; ni++) {
     if (o + 4 > bytes.length) throw new Error('File troncato (metaLen)');
     const metaLen = dv.getUint32(o, false); o += 4;
@@ -116,7 +110,9 @@ export async function deserializeBackup(input, onProgress) {
     for (let pi = 0; pi < pageCount; pi++) {
       if (o + 8 > bytes.length) throw new Error('File troncato (pageHeader)');
       const pageLen = dv.getUint32(o + 4, false);
-      o += 8 + pageLen;
+      o += 8;
+      if (o + pageLen > bytes.length) throw new Error('File troncato (pageData)');
+      o += pageLen;
     }
   }
 
@@ -127,15 +123,20 @@ export async function deserializeBackup(input, onProgress) {
     const metaBytes = bytes.slice(o, o + metaLen); o += metaLen;
     const meta = JSON.parse(decoder.decode(metaBytes));
 
+    const order = Array.isArray(meta.pageOrder) ? meta.pageOrder : [];
     const pageCount = dv.getUint32(o, false); o += 4;
     const pages = [];
+    const normalizedOrder = [];
 
     for (let pi = 0; pi < pageCount; pi++) {
-      const pageIndex = dv.getUint32(o, false); o += 4;
+      o += 4;
       const pageLen = dv.getUint32(o, false); o += 4;
       const compressed = bytes.slice(o, o + pageLen); o += pageLen;
       const strokes = await decompressPage(compressed);
-      pages.push({ pageIndex, strokes });
+
+      const pageId = (order[pi] && typeof order[pi] === 'string') ? order[pi] : generatePageId();
+      normalizedOrder.push(pageId);
+      pages.push({ pageId, strokes });
 
       donePages++;
       if (onProgress) {
@@ -143,7 +144,12 @@ export async function deserializeBackup(input, onProgress) {
       }
     }
 
-    notebooks.push({ ...meta, pages });
+    notebooks.push({
+      ...meta,
+      pageOrder: normalizedOrder,
+      pageCount: normalizedOrder.length,
+      pages
+    });
   }
 
   return { notebooks };
@@ -158,7 +164,7 @@ export async function peekBackup(input) {
   const magic = dv.getUint32(0, false);
   if (magic !== MAGIC) throw new Error('File non valido (magic mismatch)');
   const version = dv.getUint16(4, false);
-  if (version !== VERSION) {
+  if (version !== 1 && version !== VERSION) {
     throw new Error(`Versione ${version} non supportata`);
   }
   const notebookCount = dv.getUint32(8, false);
@@ -170,6 +176,7 @@ export async function peekBackup(input) {
   for (let ni = 0; ni < notebookCount; ni++) {
     if (o + 4 > bytes.length) throw new Error('File troncato (metaLen)');
     const metaLen = dv.getUint32(o, false); o += 4;
+    if (o + metaLen + 4 > bytes.length) throw new Error('File troncato (meta)');
     const metaBytes = bytes.slice(o, o + metaLen); o += metaLen;
     const meta = JSON.parse(decoder.decode(metaBytes));
 
@@ -180,6 +187,7 @@ export async function peekBackup(input) {
       if (o + 8 > bytes.length) throw new Error('File troncato (pageHeader)');
       o += 4;
       const pageLen = dv.getUint32(o, false); o += 4;
+      if (o + pageLen > bytes.length) throw new Error('File troncato (pageData)');
       o += pageLen;
     }
   }

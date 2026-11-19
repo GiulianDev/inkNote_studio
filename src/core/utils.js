@@ -7,6 +7,13 @@ export const PAGE_HEIGHT = 1123;
 export const PULL_THRESHOLD = 80;
 export const SHAPE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
 
+export function generatePageId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return 'pg_' + crypto.randomUUID();
+  }
+  return 'pg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+}
+
 export function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -41,11 +48,6 @@ const _baseSizeCache = { raw: -1, size: 0 };
 export function sliderToBaseSize(rawSliderValue) {
   const v = Math.max(1, Math.min(25, rawSliderValue || 3));
   if (_baseSizeCache.raw === v) return _baseSizeCache.size;
-  // Mappatura: più granularità nella parte bassa dello slider.
-  //   v=1 → size(1)    (invariato)
-  //   v=2 → size(1.5)  (nuovo livello intermedio)
-  //   v=3 → size(2)    (ex size del 2)
-  //   v>=4 → size(v)   (invariato)
   let mapped;
   if (v === 1) mapped = 1;
   else if (v === 2) mapped = 1.5;
@@ -57,8 +59,6 @@ export function sliderToBaseSize(rawSliderValue) {
   return s;
 }
 
-// Distanza euclidea 2D veloce. Math.hypot in V8 è 2-4× più lento
-// per gestire overflow/NaN che qui non servono (coordinate < 10000).
 export function fastHypot(dx, dy) {
   return Math.sqrt(dx * dx + dy * dy);
 }
@@ -88,4 +88,66 @@ export function showToast(msg, icon = 'ℹ️') {
 export function showStatusBadge(txt) {
   const el = document.getElementById('statusBadge');
   if (el) el.innerText = txt;
+}
+
+export function showConfirmDialog({
+  title = 'Conferma',
+  message = '',
+  confirmText = 'Conferma',
+  cancelText = 'Annulla',
+  danger = false
+} = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    const confirmClasses = danger
+      ? 'bg-rose-600 hover:bg-rose-700 text-white'
+      : 'bg-indigo-600 hover:bg-indigo-700 text-white';
+
+    overlay.innerHTML = `
+      <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 p-5">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(title)}</h3>
+        ${message ? `<p class="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed">${escapeHtml(message)}</p>` : ''}
+        <div class="flex items-center justify-end gap-2 mt-5">
+          <button type="button" data-confirm-cancel style="touch-action: manipulation;"
+            class="px-3.5 py-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs transition cursor-pointer">
+            ${escapeHtml(cancelText)}
+          </button>
+          <button type="button" data-confirm-ok style="touch-action: manipulation;"
+            class="px-3.5 py-2 rounded-xl font-semibold text-xs shadow-sm transition cursor-pointer ${confirmClasses}">
+            ${escapeHtml(confirmText)}
+          </button>
+        </div>
+      </div>
+    `;
+
+    let closed = false;
+    const close = (result) => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKeyDown, true);
+      overlay.remove();
+      resolve(result);
+    };
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        close(false);
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close(false);
+    });
+    overlay.querySelector('[data-confirm-cancel]')?.addEventListener('click', () => close(false));
+    overlay.querySelector('[data-confirm-ok]')?.addEventListener('click', () => close(true));
+
+    document.body.appendChild(overlay);
+  });
 }

@@ -1,47 +1,34 @@
 /**
  * @module features/history
  *
- * UNDO / REDO — snapshot per-pagina, debounced 800ms.
- *
- * Batch A:
- *   - maxSteps 10 (era 20): dimezza la memoria live (≈16 MB vs 32 MB
- *     su pagina piena), riducendo la pressione sul GC.
- *   - Debounce 800ms (era 500): disaccoppia temporalmente history e
- *     autosave, evitando che i due picchi di allocazione si sommino.
- *   - Il "cap" a 3s della scrittura continua NON è più sincrono: viene
- *     rimandato a requestIdleCallback. Se scrivi per 10s di fila, il
- *     primo snapshot avviene a ~3s in idle, poi di nuovo a ~6s, ecc.
- *     Nessun blocco del typing.
- *
- * Meccanica invariata per il resto.
- *
- * Emette: `history:restore` con lo snapshot (ascoltato da pages.js).
- *
- * @see core/types.js  — Snapshot
- * @see features/persistence/autosave.js  — scheduleSave al restore
+ * UNDO / REDO — snapshot per-pagina (identificati da pageId), debounced 800ms.
  */
 
 import { state } from '../../core/state.js';
 import { emit } from '../../core/utils.js';
 import { scheduleSave } from '../persistence/autosave.js';
 
-// Batch A: maxSteps 20 → 10.
-// Stima memoria: 10 snapshot × 500 stroke × 100 punti × ~88 byte
-// ≈ 44 MB (worst case). Il precedente era ~88 MB. Con device deboli
-// (Surface Go 1) ogni MB risparmiato allunga l'intervallo tra major GC.
 const historyState = { stack: [], index: -1, maxSteps: 10, isRestoring: false };
 
-// Batch A: 500 → 800 ms. Disaccoppia da autosave (500 ms).
 const HISTORY_DEBOUNCE_MS = 800;
-
-// Cap scrittura continua: oltre questo tempo dall'inizio del batch,
-// forza uno snapshot asincrono (in idle) invece di aspettare che il
-// debounce scatti (che non scatterebbe mai in scrittura continua).
 const MAX_CONTINUOUS_DRAW_MS = 3000;
 
 let _pushHistoryTimer = null;
+let _idlePushId = null;
+let _idlePushIsRic = false;
 let _lastSnapshotTime = 0;
 let _batchStartTime = 0;
+
+function _cancelIdlePush() {
+  if (_idlePushId === null) return;
+  if (_idlePushIsRic && typeof cancelIdleCallback === 'function') {
+    cancelIdleCallback(_idlePushId);
+  } else {
+    clearTimeout(_idlePushId);
+  }
+  _idlePushId = null;
+  _idlePushIsRic = false;
+}
 
 function cloneStrokeFast(s) {
   const pts = s.points;
@@ -61,17 +48,24 @@ function cloneStrokeFast(s) {
     tool: s.tool,
     color: s.color,
     size: s.size,
+    opacity: s.opacity != null ? s.opacity : 1.0,
+    style: s.style || 'solid',
     points: clonedPts
   };
+}
+
+function _hashString(h, str) {
+  for (let j = 0; j < str.length; j++) {
+    h = ((h * 31) + str.charCodeAt(j)) | 0;
+  }
+  return h;
 }
 
 function _computeStateHash() {
   const page = state.pages[state.activePageIndex];
   const pattern = state.bgPattern || '';
   if (!page) {
-    let h = -1;
-    for (let j = 0; j < pattern.length; j++) h = ((h * 31) + pattern.charCodeAt(j)) | 0;
-    return h | 0;
+    return _hashString(-1, pattern) | 0;
   }
   const strokes = page.strokes;
   let h = strokes.length | 0;
@@ -79,8 +73,9 @@ function _computeStateHash() {
     const s = strokes[i];
     h = ((h * 31) + (s.points.length | 0)) | 0;
     h = ((h * 31) + (s.size | 0)) | 0;
-    const c = s.color || '#000000';
-    for (let j = 0; j < c.length; j++) h = ((h * 31) + c.charCodeAt(j)) | 0;
+    h = ((h * 31) + (((s.opacity != null ? s.opacity : 1.0) * 1000) | 0)) | 0;
+    h = _hashString(h, s.style || 'solid');
+    h = _hashString(h, s.color || '#000000');
     const first = s.points[0];
     const last = s.points[s.points.length - 1];
     if (first) {
@@ -92,7 +87,7 @@ function _computeStateHash() {
       h = ((h * 31) + ((last.y * 100) | 0)) | 0;
     }
   }
-  for (let j = 0; j < pattern.length; j++) h = ((h * 31) + pattern.charCodeAt(j)) | 0;
+  h = _hashString(h, pattern);
   return h | 0;
 }
 
@@ -101,6 +96,7 @@ function captureSnapshot() {
   if (!page) return null;
   const strokesClone = page.strokes.map(cloneStrokeFast);
   return {
+    pageId: page.pageId,
     pageIndex: state.activePageIndex,
     strokes: strokesClone,
     bgPattern: state.bgPattern
@@ -118,7 +114,6 @@ export function pushHistory() {
   const forceNow = elapsed > MAX_CONTINUOUS_DRAW_MS;
 
   if (forceNow) {
-    // Batch A: niente più snapshot sincrono. Rimanda a idle.
     _pushHistoryTimer = null;
     _batchStartTime = 0;
     _scheduleIdlePush();
@@ -133,11 +128,18 @@ export function pushHistory() {
 }
 
 function _scheduleIdlePush() {
-  const run = () => _doPushHistory();
+  _cancelIdlePush();
+  const run = () => {
+    _idlePushId = null;
+    _idlePushIsRic = false;
+    _doPushHistory();
+  };
   if ('requestIdleCallback' in window) {
-    requestIdleCallback(run, { timeout: 2000 });
+    _idlePushIsRic = true;
+    _idlePushId = requestIdleCallback(run, { timeout: 2000 });
   } else {
-    setTimeout(run, 0);
+    _idlePushIsRic = false;
+    _idlePushId = setTimeout(run, 0);
   }
 }
 
@@ -166,16 +168,21 @@ function _doPushHistory() {
 }
 
 export function flushHistory() {
+  const hadPending = _pushHistoryTimer !== null || _idlePushId !== null;
   if (_pushHistoryTimer) {
     clearTimeout(_pushHistoryTimer);
     _pushHistoryTimer = null;
-    _batchStartTime = 0;
+  }
+  _cancelIdlePush();
+  _batchStartTime = 0;
+  if (hadPending) {
     _doPushHistory();
   }
 }
 
 export function resetHistory() {
   if (_pushHistoryTimer) { clearTimeout(_pushHistoryTimer); _pushHistoryTimer = null; }
+  _cancelIdlePush();
   _batchStartTime = 0;
   historyState.stack = [];
   historyState.index = -1;
@@ -204,7 +211,15 @@ export function redo() {
 
 function _applySnapshot(snap) {
   if (!snap) return;
-  if (snap.pageIndex !== state.activePageIndex) { resetHistory(); return; }
+  const activePage = state.pages[state.activePageIndex];
+  const matchesPage = activePage && (
+    snap.pageId ? snap.pageId === activePage.pageId : snap.pageIndex === state.activePageIndex
+  );
+  if (!matchesPage) {
+    resetHistory();
+    return;
+  }
+
   historyState.isRestoring = true;
 
   state.pendingShape = null;
@@ -217,12 +232,10 @@ function _applySnapshot(snap) {
   state.isDraggingSelection = false;
   state.dragStartPoint = null;
   state.selectionMoved = false;
-  document.getElementById('selectionMenu').classList.add('hidden');
+  document.getElementById('selectionMenu')?.classList.add('hidden');
 
   if (snap.bgPattern) {
     state.bgPattern = snap.bgPattern;
-    const sel = document.getElementById('bgPatternSelect');
-    if (sel) sel.value = snap.bgPattern;
   }
 
   emit('history:restore', snap);

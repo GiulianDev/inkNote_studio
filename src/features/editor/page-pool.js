@@ -15,7 +15,11 @@ const POOL_SIZE = 5;
 const POOL_RADIUS = 2;
 const MAX_RENDER_DPR = 4;
 const MAX_ZOOM_DPR_BOOST = 1.3;
-const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+const _isIOS = typeof navigator !== 'undefined' && (
+  /iPad|iPhone|iPod/.test(navigator.userAgent || '') ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+);
+const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, _isIOS ? 2 : 1.5);
 
 class PageSlot {
   constructor() {
@@ -38,12 +42,6 @@ class PageRendererPool {
     this._lru = this.slots.slice();
   }
 
-  /**
-   * Pulisce esplicitamente i canvas dello slot (main + overlay)
-   * e resetta lo stile CSS dell'overlay. Chiamato da reset() e
-   * _releaseSlot(): senza, il contenuto precedente resta visibile
-   * quando lo slot viene riassegnato a una pagina diversa.
-   */
   _clearSlotCanvas(slot) {
     try {
       slot.ctx.save();
@@ -163,10 +161,6 @@ class PageRendererPool {
       if (existing) {
         if (force) {
           _resizeSlot(existing, state.pages[i]);
-          redrawPageCanvas(state.pages[i]);
-          if (i === state.activePageIndex && state.selectedStrokes.length > 0) {
-            redrawSelectionOverlay(state.pages[i]);
-          }
         }
         continue;
       }

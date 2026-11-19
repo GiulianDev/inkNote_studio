@@ -17,12 +17,12 @@ import { scheduleSave } from '../persistence/autosave.js';
 // ------------------------------------------------------------
 // Soglie rilevamento linea retta
 // ------------------------------------------------------------
-const LINE_MIN_CHORD_LEN     = 60;
-const LINE_MIN_PATH_RATIO    = 0.965;
-const LINE_MAX_RMS_BASE      = 1.0;
-const LINE_MAX_RMS_FACTOR    = 0.010;
-const LINE_MAX_COS_CONSISTENCY = 0.85;
-const LINE_SIGN_HYSTERESIS   = 1.5;
+const LINE_MIN_CHORD_LEN       = 50;
+const LINE_MIN_PATH_RATIO      = 0.94;
+const LINE_MAX_RMS_BASE        = 2.5;
+const LINE_MAX_RMS_FACTOR      = 0.020;
+const LINE_MAX_COS_CONSISTENCY = 0.75;
+const LINE_SIGN_HYSTERESIS     = 2.5;
 
 const LINE_ANGLE_ENGAGE_DEG  = 4;
 const LINE_ANGLE_RELEASE_DEG = 8;
@@ -93,7 +93,7 @@ function countPerpSignChanges(points, A, B, hysteresis) {
 }
 
 function maxSignChangesForChord(chordLen) {
-  return Math.max(2, Math.floor(chordLen / 100));
+  return Math.max(3, Math.floor(chordLen / 80));
 }
 
 function validateLineShape(pts, startPt, endPt, chordLen) {
@@ -105,17 +105,19 @@ function validateLineShape(pts, startPt, endPt, chordLen) {
   if (signChanges > maxSignChangesForChord(chordLen)) return false;
 
   if (pts.length >= 3) {
-    const a = pts[pts.length - 3], b = pts[pts.length - 2], c = pts[pts.length - 1];
-    const v1x = b.x - a.x, v1y = b.y - a.y, v2x = c.x - b.x, v2y = c.y - b.y;
-    const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
-    if (l1 > 0.5 && l2 > 0.5) {
+    const tip = pts[pts.length - 1];
+    const tailWindow = Math.min(18, chordLen * 0.25);
+    let tailIdx = pts.length - 2;
+    while (tailIdx > 0 && Math.hypot(tip.x - pts[tailIdx].x, tip.y - pts[tailIdx].y) < tailWindow) {
+      tailIdx--;
+    }
+    const tailBase = pts[tailIdx];
+    const tailDx = tip.x - tailBase.x, tailDy = tip.y - tailBase.y;
+    const tailLen = Math.hypot(tailDx, tailDy);
+    if (tailLen >= 8 && chordLen > 0) {
       const chordDx = endPt.x - startPt.x, chordDy = endPt.y - startPt.y;
-      const chordL = Math.hypot(chordDx, chordDy);
-      if (chordL > 0) {
-        const cos1 = (v1x * chordDx + v1y * chordDy) / (l1 * chordL);
-        const cos2 = (v2x * chordDx + v2y * chordDy) / (l2 * chordL);
-        if (cos1 < LINE_MAX_COS_CONSISTENCY || cos2 < LINE_MAX_COS_CONSISTENCY) return false;
-      }
+      const cosTail = (tailDx * chordDx + tailDy * chordDy) / (tailLen * chordLen);
+      if (cosTail < LINE_MAX_COS_CONSISTENCY) return false;
     }
   }
   return true;
@@ -150,7 +152,7 @@ export function trySnapToLineDuringDraw(pageData, currentPoint) {
   const stroke = state.currentStroke;
   if (!stroke) return false;
   const pts = stroke.points;
-  if (pts.length < 6) return false;
+  if (pts.length < 4) return false;
   const startPt = pts[0], endPt = currentPoint;
   const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
   if (chordLen < LINE_MIN_CHORD_LEN) return false;
@@ -179,7 +181,7 @@ export function trySnapToLineDuringDraw(pageData, currentPoint) {
     color: stroke.color,
     size: stroke.size,
     opacity: stroke.opacity != null ? stroke.opacity : 1.0,
-    style: stroke.style || 'solid',        // ← AGGIUNTA
+    style: stroke.style || 'solid',
     activeHandle: 'end',
     pageIndex: pageData.index,
     _snapAxis: snapRes.axis,
@@ -197,7 +199,7 @@ export function trySnapToLineDuringDraw(pageData, currentPoint) {
 // ------------------------------------------------------------
 export function trySnapToLine(stroke) {
   const pts = stroke.points;
-  if (pts.length < 6) return false;
+  if (pts.length < 4) return false;
   const startPt = pts[0], endPt = pts[pts.length - 1];
   const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
   if (chordLen < LINE_MIN_CHORD_LEN) return false;
