@@ -3,9 +3,7 @@
 // ============================================================
 
 import { escapeHtml, showToast, showConfirmDialog, on, generatePageId } from '../../core/utils.js';
-import {
-  loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB
-} from '../../services/db.js';
+import { loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB, loadNotebookWithPages } from '../../services/db.js';
 import {
   signInWithGoogle, signOutGoogle, onAuthChange
 } from '../../services/firebase.js';
@@ -19,6 +17,7 @@ import { showProgressDialog } from '../backup/backup-progress.js';
 let selectedCoverColor = '#4f46e5';
 
 let _selectionMode = false;
+let _isDuplicating = false;
 const selectedNotebookIds = new Set();
 
 const LP_PRESS_MS = 500;
@@ -206,8 +205,10 @@ function _updateSelectionBar() {
   const countEl = document.getElementById('selectionCount');
   if (countEl) countEl.textContent = `${count} selezionat${count === 1 ? 'o' : 'i'}`;
 
+  const duplicateBtn = document.getElementById('selectionDuplicateBtn');
   const exportBtn = document.getElementById('selectionExportBtn');
   const deleteBtn = document.getElementById('selectionDeleteBtn');
+  if (duplicateBtn) duplicateBtn.disabled = count === 0 || _isDuplicating;
   if (exportBtn) exportBtn.disabled = count === 0;
   if (deleteBtn) deleteBtn.disabled = count === 0;
 }
@@ -384,6 +385,116 @@ export function renderLibraryView() {
 // AZIONI SELEZIONE (export, delete, select all)
 // ============================================================
 
+function _deepClone(val) {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(val);
+  }
+  if (val === null || typeof val !== 'object') return val;
+  if (ArrayBuffer.isView(val)) {
+    return new val.constructor(val);
+  }
+  if (Array.isArray(val)) {
+    return val.map(_deepClone);
+  }
+  const copy = {};
+  for (const k of Object.keys(val)) {
+    copy[k] = _deepClone(val[k]);
+  }
+  return copy;
+}
+
+function _generateDuplicateTitle(rawTitle, existingTitles) {
+  const trimmed = (rawTitle || 'Senza titolo').trim() || 'Senza titolo';
+  const match = trimmed.match(/^(.*?)\s*\(([2-9]\d*)\)$/);
+
+  let baseTitle = trimmed;
+  let nextNum = 2;
+  if (match && match[1].trim()) {
+    baseTitle = match[1].trim();
+    nextNum = parseInt(match[2], 10) + 1;
+  }
+
+  let candidate = `${baseTitle} (${nextNum})`;
+  while (existingTitles.has(candidate.toLowerCase())) {
+    nextNum++;
+    candidate = `${baseTitle} (${nextNum})`;
+  }
+  return candidate;
+}
+
+async function handleDuplicateSelection() {
+  if (_isDuplicating || selectedNotebookIds.size === 0) return;
+
+  _isDuplicating = true;
+  _updateSelectionBar();
+
+  const ids = Array.from(selectedNotebookIds);
+  try {
+    const allNotebooks = await loadAllNotebooksFromDB();
+    const existingTitles = new Set(
+      allNotebooks.map(n => (n.title || '').trim().toLowerCase())
+    );
+
+    let duplicatedCount = 0;
+    const baseTs = Date.now();
+
+    for (let i = 0; i < ids.length; i++) {
+      const src = await loadNotebookWithPages(ids[i]);
+      if (!src) continue;
+
+      const newTitle = _generateDuplicateTitle(src.title, existingTitles);
+      existingTitles.add(newTitle.toLowerCase());
+
+      const now = new Date().toISOString();
+      const newPages = (src.pages || []).map(p => ({
+        pageId: generatePageId(),
+        strokes: _deepClone(p.strokes || [])
+      }));
+      if (newPages.length === 0) {
+        newPages.push({ pageId: generatePageId(), strokes: [] });
+      }
+      const newPageIds = newPages.map(p => p.pageId);
+
+      const dupNb = {
+        id: `nb_${baseTs}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+        title: newTitle,
+        coverColor: src.coverColor || '#4f46e5',
+        pattern: src.pattern || 'ruled',
+        createdAt: now,
+        updatedAt: now,
+        lastEditAt: now,
+        toolbarSettings: src.toolbarSettings ? _deepClone(src.toolbarSettings) : null,
+        pageOrder: newPageIds.slice(),
+        pages: newPages,
+        lastPageIndex: typeof src.lastPageIndex === 'number'
+          ? Math.min(Math.max(0, src.lastPageIndex), newPages.length - 1)
+          : 0
+      };
+
+      await saveNotebookToDB(dupNb, newPageIds, { saveOrder: true });
+      duplicatedCount++;
+    }
+
+    _exitSelectionMode();
+    renderLibraryView();
+
+    if (duplicatedCount > 0) {
+      showToast(
+        duplicatedCount === 1
+          ? 'Quaderno duplicato'
+          : `${duplicatedCount} quaderni duplicati`,
+        '📄'
+      );
+    }
+  } catch (err) {
+    console.error('[duplicate-selection] failed:', err);
+    showToast('Duplicazione fallita', '❌');
+  } finally {
+    _isDuplicating = false;
+    _updateSelectionBar();
+  }
+}
+
 async function handleExportSelection() {
   if (selectedNotebookIds.size === 0) return;
   const ids = Array.from(selectedNotebookIds);
@@ -549,6 +660,9 @@ export function bindLibraryUI() {
     ?.addEventListener('click', handleExportSelection);
   document.getElementById('selectionDeleteBtn')
     ?.addEventListener('click', handleDeleteSelection);
+
+  document.getElementById('selectionDuplicateBtn')
+    ?.addEventListener('click', handleDuplicateSelection);
 
   document.addEventListener('pointerdown', (e) => {
     if (!_selectionMode) return;
