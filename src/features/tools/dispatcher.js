@@ -155,7 +155,7 @@ export function handlePointerMove(e, pageData) {
   if (viewport.isPanning || viewport.isPinching) return;
 
   // Fix A.1: ignora hover durante stroke attivo
-  if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0) return;
+  if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0 && !(e.pressure > 0)) return;
 
   if (!state.isDrawing && state.activeTool === 'lasso' && e.pointerType !== 'touch') {
     updateCursorForSelection(e, pageData);
