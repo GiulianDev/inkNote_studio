@@ -11,7 +11,7 @@
 
 import { state, viewport } from '../../core/state.js';
 import {
-  PAGE_WIDTH, PAGE_HEIGHT, showToast, on, generatePageId
+  PAGE_WIDTH, PAGE_HEIGHT, showToast, showConfirmDialog, on, generatePageId
 } from '../../core/utils.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
 import { attachPointerListeners } from '../tools/dispatcher.js';
@@ -270,16 +270,33 @@ export function changeBackgroundPattern(pattern) {
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
 }
 
-export function clearCurrentPage() {
-  const page = state.pages[state.activePageIndex];
+export async function clearCurrentPage() {
+  const initialPage = state.pages[state.activePageIndex];
+  if (!initialPage || initialPage.strokes.length === 0) return;
+
+  const targetPageId = initialPage.pageId;
+  const confirmed = await showConfirmDialog({
+    title: 'Pulisci pagina',
+    message: 'Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Annulla (Ctrl+Z).',
+    confirmText: 'Pulisci',
+    cancelText: 'Annulla',
+    danger: true
+  });
+  if (!confirmed) return;
+
+  const page = state.pages.find(p => p.pageId === targetPageId);
   if (!page || page.strokes.length === 0) return;
-  if (!confirm('Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Ctrl+Z.')) return;
-  if (state.selectedStrokes.length > 0) clearSelection();
+
+  const isActive = page.index === state.activePageIndex;
+  if (isActive) {
+    if (state.pendingShape) state.pendingShape = null;
+    if (state.selectedStrokes.length > 0) clearSelection();
+  }
   page.strokes = [];
   if (page.canvas) redrawPageCanvas(page);
   markPageDirty(page.pageId);
   scheduleSave({ markDirty: false });
-  pushHistory();
+  if (isActive) pushHistory();
   showToast('Pagina pulita', '🧹');
 
   window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
