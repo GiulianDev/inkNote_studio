@@ -2,18 +2,6 @@
  * @module features/tools/ink
  *
  * TOOL INK — pen / pencil / marker / highlighter unificati.
- *
- * Split auto-shape (v2):
- *   - snapLines  → trySnapToLine (linee dritte)
- *   - snapShapes → detectAndSnapShape (cerchio/rettangolo),
- *                  trySnapHighlighter (evidenziatore raddrizzato)
- *
- * Differenze per tool al blit:
- *   - pen/marker: source-over, alpha = stroke.opacity
- *   - pencil: source-over, alpha = stroke.opacity, ma il colore ha
- *     già alpha interna 0.55 per la grana (applicata in getStrokeStyle)
- *   - highlighter: multiply (light) / screen (dark), alpha = stroke.opacity
- *     + jitter perpendicolare applicato ai punti
  */
 
 import { state } from '../../core/state.js';
@@ -32,17 +20,24 @@ import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import {
   getCanvasCoords, getCanvasRect, pushPointsToBatch, scheduleFlush,
-  isPredictionSupported, drawPredictions
+  isPredictionSupported, drawPredictions, clearLineHoldTimer
 } from './tool-shared.js';
 
+const LINE_HOLD_RELEASE_MIN_MS = 180;
+
 export function beginInkStroke(point) {
+  clearLineHoldTimer();
+  const now = performance.now();
   state.currentStroke = {
     tool: state.activeTool,
     color: state.currentColor,
     size: state.strokeWidth,
     opacity: state.currentOpacity != null ? state.currentOpacity : 1.0,
     style: state.currentStyle || 'solid',
-    startTime: performance.now(),
+    startTime: now,
+    _lastMoveTime: now,
+    _holdAnchorX: point.x,
+    _holdAnchorY: point.y,
     _drawnIdx: 0,
     _lastSnapCheck: 0,
     points: [{
@@ -90,6 +85,8 @@ export function moveInkStroke(pageData, e) {
 }
 
 export function endInkStroke(pageData) {
+  clearLineHoldTimer();
+
   if (!pageData || !pageData.canvas) {
     state.currentStroke = null;
     return 'aborted';
@@ -117,16 +114,14 @@ export function endInkStroke(pageData) {
   let snapped = false;
   if (pts.length > 2) {
     if (state.activeTool === 'highlighter') {
-      // Highlighter: solo snapShapes (raddrizzamento rettangoli).
+      // Highlighter: invariato (solo snapShapes).
       if (state.snapShapes && trySnapHighlighter(stroke)) {
         showToast('Evidenziatore raddrizzato', '🖍️');
         snapped = true;
       }
     } else if (SHAPE_CAPABLE_TOOLS.includes(state.activeTool)) {
-      // Pen/pencil/marker: prima linee, poi forme geometriche.
-      // Ordine: una linea retta non deve essere interpretata come
-      // "rettangolo degenere"; per questo linee vengono controllate prima.
-      if (state.snapLines && trySnapToLine(stroke)) {
+      const heldMs = performance.now() - (stroke._lastMoveTime || stroke.startTime || 0);
+      if (state.snapLines && heldMs >= LINE_HOLD_RELEASE_MIN_MS && trySnapToLine(stroke)) {
         showToast('Linea agganciata', '📏');
         snapped = true;
       } else if (state.snapShapes && detectAndSnapShape(stroke, pageData)) {
@@ -143,15 +138,7 @@ export function endInkStroke(pageData) {
   return 'ink';
 }
 
-/**
- * Render finale. Unificato per tutti i tool:
- *   - snapped / dot / (pencil): redraw completo sulla main
- *   - altrimenti: blit bbox-based (alpha+compositeOp per tool)
- */
 function _renderFinalStroke(pageData, stroke, snapped) {
-  // Reset CSS preview sull'overlay: durante lo stroke _renderBatchTarget
-  // ha impostato opacity/mixBlendMode, e va pulito prima di scrivere
-  // la versione definitiva sulla main canvas.
   if (pageData.overlayCanvas) {
     pageData.overlayCanvas.style.opacity = '';
     pageData.overlayCanvas.style.mixBlendMode = '';
@@ -162,8 +149,6 @@ function _renderFinalStroke(pageData, stroke, snapped) {
     ? Math.max(24, (stroke.size * 2) + 8)
     : 24;
 
-  // Ridisegno completo sulla main (path nuovo o singolo punto o pencil).
-  // renderFullStroke applica globalAlpha = opacity (pen/marker/pencil).
   if (snapped || stroke.points.length === 1 || stroke.tool === 'pencil') {
     const pctx = pageData.ctx, dpr = pageData.dpr || 1;
     pctx.save();
@@ -178,8 +163,6 @@ function _renderFinalStroke(pageData, stroke, snapped) {
     return;
   }
 
-  // Blit bbox-based. blitAndClearBBox applica alpha al blit e resetta
-  // CSS overlay a fine operazione.
   const bbox = getStrokeBBoxCanvas(stroke, pad);
   const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
   if (isHL) {
