@@ -91,6 +91,7 @@ body.pages-sidebar-right.pages-sidebar-open .pages-sidebar-tab .pages-tab-icon-c
   flex-direction: column;
   background: #f8fafc;
   border-right: 1px solid #e2e8f0;
+  touch-action: pan-y;
   animation: pagesSidebarIn 0.15s ease-out;
 }
 
@@ -150,6 +151,7 @@ body.dark .pages-sidebar-icon-btn:hover { background: #1e293b; color: #f1f5f9; }
 .pages-thumbnails,
 #pagesThumbnailsList.pages-thumbnails.hcg-sortable {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px;
@@ -161,7 +163,7 @@ body.dark .pages-sidebar-icon-btn:hover { background: #1e293b; color: #f1f5f9; }
   touch-action: pan-y;
 }
 
-/* Neutralizza `* { touch-action: none }` su tutti i discendenti scrollabili delle thumbnail */
+/* Neutralizza eventuali override sui discendenti scrollabili delle thumbnail */
 #pagesThumbnailsList * {
   touch-action: pan-y;
 }
@@ -177,6 +179,7 @@ body.dark .pages-sidebar-icon-btn:hover { background: #1e293b; color: #f1f5f9; }
   position: relative;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   align-items: center;
   cursor: pointer;
   border-radius: 8px;
