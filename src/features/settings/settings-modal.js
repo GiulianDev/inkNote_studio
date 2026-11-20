@@ -52,6 +52,8 @@ export function openSettingsModal() {
   _setValue('settingHandedness',       s.handedness);
   _setValue('settingDockSize',         s.dockSize);
   _setValue('settingPagesSidebarPosition', s.pagesSidebar?.position || 'left');
+  const autoHideEl = document.getElementById('settingAutoHideDock');
+  if (autoHideEl) autoHideEl.checked = !!s.autoHideDock;
   _setValue('pressureLightSlider',     s.pressureLight);
   _setValue('pressureHeavySlider',     s.pressureHeavy);
   _setValue('pressureCurveSlider',     s.pressureCurve);
@@ -83,11 +85,13 @@ export function closeSettingsModal({ cancel = true } = {}) {
 }
 
 export function confirmSettings() {
-  const printTheme = _getValue('settingPrintTheme') ?? getSettings().printTheme;
-  const handedness = _getValue('settingHandedness') ?? getSettings().handedness;
-  const dockSize   = _getValue('settingDockSize')   ?? getSettings().dockSize;
+  const printTheme   = _getValue('settingPrintTheme') ?? getSettings().printTheme;
+  const handedness   = _getValue('settingHandedness') ?? getSettings().handedness;
+  const dockSize     = _getValue('settingDockSize')   ?? getSettings().dockSize;
+  const autoHideEl   = document.getElementById('settingAutoHideDock');
+  const autoHideDock = autoHideEl ? !!autoHideEl.checked : !!getSettings().autoHideDock;
 
-  updateSettings({ printTheme, handedness, dockSize }, { persist: true });
+  updateSettings({ printTheme, handedness, dockSize, autoHideDock }, { persist: true });
 
   _draftSnapshot = null;
   _isOpen = false;
@@ -133,6 +137,11 @@ function _bindAll() {
         { pagesSidebar: { ...getSettings().pagesSidebar, position: pos } },
         { persist: true }
       );
+    });
+
+  document.getElementById('settingAutoHideDock')
+    ?.addEventListener('change', (e) => {
+      updateSettings({ autoHideDock: !!e.target.checked }, { persist: false });
     });
 
   ['pressureLightSlider', 'pressureHeavySlider', 'pressureCurveSlider'].forEach(id => {

@@ -46,6 +46,8 @@ let _hintShownThisSession = false;
 
 /** @type {'writing'|'selection'|'shapes'|'eraser'|'page'} */
 let _mainMenu = 'writing';
+let _dockCollapsed = false;
+let _isDockDrawingHidden = false;
 
 const WRITING_TOOLS = ['pen', 'pencil', 'marker', 'highlighter'];
 const STYLE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
@@ -94,6 +96,9 @@ export function mountToolbar() {
     }
     if (changed.includes('theme') || changed.includes('theme.effective')) {
       applyPageColorsToUI();
+    }
+    if (changed.includes('autoHideDock') && !getSettings().autoHideDock) {
+      setDockDrawingHidden(false);
     }
   });
 
@@ -337,8 +342,21 @@ export function setMainMenu(menu, opts = {}) {
   _setMainMenu(menu, opts);
 }
 
+export function setDockDrawingHidden(hidden) {
+  const next = !!hidden && !!state.settings?.autoHideDock;
+  if (next === _isDockDrawingHidden) return;
+  _isDockDrawingHidden = next;
+  document.body.classList.toggle('dock-auto-hidden', next);
+}
+
 function _setMainMenu(menu, opts = {}) {
   if (!MAIN_MENU_IDS.includes(menu)) return;
+
+  if (opts.toggle && menu === _mainMenu) {
+    _dockCollapsed = !_dockCollapsed;
+  } else {
+    _dockCollapsed = false;
+  }
 
   const defaultTool = MENU_TO_DEFAULT_TOOL[menu];
   if (defaultTool && state.activeTool !== defaultTool) {
@@ -353,7 +371,7 @@ function _setMainMenu(menu, opts = {}) {
     btn.classList.toggle('active', btn.dataset.menu === menu);
   });
 
-  if (menu === 'page') {
+  if (menu === 'page' && !_dockCollapsed) {
     showPagePopover();
   } else {
     hidePagePopover();
@@ -376,9 +394,9 @@ function _applyMenuToDOM() {
   };
   for (const [name, el] of Object.entries(docks)) {
     if (!el) continue;
-    el.classList.toggle('hidden', name !== _mainMenu);
+    el.classList.toggle('hidden', _dockCollapsed || name !== _mainMenu);
   }
-  if (_mainMenu !== 'page') hidePagePopover();
+  if (_dockCollapsed || _mainMenu !== 'page') hidePagePopover();
 }
 
 // ============================================================
@@ -397,6 +415,7 @@ export function setTool(toolName) {
     _mainMenu = 'eraser';
   }
 
+  _dockCollapsed = false;
   _applyMenuToDOM();
   applyMainMenuOrderToUI();
 

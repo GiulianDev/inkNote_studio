@@ -37,9 +37,9 @@ import {
 } from '../tools/lazo.js';
 
 export function bindEditorUI() {
-  // --- Mainbar: 5 menu contestuali ---
+  // --- Mainbar: 5 menu contestuali (clic sul tab attivo → chiude/riapre dock) ---
   document.querySelectorAll('.main-menu-btn').forEach(btn => {
-    btn.addEventListener('click', () => setMainMenu(btn.dataset.menu));
+    btn.addEventListener('click', () => setMainMenu(btn.dataset.menu, { toggle: true }));
   });
 
   // --- Dock Writing: palette colori ---

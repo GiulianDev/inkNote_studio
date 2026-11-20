@@ -100,7 +100,7 @@ export function addNewPage() {
       const pageW = newPage.wrapper.offsetWidth || PAGE_WIDTH;
       viewport.x = vp.clientWidth / 2 - (pageLeft + pageW / 2) * viewport.scale;
     }
-    viewport.y = -pageTop * viewport.scale + 20;
+    viewport.y = -pageTop * viewport.scale + 80;
     const c = clampViewport(viewport.x, viewport.y);
     viewport.x = c.x;
     viewport.y = c.y;
@@ -128,7 +128,7 @@ export function centerViewport() {
   } else {
     viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
   }
-  viewport.y = 20;
+  viewport.y = 80;
   applyTransform();
 }
 
@@ -429,11 +429,11 @@ export function scrollToPage(index) {
   // Centra orizzontalmente tenendo conto di zoom e padding di #canvasContainer
   const targetX = vp.clientWidth / 2 - (pageLeft + pageW / 2) * scale;
 
-  // Se la pagina entra interamente in altezza, centrala; altrimenti mostra la cima (+20px)
+  // Se la pagina entra interamente in altezza, centrala; altrimenti mostra la cima (+80px)
   const scaledH = pageH * scale;
   const targetY = scaledH <= vp.clientHeight
     ? vp.clientHeight / 2 - (pageTop + pageH / 2) * scale
-    : -pageTop * scale + 20;
+    : -pageTop * scale + 80;
 
   viewport.x = targetX;
   viewport.y = targetY;

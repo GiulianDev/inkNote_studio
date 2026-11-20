@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS = {
   pressureCurve: 60,
   scrollSensitivity: 50,
   palmRejection: true,
+  autoHideDock: false,
 
   // Sidebar pagine (thumbnails, drag, delete)
   // open:    se true, la sidebar viene mostrata al boot
@@ -90,6 +91,8 @@ function _normalizeSettings(raw) {
     open: !!ps.open,
     position: ps.position === 'right' ? 'right' : 'left'
   };
+
+  out.autoHideDock = !!out.autoHideDock;
 
   return out;
 }
