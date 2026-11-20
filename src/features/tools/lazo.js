@@ -144,6 +144,45 @@ export function applyResizeSelection(point) {
   if (Math.abs(deltaAngle - nearest) < snapThreshold) effectiveAngle = nearest;
   state.resizeCurrentAngle = effectiveAngle;
   const cos = Math.cos(effectiveAngle), sin = Math.sin(effectiveAngle);
+
+  let minRx = Infinity, maxRx = -Infinity;
+  let minRy = Infinity, maxRy = -Infinity;
+  for (let i = 0; i < state.selectedStrokes.length; i++) {
+    const snapPts = state.initialStrokesSnapshot[i].points;
+    for (let j = 0; j < snapPts.length; j++) {
+      const sp = snapPts[j];
+      const px = sp.x - pivot.x, py = sp.y - pivot.y;
+      const rx = px * cos - py * sin;
+      const ry = px * sin + py * cos;
+      if (rx < minRx) minRx = rx; if (rx > maxRx) maxRx = rx;
+      if (ry < minRy) minRy = ry; if (ry > maxRy) maxRy = ry;
+    }
+  }
+  if (minRx === Infinity) return;
+
+  let effectiveScale = scale;
+  const spanRx = maxRx - minRx;
+  const spanRy = maxRy - minRy;
+  if (spanRx > 0 && spanRx * effectiveScale > PAGE_WIDTH) {
+    effectiveScale = Math.min(effectiveScale, PAGE_WIDTH / spanRx);
+  }
+  if (spanRy > 0 && spanRy * effectiveScale > PAGE_HEIGHT) {
+    effectiveScale = Math.min(effectiveScale, PAGE_HEIGHT / spanRy);
+  }
+
+  const minX = pivot.x + minRx * effectiveScale;
+  const maxX = pivot.x + maxRx * effectiveScale;
+  const minY = pivot.y + minRy * effectiveScale;
+  const maxY = pivot.y + maxRy * effectiveScale;
+
+  let shiftX = 0;
+  if (minX < 0) shiftX = -minX;
+  else if (maxX > PAGE_WIDTH) shiftX = PAGE_WIDTH - maxX;
+
+  let shiftY = 0;
+  if (minY < 0) shiftY = -minY;
+  else if (maxY > PAGE_HEIGHT) shiftY = PAGE_HEIGHT - maxY;
+
   for (let i = 0; i < state.selectedStrokes.length; i++) {
     const stroke = state.selectedStrokes[i];
     const snapPts = state.initialStrokesSnapshot[i].points;
@@ -151,8 +190,8 @@ export function applyResizeSelection(point) {
     for (let j = 0; j < snapPts.length; j++) {
       const sp = snapPts[j];
       const px = sp.x - pivot.x, py = sp.y - pivot.y;
-      const nx = pivot.x + (px * cos - py * sin) * scale;
-      const ny = pivot.y + (px * sin + py * cos) * scale;
+      const nx = Math.max(0, Math.min(PAGE_WIDTH, pivot.x + (px * cos - py * sin) * effectiveScale + shiftX));
+      const ny = Math.max(0, Math.min(PAGE_HEIGHT, pivot.y + (px * sin + py * cos) * effectiveScale + shiftY));
       if (pts[j]) {
         pts[j].x = nx;
         pts[j].y = ny;
