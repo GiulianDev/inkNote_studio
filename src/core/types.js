@@ -230,6 +230,7 @@
  * @property {boolean} [snapCircles]    riconoscimento cerchi
  * @property {boolean} [snapRectangles] riconoscimento rettangoli
  * @property {boolean} [snapTriangles]  riconoscimento triangoli
+ * @property {boolean} [snapArrows]     riconoscimento frecce
  * @property {number} smoothing         0..100
  * @property {boolean} compactMode
  * @property {string[]} recentColors    array di hex

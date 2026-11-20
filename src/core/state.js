@@ -117,6 +117,8 @@ export const state = {
   snapRectangles: true,
   /** @type {boolean} riconoscimento triangoli */
   snapTriangles: true,
+  /** @type {boolean} riconoscimento frecce (1 tratto e punta a V su linea) */
+  snapArrows: true,
   /** @type {boolean} riconoscimento forme geometriche (true se almeno una forma è attiva) */
   snapShapes: true,
   /**

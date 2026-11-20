@@ -28,6 +28,7 @@ export const DEFAULT_TOOLBAR_SETTINGS = {
   snapCircles: true,
   snapRectangles: true,
   snapTriangles: true,
+  snapArrows: true,
   smoothing: 50,
   compactMode: false,
   recentColors: [],
@@ -87,7 +88,8 @@ function _syncRuntime() {
   state.snapCircles    = !!_current.snapCircles;
   state.snapRectangles = !!_current.snapRectangles;
   state.snapTriangles  = !!_current.snapTriangles;
-  state.snapShapes     = !!(state.snapCircles || state.snapRectangles || state.snapTriangles);
+  state.snapArrows     = !!_current.snapArrows;
+  state.snapShapes     = !!(state.snapCircles || state.snapRectangles || state.snapTriangles || state.snapArrows);
   state.autoShapeEnabled = state.snapLines || state.snapShapes;
   state.activeTool   = _activeTool;
   // Colori foglio (null = default del tema, gestito in render.js)
@@ -152,22 +154,25 @@ function _normalize(raw) {
   }
   merged.snapLines = merged.snapLines !== false;
 
-  // Migrazione soft: snapShapes → snapCircles / snapRectangles / snapTriangles
+  // Migrazione soft: snapShapes → snapCircles / snapRectangles / snapTriangles / snapArrows
   const hasPerShape = raw && (
     typeof raw.snapCircles === 'boolean' ||
     typeof raw.snapRectangles === 'boolean' ||
-    typeof raw.snapTriangles === 'boolean'
+    typeof raw.snapTriangles === 'boolean' ||
+    typeof raw.snapArrows === 'boolean'
   );
   if (!hasPerShape && raw && typeof raw.snapShapes === 'boolean') {
     merged.snapCircles    = raw.snapShapes;
     merged.snapRectangles = raw.snapShapes;
     merged.snapTriangles  = raw.snapShapes;
+    merged.snapArrows     = raw.snapShapes;
   } else {
     merged.snapCircles    = merged.snapCircles    !== false;
     merged.snapRectangles = merged.snapRectangles !== false;
     merged.snapTriangles  = merged.snapTriangles  !== false;
+    merged.snapArrows     = merged.snapArrows     !== false;
   }
-  merged.snapShapes = !!(merged.snapCircles || merged.snapRectangles || merged.snapTriangles);
+  merged.snapShapes = !!(merged.snapCircles || merged.snapRectangles || merged.snapTriangles || merged.snapArrows);
 
   merged.eraserSize   = Math.max(1, Math.min(5, merged.eraserSize || 3));
   merged.eraserMode   = merged.eraserMode === 'point' ? 'point' : 'stroke';
@@ -236,6 +241,7 @@ export function getToolbarSettingsForSave() {
     snapCircles:    _current.snapCircles,
     snapRectangles: _current.snapRectangles,
     snapTriangles:  _current.snapTriangles,
+    snapArrows:     _current.snapArrows,
     smoothing:    _current.smoothing,
     compactMode:  _current.compactMode,
     recentColors: _current.recentColors.slice(),

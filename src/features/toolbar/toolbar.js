@@ -711,14 +711,25 @@ export function toggleSnapTriangles() {
   );
 }
 
+export function toggleSnapArrows() {
+  const next = !getToolbarSettings().snapArrows;
+  updateToolbarSettings({ snapArrows: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Frecce: riconoscimento attivo' : 'Frecce: riconoscimento disattivato',
+    next ? '➡️' : '🚫'
+  );
+}
+
 export function toggleSnapShapes() {
   const s = getToolbarSettings();
-  const next = !(s.snapCircles || s.snapRectangles || s.snapTriangles);
+  const next = !(s.snapCircles || s.snapRectangles || s.snapTriangles || s.snapArrows);
   updateToolbarSettings({
     snapShapes: next,
     snapCircles: next,
     snapRectangles: next,
-    snapTriangles: next
+    snapTriangles: next,
+    snapArrows: next
   });
   applySnapTogglesToUI();
   showToast(
@@ -733,10 +744,12 @@ export function applySnapTogglesToUI() {
   const circlesEl = document.getElementById('snapCirclesToggle');
   const rectsEl = document.getElementById('snapRectanglesToggle');
   const trianglesEl = document.getElementById('snapTrianglesToggle');
+  const arrowsEl = document.getElementById('snapArrowsToggle');
   if (linesEl)     linesEl.checked     = s.snapLines !== false;
   if (circlesEl)   circlesEl.checked   = s.snapCircles !== false;
   if (rectsEl)     rectsEl.checked     = s.snapRectangles !== false;
   if (trianglesEl) trianglesEl.checked = s.snapTriangles !== false;
+  if (arrowsEl)    arrowsEl.checked    = s.snapArrows !== false;
 }
 
 // ============================================================
@@ -1027,6 +1040,8 @@ function _setupDockButtons() {
     ?.addEventListener('change', toggleSnapRectangles);
   document.getElementById('snapTrianglesToggle')
     ?.addEventListener('change', toggleSnapTriangles);
+  document.getElementById('snapArrowsToggle')
+    ?.addEventListener('change', toggleSnapArrows);
 
   document.getElementById('opacityBtn')
     ?.addEventListener('click', (e) => {
