@@ -640,22 +640,192 @@ body.dark .notebook-card.is-selected .notebook-cover {
 }
 
 /* ============================================================
+   FLOATING SELECTOR BAR (#selectionMenu, #textSelectionMenu, editor actions)
+   Allineato al design glass di .context-dock in light & dark mode
+   ============================================================ */
+.floating-selector-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 28px -8px rgba(15, 23, 42, 0.18), 0 2px 6px -2px rgba(15, 23, 42, 0.06);
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.floating-selector-bar.hidden {
+  display: none !important;
+}
+
+body.dark .floating-selector-bar {
+  background: rgba(15, 23, 42, 0.93);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.65), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  color: #f1f5f9;
+}
+
+.floating-selector-bar.compact {
+  gap: 3px;
+  padding: 3px;
+  border-radius: 11px;
+}
+
+.selector-bar-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(15, 23, 42, 0.1);
+  flex-shrink: 0;
+}
+
+body.dark .selector-bar-divider {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.selector-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #64748b;
+}
+
+body.dark .selector-bar-label {
+  color: #94a3b8;
+}
+
+.selector-color-input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(15, 23, 42, 0.16);
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+body.dark .selector-color-input {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.selector-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.selector-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+
+.selector-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+
+.floating-selector-bar.compact .selector-icon-btn {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border-radius: 8px;
+}
+
+.selector-icon-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+
+.selector-icon-btn:active {
+  transform: scale(0.95);
+}
+
+.selector-icon-btn.primary {
+  background: #eef2ff;
+  border-color: rgba(99, 102, 241, 0.25);
+  color: #4338ca;
+}
+
+.selector-icon-btn.primary:hover {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.selector-icon-btn.danger {
+  color: #64748b;
+}
+
+.selector-icon-btn.danger:hover {
+  background: #fef2f2;
+  border-color: rgba(239, 68, 68, 0.22);
+  color: #dc2626;
+}
+
+body.dark .selector-icon-btn {
+  color: #cbd5e1;
+}
+
+body.dark .selector-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+body.dark .selector-icon-btn.primary {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(129, 140, 248, 0.35);
+  color: #c7d2fe;
+}
+
+body.dark .selector-icon-btn.primary:hover {
+  background: rgba(99, 102, 241, 0.34);
+  color: #e0e7ff;
+}
+
+body.dark .selector-icon-btn.danger {
+  color: #94a3b8;
+}
+
+body.dark .selector-icon-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(248, 113, 113, 0.28);
+  color: #fca5a5;
+}
+
+/* ============================================================
    TOOL TESTO — overlay <textarea> singolo + bottoni inline
    ============================================================ */
 .text-box-editor-wrap {
   position: absolute;
   z-index: 10;
   min-width: 80px;
-  border: 1.5px dashed #6366f1;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 8px 24px -6px rgba(15, 23, 42, 0.22);
+  border: 1px solid rgba(79, 70, 229, 0.52);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1), 0 8px 22px -6px rgba(15, 23, 42, 0.16);
 }
 
 body.dark .text-box-editor-wrap {
-  border-color: #818cf8;
-  background: rgba(15, 23, 42, 0.88);
-  box-shadow: 0 10px 28px -6px rgba(0, 0, 0, 0.6);
+  border-color: rgba(129, 140, 248, 0.62);
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.14), 0 10px 26px -6px rgba(0, 0, 0, 0.55);
 }
 
 #viewport .text-box-editor-wrap,
@@ -690,48 +860,6 @@ body.dark .text-box-editor-input::placeholder {
 
 .text-box-editor-actions {
   position: absolute;
-  top: -34px;
+  top: -40px;
   right: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.94);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.35);
-}
-
-.text-box-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 24px;
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #fff;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
-}
-
-.text-box-action-btn.confirm {
-  background: #4f46e5;
-}
-
-.text-box-action-btn.confirm:hover {
-  background: #6366f1;
-}
-
-.text-box-action-btn.delete {
-  background: #e11d48;
-}
-
-.text-box-action-btn.delete:hover {
-  background: #f43f5e;
-}
-
-.text-box-action-btn:active {
-  transform: scale(0.94);
 }

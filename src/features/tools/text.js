@@ -170,11 +170,19 @@ function _ensureSelectionMenu() {
   if (_selectionMenuEl) return _selectionMenuEl;
   const el = document.createElement('div');
   el.id = 'textSelectionMenu';
-  el.className = 'text-selection-menu fixed hidden bg-slate-900/95 text-white dark:bg-slate-800/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl shadow-2xl text-xs font-semibold flex items-center gap-1.5 z-50 border border-slate-700/50';
+  el.className = 'text-selection-menu floating-selector-bar fixed hidden z-50';
   el.innerHTML = `
-    <button type="button" data-action="edit" class="bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1.5 rounded-lg transition" title="Modifica testo">✏️ Modifica</button>
-    <button type="button" data-action="delete" class="bg-rose-600 hover:bg-rose-500 text-white px-2 py-1.5 rounded-lg transition" title="Elimina casella">🗑️</button>
-    <button type="button" data-action="close" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1.5 rounded-lg transition" title="Deseleziona">✕</button>
+    <button type="button" data-action="edit" class="selector-icon-btn primary" title="Modifica testo" aria-label="Modifica testo">
+      <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+      <span>Modifica</span>
+    </button>
+    <div class="selector-bar-divider"></div>
+    <button type="button" data-action="delete" class="selector-icon-btn danger" title="Elimina casella" aria-label="Elimina casella">
+      <svg class="w-4 h-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+    </button>
+    <button type="button" data-action="close" class="selector-icon-btn" title="Deseleziona" aria-label="Deseleziona">
+      <svg class="w-4 h-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
   `;
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
   el.addEventListener('click', (e) => {
@@ -232,9 +240,13 @@ function _ensureEditorDOM() {
   const wrap = document.createElement('div');
   wrap.className = 'text-box-editor-wrap';
   wrap.innerHTML = `
-    <div class="text-box-editor-actions">
-      <button type="button" class="text-box-action-btn confirm" data-action="confirm" title="Conferma (Ctrl+Invio / Esc)">✓</button>
-      <button type="button" class="text-box-action-btn delete" data-action="delete" title="Elimina casella">🗑️</button>
+    <div class="text-box-editor-actions floating-selector-bar compact">
+      <button type="button" class="selector-icon-btn primary" data-action="confirm" title="Conferma (Ctrl+Invio / Esc)" aria-label="Conferma testo">
+        <svg class="w-4 h-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      </button>
+      <button type="button" class="selector-icon-btn danger" data-action="delete" title="Elimina casella" aria-label="Elimina casella">
+        <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+      </button>
     </div>
     <textarea class="text-box-editor-input" rows="1" placeholder="Scrivi qui..."></textarea>
   `;
