@@ -23,18 +23,57 @@
  *   → gzip di tutto
  */
 
+import { PACKED_STRIDE, packStroke, unpackStroke } from '../persistence/serialization.js';
+
 const QUANT_STRIDE = 9;
 const X_SCALE = 65535 / 1200;
 const Y_SCALE = 65535 / 1200;
 const TILT_SCALE = 128 / 90;
 const SPEED_SCALE = 255 / 10;
 
+function _isLegacyBlack(c) {
+  return !c || c === '#000000' || c === '#000' || c === 'black';
+}
+
+/**
+ * Normalizza uno stroke (packed v4 o legacy con `points`) nel formato
+ * trasferibile verso il worker di compressione.
+ *
+ * @param {object} raw
+ * @returns {{tool: string, color: string, size: number, opacity: number, style: string, packedBuffer: ArrayBuffer, count: number}}
+ */
+export function prepareCloudStrokePayload(raw) {
+  const needsUpgrade =
+    !raw.packed ||
+    raw.count == null ||
+    raw.opacity == null ||
+    (raw.tool === 'highlighter' && _isLegacyBlack(raw.color));
+
+  const s = needsUpgrade ? packStroke(unpackStroke(raw)) : raw;
+  // Copia il buffer: gli strokes originali servono ancora al main thread
+  // (IDB, rendering). Non possiamo trasferirli direttamente.
+  const copy = new Float32Array(s.packed || 0);
+  const maxByBuf = Math.floor(copy.length / PACKED_STRIDE);
+  const safeCount = Math.max(0, Math.min(s.count != null ? s.count : maxByBuf, maxByBuf));
+
+  return {
+    tool: s.tool,
+    color: s.color,
+    size: s.size,
+    opacity: s.opacity != null ? s.opacity : 1.0,
+    style: s.style || 'solid',
+    packedBuffer: copy.buffer,
+    count: safeCount
+  };
+}
+
 function quantizeStroke(stroke, outBuffer, outOffset) {
   const packed = new Float32Array(stroke.packedBuffer);
-  const count = stroke.count;
+  const maxByBuf = Math.floor(packed.length / PACKED_STRIDE);
+  const count = Math.max(0, Math.min(stroke.count || 0, maxByBuf));
   let o = outOffset;
   for (let i = 0; i < count; i++) {
-    const pi = i * 7;
+    const pi = i * PACKED_STRIDE;
     const xq = Math.max(0, Math.min(65535, Math.round(packed[pi] * X_SCALE)));
     const yq = Math.max(0, Math.min(65535, Math.round(packed[pi + 1] * Y_SCALE)));
     const pq = Math.max(0, Math.min(255, Math.round(packed[pi + 2] * 255)));
@@ -58,10 +97,10 @@ function quantizeStroke(stroke, outBuffer, outOffset) {
 }
 
 function dequantizeStroke(buffer, pointCount) {
-  const out = new Float32Array(pointCount * 7);
+  const out = new Float32Array(pointCount * PACKED_STRIDE);
   for (let i = 0; i < pointCount; i++) {
     const o = i * QUANT_STRIDE;
-    const pi = i * 7;
+    const pi = i * PACKED_STRIDE;
     const xq = buffer[o] | (buffer[o + 1] << 8);
     const yq = buffer[o + 2] | (buffer[o + 3] << 8);
     out[pi]     = xq / X_SCALE;
@@ -96,18 +135,25 @@ async function gunzip(bytes) {
 
 /**
  * Comprime un array di PackedStroke in Uint8Array gzip-ato.
- * @param {Array<{tool, color, size, opacity, packedBuffer: ArrayBuffer, count: number}>} strokes
+ * @param {Array<{tool, color, size, opacity, style, packedBuffer: ArrayBuffer, count: number}>} strokes
  * @returns {Promise<Uint8Array>}
  */
 export async function compressPageData(strokes) {
+  const list = Array.isArray(strokes) ? strokes : [];
   let totalPoints = 0;
-  for (const s of strokes) totalPoints += s.count;
+  for (const s of list) totalPoints += (s.count || 0);
 
   const encoder = new TextEncoder();
   const metaBuffers = [];
   let totalMetaLen = 0;
-  for (const s of strokes) {
-    const metaObj = { tool: s.tool, color: s.color, size: s.size, opacity: s.opacity };
+  for (const s of list) {
+    const metaObj = {
+      tool: s.tool,
+      color: s.color,
+      size: s.size,
+      opacity: s.opacity != null ? s.opacity : 1.0,
+      style: s.style || 'solid'
+    };
     const metaBytes = encoder.encode(JSON.stringify(metaObj));
     metaBuffers.push(metaBytes);
     totalMetaLen += 2 + metaBytes.length + 4;
@@ -118,14 +164,14 @@ export async function compressPageData(strokes) {
   const dv = new DataView(buffer.buffer);
 
   let o = 0;
-  dv.setUint32(o, strokes.length, true); o += 4;
+  dv.setUint32(o, list.length, true); o += 4;
 
-  for (let i = 0; i < strokes.length; i++) {
-    const s = strokes[i];
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
     const metaBytes = metaBuffers[i];
     dv.setUint16(o, metaBytes.length, true); o += 2;
     buffer.set(metaBytes, o); o += metaBytes.length;
-    dv.setUint32(o, s.count, true); o += 4;
+    dv.setUint32(o, s.count || 0, true); o += 4;
     o += quantizeStroke(s, buffer, o);
   }
 
@@ -135,7 +181,7 @@ export async function compressPageData(strokes) {
 /**
  * Decomprime Uint8Array gzip-ato in array di PackedStroke.
  * @param {ArrayBuffer} compressedBuf
- * @returns {Promise<Array<{tool, color, size, opacity, packed: Float32Array, count: number}>>}
+ * @returns {Promise<Array<{tool, color, size, opacity, style, packed: Float32Array, count: number}>>}
  */
 export async function decompressPageData(compressedBuf) {
   const bytes = new Uint8Array(compressedBuf);
@@ -161,7 +207,8 @@ export async function decompressPageData(compressedBuf) {
       tool: meta.tool,
       color: meta.color,
       size: meta.size,
-      opacity: meta.opacity,
+      opacity: meta.opacity != null ? meta.opacity : 1.0,
+      style: meta.style || 'solid',
       packed: packed,
       count: pointCount
     });

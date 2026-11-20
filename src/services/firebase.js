@@ -33,17 +33,36 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+const hasFirebaseConfig = Boolean(
+  firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId
+);
 
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+let app = null;
+export let auth = null;
+let googleProvider = null;
+
+if (hasFirebaseConfig) {
+  try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    googleProvider = new GoogleAuthProvider();
+    googleProvider.setCustomParameters({ prompt: 'select_account' });
+  } catch (err) {
+    console.warn('[firebase] Init failed, continuing in local-only mode:', err);
+    auth = null;
+  }
+} else {
+  console.warn('[firebase] Firebase env vars not configured — running in local-only mode');
+}
 
 function _isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 export async function signInWithGoogle() {
+  if (!auth || !googleProvider) {
+    throw new Error('Firebase Auth non configurato');
+  }
   if (_isMobile()) {
     await signInWithRedirect(auth, googleProvider);
     return null;
@@ -53,6 +72,7 @@ export async function signInWithGoogle() {
 }
 
 export async function handleRedirectResult() {
+  if (!auth) return null;
   try {
     const result = await getRedirectResult(auth);
     return result?.user || null;
@@ -63,9 +83,14 @@ export async function handleRedirectResult() {
 }
 
 export async function signOutGoogle() {
+  if (!auth) return;
   await signOut(auth);
 }
 
 export function onAuthChange(callback) {
+  if (!auth) {
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 }

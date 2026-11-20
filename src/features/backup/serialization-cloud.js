@@ -15,7 +15,9 @@
  */
 
 import SerializationWorker from './serialization-cloud.worker.js?worker&inline';
-import { compressPageData, decompressPageData } from './serialization-cloud-core.js';
+import {
+  compressPageData, decompressPageData, prepareCloudStrokePayload
+} from './serialization-cloud-core.js';
 
 let _worker = null;
 let _workerFailed = false;
@@ -83,26 +85,17 @@ async function _runInMainThread(type, payload) {
 }
 
 /**
- * Comprime una pagina (PackedStroke[]) in Uint8Array gzip-ato.
+ * Comprime una pagina (PackedStroke[] o stroke legacy) in Uint8Array gzip-ato.
  *
- * @param {Array} strokesPacked — PackedStroke[] (con .packed = Float32Array)
+ * @param {Array} strokesPacked — PackedStroke[] (con .packed = Float32Array) o legacy
  * @returns {Promise<Uint8Array>}
  */
 export function compressPage(strokesPacked) {
   const transfer = [];
-  const payload = strokesPacked.map(s => {
-    // Copia il buffer: gli strokes originali servono ancora al main thread
-    // (IDB, rendering). Non possiamo trasferirli direttamente.
-    const copy = new Float32Array(s.packed);
-    transfer.push(copy.buffer);
-    return {
-      tool: s.tool,
-      color: s.color,
-      size: s.size,
-      opacity: s.opacity,
-      packedBuffer: copy.buffer,
-      count: s.count
-    };
+  const payload = (strokesPacked || []).filter(Boolean).map(raw => {
+    const item = prepareCloudStrokePayload(raw);
+    transfer.push(item.packedBuffer);
+    return item;
   });
   return _call('compressPage', { strokes: payload }, transfer);
 }
