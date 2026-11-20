@@ -26,7 +26,7 @@ import sidebarHtml from './pages-sidebar.html?raw';
 import { state } from '../../core/state.js';
 import {
   showToast, showConfirmDialog, PAGE_WIDTH, PAGE_HEIGHT, on,
-  getEffectiveColor, sliderToBaseSize
+  getEffectiveColor, isPaperDark, sliderToBaseSize
 } from '../../core/utils.js';
 import {
   getSettings, updateSettings, onSettingsChanged
@@ -724,6 +724,7 @@ function _drawThumbnail(pageData, canvas) {
   if (!ctx) return;
 
   const isDark = !!state.isDarkMode;
+  const inkDark = isPaperDark(isDark, state.paperColor);
   const cssW = THUMB_W / THUMB_DPR;
   const cssH = THUMB_H / THUMB_DPR;
   const scaleX = cssW / PAGE_WIDTH;
@@ -799,10 +800,10 @@ function _drawThumbnail(pageData, canvas) {
 
       if (tool === 'highlighter') {
         color = stroke.color || '#FFEB3B';
-        gco = isDark ? 'screen' : 'multiply';
+        gco = inkDark ? 'screen' : 'multiply';
         lineWidth = Math.max(1.2 / scale, baseSize * 4.0);
       } else {
-        color = getEffectiveColor(stroke.color || '#000000', isDark);
+        color = getEffectiveColor(stroke.color || '#000000', inkDark);
         if (tool === 'pencil') alpha *= 0.55;
         const realW = computeStrokeWidth(tool, stroke.size, 0.5, 0, 0, 1.0, baseSize);
         lineWidth = Math.max(0.55 / scale, realW);
@@ -843,7 +844,7 @@ function _drawThumbnail(pageData, canvas) {
 
   if (Array.isArray(pageData.textBoxes) && pageData.textBoxes.length > 0) {
     for (const tb of pageData.textBoxes) {
-      if (tb) drawTextBoxOnCanvas(ctx, tb, isDark);
+      if (tb) drawTextBoxOnCanvas(ctx, tb, inkDark);
     }
   }
 
