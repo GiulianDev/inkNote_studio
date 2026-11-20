@@ -17,11 +17,11 @@
  * @see core/app-settings.js     — pagesSidebar settings
  */
 
-import './pages-sidebar.css';
-import sidebarHtml from './pages-sidebar.html?raw';
-
 import HcgSortable from 'hcg-sortable';
 import 'hcg-sortable/hcg-sortable.css';
+
+import './pages-sidebar.css';
+import sidebarHtml from './pages-sidebar.html?raw';
 
 import { state } from '../../core/state.js';
 import {
@@ -490,6 +490,7 @@ function _setupSortable() {
     axis: 'y',
     animation: 180,
     handle: '.page-thumb-drag-handle',
+    cursor: false,
     dragThreshold: 3,
     scroll: true,
     onUpdate(detail) {
