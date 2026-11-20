@@ -36,6 +36,33 @@ export function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+export function parseHexRgb(hex) {
+  if (typeof hex !== 'string') return null;
+  let c = hex.trim().replace('#', '');
+  if (c.length === 3) c = c.split('').map(x => x + x).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(c)) return null;
+  const num = parseInt(c, 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255
+  };
+}
+
+export function isDarkColorHex(hex) {
+  const rgb = parseHexRgb(hex);
+  if (!rgb) return false;
+  return (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) < 128;
+}
+
+export function isPaperDark(themeDark, paperColor = null) {
+  if (paperColor) {
+    const rgb = parseHexRgb(paperColor);
+    if (rgb) return (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) < 128;
+  }
+  return !!themeDark;
+}
+
 export function getEffectiveColor(color, forceDark) {
   if (!color) return '#000000';
   const isDarkColor = (color === '#000000' || color === '#0f172a' || color === '#090d16' || color === 'black');

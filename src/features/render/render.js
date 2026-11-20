@@ -26,7 +26,7 @@
 import { getStrokeBitmap, buildStrokeBitmap } from './stroke-cache.js';
 import { state, viewport } from '../../core/state.js';
 import {
-  PAGE_WIDTH, PAGE_HEIGHT, hexToRgbA, getEffectiveColor,
+  PAGE_WIDTH, PAGE_HEIGHT, hexToRgbA, getEffectiveColor, isPaperDark,
   roundRect, sliderToBaseSize, fastHypot
 } from '../../core/utils.js';
 import { getPressureParams } from '../../core/app-settings.js';
@@ -427,19 +427,29 @@ export function blitAndClearBBox(pageData, bbox, opts = {}) {
 // REDRAW PAGE
 // ============================================================
 
-export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
+export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode, opts = {}) {
   const ctx = pageData.ctx;
   const dpr = pageData.dpr || 1;
+  const skipBackground = !!opts.skipBackground;
+  const skipTextBoxes = !!opts.skipTextBoxes;
+  const textBoxFilter = typeof opts.textBoxFilter === 'function' ? opts.textBoxFilter : null;
+  const inkDark = opts.inkDark != null
+    ? !!opts.inkDark
+    : isPaperDark(forceTargetDark, skipBackground ? null : state.paperColor);
+
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, pageData.canvas.width, pageData.canvas.height);
   ctx.scale(dpr, dpr);
 
-  drawPaperBackground(ctx, forceTargetDark);
+  if (!skipBackground) {
+    drawPaperBackground(ctx, forceTargetDark);
+  }
 
-  const targetSet = (state.scribbleMode && state.scribbleTargets)
+  const isExport = !!pageData._isExport;
+  const targetSet = (!isExport && state.scribbleMode && state.scribbleTargets)
     ? new Set(state.scribbleTargets) : null;
-  const selectedSet = (state.selectedStrokes && state.selectedStrokes.length > 0)
+  const selectedSet = (!isExport && state.selectedStrokes && state.selectedStrokes.length > 0)
     ? new Set(state.selectedStrokes) : null;
 
   pageData.strokes.forEach(stroke => {
@@ -447,8 +457,8 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
     const isTarget = targetSet && targetSet.has(stroke);
 
     if (stroke.tool === 'pencil' && !isTarget && (stroke.style || 'solid') === 'solid') {
-      let cached = getStrokeBitmap(stroke, dpr, forceTargetDark);
-      if (!cached) cached = buildStrokeBitmap(stroke, dpr, forceTargetDark);
+      let cached = getStrokeBitmap(stroke, dpr, inkDark);
+      if (!cached) cached = buildStrokeBitmap(stroke, dpr, inkDark);
       if (cached) {
         ctx.drawImage(
           cached.canvas,
@@ -459,18 +469,18 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
       }
     }
 
-    renderFullStroke(ctx, stroke, forceTargetDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
+    renderFullStroke(ctx, stroke, inkDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
   });
 
-  if (Array.isArray(pageData.textBoxes) && pageData.textBoxes.length > 0) {
-    const isExport = !!pageData._isExport;
+  if (!skipTextBoxes && Array.isArray(pageData.textBoxes) && pageData.textBoxes.length > 0) {
     for (let i = 0; i < pageData.textBoxes.length; i++) {
       const tb = pageData.textBoxes[i];
       if (!tb) continue;
+      if (textBoxFilter && !textBoxFilter(tb)) continue;
       if (!isExport && (tb.id === state.editingTextBoxId || tb.id === state._draggingTextBoxId)) {
         continue;
       }
-      drawTextBoxOnCanvas(ctx, tb, forceTargetDark);
+      drawTextBoxOnCanvas(ctx, tb, inkDark);
     }
   }
 
@@ -488,12 +498,13 @@ export function drawDotOnly(pageData, stroke) {
   const ctx = pageData.ctx;
   const dpr = pageData.dpr || 1;
   const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+  const inkDark = isPaperDark(state.isDarkMode, state.paperColor);
 
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   if (stroke.tool === 'highlighter') {
-    ctx.globalCompositeOperation = state.isDarkMode ? 'screen' : 'multiply';
+    ctx.globalCompositeOperation = inkDark ? 'screen' : 'multiply';
     ctx.globalAlpha = opacity;
     ctx.fillStyle = stroke.color;
     const baseSize = sliderToBaseSize(stroke.size);
@@ -503,7 +514,7 @@ export function drawDotOnly(pageData, stroke) {
     // Pencil: colore ha già alpha interna 0.55 in getStrokeStyle.
     // Pen/marker: colore pieno.
     // In entrambi i casi applichiamo opacity utente via globalAlpha.
-    setupStrokeStyle(ctx, stroke, state.isDarkMode);
+    setupStrokeStyle(ctx, stroke, inkDark);
     ctx.globalAlpha = opacity;
     const baseSize = sliderToBaseSize(stroke.size);
     const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
@@ -674,7 +685,8 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
 
   // Style info (lineDash, strokeStyle, gco). Va calcolato prima
   // dei branch tratteggio/highlighter/solido.
-  const styleInfo = getStrokeStyle(stroke, state.isDarkMode);
+  const inkDark = isPaperDark(state.isDarkMode, state.paperColor);
+  const styleInfo = getStrokeStyle(stroke, inkDark);
 
   // Tratteggio: stroke incrementale con setLineDash.
   //
@@ -749,7 +761,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
     return;
   }
 
-  setupStrokeStyle(ctx, stroke, state.isDarkMode);
+  setupStrokeStyle(ctx, stroke, inkDark);
 
   const smoothness = state.smoothing;
   const baseSize = sliderToBaseSize(stroke.size);
@@ -1098,7 +1110,7 @@ export function renderPendingShapeOnOverlay(pageData) {
   const dpr = pageData.overlayDpr || pageData.dpr || 1;
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawPendingShape(octx, state.isDarkMode);
+  drawPendingShape(octx, isPaperDark(state.isDarkMode, state.paperColor));
   octx.restore();
 }
 
@@ -1149,10 +1161,11 @@ export function redrawSelectionOverlay(pageData) {
   const octx = pageData.overlayCtx;
   if (octx) {
     const dpr = pageData.overlayDpr || pageData.dpr || 1;
+    const inkDark = isPaperDark(state.isDarkMode, state.paperColor);
     octx.save();
     octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     state.selectedStrokes.forEach(stroke => {
-      renderFullStroke(octx, stroke, state.isDarkMode);
+      renderFullStroke(octx, stroke, inkDark);
     });
     octx.restore();
   }
@@ -1340,7 +1353,7 @@ export function drawTextBoxSelectionOnOverlay(pageData, tb, opts = {}) {
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   if (opts.drawBox) {
-    drawTextBoxOnCanvas(octx, tb, state.isDarkMode);
+    drawTextBoxOnCanvas(octx, tb, isPaperDark(state.isDarkMode, state.paperColor));
   }
 
   octx.fillStyle = fillCol;

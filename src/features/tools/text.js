@@ -14,7 +14,7 @@
  */
 
 import { state, viewport } from '../../core/state.js';
-import { PAGE_WIDTH, PAGE_HEIGHT, showToast, getEffectiveColor } from '../../core/utils.js';
+import { PAGE_WIDTH, PAGE_HEIGHT, showToast, getEffectiveColor, isPaperDark } from '../../core/utils.js';
 import {
   TEXT_FONTS, TEXT_LINE_HEIGHT_MULT, TEXT_PAD_X, TEXT_PAD_Y,
   redrawPageCanvas, clearOverlay, drawTextBoxSelectionOnOverlay, layoutTextBox
@@ -365,7 +365,7 @@ function _syncEditorAppearance(tb) {
   const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
   const fontSize = Math.max(10, Math.min(72, tb.fontSize || 18));
   const family = TEXT_FONTS[tb.fontFamily] || TEXT_FONTS.sans;
-  const color = getEffectiveColor(tb.color || '#000000', state.isDarkMode);
+  const color = getEffectiveColor(tb.color || '#000000', isPaperDark(state.isDarkMode, state.paperColor));
 
   _editorWrap.style.left = `${tb.x}px`;
   _editorWrap.style.top = `${tb.y}px`;

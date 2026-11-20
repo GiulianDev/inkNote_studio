@@ -5,7 +5,7 @@
  */
 
 import { state } from '../../core/state.js';
-import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
+import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
   drawDotOnly, renderFullStroke,
@@ -182,7 +182,7 @@ function _renderFinalStroke(pageData, stroke, snapped, extraClearBBox = null) {
   if (isHL) {
     blitAndClearBBox(pageData, bbox, {
       alpha: opacity,
-      compositeOp: state.isDarkMode ? 'screen' : 'multiply'
+      compositeOp: isPaperDark(state.isDarkMode, state.paperColor) ? 'screen' : 'multiply'
     });
   } else {
     blitAndClearBBox(pageData, bbox, {
