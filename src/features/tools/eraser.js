@@ -107,6 +107,46 @@ export function moveEraserStroke(pageData, e) {
   performEraserBatch(pageData, points);
 }
 
+function distSqPointToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) {
+    const ex = px - ax;
+    const ey = py - ay;
+    return ex * ex + ey * ey;
+  }
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  if (t < 0) t = 0;
+  else if (t > 1) t = 1;
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  const ex = px - cx;
+  const ey = py - cy;
+  return ex * ex + ey * ey;
+}
+
+function isPointErased(px, py, eraserPoints, radiusSq) {
+  for (let i = 0; i < eraserPoints.length; i++) {
+    const bp = eraserPoints[i];
+    const dx = px - bp.x;
+    const dy = py - bp.y;
+    if (dx * dx + dy * dy < radiusSq) return true;
+  }
+  return false;
+}
+
+function cloneStrokeSegment(stroke, points) {
+  return {
+    tool: stroke.tool,
+    color: stroke.color,
+    size: stroke.size,
+    ...(stroke.opacity !== undefined ? { opacity: stroke.opacity } : {}),
+    ...(stroke.style !== undefined ? { style: stroke.style } : {}),
+    points
+  };
+}
+
 function performEraserBatch(pageData, points) {
   if (!points || points.length === 0) return;
   const mode = state.eraserMode;
@@ -121,47 +161,142 @@ function performEraserBatch(pageData, points) {
   batchMinX -= radius; batchMaxX += radius;
   batchMinY -= radius; batchMaxY += radius;
 
+  const segmentHitsEraser = (ax, ay, bx, by) => {
+    if (Math.max(ax, bx) < batchMinX || Math.min(ax, bx) > batchMaxX ||
+        Math.max(ay, by) < batchMinY || Math.min(ay, by) > batchMaxY) {
+      return false;
+    }
+    for (let i = 0; i < points.length; i++) {
+      const bp = points[i];
+      if (distSqPointToSegment(bp.x, bp.y, ax, ay, bx, by) < radiusSq) return true;
+    }
+    return false;
+  };
+
+  const strokeBBoxOverlaps = (stroke) => {
+    let stMinX = Infinity, stMaxX = -Infinity, stMinY = Infinity, stMaxY = -Infinity;
+    for (const p of stroke.points) {
+      if (p.x < stMinX) stMinX = p.x; if (p.x > stMaxX) stMaxX = p.x;
+      if (p.y < stMinY) stMinY = p.y; if (p.y > stMaxY) stMaxY = p.y;
+    }
+    return !(stMaxX < batchMinX || stMinX > batchMaxX || stMaxY < batchMinY || stMinY > batchMaxY);
+  };
+
   const modified = new Set();
+  let anyChanged = false;
 
   if (mode === 'stroke') {
     pageData.strokes = pageData.strokes.filter(stroke => {
-      let stMinX = Infinity, stMaxX = -Infinity, stMinY = Infinity, stMaxY = -Infinity;
-      for (const p of stroke.points) {
-        if (p.x < stMinX) stMinX = p.x; if (p.x > stMaxX) stMaxX = p.x;
-        if (p.y < stMinY) stMinY = p.y; if (p.y > stMaxY) stMaxY = p.y;
-      }
-      if (stMaxX < batchMinX || stMinX > batchMaxX || stMaxY < batchMinY || stMinY > batchMaxY) {
-        return true;
-      }
+      if (!stroke.points || stroke.points.length === 0) return false;
+      if (!strokeBBoxOverlaps(stroke)) return true;
+
       let hit = false;
-      for (const sp of stroke.points) {
-        for (const bp of points) {
-          const dx = sp.x - bp.x, dy = sp.y - bp.y;
-          if (dx * dx + dy * dy < radiusSq) { hit = true; break; }
+      if (stroke.points.length === 1) {
+        hit = isPointErased(stroke.points[0].x, stroke.points[0].y, points, radiusSq);
+      } else {
+        for (let i = 0; i < stroke.points.length - 1; i++) {
+          const a = stroke.points[i];
+          const b = stroke.points[i + 1];
+          if (segmentHitsEraser(a.x, a.y, b.x, b.y)) {
+            hit = true;
+            break;
+          }
         }
-        if (hit) break;
       }
-      if (hit) modified.add(stroke);
+      if (hit) {
+        modified.add(stroke);
+        anyChanged = true;
+      }
       return !hit;
     });
   } else {
-    pageData.strokes.forEach(stroke => {
-      const before = stroke.points.length;
-      stroke.points = stroke.points.filter(p => {
-        for (const bp of points) {
-          const dx = p.x - bp.x, dy = p.y - bp.y;
-          if (dx * dx + dy * dy < radiusSq) return false;
+    const nextStrokes = [];
+    const subStep = Math.max(3, radius * 0.35);
+
+    for (const stroke of pageData.strokes) {
+      const pts = stroke.points;
+      if (!pts || pts.length === 0) continue;
+      if (!strokeBBoxOverlaps(stroke)) {
+        nextStrokes.push(stroke);
+        continue;
+      }
+
+      if (pts.length === 1) {
+        if (isPointErased(pts[0].x, pts[0].y, points, radiusSq)) {
+          modified.add(stroke);
+          anyChanged = true;
+        } else {
+          nextStrokes.push(stroke);
         }
-        return true;
-      });
-      if (stroke.points.length !== before) modified.add(stroke);
-    });
-    pageData.strokes = pageData.strokes.filter(s => s.points.length > 1);
+        continue;
+      }
+
+      let strokeTouched = false;
+      const segments = [];
+      let currentSeg = [];
+
+      if (!isPointErased(pts[0].x, pts[0].y, points, radiusSq)) {
+        currentSeg.push(pts[0]);
+      } else {
+        strokeTouched = true;
+      }
+
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        if (!segmentHitsEraser(a.x, a.y, b.x, b.y)) {
+          currentSeg.push(b);
+          continue;
+        }
+
+        strokeTouched = true;
+        const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+        const steps = segLen > subStep ? Math.ceil(segLen / subStep) : 1;
+        const pA = a.pressure ?? 0.5;
+        const pB = b.pressure ?? 0.5;
+
+        for (let k = 1; k <= steps; k++) {
+          const t = k / steps;
+          const sp = k === steps
+            ? b
+            : {
+                x: a.x + (b.x - a.x) * t,
+                y: a.y + (b.y - a.y) * t,
+                pressure: pA + (pB - pA) * t
+              };
+
+          if (isPointErased(sp.x, sp.y, points, radiusSq)) {
+            if (currentSeg.length > 1) segments.push(currentSeg);
+            currentSeg = [];
+          } else {
+            currentSeg.push(sp);
+          }
+        }
+      }
+
+      if (currentSeg.length > 1) segments.push(currentSeg);
+
+      if (!strokeTouched) {
+        nextStrokes.push(stroke);
+      } else {
+        anyChanged = true;
+        modified.add(stroke);
+        for (const segPts of segments) {
+          const segStroke = cloneStrokeSegment(stroke, segPts);
+          nextStrokes.push(segStroke);
+          modified.add(segStroke);
+        }
+      }
+    }
+
+    if (anyChanged) {
+      pageData.strokes = nextStrokes;
+    }
   }
 
-  if (modified.size > 0) {
+  if (anyChanged) {
     modified.forEach(invalidateStrokeBitmap);
     redrawPageCanvas(pageData);
-    scheduleSave();
+    scheduleSave({ pageId: pageData.pageId });
   }
 }

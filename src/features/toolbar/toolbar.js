@@ -111,8 +111,12 @@ export function mountToolbar() {
     }
   });
 
-  onToolbarSettingsChanged(({ reason }) => {
-    if (reason === 'init' || reason === 'reset' || reason === 'update') {
+  onToolbarSettingsChanged(({ changed }) => {
+    if (changed.includes('init') || changed.includes('reset')) {
+      _syncToolbarModeToActiveTool();
+      return;
+    }
+    if (changed.includes('text')) {
       applyTextControlsToUI();
     }
   });
@@ -368,6 +372,45 @@ export function setDockDrawingHidden(hidden) {
   document.body.classList.toggle('dock-auto-hidden', next);
 }
 
+const TOOL_TO_MENU = {
+  pen: 'writing',
+  pencil: 'writing',
+  marker: 'writing',
+  highlighter: 'writing',
+  text: 'text',
+  lasso: 'selection',
+  eraser: 'eraser'
+};
+
+function _syncPageCursorsForActiveTool() {
+  const nextCursor = state.activeTool === 'text' ? 'text' : 'crosshair';
+  state.pages.forEach(p => {
+    if (p && p.canvas) p.canvas.style.cursor = nextCursor;
+  });
+}
+
+function _syncToolbarModeToActiveTool() {
+  _mainMenu = TOOL_TO_MENU[state.activeTool] || 'writing';
+  _dockCollapsed = false;
+  _isDockDrawingHidden = false;
+  document.body.classList.remove('dock-auto-hidden');
+  hidePagePopover();
+  _applyMenuToDOM();
+  applyMainMenuOrderToUI();
+
+  document.querySelectorAll('.main-menu-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.menu === _mainMenu);
+  });
+
+  applyActiveToolToUI();
+  applySnapTogglesToUI();
+  applyEraserLevelToUI();
+  applyStrokeStyleToUI();
+  applyTextControlsToUI();
+  applyPageColorsToUI();
+  _syncPageCursorsForActiveTool();
+}
+
 function _setMainMenu(menu, opts = {}) {
   if (!MAIN_MENU_IDS.includes(menu)) return;
 
@@ -381,6 +424,9 @@ function _setMainMenu(menu, opts = {}) {
   if (defaultTool && state.activeTool !== defaultTool) {
     if (state.activeTool === 'text' && defaultTool !== 'text') {
       clearTextBoxSelection();
+    }
+    if (state.activeTool === 'lasso' && defaultTool !== 'lasso') {
+      clearSelection();
     }
     updateToolbarSettings({ activeTool: defaultTool });
   }
@@ -405,6 +451,7 @@ function _setMainMenu(menu, opts = {}) {
     applyEraserLevelToUI();
     applyStrokeStyleToUI();
     applyTextControlsToUI();
+    _syncPageCursorsForActiveTool();
   }
 }
 
@@ -466,11 +513,20 @@ export function setTool(toolName) {
   // dove applyActiveToolToUI fa return early. Chiamata esplicita.
   applyStrokeStyleToUI();
   applyTextControlsToUI();
+  _syncPageCursorsForActiveTool();
 
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
 }
 
 export function applyActiveToolToUI() {
+  document.querySelectorAll('.tool-btn').forEach(btn => {
+    btn.classList.remove('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  });
+  const activeBtn = document.getElementById(`btnTool-${state.activeTool}`);
+  if (activeBtn) {
+    activeBtn.classList.add('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  }
+
   if (state.activeTool === 'eraser' || state.activeTool === 'lasso' || state.activeTool === 'text') return;
 
   const conf = getActiveToolConfig();
@@ -625,9 +681,56 @@ export function toggleSnapLines() {
   );
 }
 
+export function toggleSnapCircles() {
+  const next = !getToolbarSettings().snapCircles;
+  updateToolbarSettings({ snapCircles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Cerchi: riconoscimento attivo' : 'Cerchi: riconoscimento disattivato',
+    next ? '⭕' : '🚫'
+  );
+}
+
+export function toggleSnapRectangles() {
+  const next = !getToolbarSettings().snapRectangles;
+  updateToolbarSettings({ snapRectangles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Rettangoli: riconoscimento attivo' : 'Rettangoli: riconoscimento disattivato',
+    next ? '⬛' : '🚫'
+  );
+}
+
+export function toggleSnapTriangles() {
+  const next = !getToolbarSettings().snapTriangles;
+  updateToolbarSettings({ snapTriangles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Triangoli: riconoscimento attivo' : 'Triangoli: riconoscimento disattivato',
+    next ? '🔺' : '🚫'
+  );
+}
+
+export function toggleSnapArrows() {
+  const next = !getToolbarSettings().snapArrows;
+  updateToolbarSettings({ snapArrows: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Frecce: riconoscimento attivo' : 'Frecce: riconoscimento disattivato',
+    next ? '➡️' : '🚫'
+  );
+}
+
 export function toggleSnapShapes() {
-  const next = !getToolbarSettings().snapShapes;
-  updateToolbarSettings({ snapShapes: next });
+  const s = getToolbarSettings();
+  const next = !(s.snapCircles || s.snapRectangles || s.snapTriangles || s.snapArrows);
+  updateToolbarSettings({
+    snapShapes: next,
+    snapCircles: next,
+    snapRectangles: next,
+    snapTriangles: next,
+    snapArrows: next
+  });
   applySnapTogglesToUI();
   showToast(
     next ? 'Forme geometriche: riconoscimento attivo' : 'Forme geometriche: riconoscimento disattivato',
@@ -638,9 +741,15 @@ export function toggleSnapShapes() {
 export function applySnapTogglesToUI() {
   const s = getToolbarSettings();
   const linesEl = document.getElementById('snapLinesToggle');
-  const shapesEl = document.getElementById('snapShapesToggle');
-  if (linesEl)  linesEl.checked  = s.snapLines !== false;
-  if (shapesEl) shapesEl.checked = s.snapShapes !== false;
+  const circlesEl = document.getElementById('snapCirclesToggle');
+  const rectsEl = document.getElementById('snapRectanglesToggle');
+  const trianglesEl = document.getElementById('snapTrianglesToggle');
+  const arrowsEl = document.getElementById('snapArrowsToggle');
+  if (linesEl)     linesEl.checked     = s.snapLines !== false;
+  if (circlesEl)   circlesEl.checked   = s.snapCircles !== false;
+  if (rectsEl)     rectsEl.checked     = s.snapRectangles !== false;
+  if (trianglesEl) trianglesEl.checked = s.snapTriangles !== false;
+  if (arrowsEl)    arrowsEl.checked    = s.snapArrows !== false;
 }
 
 // ============================================================
@@ -925,8 +1034,14 @@ function _setupDockButtons() {
 
   document.getElementById('snapLinesToggle')
     ?.addEventListener('change', toggleSnapLines);
-  document.getElementById('snapShapesToggle')
-    ?.addEventListener('change', toggleSnapShapes);
+  document.getElementById('snapCirclesToggle')
+    ?.addEventListener('change', toggleSnapCircles);
+  document.getElementById('snapRectanglesToggle')
+    ?.addEventListener('change', toggleSnapRectangles);
+  document.getElementById('snapTrianglesToggle')
+    ?.addEventListener('change', toggleSnapTriangles);
+  document.getElementById('snapArrowsToggle')
+    ?.addEventListener('change', toggleSnapArrows);
 
   document.getElementById('opacityBtn')
     ?.addEventListener('click', (e) => {

@@ -65,10 +65,15 @@ export function clearSelection() {
   const hadSelection = state.selectedStrokes.length > 0;
   const hadLasso = state.lassoPath.length > 0;
   state.selectedStrokes = [];
+  state.lassoPath = [];
   state.isDraggingSelection = false;
   state.isResizingSelection = false;
+  state.resizeHandle = null;
   state.resizePivot = null; state.resizeAnchor = null;
   state.resizeOffset = null; state.initialStrokesSnapshot = null;
+  state.resizeCurrentAngle = 0;
+  state.selectionMoved = false;
+  resetSelectionDragState();
   hideSelectionMenu();
   if (hadSelection || hadLasso) {
     const current = state.pages[state.activePageIndex];
