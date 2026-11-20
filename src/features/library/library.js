@@ -450,16 +450,22 @@ async function handleDuplicateSelection() {
       existingTitles.add(newTitle.toLowerCase());
 
       const now = new Date().toISOString();
-      const newPages = (src.pages || []).map(p => ({
-        pageId: generatePageId(),
-        strokes: _deepClone(p.strokes || [])
-      }));
+      const newPages = (src.pages || []).map(p => {
+        const cloned = _deepClone(p || {});
+        delete cloned.pageIndex;
+        delete cloned.notebookId;
+        cloned.pageId = generatePageId();
+        if (!Array.isArray(cloned.strokes)) cloned.strokes = [];
+        return cloned;
+      });
       if (newPages.length === 0) {
         newPages.push({ pageId: generatePageId(), strokes: [] });
       }
       const newPageIds = newPages.map(p => p.pageId);
 
+      const { pages: _ignoredPages, pageOrder: _ignoredOrder, ...restSrc } = src;
       const dupNb = {
+        ..._deepClone(restSrc),
         id: `nb_${baseTs}_${i}_${Math.random().toString(36).slice(2, 6)}`,
         title: newTitle,
         coverColor: src.coverColor || '#4f46e5',

@@ -91,6 +91,7 @@ body.pages-sidebar-right.pages-sidebar-open .pages-sidebar-tab .pages-tab-icon-c
   flex-direction: column;
   background: #f8fafc;
   border-right: 1px solid #e2e8f0;
+  touch-action: pan-y;
   animation: pagesSidebarIn 0.15s ease-out;
 }
 
@@ -147,8 +148,10 @@ body.dark .pages-sidebar-icon-btn { color: #94a3b8; }
 body.dark .pages-sidebar-icon-btn:hover { background: #1e293b; color: #f1f5f9; }
 
 /* --- Lista thumbnails --- */
-.pages-thumbnails {
+.pages-thumbnails,
+#pagesThumbnailsList.pages-thumbnails.hcg-sortable {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px;
@@ -160,13 +163,15 @@ body.dark .pages-sidebar-icon-btn:hover { background: #1e293b; color: #f1f5f9; }
   touch-action: pan-y;
 }
 
-/* Neutralizza `* { touch-action: none }` sui figli scrollabili delle thumbnail */
-.pages-thumbnails .page-thumb,
-.pages-thumbnails .page-thumb-preview,
-.pages-thumbnails .page-thumb-canvas,
-.pages-thumbnails .page-thumb-footer,
-.pages-thumbnails .page-thumb-number {
+/* Neutralizza eventuali override sui discendenti scrollabili delle thumbnail */
+#pagesThumbnailsList * {
   touch-action: pan-y;
+}
+#pagesThumbnailsList .page-thumb-drag-handle {
+  touch-action: none;
+}
+#pagesThumbnailsList .page-thumb-delete {
+  touch-action: manipulation;
 }
 
 /* --- Singola thumbnail --- */
@@ -174,6 +179,7 @@ body.dark .pages-sidebar-icon-btn:hover { background: #1e293b; color: #f1f5f9; }
   position: relative;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   align-items: center;
   cursor: pointer;
   border-radius: 8px;
@@ -279,11 +285,13 @@ body.dark .page-thumb.active .page-thumb-number { color: #818cf8; }
   z-index: 5;
 }
 .page-thumb-delete svg { width: 12px; height: 12px; pointer-events: none; }
-.page-thumb:hover .page-thumb-delete { opacity: 1; }
+.page-thumb:hover .page-thumb-delete,
+.page-thumb.active .page-thumb-delete { opacity: 1; }
+.page-thumb.active .page-thumb-drag-handle { opacity: 0.9; }
 .page-thumb-delete:hover { background: #e11d48; }
 
-/* Su touch/stylus non c'è hover: maniglia e delete sempre accessibili */
-@media (hover: none) {
+/* Su touch/stylus o dispositivi con puntatore impreciso: maniglia e delete sempre accessibili */
+@media (hover: none), (pointer: coarse) {
   .page-thumb-drag-handle { opacity: 0.85; }
   .page-thumb-delete { opacity: 0.85; }
 }

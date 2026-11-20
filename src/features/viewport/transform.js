@@ -58,13 +58,16 @@ function _computeClampBounds() {
   const contentW = base.contentW1 * viewport.scale;
   const contentH = base.contentH1 * viewport.scale;
 
+  const TOP_OVERSCROLL_PX = 160;
+  const BOTTOM_OVERSCROLL_PX = 80;
+
   const deltaX = vw - contentW;
   const deltaY = vh - contentH;
   const bounds = {
     minX: Math.min(0, deltaX),
     maxX: Math.max(0, deltaX),
-    minY: Math.min(0, deltaY),
-    maxY: Math.max(0, deltaY)
+    minY: Math.min(0, deltaY - BOTTOM_OVERSCROLL_PX),
+    maxY: Math.max(TOP_OVERSCROLL_PX, deltaY)
   };
   return bounds;
 }

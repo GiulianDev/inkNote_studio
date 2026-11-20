@@ -117,8 +117,8 @@ function showConflictDialog(conflicts) {
             La scelta si applica a tutti.
           </p>
         </div>
-        <div class="px-6 overflow-y-auto flex-1 max-h-80 custom-scrollbar">
-          <ul class="text-xs space-y-2 py-2">
+        <div class="px-6 overflow-y-auto flex-1 max-h-80 custom-scrollbar" style="touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;">
+          <ul class="text-xs space-y-2 py-2 pointer-events-none">
             ${conflicts.map(c => renderConflictItem(c)).join('')}
           </ul>
         </div>
