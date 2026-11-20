@@ -20,7 +20,7 @@ import { updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
          beginEraserStroke, moveEraserStroke } from './eraser.js';
 import { clearPredictions } from '../render/prediction.js';
 import { flushHistory, pushHistory, resetHistory } from '../history/history.js';
-import { refreshPageCounter } from '../toolbar/toolbar.js';
+import { refreshPageCounter, setDockDrawingHidden } from '../toolbar/toolbar.js';
 import { finalizePendingShape } from './shapes.js';
 import { resetScribbleState } from './scribble.js';
 import {
@@ -130,6 +130,8 @@ export function handlePointerDown(e, pageData) {
 
   const effectiveTool = penEraser ? 'eraser' : state.activeTool;
 
+  setDockDrawingHidden(true);
+
   if (effectiveTool === 'lasso') return beginLasso(pageData, point);
 
   clearSelection();
@@ -183,6 +185,8 @@ export function handlePointerUp(e, pageData) {
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
   if (palmCheck && !isPenLike) return;
   if (e.pointerId !== state.currentPointerId) return;
+
+  setDockDrawingHidden(false);
 
   if (!shouldShowEraserCursor(e)) hideEraserCursor();
 
@@ -254,6 +258,7 @@ export function handlePointerUp(e, pageData) {
 }
 
 export function abortCurrentDrawing() {
+  setDockDrawingHidden(false);
   if (state.pendingShape) finalizePendingShape();
   hideEraserCursor();
   cancelFlush();

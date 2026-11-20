@@ -142,6 +142,13 @@ body.dark .main-menu-btn.active {
   box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.18), 0 2px 6px -2px rgba(15, 23, 42, 0.08);
 
   animation: dockFadeIn .14s ease-out;
+  transition: opacity .12s ease;
+}
+
+body.dock-auto-hidden .context-dock,
+body.dock-auto-hidden #pagePopover {
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 body.dark .context-dock {
