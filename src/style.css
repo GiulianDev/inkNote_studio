@@ -363,6 +363,18 @@ body.dark #undoRedoContainer.undo-redo-dragging {
    LIBRERIA — card moderne + pallino selezione + animazioni
    ============================================================ */
 
+/* Sblocca lo scroll touch verticale in libreria su iPadOS/tablet
+   neutralizzando la regola globale `* { touch-action: none }` */
+#libraryView {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+#libraryView * {
+  touch-action: pan-y;
+}
+
 /* --- Card container --- */
 .notebook-card {
   position: relative;
@@ -372,7 +384,7 @@ body.dark #undoRedoContainer.undo-redo-dragging {
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
-  touch-action: manipulation;
+  touch-action: pan-y;
 }
 
 .notebook-card:hover {

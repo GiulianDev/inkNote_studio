@@ -27,6 +27,7 @@ import { getCanvasCoords, getCanvasRect } from './tool-shared.js';
 // ============================================================
 
 export function selectStrokesInsideLasso(pageData) {
+  if (!pageData) return;
   const polygon = state.lassoPath;
   state.selectedStrokes = pageData.strokes.filter(stroke =>
     stroke.points.some(pt => isPointInPolygon(pt, polygon))
@@ -35,8 +36,10 @@ export function selectStrokesInsideLasso(pageData) {
   if (state.selectedStrokes.length > 0) {
     showSelectionMenu();
     showToast(`${state.selectedStrokes.length} elementi selezionati`, '✂️');
-    redrawPageCanvas(pageData);
-    redrawSelectionOverlay(pageData);
+    if (pageData.canvas) {
+      redrawPageCanvas(pageData);
+      redrawSelectionOverlay(pageData);
+    }
   } else {
     state.selectedStrokes = [];
     state.isDraggingSelection = false;
@@ -44,7 +47,7 @@ export function selectStrokesInsideLasso(pageData) {
     state.resizePivot = null; state.resizeAnchor = null;
     state.resizeOffset = null; state.initialStrokesSnapshot = null;
     hideSelectionMenu();
-    redrawSelectionOverlay(pageData);
+    if (pageData.canvas) redrawSelectionOverlay(pageData);
   }
 }
 
@@ -69,7 +72,7 @@ export function clearSelection() {
   hideSelectionMenu();
   if (hadSelection || hadLasso) {
     const current = state.pages[state.activePageIndex];
-    if (current) {
+    if (current && current.canvas) {
       current.canvas.style.cursor = 'crosshair';
       redrawPageCanvas(current);
       redrawSelectionOverlay(current);
@@ -79,8 +82,11 @@ export function clearSelection() {
 
 function snapshotSelectedStrokes() {
   return state.selectedStrokes.map(s => ({
-    color: s.color, size: s.size, tool: s.tool,
-    points: s.points.map(p => ({ x: p.x, y: p.y, pressure: p.pressure }))
+    points: s.points.map(p => ({
+      x: p.x, y: p.y, pressure: p.pressure,
+      tiltX: p.tiltX, tiltY: p.tiltY,
+      speed: p.speed, pointerType: p.pointerType
+    }))
   }));
 }
 
@@ -112,7 +118,7 @@ export function startResizeSelection(handle, startPoint) {
   state.initialStrokesSnapshot = snapshotSelectedStrokes();
   state.selectionMoved = false;
   const current = state.pages[state.activePageIndex];
-  if (current) { current.canvas.style.cursor = 'nwse-resize'; redrawSelectionOverlay(current); }
+  if (current && current.canvas) { current.canvas.style.cursor = 'nwse-resize'; redrawSelectionOverlay(current); }
 }
 
 export function applyResizeSelection(point) {
@@ -133,21 +139,31 @@ export function applyResizeSelection(point) {
   if (Math.abs(deltaAngle - nearest) < snapThreshold) effectiveAngle = nearest;
   state.resizeCurrentAngle = effectiveAngle;
   const cos = Math.cos(effectiveAngle), sin = Math.sin(effectiveAngle);
-  state.selectedStrokes.forEach((stroke, i) => {
-    const snap = state.initialStrokesSnapshot[i];
-    stroke.points = snap.points.map(p => {
-      const px = p.x - pivot.x, py = p.y - pivot.y;
-      return {
-        x: pivot.x + (px * cos - py * sin) * scale,
-        y: pivot.y + (px * sin + py * cos) * scale,
-        pressure: p.pressure
-      };
-    });
-    invalidateStrokeBitmap(stroke);
-  });
+  for (let i = 0; i < state.selectedStrokes.length; i++) {
+    const stroke = state.selectedStrokes[i];
+    const snapPts = state.initialStrokesSnapshot[i].points;
+    const pts = stroke.points;
+    for (let j = 0; j < snapPts.length; j++) {
+      const sp = snapPts[j];
+      const px = sp.x - pivot.x, py = sp.y - pivot.y;
+      const nx = pivot.x + (px * cos - py * sin) * scale;
+      const ny = pivot.y + (px * sin + py * cos) * scale;
+      if (pts[j]) {
+        pts[j].x = nx;
+        pts[j].y = ny;
+      } else {
+        pts[j] = {
+          x: nx, y: ny, pressure: sp.pressure,
+          tiltX: sp.tiltX, tiltY: sp.tiltY,
+          speed: sp.speed, pointerType: sp.pointerType
+        };
+      }
+    }
+    if (stroke._cacheCanvas) invalidateStrokeBitmap(stroke);
+  }
   state.selectionMoved = true;
   const current = state.pages[state.activePageIndex];
-  if (current) redrawSelectionOverlay(current);
+  if (current && current.canvas) redrawSelectionOverlay(current);
   updateSelectionMenuPosition();
 }
 
@@ -159,7 +175,7 @@ export function previewSelectionColor(newColor) {
     invalidateStrokeBitmap(s);
   });
   const current = state.pages[state.activePageIndex];
-  if (current) { redrawPageCanvas(current); redrawSelectionOverlay(current); }
+  if (current && current.canvas) { redrawPageCanvas(current); redrawSelectionOverlay(current); }
 }
 
 export function changeSelectionColor(newColor) {
@@ -180,7 +196,7 @@ export function previewSelectionWidth(newWidth) {
   const label = document.getElementById('selectionWidthValue');
   if (label) label.innerText = w;
   const current = state.pages[state.activePageIndex];
-  if (current) { redrawPageCanvas(current); redrawSelectionOverlay(current); }
+  if (current && current.canvas) { redrawPageCanvas(current); redrawSelectionOverlay(current); }
 }
 
 export function changeSelectionWidth(newWidth) {
@@ -197,8 +213,10 @@ export function deleteSelectedStrokes() {
     current.strokes = current.strokes.filter(s => !state.selectedStrokes.includes(s));
     state.selectedStrokes = [];
     hideSelectionMenu();
-    redrawPageCanvas(current);
-    clearOverlay(current);
+    if (current.canvas) {
+      redrawPageCanvas(current);
+      clearOverlay(current);
+    }
     scheduleSave();
     pushHistory();
     showToast('Elementi eliminati', '🗑️');
@@ -207,6 +225,7 @@ export function deleteSelectedStrokes() {
 
 function showSelectionMenu() {
   const menu = document.getElementById('selectionMenu');
+  if (!menu) return;
   menu.classList.remove('hidden');
   if (state.selectedStrokes.length > 0) {
     const first = state.selectedStrokes[0];
@@ -221,7 +240,7 @@ function showSelectionMenu() {
 }
 
 function hideSelectionMenu() {
-  document.getElementById('selectionMenu').classList.add('hidden');
+  document.getElementById('selectionMenu')?.classList.add('hidden');
 }
 
 export function updateSelectionMenuPosition() {
@@ -229,7 +248,7 @@ export function updateSelectionMenuPosition() {
   if (!menu || menu.classList.contains('hidden')) return;
   const bbox = getVisualBoundingBox();
   const current = state.pages[state.activePageIndex];
-  if (!bbox || !current) return;
+  if (!bbox || !current || !current.canvas) return;
   const rect = getCanvasRect(current.canvas);
   const scaleRatio = rect.width / PAGE_WIDTH;
   const screenX = rect.left + (bbox.minX + bbox.width / 2) * scaleRatio;
@@ -240,6 +259,7 @@ export function updateSelectionMenuPosition() {
 }
 
 export function updateCursorForSelection(e, pageData) {
+  if (!pageData || !pageData.canvas) return;
   if (state.activeTool !== 'lasso' || state.selectedStrokes.length === 0) {
     pageData.canvas.style.cursor = 'crosshair'; return;
   }
@@ -280,6 +300,7 @@ export function beginLasso(pageData, point) {
 }
 
 export function moveLasso(pageData, e) {
+  if (!pageData || !pageData.canvas) return;
   const lp = getCanvasCoords(e, pageData.canvas);
   state.lassoPath.push({ x: lp.x, y: lp.y, pressure: lp.pressure });
   drawLassoIncrementalOnOverlay(pageData);
@@ -327,7 +348,7 @@ export function beginSelectionDrag(point, pageData) {
   state.dragStartPoint = _dragStartPoint;
   state.isDrawing = true;
   state.selectionMoved = false;
-  pageData.canvas.style.cursor = 'grabbing';
+  if (pageData?.canvas) pageData.canvas.style.cursor = 'grabbing';
 }
 
 export function moveSelectionDrag(pageData, rawPoint) {
@@ -345,7 +366,12 @@ export function moveSelectionDrag(pageData, rawPoint) {
   if (incX !== 0 || incY !== 0) {
     state.selectionMoved = true;
     state.selectedStrokes.forEach(stroke => {
-      stroke.points.forEach(p => { p.x += incX; p.y += incY; });
+      const pts = stroke.points;
+      for (let i = 0; i < pts.length; i++) {
+        pts[i].x += incX;
+        pts[i].y += incY;
+      }
+      if (stroke._cacheCanvas) invalidateStrokeBitmap(stroke);
     });
     _dragAccX = desiredX;
     _dragAccY = desiredY;
@@ -358,7 +384,7 @@ export function endSelectionDrag(pageData, wasMoved) {
   state.isDraggingSelection = false;
   state.dragStartPoint = null;
   state.selectionMoved = false;
-  pageData.canvas.style.cursor = 'crosshair';
+  if (pageData?.canvas) pageData.canvas.style.cursor = 'crosshair';
   if (wasMoved) pushHistory();
   scheduleSave();
   resetSelectionDragState();

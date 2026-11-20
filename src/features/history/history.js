@@ -256,6 +256,15 @@ export function updateUndoRedoUI() {
 export function handleHistoryKeyboard(e) {
   const target = e.target;
   if (target && target.matches && target.matches('input, textarea, select, [contenteditable="true"]')) return;
+  if (!e.key) return;
+  const lib = document.getElementById('libraryView');
+  if (lib && !lib.classList.contains('hidden')) return;
+  const settings = document.getElementById('settingsModal');
+  if (settings && !settings.classList.contains('hidden')) return;
+  const newNb = document.getElementById('newNotebookModal');
+  if (newNb && !newNb.classList.contains('hidden')) return;
+  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+
   const isCtrl = e.ctrlKey || e.metaKey;
   if (!isCtrl) return;
   const key = e.key.toLowerCase();

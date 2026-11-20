@@ -8,11 +8,41 @@ import { setTool } from '../toolbar/toolbar.js';
 import { flushAutoSave } from '../persistence/autosave.js';
 import { flushHistory, handleHistoryKeyboard } from '../history/history.js';
 import { toggleFullscreen } from '../editor/export-pdf.js';
-import { applyTransform } from '../viewport/transform.js';
+import { applyPinchTransform } from '../viewport/transform.js';
 import { resetZoom } from '../editor/pages.js';
 import { closeSettingsModal } from '../settings/settings-modal.js';
 import { closeNewNotebookModal } from '../library/library.js';
 import { clearSelection } from '../tools/lazo.js';
+
+function _isEditorInteractive() {
+  const lib = document.getElementById('libraryView');
+  if (lib && !lib.classList.contains('hidden')) return false;
+  const settings = document.getElementById('settingsModal');
+  if (settings && !settings.classList.contains('hidden')) return false;
+  const newNb = document.getElementById('newNotebookModal');
+  if (newNb && !newNb.classList.contains('hidden')) return false;
+  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return false;
+  return true;
+}
+
+function _zoomByFactor(factor) {
+  const newScale = Math.min(
+    Math.max(viewport.scale * factor, viewport.minScale),
+    viewport.maxScale
+  );
+  if (newScale === viewport.scale) return;
+  const vp = document.getElementById('viewport');
+  const rect = vp ? vp.getBoundingClientRect() : null;
+  const center = rect
+    ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  applyPinchTransform(
+    center,
+    { x: viewport.x, y: viewport.y, scale: viewport.scale },
+    center,
+    newScale
+  );
+}
 
 export function setupKeyboardShortcuts() {
   document.addEventListener('keydown', handleHistoryKeyboard);
@@ -20,19 +50,25 @@ export function setupKeyboardShortcuts() {
   document.addEventListener('keydown', (e) => {
     const target = e.target;
     if (target && target.matches && target.matches('input, textarea, select, [contenteditable="true"]')) return;
+    if (!e.key) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
+
+    if (key === 'escape') {
+      const settings = document.getElementById('settingsModal');
+      if (settings && !settings.classList.contains('hidden')) { closeSettingsModal(); return; }
+      const newNb = document.getElementById('newNotebookModal');
+      if (newNb && !newNb.classList.contains('hidden')) { closeNewNotebookModal(); return; }
+      if (_isEditorInteractive() && state.selectedStrokes.length > 0) { clearSelection(); return; }
+      return;
+    }
+
+    if (!_isEditorInteractive()) return;
 
     if (ctrl && key === 's') {
       e.preventDefault();
       flushHistory(); flushAutoSave();
       showToast('Salvato', '💾');
-      return;
-    }
-    if (key === 'escape') {
-      if (!document.getElementById('settingsModal').classList.contains('hidden')) { closeSettingsModal(); return; }
-      if (!document.getElementById('newNotebookModal').classList.contains('hidden')) { closeNewNotebookModal(); return; }
-      if (state.selectedStrokes.length > 0) { clearSelection(); return; }
       return;
     }
     if (ctrl || e.altKey || e.metaKey) return;
@@ -47,13 +83,13 @@ export function setupKeyboardShortcuts() {
     if (key === 'f') { e.preventDefault(); toggleFullscreen(); return; }
     if (key === '+' || key === '=') {
       e.preventDefault();
-      viewport.scale = Math.min(viewport.scale * 1.2, viewport.maxScale);
-      applyTransform(); return;
+      _zoomByFactor(1.2);
+      return;
     }
     if (key === '-') {
       e.preventDefault();
-      viewport.scale = Math.max(viewport.scale / 1.2, viewport.minScale);
-      applyTransform(); return;
+      _zoomByFactor(1 / 1.2);
+      return;
     }
     if (key === '0') {
       e.preventDefault();
