@@ -23,7 +23,7 @@ import { emit, on } from './utils.js';
 const STORAGE_KEY = 'inknote_settings';
 
 /** Menu validi per la mainbar (allineato a toolbar.js). */
-export const MAIN_MENU_IDS = ['writing', 'selection', 'shapes', 'eraser', 'page'];
+export const MAIN_MENU_IDS = ['writing', 'text', 'selection', 'shapes', 'eraser', 'page'];
 
 export const DEFAULT_SETTINGS = {
   theme: 'auto',
@@ -46,8 +46,8 @@ export const DEFAULT_SETTINGS = {
   },
 
   // Personalizzazione mainbar (gestita da toolbar.js, non da UI)
-  mainMenuOrder:  ['writing', 'selection', 'shapes', 'eraser', 'page'],
-  mainMenuHidden: []   // max 2 (min 3 visibili)
+  mainMenuOrder:  ['writing', 'text', 'selection', 'shapes', 'eraser', 'page'],
+  mainMenuHidden: []   // max 3 (min 3 visibili)
 };
 
 /** @type {typeof DEFAULT_SETTINGS|null} */
@@ -59,7 +59,7 @@ let _current = null;
 function _normalizeSettings(raw) {
   const out = { ...DEFAULT_SETTINGS, ...(raw || {}) };
 
-  // mainMenuOrder: array con tutte e 5 le voci, senza duplicati/invalidi
+  // mainMenuOrder: array con tutte le voci, senza duplicati/invalidi
   const seen = new Set();
   const order = [];
   for (const m of (Array.isArray(out.mainMenuOrder) ? out.mainMenuOrder : [])) {
@@ -73,13 +73,14 @@ function _normalizeSettings(raw) {
   }
   out.mainMenuOrder = order;
 
-  // mainMenuHidden: array di nomi validi, max 2 (min 3 visibili)
+  // mainMenuHidden: array di nomi validi, min 3 visibili
+  const maxHidden = Math.max(0, MAIN_MENU_IDS.length - 3);
   const hiddenSet = new Set();
   for (const m of (Array.isArray(out.mainMenuHidden) ? out.mainMenuHidden : [])) {
     if (MAIN_MENU_IDS.includes(m) && !hiddenSet.has(m)) hiddenSet.add(m);
   }
-  if (hiddenSet.size > 2) {
-    const limited = [...hiddenSet].slice(0, 2);
+  if (hiddenSet.size > maxHidden) {
+    const limited = [...hiddenSet].slice(0, maxHidden);
     hiddenSet.clear();
     limited.forEach(m => hiddenSet.add(m));
   }

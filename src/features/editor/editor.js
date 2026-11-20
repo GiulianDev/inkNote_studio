@@ -27,6 +27,9 @@ import {
 import { updateSelectionMenuPosition } from '../tools/lazo.js';
 import { finalizePendingShape } from '../tools/shapes.js';
 import {
+  commitActiveTextBox, resetTextToolState, updateTextSelectionMenuPosition
+} from '../tools/text.js';
+import {
   initToolbarSettings, resetToolbarSettings,
   getToolbarSettings, getToolbarSettingsForSave
 } from '../toolbar/toolbar-settings.js';
@@ -73,6 +76,7 @@ export function initEditorHandlers() {
       updateActivePageFromViewport();
     }
     updateSelectionMenuPosition();
+    updateTextSelectionMenuPosition();
   });
   window.addEventListener('resize', () => updateActivePageFromViewport());
   installViewportResizeObserver();
@@ -189,6 +193,7 @@ export async function openNotebook(id) {
     state.currentPointerId = null;
     state.currentPageForPointer = null;
     state.isDrawing = false;
+    resetTextToolState();
 
     if (nb.pages && nb.pages.length > 0) {
       const total = nb.pages.length;
@@ -196,7 +201,7 @@ export async function openNotebook(id) {
         if (myToken !== _openToken) return;
         const pageData = nb.pages[i];
         const initialStrokes = unpackedByPageId.get(pageData.pageId) || pageData.strokes || [];
-        createNewPageDOM(pageData.pageIndex, initialStrokes, pageData.pageId);
+        createNewPageDOM(pageData.pageIndex, initialStrokes, pageData.pageId, pageData.textBoxes || []);
 
         if (_activeOpenDialog) {
           _activeOpenDialog.update({ done: i + 1, total, label: 'Preparazione pagine' });
@@ -206,7 +211,7 @@ export async function openNotebook(id) {
         }
       }
     } else {
-      createNewPageDOM(0, []);
+      createNewPageDOM(0, [], null, []);
     }
 
     if (myToken !== _openToken) return;
@@ -277,6 +282,9 @@ export async function returnToLibrary() {
   _closeOpenDialog();
 
   if (state.pendingShape) finalizePendingShape();
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
   try {
     await forceSave();
   } catch (err) {
@@ -290,6 +298,7 @@ export async function returnToLibrary() {
   state.selectedStrokes = [];
   state.lassoPath = [];
   state.pendingShape = null;
+  resetTextToolState();
 
   setCurrentNotebook(null);
   resetToolbarSettings();
@@ -320,6 +329,7 @@ export function closeNotebookIfOpen(id) {
     state.selectedStrokes = [];
     state.lassoPath = [];
     state.pendingShape = null;
+    resetTextToolState();
     resetToolbarSettings();
     resetHistory();
     setCurrentNotebook(null);

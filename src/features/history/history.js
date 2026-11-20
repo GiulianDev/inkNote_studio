@@ -7,6 +7,7 @@
 import { state } from '../../core/state.js';
 import { emit } from '../../core/utils.js';
 import { scheduleSave } from '../persistence/autosave.js';
+import { normalizeTextBoxes, resetTextToolState } from '../tools/text.js';
 
 const historyState = { stack: [], index: -1, maxSteps: 10, isRestoring: false };
 
@@ -87,6 +88,22 @@ function _computeStateHash() {
       h = ((h * 31) + ((last.y * 100) | 0)) | 0;
     }
   }
+  const textBoxes = Array.isArray(page.textBoxes) ? page.textBoxes : [];
+  h = ((h * 31) + (textBoxes.length | 0)) | 0;
+  for (let i = 0; i < textBoxes.length; i++) {
+    const tb = textBoxes[i];
+    if (!tb) continue;
+    h = _hashString(h, tb.id || '');
+    h = _hashString(h, tb.text || '');
+    h = ((h * 31) + Math.round(tb.x || 0)) | 0;
+    h = ((h * 31) + Math.round(tb.y || 0)) | 0;
+    h = ((h * 31) + Math.round(tb.width || 0)) | 0;
+    h = ((h * 31) + Math.round(tb.fontSize || 18)) | 0;
+    h = ((h * 31) + (tb.bold ? 1 : 0) + (tb.italic ? 2 : 0)) | 0;
+    h = _hashString(h, tb.fontFamily || 'sans');
+    h = _hashString(h, tb.align || 'left');
+    h = _hashString(h, tb.color || '#000000');
+  }
   h = _hashString(h, pattern);
   return h | 0;
 }
@@ -95,10 +112,12 @@ function captureSnapshot() {
   const page = state.pages[state.activePageIndex];
   if (!page) return null;
   const strokesClone = page.strokes.map(cloneStrokeFast);
+  const textBoxesClone = normalizeTextBoxes(page.textBoxes || []);
   return {
     pageId: page.pageId,
     pageIndex: state.activePageIndex,
     strokes: strokesClone,
+    textBoxes: textBoxesClone,
     bgPattern: state.bgPattern
   };
 }
@@ -233,6 +252,7 @@ function _applySnapshot(snap) {
   state.dragStartPoint = null;
   state.selectionMoved = false;
   document.getElementById('selectionMenu')?.classList.add('hidden');
+  resetTextToolState();
 
   if (snap.bgPattern) {
     state.bgPattern = snap.bgPattern;

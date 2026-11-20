@@ -32,7 +32,7 @@ import {
   getSettings, updateSettings, onSettingsChanged
 } from '../../core/app-settings.js';
 import { onToolbarSettingsChanged } from '../toolbar/toolbar-settings.js';
-import { computeStrokeWidth, _buildLineDash } from '../render/render.js';
+import { computeStrokeWidth, _buildLineDash, drawTextBoxOnCanvas } from '../render/render.js';
 import { invalidateClampCache } from '../viewport/transform.js';
 import {
   deletePage, movePage, addNewPage, scrollToPage
@@ -838,6 +838,12 @@ function _drawThumbnail(pageData, canvas) {
         ctx.stroke();
       }
       ctx.restore();
+    }
+  }
+
+  if (Array.isArray(pageData.textBoxes) && pageData.textBoxes.length > 0) {
+    for (const tb of pageData.textBoxes) {
+      if (tb) drawTextBoxOnCanvas(ctx, tb, isDark);
     }
   }
 

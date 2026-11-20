@@ -1,0 +1,857 @@
+/**
+ * @module features/tools/text
+ *
+ * TOOL TESTO — caselle di testo da tastiera.
+ *
+ * Architettura leggera (Surface Go 1):
+ *   - A riposo: `pageData.textBoxes[]` renderizzato su canvas insieme agli stroke.
+ *   - In modifica: un solo `<textarea>` overlay montato dentro `pageData.wrapper`
+ *     (scala e trasla in GPU con #canvasContainer senza calcoli per-frame).
+ *   - In drag/resize: la casella attiva viene sollevata sull'overlayCanvas
+ *     (zero redraw del mainCanvas ad ogni pointermove).
+ *
+ * @see features/render/render.js — TEXT_FONTS, layoutTextBox, drawTextBoxSelectionOnOverlay
+ */
+
+import { state, viewport } from '../../core/state.js';
+import { PAGE_WIDTH, PAGE_HEIGHT, showToast, getEffectiveColor } from '../../core/utils.js';
+import {
+  TEXT_FONTS, TEXT_LINE_HEIGHT_MULT, TEXT_PAD_X, TEXT_PAD_Y,
+  redrawPageCanvas, clearOverlay, drawTextBoxSelectionOnOverlay, layoutTextBox
+} from '../render/render.js';
+import { getCanvasCoords, getCanvasRect } from './tool-shared.js';
+import { updateToolbarSettings } from '../toolbar/toolbar-settings.js';
+import { pushHistory } from '../history/history.js';
+import { scheduleSave } from '../persistence/autosave.js';
+import { markPageDirty } from '../persistence/session.js';
+import { pagePool } from '../editor/page-pool.js';
+
+const DEFAULT_BOX_WIDTH = 260;
+const MIN_BOX_WIDTH = 80;
+const DOUBLE_TAP_MS = 380;
+const DOUBLE_TAP_DIST_PX = 20;
+
+// --- Stato locale editor singolo ---
+let _editorWrap = null;
+let _editorTextarea = null;
+let _editorActions = null;
+let _selectionMenuEl = null;
+
+// --- Stato drag / resize / doppio-tap ---
+let _interactionMode = null; // 'drag' | 'resize-w' | 'resize-e' | null
+let _interactionPage = null;
+let _interactionBox = null;
+let _startPoint = null;
+let _origBox = null;
+let _hasMoved = false;
+
+let _lastTapTime = 0;
+let _lastTapBoxId = null;
+let _lastTapPt = null;
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function _generateTextBoxId() {
+  return `tb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function _notifyTextSelectionChanged() {
+  window.dispatchEvent(new CustomEvent('inknote:text-selection-changed'));
+}
+
+function _notifyPageContentDirty(pageData) {
+  if (!pageData) return;
+  markPageDirty(pageData.pageId);
+  const key = pageData.pageId ?? pageData.index;
+  window.dispatchEvent(new CustomEvent('inknote:page-content-dirty', { detail: { key } }));
+}
+
+function _findBoxById(boxId) {
+  if (!boxId) return null;
+  for (let i = 0; i < state.pages.length; i++) {
+    const p = state.pages[i];
+    if (!Array.isArray(p.textBoxes)) continue;
+    const tb = p.textBoxes.find(item => item && item.id === boxId);
+    if (tb) return { pageData: p, textBox: tb };
+  }
+  return null;
+}
+
+function _measureCanvasCtx(pageData) {
+  return (pageData && (pageData.ctx || pageData.overlayCtx)) ||
+    document.createElement('canvas').getContext('2d');
+}
+
+export function getActiveTextBox() {
+  const id = state.editingTextBoxId || state.selectedTextBoxId;
+  return _findBoxById(id);
+}
+
+export function getActiveTextStyle() {
+  const found = getActiveTextBox();
+  if (found && found.textBox) {
+    const tb = found.textBox;
+    return {
+      fontFamily: tb.fontFamily || 'sans',
+      fontSize: tb.fontSize || 18,
+      bold: !!tb.bold,
+      italic: !!tb.italic,
+      align: tb.align || 'left',
+      color: tb.color || '#000000'
+    };
+  }
+  return { ...state.textStyle };
+}
+
+export function hitTestTextBox(pageData, point) {
+  if (!pageData || !Array.isArray(pageData.textBoxes) || pageData.textBoxes.length === 0) {
+    return null;
+  }
+  const ctx = _measureCanvasCtx(pageData);
+  // Cerca dall'ultima (sopra) alla prima
+  for (let i = pageData.textBoxes.length - 1; i >= 0; i--) {
+    const tb = pageData.textBoxes[i];
+    if (!tb) continue;
+    const layout = layoutTextBox(ctx, tb);
+    const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
+    const h = tb.height || layout.height;
+    if (point.x >= tb.x && point.x <= tb.x + w && point.y >= tb.y && point.y <= tb.y + h) {
+      return tb;
+    }
+  }
+  return null;
+}
+
+export function hitTestTextBoxHandle(pageData, tb, point) {
+  if (!tb) return null;
+  const ctx = _measureCanvasCtx(pageData);
+  const layout = layoutTextBox(ctx, tb);
+  const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
+  const h = tb.height || layout.height;
+  const midY = tb.y + h / 2;
+  const hitR = 16 / (viewport.scale || 1);
+  const halfH = Math.max(hitR, Math.min(h * 0.45, 22 / (viewport.scale || 1)));
+
+  if (Math.abs(point.x - tb.x) <= hitR && Math.abs(point.y - midY) <= halfH) {
+    return 'resize-w';
+  }
+  if (Math.abs(point.x - (tb.x + w)) <= hitR && Math.abs(point.y - midY) <= halfH) {
+    return 'resize-e';
+  }
+  return null;
+}
+
+export function canStartTextDragOnTouch(e) {
+  if (state.activeTool !== 'text') return false;
+  if (e.target && e.target.closest && e.target.closest('.text-box-editor-wrap')) return false;
+  if (!state.selectedTextBoxId || state.editingTextBoxId) return false;
+
+  const found = _findBoxById(state.selectedTextBoxId);
+  if (!found || !found.pageData || !found.pageData.canvas) return false;
+
+  const point = getCanvasCoords(e, found.pageData.canvas);
+  if (hitTestTextBoxHandle(found.pageData, found.textBox, point)) return true;
+
+  const ctx = _measureCanvasCtx(found.pageData);
+  const layout = layoutTextBox(ctx, found.textBox);
+  const tb = found.textBox;
+  const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
+  const h = tb.height || layout.height;
+  return point.x >= tb.x && point.x <= tb.x + w && point.y >= tb.y && point.y <= tb.y + h;
+}
+
+// ============================================================
+// FLOATING ACTION MENU (#textSelectionMenu)
+// ============================================================
+
+function _ensureSelectionMenu() {
+  if (_selectionMenuEl) return _selectionMenuEl;
+  const el = document.createElement('div');
+  el.id = 'textSelectionMenu';
+  el.className = 'text-selection-menu fixed hidden bg-slate-900/95 text-white dark:bg-slate-800/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl shadow-2xl text-xs font-semibold flex items-center gap-1.5 z-50 border border-slate-700/50';
+  el.innerHTML = `
+    <button type="button" data-action="edit" class="bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1.5 rounded-lg transition" title="Modifica testo">✏️ Modifica</button>
+    <button type="button" data-action="delete" class="bg-rose-600 hover:bg-rose-500 text-white px-2 py-1.5 rounded-lg transition" title="Elimina casella">🗑️</button>
+    <button type="button" data-action="close" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1.5 rounded-lg transition" title="Deseleziona">✕</button>
+  `;
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  el.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === 'edit') editSelectedTextBox();
+    else if (action === 'delete') deleteSelectedTextBox();
+    else if (action === 'close') clearTextBoxSelection();
+  });
+  document.body.appendChild(el);
+  _selectionMenuEl = el;
+  return el;
+}
+
+function _showSelectionMenu() {
+  if (state.editingTextBoxId || !state.selectedTextBoxId) {
+    _hideSelectionMenu();
+    return;
+  }
+  const el = _ensureSelectionMenu();
+  el.classList.remove('hidden');
+  updateTextSelectionMenuPosition();
+}
+
+function _hideSelectionMenu() {
+  if (_selectionMenuEl) _selectionMenuEl.classList.add('hidden');
+}
+
+export function updateTextSelectionMenuPosition() {
+  if (!_selectionMenuEl || _selectionMenuEl.classList.contains('hidden')) return;
+  const found = _findBoxById(state.selectedTextBoxId);
+  if (!found || !found.pageData || !found.pageData.canvas) {
+    _hideSelectionMenu();
+    return;
+  }
+  const tb = found.textBox;
+  const rect = getCanvasRect(found.pageData.canvas);
+  const scaleRatio = rect.width / PAGE_WIDTH;
+  const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
+  const screenX = rect.left + (tb.x + w / 2) * scaleRatio;
+  const screenY = rect.top + tb.y * scaleRatio - 48;
+  const menuW = _selectionMenuEl.offsetWidth || 180;
+  _selectionMenuEl.style.left = `${Math.max(12, Math.min(window.innerWidth - menuW - 12, screenX - menuW / 2))}px`;
+  _selectionMenuEl.style.top = `${Math.max(64, screenY)}px`;
+}
+
+// ============================================================
+// SINGLE <textarea> OVERLAY EDITOR
+// ============================================================
+
+function _ensureEditorDOM() {
+  if (_editorWrap) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'text-box-editor-wrap';
+  wrap.innerHTML = `
+    <div class="text-box-editor-actions">
+      <button type="button" class="text-box-action-btn confirm" data-action="confirm" title="Conferma (Ctrl+Invio / Esc)">✓</button>
+      <button type="button" class="text-box-action-btn delete" data-action="delete" title="Elimina casella">🗑️</button>
+    </div>
+    <textarea class="text-box-editor-input" rows="1" placeholder="Scrivi qui..."></textarea>
+  `;
+
+  const textarea = wrap.querySelector('.text-box-editor-input');
+  const actions = wrap.querySelector('.text-box-editor-actions');
+
+  wrap.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+  });
+
+  actions.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  actions.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    e.stopPropagation();
+    if (btn.dataset.action === 'confirm') {
+      commitActiveTextBox();
+    } else if (btn.dataset.action === 'delete') {
+      deleteSelectedTextBox();
+    }
+  });
+
+  textarea.addEventListener('input', () => {
+    const found = _findBoxById(state.editingTextBoxId);
+    if (!found) return;
+    found.textBox.text = textarea.value;
+    found.textBox._layoutCache = null;
+    _syncTextareaAutoHeight();
+  });
+
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      commitActiveTextBox();
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      commitActiveTextBox();
+    }
+  });
+
+  _editorWrap = wrap;
+  _editorTextarea = textarea;
+  _editorActions = actions;
+}
+
+function _syncTextareaAutoHeight() {
+  if (!_editorTextarea || !_editorWrap) return;
+  const found = _findBoxById(state.editingTextBoxId);
+  const fontSize = found?.textBox?.fontSize || 18;
+  const minH = Math.ceil(fontSize * TEXT_LINE_HEIGHT_MULT + TEXT_PAD_Y * 2);
+  _editorTextarea.style.height = 'auto';
+  const nextH = Math.max(minH, _editorTextarea.scrollHeight);
+  _editorTextarea.style.height = `${nextH}px`;
+  if (found && found.textBox) {
+    found.textBox.height = nextH;
+  }
+}
+
+function _syncEditorAppearance(tb) {
+  if (!_editorWrap || !_editorTextarea || !tb) return;
+  const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
+  const fontSize = Math.max(10, Math.min(72, tb.fontSize || 18));
+  const family = TEXT_FONTS[tb.fontFamily] || TEXT_FONTS.sans;
+  const color = getEffectiveColor(tb.color || '#000000', state.isDarkMode);
+
+  _editorWrap.style.left = `${tb.x}px`;
+  _editorWrap.style.top = `${tb.y}px`;
+  _editorWrap.style.width = `${w}px`;
+
+  _editorTextarea.style.fontFamily = family;
+  _editorTextarea.style.fontSize = `${fontSize}px`;
+  _editorTextarea.style.lineHeight = String(TEXT_LINE_HEIGHT_MULT);
+  _editorTextarea.style.fontWeight = tb.bold ? '700' : '400';
+  _editorTextarea.style.fontStyle = tb.italic ? 'italic' : 'normal';
+  _editorTextarea.style.textAlign = tb.align || 'left';
+  _editorTextarea.style.color = color;
+  _editorTextarea.style.padding = `${TEXT_PAD_Y}px ${TEXT_PAD_X}px`;
+
+  _syncTextareaAutoHeight();
+}
+
+function _openEditorForBox(pageData, tb, { selectAll = false } = {}) {
+  if (!pageData || !pageData.wrapper || !tb) return;
+  if (!pageData.canvas) pagePool.forceAssign(pageData.index);
+
+  _ensureEditorDOM();
+  _hideSelectionMenu();
+
+  state.selectedTextBoxId = tb.id;
+  state.editingTextBoxId = tb.id;
+
+  clearOverlay(pageData);
+  if (pageData.canvas) redrawPageCanvas(pageData);
+
+  _editorTextarea.value = tb.text || '';
+  if (_editorWrap.parentElement !== pageData.wrapper) {
+    pageData.wrapper.appendChild(_editorWrap);
+  }
+  _editorWrap.classList.remove('hidden');
+  _syncEditorAppearance(tb);
+
+  _notifyTextSelectionChanged();
+
+  _editorTextarea.focus({ preventScroll: true });
+  if (selectAll) {
+    _editorTextarea.select();
+  } else {
+    const len = _editorTextarea.value.length;
+    _editorTextarea.setSelectionRange(len, len);
+  }
+
+  requestAnimationFrame(() => {
+    if (!_editorTextarea || state.editingTextBoxId !== tb.id) return;
+    if (document.activeElement !== _editorTextarea) {
+      _editorTextarea.focus({ preventScroll: true });
+      if (selectAll) {
+        _editorTextarea.select();
+      } else {
+        const len = _editorTextarea.value.length;
+        _editorTextarea.setSelectionRange(len, len);
+      }
+    }
+    _syncTextareaAutoHeight();
+  });
+}
+
+// ============================================================
+// PUBLIC LIFECYCLE & ACTIONS
+// ============================================================
+
+export function commitActiveTextBox({ deselect = false } = {}) {
+  const editId = state.editingTextBoxId;
+  if (!editId) {
+    if (deselect) clearTextBoxSelection();
+    return false;
+  }
+
+  const found = _findBoxById(editId);
+  const rawVal = _editorTextarea ? _editorTextarea.value : (found?.textBox?.text || '');
+  state.editingTextBoxId = null;
+
+  if (_editorWrap && _editorWrap.parentElement) {
+    _editorWrap.classList.add('hidden');
+    _editorWrap.remove();
+  }
+
+  if (!found) {
+    if (deselect) state.selectedTextBoxId = null;
+    _notifyTextSelectionChanged();
+    return false;
+  }
+
+  const { pageData, textBox } = found;
+  const trimmed = rawVal.replace(/\s+$/, '');
+  const isEmpty = rawVal.trim().length === 0;
+
+  if (isEmpty) {
+    pageData.textBoxes = (pageData.textBoxes || []).filter(b => b && b.id !== textBox.id);
+    if (state.selectedTextBoxId === textBox.id) state.selectedTextBoxId = null;
+    if (pageData.canvas) {
+      clearOverlay(pageData);
+      redrawPageCanvas(pageData);
+    }
+    _hideSelectionMenu();
+    if (!textBox._isNewDraft) {
+      _notifyPageContentDirty(pageData);
+      pushHistory();
+      scheduleSave({ markDirty: false });
+    }
+    _notifyTextSelectionChanged();
+    return true;
+  }
+
+  const changed = trimmed !== textBox._initialEditText || !!textBox._isNewDraft;
+  textBox.text = trimmed;
+  delete textBox._isNewDraft;
+  delete textBox._initialEditText;
+  textBox._layoutCache = null;
+
+  const ctx = _measureCanvasCtx(pageData);
+  layoutTextBox(ctx, textBox);
+
+  if (deselect) {
+    state.selectedTextBoxId = null;
+  } else {
+    state.selectedTextBoxId = textBox.id;
+  }
+
+  if (pageData.canvas) {
+    redrawPageCanvas(pageData);
+    if (!deselect && state.selectedTextBoxId === textBox.id) {
+      drawTextBoxSelectionOnOverlay(pageData, textBox);
+      _showSelectionMenu();
+    } else {
+      clearOverlay(pageData);
+      _hideSelectionMenu();
+    }
+  } else {
+    _hideSelectionMenu();
+  }
+
+  if (changed) {
+    _notifyPageContentDirty(pageData);
+    pushHistory();
+    scheduleSave({ markDirty: false });
+  }
+
+  _notifyTextSelectionChanged();
+  return true;
+}
+
+export function clearTextBoxSelection() {
+  if (state.editingTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+    return;
+  }
+  const prevId = state.selectedTextBoxId;
+  state.selectedTextBoxId = null;
+  state._draggingTextBoxId = null;
+  _hideSelectionMenu();
+
+  if (prevId) {
+    const found = _findBoxById(prevId);
+    if (found && found.pageData && found.pageData.canvas) {
+      clearOverlay(found.pageData);
+    }
+    _notifyTextSelectionChanged();
+  }
+}
+
+export function editSelectedTextBox() {
+  if (state.editingTextBoxId) {
+    _editorTextarea?.focus({ preventScroll: true });
+    return;
+  }
+  const found = _findBoxById(state.selectedTextBoxId);
+  if (!found) return;
+  found.textBox._initialEditText = found.textBox.text;
+  _openEditorForBox(found.pageData, found.textBox);
+}
+
+export function deleteSelectedTextBox() {
+  const targetId = state.editingTextBoxId || state.selectedTextBoxId;
+  if (!targetId) return false;
+
+  const found = _findBoxById(targetId);
+  state.editingTextBoxId = null;
+  state.selectedTextBoxId = null;
+  state._draggingTextBoxId = null;
+
+  if (_editorWrap && _editorWrap.parentElement) {
+    _editorWrap.classList.add('hidden');
+    _editorWrap.remove();
+  }
+  _hideSelectionMenu();
+
+  if (!found) {
+    _notifyTextSelectionChanged();
+    return false;
+  }
+
+  const { pageData, textBox } = found;
+  pageData.textBoxes = (pageData.textBoxes || []).filter(b => b && b.id !== textBox.id);
+
+  if (pageData.canvas) {
+    clearOverlay(pageData);
+    redrawPageCanvas(pageData);
+  }
+
+  if (!textBox._isNewDraft) {
+    _notifyPageContentDirty(pageData);
+    pushHistory();
+    scheduleSave({ markDirty: false });
+    showToast('Casella di testo eliminata', '🗑️');
+  }
+  _notifyTextSelectionChanged();
+  return true;
+}
+
+export function createTextBoxAt(pageData, point) {
+  if (!pageData) return null;
+  if (!pageData.canvas) pagePool.forceAssign(pageData.index);
+  if (!Array.isArray(pageData.textBoxes)) pageData.textBoxes = [];
+
+  if (state.editingTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
+
+  const style = state.textStyle || {};
+  const width = Math.min(DEFAULT_BOX_WIDTH, PAGE_WIDTH - 32);
+  const x = Math.max(16, Math.min(PAGE_WIDTH - width - 16, Math.round(point.x)));
+  const y = Math.max(16, Math.min(PAGE_HEIGHT - 56, Math.round(point.y - (style.fontSize || 18) * 0.5)));
+
+  const tb = {
+    id: _generateTextBoxId(),
+    x,
+    y,
+    width,
+    height: Math.ceil((style.fontSize || 18) * TEXT_LINE_HEIGHT_MULT + TEXT_PAD_Y * 2),
+    text: '',
+    fontFamily: style.fontFamily || 'sans',
+    fontSize: style.fontSize || 18,
+    bold: !!style.bold,
+    italic: !!style.italic,
+    align: style.align || 'left',
+    color: style.color || '#000000'
+  };
+  Object.defineProperty(tb, '_isNewDraft', { value: true, enumerable: false, configurable: true, writable: true });
+  Object.defineProperty(tb, '_initialEditText', { value: '', enumerable: false, configurable: true, writable: true });
+
+  pageData.textBoxes.push(tb);
+  state.activePageIndex = pageData.index;
+  _openEditorForBox(pageData, tb);
+  return tb;
+}
+
+export function applyTextStylePatch(patch) {
+  const nextStyle = { ...(state.textStyle || {}), ...patch };
+  updateToolbarSettings({ text: nextStyle });
+
+  const found = getActiveTextBox();
+  if (found && found.textBox) {
+    const { pageData, textBox } = found;
+    Object.assign(textBox, patch);
+    textBox._layoutCache = null;
+
+    if (state.editingTextBoxId === textBox.id) {
+      _syncEditorAppearance(textBox);
+      if (_editorTextarea) {
+        _editorTextarea.focus({ preventScroll: true });
+      }
+    } else {
+      const ctx = _measureCanvasCtx(pageData);
+      layoutTextBox(ctx, textBox);
+      if (pageData.canvas) {
+        redrawPageCanvas(pageData);
+        drawTextBoxSelectionOnOverlay(pageData, textBox);
+        updateTextSelectionMenuPosition();
+      }
+      if (!textBox._isNewDraft) {
+        _notifyPageContentDirty(pageData);
+        pushHistory();
+        scheduleSave({ markDirty: false });
+      }
+    }
+  }
+  _notifyTextSelectionChanged();
+}
+
+export function refocusActiveTextEditorIfEditing() {
+  if (state.editingTextBoxId && _editorTextarea) {
+    _editorTextarea.focus({ preventScroll: true });
+  }
+}
+
+export function refreshActiveTextEditorTheme() {
+  if (!state.editingTextBoxId) return;
+  const found = _findBoxById(state.editingTextBoxId);
+  if (found && found.textBox) {
+    _syncEditorAppearance(found.textBox);
+  }
+}
+
+// ============================================================
+// POINTER INTERACTION (mouse / pen / touch-on-selected)
+// ============================================================
+
+function _selectBox(pageData, tb) {
+  if (!pageData || !tb) return;
+  if (state.editingTextBoxId && state.editingTextBoxId !== tb.id) {
+    commitActiveTextBox({ deselect: true });
+  }
+  state.activePageIndex = pageData.index;
+  state.selectedTextBoxId = tb.id;
+  if (pageData.canvas) {
+    drawTextBoxSelectionOnOverlay(pageData, tb);
+  }
+  _showSelectionMenu();
+  _notifyTextSelectionChanged();
+}
+
+export function beginTextPointer(pageData, point) {
+  const now = performance.now();
+
+  // 1. Se c'è già una casella selezionata su questa pagina, controlla prima le maniglie
+  if (state.selectedTextBoxId && !state.editingTextBoxId) {
+    const sel = (pageData.textBoxes || []).find(b => b && b.id === state.selectedTextBoxId);
+    if (sel) {
+      const handle = hitTestTextBoxHandle(pageData, sel, point);
+      if (handle) {
+        _interactionMode = handle;
+        _interactionPage = pageData;
+        _interactionBox = sel;
+        _startPoint = { x: point.x, y: point.y };
+        _origBox = { x: sel.x, y: sel.y, width: sel.width, height: sel.height };
+        _hasMoved = false;
+        state.isDrawing = true;
+        return;
+      }
+    }
+  }
+
+  // 2. Hit test su casella esistente
+  const hitBox = hitTestTextBox(pageData, point);
+  if (hitBox) {
+    const isDoubleTap =
+      _lastTapBoxId === hitBox.id &&
+      (now - _lastTapTime) < DOUBLE_TAP_MS &&
+      _lastTapPt &&
+      Math.hypot(point.x - _lastTapPt.x, point.y - _lastTapPt.y) < DOUBLE_TAP_DIST_PX;
+
+    _lastTapTime = now;
+    _lastTapBoxId = hitBox.id;
+    _lastTapPt = { x: point.x, y: point.y };
+
+    if (isDoubleTap) {
+      _interactionMode = null;
+      state.isDrawing = false;
+      hitBox._initialEditText = hitBox.text;
+      _openEditorForBox(pageData, hitBox);
+      return;
+    }
+
+    _selectBox(pageData, hitBox);
+    _interactionMode = 'drag';
+    _interactionPage = pageData;
+    _interactionBox = hitBox;
+    _startPoint = { x: point.x, y: point.y };
+    _origBox = { x: hitBox.x, y: hitBox.y, width: hitBox.width, height: hitBox.height };
+    _hasMoved = false;
+    state.isDrawing = true;
+    return;
+  }
+
+  _lastTapTime = 0;
+  _lastTapBoxId = null;
+  _lastTapPt = null;
+
+  // 3. Tap su spazio vuoto
+  if (state.editingTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+    state.isDrawing = false;
+    return;
+  }
+
+  if (state.selectedTextBoxId) {
+    clearTextBoxSelection();
+    state.isDrawing = false;
+    return;
+  }
+
+  createTextBoxAt(pageData, point);
+  state.isDrawing = false;
+}
+
+export function moveTextPointer(pageData, e) {
+  if (!_interactionMode || !_interactionBox || !_startPoint || !_origBox) return;
+  const targetPage = _interactionPage || pageData;
+  if (!targetPage || !targetPage.canvas) return;
+
+  const pt = getCanvasCoords(e, targetPage.canvas);
+  const dx = pt.x - _startPoint.x;
+  const dy = pt.y - _startPoint.y;
+
+  if (!_hasMoved && Math.hypot(dx, dy) < 4) return;
+
+  if (!_hasMoved) {
+    _hasMoved = true;
+    state._draggingTextBoxId = _interactionBox.id;
+    _hideSelectionMenu();
+    redrawPageCanvas(targetPage);
+  }
+
+  const tb = _interactionBox;
+  if (_interactionMode === 'drag') {
+    const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
+    const h = tb.height || 32;
+    tb.x = Math.max(8, Math.min(PAGE_WIDTH - w - 8, Math.round(_origBox.x + dx)));
+    tb.y = Math.max(8, Math.min(PAGE_HEIGHT - h - 8, Math.round(_origBox.y + dy)));
+  } else if (_interactionMode === 'resize-e') {
+    const maxW = PAGE_WIDTH - _origBox.x - 8;
+    tb.width = Math.max(MIN_BOX_WIDTH, Math.min(maxW, Math.round(_origBox.width + dx)));
+    tb._layoutCache = null;
+  } else if (_interactionMode === 'resize-w') {
+    const right = _origBox.x + _origBox.width;
+    const nextX = Math.max(8, Math.min(right - MIN_BOX_WIDTH, Math.round(_origBox.x + dx)));
+    tb.x = nextX;
+    tb.width = right - nextX;
+    tb._layoutCache = null;
+  }
+
+  drawTextBoxSelectionOnOverlay(targetPage, tb, { drawBox: true });
+}
+
+export function endTextPointer(pageData) {
+  const mode = _interactionMode;
+  const targetPage = _interactionPage || pageData;
+  const tb = _interactionBox;
+  const didMove = _hasMoved;
+
+  _interactionMode = null;
+  _interactionPage = null;
+  _interactionBox = null;
+  _startPoint = null;
+  _origBox = null;
+  _hasMoved = false;
+  state._draggingTextBoxId = null;
+
+  if (!mode || !targetPage || !tb) return;
+
+  if (didMove) {
+    if (targetPage.canvas) {
+      redrawPageCanvas(targetPage);
+      drawTextBoxSelectionOnOverlay(targetPage, tb);
+    }
+    _showSelectionMenu();
+    _notifyPageContentDirty(targetPage);
+    pushHistory();
+    scheduleSave({ markDirty: false });
+  } else {
+    _showSelectionMenu();
+  }
+}
+
+export function handleTextTapAtClientPoint(clientX, clientY) {
+  if (state.activeTool !== 'text') return false;
+  const el = document.elementFromPoint(clientX, clientY);
+  if (el && el.closest && (el.closest('.text-box-editor-wrap') || el.closest('#textSelectionMenu'))) {
+    return false;
+  }
+
+  const wrapper = el && el.closest ? el.closest('.page-wrapper') : null;
+  let pageData = null;
+  if (wrapper && wrapper.dataset.pageId) {
+    pageData = state.pages.find(p => p.pageId === wrapper.dataset.pageId) || null;
+  }
+  if (!pageData && wrapper && wrapper.dataset.index != null) {
+    pageData = state.pages[parseInt(wrapper.dataset.index, 10)] || null;
+  }
+
+  if (!pageData) {
+    if (state.editingTextBoxId) commitActiveTextBox({ deselect: true });
+    else if (state.selectedTextBoxId) clearTextBoxSelection();
+    return false;
+  }
+
+  if (!pageData.canvas) pagePool.forceAssign(pageData.index);
+  if (!pageData.canvas) return false;
+
+  const point = getCanvasCoords({ clientX, clientY }, pageData.canvas);
+  beginTextPointer(pageData, point);
+  endTextPointer(pageData);
+  return true;
+}
+
+export function resetTextToolState() {
+  _interactionMode = null;
+  _interactionPage = null;
+  _interactionBox = null;
+  _startPoint = null;
+  _origBox = null;
+  _hasMoved = false;
+  state.editingTextBoxId = null;
+  state.selectedTextBoxId = null;
+  state._draggingTextBoxId = null;
+  if (_editorWrap && _editorWrap.parentElement) {
+    _editorWrap.classList.add('hidden');
+    _editorWrap.remove();
+  }
+  _hideSelectionMenu();
+  _notifyTextSelectionChanged();
+}
+
+export function normalizeTextBox(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const text = typeof raw.text === 'string' ? raw.text : '';
+  const fontSize = typeof raw.fontSize === 'number'
+    ? Math.max(10, Math.min(72, Math.round(raw.fontSize)))
+    : 18;
+  const width = typeof raw.width === 'number'
+    ? Math.max(MIN_BOX_WIDTH, Math.min(PAGE_WIDTH - 16, raw.width))
+    : DEFAULT_BOX_WIDTH;
+  const x = typeof raw.x === 'number' ? raw.x : 40;
+  const y = typeof raw.y === 'number' ? raw.y : 60;
+  const height = typeof raw.height === 'number'
+    ? Math.max(24, raw.height)
+    : Math.ceil(fontSize * TEXT_LINE_HEIGHT_MULT + TEXT_PAD_Y * 2);
+
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : _generateTextBoxId(),
+    x,
+    y,
+    width,
+    height,
+    text,
+    fontFamily: TEXT_FONTS[raw.fontFamily] ? raw.fontFamily : 'sans',
+    fontSize,
+    bold: !!raw.bold,
+    italic: !!raw.italic,
+    align: raw.align === 'center' || raw.align === 'right' ? raw.align : 'left',
+    color: typeof raw.color === 'string' && raw.color ? raw.color : '#000000'
+  };
+}
+
+export function normalizeTextBoxes(list) {
+  if (!Array.isArray(list) || list.length === 0) return [];
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const nb = normalizeTextBox(list[i]);
+    if (nb) out.push(nb);
+  }
+  return out;
+}

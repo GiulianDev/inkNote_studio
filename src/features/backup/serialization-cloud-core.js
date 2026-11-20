@@ -133,12 +133,52 @@ async function gunzip(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+const TEXTBOX_TRAILER_MAGIC = 0x54585442; // "TXTB"
+const VALID_TEXT_FONTS = new Set(['sans', 'serif', 'mono', 'hand']);
+const VALID_TEXT_ALIGNS = new Set(['left', 'center', 'right']);
+
+function _normalizeCloudTextBoxes(list) {
+  if (!Array.isArray(list) || list.length === 0) return [];
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const raw = list[i];
+    if (!raw || typeof raw !== 'object') continue;
+    const text = typeof raw.text === 'string' ? raw.text : '';
+    if (!text.trim()) continue;
+    const fontSize = typeof raw.fontSize === 'number'
+      ? Math.max(10, Math.min(72, Math.round(raw.fontSize)))
+      : 18;
+    const width = typeof raw.width === 'number'
+      ? Math.max(80, Math.min(778, raw.width))
+      : 260;
+    const height = typeof raw.height === 'number'
+      ? Math.max(24, raw.height)
+      : Math.ceil(fontSize * 1.35 + 16);
+    out.push({
+      id: typeof raw.id === 'string' && raw.id ? raw.id : `tb_${i}_${Date.now().toString(36)}`,
+      x: typeof raw.x === 'number' ? raw.x : 40,
+      y: typeof raw.y === 'number' ? raw.y : 60,
+      width,
+      height,
+      text,
+      fontFamily: VALID_TEXT_FONTS.has(raw.fontFamily) ? raw.fontFamily : 'sans',
+      fontSize,
+      bold: !!raw.bold,
+      italic: !!raw.italic,
+      align: VALID_TEXT_ALIGNS.has(raw.align) ? raw.align : 'left',
+      color: typeof raw.color === 'string' && raw.color ? raw.color : '#000000'
+    });
+  }
+  return out;
+}
+
 /**
- * Comprime un array di PackedStroke in Uint8Array gzip-ato.
+ * Comprime tratti + caselle di testo (trailer 'TXTB' opzionale) in Uint8Array gzip-ato.
  * @param {Array<{tool, color, size, opacity, style, packedBuffer: ArrayBuffer, count: number}>} strokes
+ * @param {Array<object>} [textBoxes]
  * @returns {Promise<Uint8Array>}
  */
-export async function compressPageData(strokes) {
+export async function compressPageBundle(strokes, textBoxes = []) {
   const list = Array.isArray(strokes) ? strokes : [];
   let totalPoints = 0;
   for (const s of list) totalPoints += (s.count || 0);
@@ -159,7 +199,13 @@ export async function compressPageData(strokes) {
     totalMetaLen += 2 + metaBytes.length + 4;
   }
 
-  const totalLen = 4 + totalMetaLen + totalPoints * QUANT_STRIDE;
+  const normalizedTB = _normalizeCloudTextBoxes(textBoxes);
+  const tbBytes = normalizedTB.length > 0
+    ? encoder.encode(JSON.stringify(normalizedTB))
+    : null;
+  const trailerLen = tbBytes ? (4 + 4 + tbBytes.length) : 0;
+
+  const totalLen = 4 + totalMetaLen + totalPoints * QUANT_STRIDE + trailerLen;
   const buffer = new Uint8Array(totalLen);
   const dv = new DataView(buffer.buffer);
 
@@ -175,15 +221,31 @@ export async function compressPageData(strokes) {
     o += quantizeStroke(s, buffer, o);
   }
 
+  if (tbBytes) {
+    dv.setUint32(o, TEXTBOX_TRAILER_MAGIC, true); o += 4;
+    dv.setUint32(o, tbBytes.length, true); o += 4;
+    buffer.set(tbBytes, o); o += tbBytes.length;
+  }
+
   return gzip(buffer);
 }
 
 /**
- * Decomprime Uint8Array gzip-ato in array di PackedStroke.
- * @param {ArrayBuffer} compressedBuf
- * @returns {Promise<Array<{tool, color, size, opacity, style, packed: Float32Array, count: number}>>}
+ * Comprime un array di PackedStroke in Uint8Array gzip-ato.
+ * @param {Array<{tool, color, size, opacity, style, packedBuffer: ArrayBuffer, count: number}>} strokes
+ * @returns {Promise<Uint8Array>}
  */
-export async function decompressPageData(compressedBuf) {
+export async function compressPageData(strokes) {
+  return compressPageBundle(strokes, []);
+}
+
+/**
+ * Decomprime Uint8Array gzip-ato in `{ strokes, textBoxes }`.
+ * Retrocompatibile con chunk privi di trailer 'TXTB'.
+ * @param {ArrayBuffer} compressedBuf
+ * @returns {Promise<{strokes: Array, textBoxes: Array}>}
+ */
+export async function decompressPageBundle(compressedBuf) {
   const bytes = new Uint8Array(compressedBuf);
   const raw = await gunzip(bytes);
   const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
@@ -214,5 +276,32 @@ export async function decompressPageData(compressedBuf) {
     });
   }
 
-  return strokes;
+  let textBoxes = [];
+  if (o + 8 <= raw.byteLength) {
+    const magic = dv.getUint32(o, true);
+    if (magic === TEXTBOX_TRAILER_MAGIC) {
+      o += 4;
+      const tbLen = dv.getUint32(o, true); o += 4;
+      if (tbLen > 0 && o + tbLen <= raw.byteLength) {
+        try {
+          const parsed = JSON.parse(decoder.decode(raw.subarray(o, o + tbLen)));
+          textBoxes = _normalizeCloudTextBoxes(parsed);
+        } catch {
+          textBoxes = [];
+        }
+      }
+    }
+  }
+
+  return { strokes, textBoxes };
+}
+
+/**
+ * Decomprime Uint8Array gzip-ato in array di PackedStroke.
+ * @param {ArrayBuffer} compressedBuf
+ * @returns {Promise<Array<{tool, color, size, opacity, style, packed: Float32Array, count: number}>>}
+ */
+export async function decompressPageData(compressedBuf) {
+  const bundle = await decompressPageBundle(compressedBuf);
+  return bundle.strokes;
 }

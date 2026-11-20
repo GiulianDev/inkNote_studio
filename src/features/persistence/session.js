@@ -7,6 +7,7 @@ import { generatePageId } from '../../core/utils.js';
 import { saveNotebookToDB } from '../../services/db.js';
 import { getToolbarSettingsForSave } from '../toolbar/toolbar-settings.js';
 import { packStrokes } from './serialization.js';
+import { normalizeTextBoxes } from '../tools/text.js';
 
 let _currentNotebook = null;
 const _dirtyPageIds = new Set();
@@ -77,7 +78,8 @@ export function syncCurrentState() {
     if (_dirtyPageIds.has(page.pageId) || !prevById.has(page.pageId)) {
       nextPages.push({
         pageId: page.pageId,
-        strokes: packStrokes(page.strokes)
+        strokes: packStrokes(page.strokes),
+        textBoxes: normalizeTextBoxes(page.textBoxes || [])
       });
     } else {
       nextPages.push(prevById.get(page.pageId));

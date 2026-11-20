@@ -10,6 +10,9 @@ import { getScrollSensitivity } from '../../core/app-settings.js';
 import { abortCurrentDrawing } from '../tools/dispatcher.js';
 import { addNewPage, scheduleResolutionRefresh } from '../editor/pages.js';
 import {
+  canStartTextDragOnTouch, handleTextTapAtClientPoint
+} from '../tools/text.js';
+import {
   applyTransform, applyPinchTransform,
   clampViewport, invalidateClampCache
 } from './transform.js';
@@ -429,6 +432,20 @@ export function setupViewportGestures() {
 
     if (e.pointerType === 'mouse' && e.button !== 0) return;
 
+    if (e.target && e.target.closest &&
+        e.target.closest('.text-box-editor-wrap, #textSelectionMenu')) {
+      return;
+    }
+
+    if (state.activeTool === 'text') {
+      if (e.pointerType === 'mouse' && e.target?.closest?.('.page-wrapper')) {
+        return;
+      }
+      if (e.pointerType === 'touch' && viewport.activePointers.size === 0 && canStartTextDragOnTouch(e)) {
+        return;
+      }
+    }
+
     const now = performance.now();
 
     if (state.palmRejection) {
@@ -625,6 +642,8 @@ export function setupViewportGestures() {
 
     if (viewport.activePointers.size === 0) {
       const shouldAddPage = _panCommitted && _startedAtBottom && state.pullOverscrollY >= PULL_THRESHOLD;
+      const wasQuickTap = viewport.isPanning && !_panCommitted &&
+        (performance.now() - _panStartTime) < 350 && e.type !== 'pointercancel';
 
       state.pullOverscrollY = 0;
       hidePullIndicator();
@@ -643,6 +662,11 @@ export function setupViewportGestures() {
         _scrollDecisionMade = false;
         _startedAtBottom = false;
         return;
+      }
+
+      if (wasQuickTap && state.activeTool === 'text' &&
+          (e.pointerType === 'touch' || (e.pointerType === 'mouse' && !e.target?.closest?.('.page-wrapper')))) {
+        handleTextTapAtClientPoint(e.clientX, e.clientY);
       }
 
       if (wasPanning) {

@@ -6,7 +6,9 @@ import { packStroke, unpackStroke } from '../persistence/serialization.js';
 import {
   prepareCloudStrokePayload,
   compressPageData,
-  decompressPageData
+  decompressPageData,
+  compressPageBundle,
+  decompressPageBundle
 } from './serialization-cloud-core.js';
 
 test('compressPageData and decompressPageData preserve stroke style', async () => {
@@ -99,4 +101,62 @@ test('decompressPageData handles legacy .inknote chunks without style field in m
   assert.equal(restored[0].style, 'solid');
   assert.equal(restored[0].opacity, 1);
   assert.equal(restored[0].count, 1);
+
+  const legacyBundle = await decompressPageBundle(gz.buffer);
+  assert.equal(legacyBundle.strokes.length, 1);
+  assert.deepEqual(legacyBundle.textBoxes, []);
+});
+
+test('compressPageBundle and decompressPageBundle roundtrip strokes and textBoxes cleanly', async () => {
+  const stroke = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#000000',
+    size: 3,
+    opacity: 1,
+    style: 'solid',
+    points: [
+      { x: 20, y: 30, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+      { x: 80, y: 90, pressure: 0.6, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' }
+    ]
+  }));
+
+  const textBoxes = [
+    {
+      id: 'tb_1',
+      x: 120,
+      y: 160,
+      width: 300,
+      height: 76,
+      text: 'Appunti di prova\nsu più righe',
+      fontFamily: 'serif',
+      fontSize: 22,
+      bold: true,
+      italic: true,
+      align: 'center',
+      color: '#4f46e5'
+    },
+    {
+      id: 'tb_empty',
+      x: 10,
+      y: 10,
+      width: 200,
+      height: 40,
+      text: '   '
+    }
+  ];
+
+  const compressed = await compressPageBundle([stroke], textBoxes);
+  const { strokes: outStrokes, textBoxes: outBoxes } = await decompressPageBundle(compressed.buffer);
+
+  assert.equal(outStrokes.length, 1);
+  assert.equal(outStrokes[0].count, 2);
+  assert.equal(outBoxes.length, 1);
+  assert.equal(outBoxes[0].id, 'tb_1');
+  assert.equal(outBoxes[0].text, 'Appunti di prova\nsu più righe');
+  assert.equal(outBoxes[0].fontFamily, 'serif');
+  assert.equal(outBoxes[0].fontSize, 22);
+  assert.equal(outBoxes[0].bold, true);
+  assert.equal(outBoxes[0].italic, true);
+  assert.equal(outBoxes[0].align, 'center');
+  assert.equal(outBoxes[0].color, '#4f46e5');
 });

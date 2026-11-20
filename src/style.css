@@ -178,7 +178,8 @@ body.compact-mode #viewport {
   body.print-dark  { color: #f8fafc !important; background: #0f172a !important; }
 
   #toastNotification, #zoomBadge,
-  #selectionMenu, #pullPageIndicator, #libraryView, #newNotebookModal,
+  #selectionMenu, #textSelectionMenu, .text-box-editor-wrap,
+  #pullPageIndicator, #libraryView, #newNotebookModal,
   #settingsModal, #undoRedoContainer {
     display: none !important;
   }
@@ -320,6 +321,8 @@ body.printing-pdf #undoRedoContainer,
 body.printing-pdf #zoomBadge,
 body.printing-pdf #toastNotification,
 body.printing-pdf #selectionMenu,
+body.printing-pdf #textSelectionMenu,
+body.printing-pdf .text-box-editor-wrap,
 body.printing-pdf #pullPageIndicator,
 body.printing-pdf #toolbarMount,
 body.printing-pdf #newNotebookModal {
@@ -634,4 +637,101 @@ body.dark .notebook-card.is-selected .notebook-cover {
    ============================================================ */
 @media print {
   #librarySelectionBar { display: none !important; }
+}
+
+/* ============================================================
+   TOOL TESTO — overlay <textarea> singolo + bottoni inline
+   ============================================================ */
+.text-box-editor-wrap {
+  position: absolute;
+  z-index: 10;
+  min-width: 80px;
+  border: 1.5px dashed #6366f1;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 24px -6px rgba(15, 23, 42, 0.22);
+}
+
+body.dark .text-box-editor-wrap {
+  border-color: #818cf8;
+  background: rgba(15, 23, 42, 0.88);
+  box-shadow: 0 10px 28px -6px rgba(0, 0, 0, 0.6);
+}
+
+#viewport .text-box-editor-wrap,
+#viewport .text-box-editor-wrap * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  touch-action: manipulation !important;
+}
+
+.text-box-editor-input {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.text-box-editor-input::placeholder {
+  color: rgba(100, 116, 139, 0.65);
+}
+
+body.dark .text-box-editor-input::placeholder {
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.text-box-editor-actions {
+  position: absolute;
+  top: -34px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.35);
+}
+
+.text-box-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.text-box-action-btn.confirm {
+  background: #4f46e5;
+}
+
+.text-box-action-btn.confirm:hover {
+  background: #6366f1;
+}
+
+.text-box-action-btn.delete {
+  background: #e11d48;
+}
+
+.text-box-action-btn.delete:hover {
+  background: #f43f5e;
+}
+
+.text-box-action-btn:active {
+  transform: scale(0.94);
 }
