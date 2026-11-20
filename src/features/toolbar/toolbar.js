@@ -111,8 +111,12 @@ export function mountToolbar() {
     }
   });
 
-  onToolbarSettingsChanged(({ reason }) => {
-    if (reason === 'init' || reason === 'reset' || reason === 'update') {
+  onToolbarSettingsChanged(({ changed }) => {
+    if (changed.includes('init') || changed.includes('reset')) {
+      _syncToolbarModeToActiveTool();
+      return;
+    }
+    if (changed.includes('text')) {
       applyTextControlsToUI();
     }
   });
@@ -368,6 +372,45 @@ export function setDockDrawingHidden(hidden) {
   document.body.classList.toggle('dock-auto-hidden', next);
 }
 
+const TOOL_TO_MENU = {
+  pen: 'writing',
+  pencil: 'writing',
+  marker: 'writing',
+  highlighter: 'writing',
+  text: 'text',
+  lasso: 'selection',
+  eraser: 'eraser'
+};
+
+function _syncPageCursorsForActiveTool() {
+  const nextCursor = state.activeTool === 'text' ? 'text' : 'crosshair';
+  state.pages.forEach(p => {
+    if (p && p.canvas) p.canvas.style.cursor = nextCursor;
+  });
+}
+
+function _syncToolbarModeToActiveTool() {
+  _mainMenu = TOOL_TO_MENU[state.activeTool] || 'writing';
+  _dockCollapsed = false;
+  _isDockDrawingHidden = false;
+  document.body.classList.remove('dock-auto-hidden');
+  hidePagePopover();
+  _applyMenuToDOM();
+  applyMainMenuOrderToUI();
+
+  document.querySelectorAll('.main-menu-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.menu === _mainMenu);
+  });
+
+  applyActiveToolToUI();
+  applySnapTogglesToUI();
+  applyEraserLevelToUI();
+  applyStrokeStyleToUI();
+  applyTextControlsToUI();
+  applyPageColorsToUI();
+  _syncPageCursorsForActiveTool();
+}
+
 function _setMainMenu(menu, opts = {}) {
   if (!MAIN_MENU_IDS.includes(menu)) return;
 
@@ -381,6 +424,9 @@ function _setMainMenu(menu, opts = {}) {
   if (defaultTool && state.activeTool !== defaultTool) {
     if (state.activeTool === 'text' && defaultTool !== 'text') {
       clearTextBoxSelection();
+    }
+    if (state.activeTool === 'lasso' && defaultTool !== 'lasso') {
+      clearSelection();
     }
     updateToolbarSettings({ activeTool: defaultTool });
   }
@@ -405,6 +451,7 @@ function _setMainMenu(menu, opts = {}) {
     applyEraserLevelToUI();
     applyStrokeStyleToUI();
     applyTextControlsToUI();
+    _syncPageCursorsForActiveTool();
   }
 }
 
@@ -466,11 +513,20 @@ export function setTool(toolName) {
   // dove applyActiveToolToUI fa return early. Chiamata esplicita.
   applyStrokeStyleToUI();
   applyTextControlsToUI();
+  _syncPageCursorsForActiveTool();
 
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
 }
 
 export function applyActiveToolToUI() {
+  document.querySelectorAll('.tool-btn').forEach(btn => {
+    btn.classList.remove('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  });
+  const activeBtn = document.getElementById(`btnTool-${state.activeTool}`);
+  if (activeBtn) {
+    activeBtn.classList.add('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  }
+
   if (state.activeTool === 'eraser' || state.activeTool === 'lasso' || state.activeTool === 'text') return;
 
   const conf = getActiveToolConfig();

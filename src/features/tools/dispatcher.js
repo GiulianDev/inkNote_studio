@@ -36,7 +36,7 @@ import {
 import { beginInkStroke, moveInkStroke, endInkStroke } from './ink.js';
 import {
   beginTextPointer, moveTextPointer, endTextPointer,
-  commitActiveTextBox, canStartTextDragOnTouch
+  commitActiveTextBox, canStartTextDragOnTouch, updateCursorForText
 } from './text.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import { pagePool } from '../editor/page-pool.js';
@@ -209,8 +209,12 @@ export function handlePointerMove(e, pageData) {
   // Fix A.1: ignora hover durante stroke attivo
   if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0 && !(e.pressure > 0)) return;
 
-  if (!state.isDrawing && state.activeTool === 'lasso' && e.pointerType !== 'touch') {
-    updateCursorForSelection(e, pageData);
+  if (!state.isDrawing && e.pointerType !== 'touch') {
+    if (state.activeTool === 'lasso') {
+      updateCursorForSelection(e, pageData);
+    } else if (state.activeTool === 'text') {
+      updateCursorForText(e, pageData);
+    }
   }
   if (!state.isDrawing) return;
   if (e.pointerId !== state.currentPointerId) return;
@@ -348,8 +352,7 @@ export function abortCurrentDrawing() {
     state.currentStroke = null;
     state.currentPointerId = null;
     state.currentPageForPointer = null;
-    state.lassoPath = [];
-    state.selectedStrokes = [];
+    clearSelection();
     resetScribbleState();
     const curr = state.pages[state.activePageIndex];
     if (curr && curr.canvas) {

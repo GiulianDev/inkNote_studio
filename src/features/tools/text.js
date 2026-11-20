@@ -130,17 +130,65 @@ export function hitTestTextBoxHandle(pageData, tb, point) {
   const layout = layoutTextBox(ctx, tb);
   const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
   const h = tb.height || layout.height;
+  const scale = viewport.scale || 1;
   const midY = tb.y + h / 2;
-  const hitR = 16 / (viewport.scale || 1);
-  const halfH = Math.max(hitR, Math.min(h * 0.45, 22 / (viewport.scale || 1)));
+  const hitR = 16 / scale;
+  const halfH = Math.max(hitR, Math.min(h * 0.45, 22 / scale));
+  const edgeOut = 12 / scale;
+  const edgeIn = Math.min(8 / scale, w * 0.2);
+  const edgePadY = 4 / scale;
+  const inYRange = point.y >= tb.y - edgePadY && point.y <= tb.y + h + edgePadY;
+  const inHandleY = Math.abs(point.y - midY) <= halfH;
 
-  if (Math.abs(point.x - tb.x) <= hitR && Math.abs(point.y - midY) <= halfH) {
+  if ((inHandleY && Math.abs(point.x - tb.x) <= hitR) ||
+      (inYRange && point.x >= tb.x - edgeOut && point.x <= tb.x + edgeIn)) {
     return 'resize-w';
   }
-  if (Math.abs(point.x - (tb.x + w)) <= hitR && Math.abs(point.y - midY) <= halfH) {
+  if ((inHandleY && Math.abs(point.x - (tb.x + w)) <= hitR) ||
+      (inYRange && point.x >= tb.x + w - edgeIn && point.x <= tb.x + w + edgeOut)) {
     return 'resize-e';
   }
   return null;
+}
+
+export function updateCursorForText(e, pageData) {
+  if (!pageData || !pageData.canvas) return;
+  if (state.activeTool !== 'text') {
+    pageData.canvas.style.cursor = 'crosshair';
+    return;
+  }
+  if (state.editingTextBoxId) {
+    pageData.canvas.style.cursor = 'text';
+    return;
+  }
+
+  const rect = getCanvasRect(pageData.canvas);
+  const point = {
+    x: (e.clientX - rect.left) * (PAGE_WIDTH / rect.width),
+    y: (e.clientY - rect.top) * (PAGE_HEIGHT / rect.height)
+  };
+
+  if (state.selectedTextBoxId) {
+    const sel = (pageData.textBoxes || []).find(b => b && b.id === state.selectedTextBoxId);
+    if (sel) {
+      const handle = hitTestTextBoxHandle(pageData, sel, point);
+      if (handle === 'resize-w' || handle === 'resize-e') {
+        pageData.canvas.style.cursor = 'ew-resize';
+        return;
+      }
+      if (hitTestTextBox(pageData, point) === sel) {
+        pageData.canvas.style.cursor = 'move';
+        return;
+      }
+    }
+  }
+
+  if (hitTestTextBox(pageData, point)) {
+    pageData.canvas.style.cursor = 'move';
+    return;
+  }
+
+  pageData.canvas.style.cursor = 'text';
 }
 
 export function canStartTextDragOnTouch(e) {
@@ -479,6 +527,7 @@ export function clearTextBoxSelection() {
     const found = _findBoxById(prevId);
     if (found && found.pageData && found.pageData.canvas) {
       clearOverlay(found.pageData);
+      found.pageData.canvas.style.cursor = state.activeTool === 'text' ? 'text' : 'crosshair';
     }
     _notifyTextSelectionChanged();
   }
@@ -651,6 +700,7 @@ export function beginTextPointer(pageData, point) {
         _origBox = { x: sel.x, y: sel.y, width: sel.width, height: sel.height };
         _hasMoved = false;
         state.isDrawing = true;
+        if (pageData.canvas) pageData.canvas.style.cursor = 'ew-resize';
         return;
       }
     }
@@ -729,15 +779,18 @@ export function moveTextPointer(pageData, e) {
 
   const tb = _interactionBox;
   if (_interactionMode === 'drag') {
+    targetPage.canvas.style.cursor = 'grabbing';
     const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
     const h = tb.height || 32;
     tb.x = Math.max(8, Math.min(PAGE_WIDTH - w - 8, Math.round(_origBox.x + dx)));
     tb.y = Math.max(8, Math.min(PAGE_HEIGHT - h - 8, Math.round(_origBox.y + dy)));
   } else if (_interactionMode === 'resize-e') {
+    targetPage.canvas.style.cursor = 'ew-resize';
     const maxW = PAGE_WIDTH - _origBox.x - 8;
     tb.width = Math.max(MIN_BOX_WIDTH, Math.min(maxW, Math.round(_origBox.width + dx)));
     tb._layoutCache = null;
   } else if (_interactionMode === 'resize-w') {
+    targetPage.canvas.style.cursor = 'ew-resize';
     const right = _origBox.x + _origBox.width;
     const nextX = Math.max(8, Math.min(right - MIN_BOX_WIDTH, Math.round(_origBox.x + dx)));
     tb.x = nextX;
@@ -763,6 +816,10 @@ export function endTextPointer(pageData) {
   state._draggingTextBoxId = null;
 
   if (!mode || !targetPage || !tb) return;
+
+  if (targetPage.canvas) {
+    targetPage.canvas.style.cursor = (mode === 'resize-w' || mode === 'resize-e') ? 'ew-resize' : 'move';
+  }
 
   if (didMove) {
     if (targetPage.canvas) {

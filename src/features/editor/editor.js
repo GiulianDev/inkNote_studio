@@ -24,7 +24,7 @@ import { resetHistory } from '../history/history.js';
 import {
   setViewportChangeHandler, applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
-import { updateSelectionMenuPosition } from '../tools/lazo.js';
+import { clearSelection, updateSelectionMenuPosition } from '../tools/lazo.js';
 import { finalizePendingShape } from '../tools/shapes.js';
 import {
   commitActiveTextBox, resetTextToolState, updateTextSelectionMenuPosition
@@ -187,8 +187,7 @@ export async function openNotebook(id) {
     container.innerHTML = '';
     state.pages = [];
     state.pendingShape = null;
-    state.selectedStrokes = [];
-    state.lassoPath = [];
+    clearSelection();
     state.currentStroke = null;
     state.currentPointerId = null;
     state.currentPageForPointer = null;
@@ -291,12 +290,11 @@ export async function returnToLibrary() {
     // errore già loggato in autosave; procediamo comunque
   }
 
+  clearSelection();
   pagePool.reset();
   const container = document.getElementById('canvasContainer');
   if (container) container.innerHTML = '';
   state.pages = [];
-  state.selectedStrokes = [];
-  state.lassoPath = [];
   state.pendingShape = null;
   resetTextToolState();
 
@@ -322,12 +320,11 @@ export function closeNotebookIfOpen(id) {
     _openToken++;
     _closeOpenDialog();
     cancelPendingSave();
+    clearSelection();
     pagePool.reset();
     const container = document.getElementById('canvasContainer');
     if (container) container.innerHTML = '';
     state.pages = [];
-    state.selectedStrokes = [];
-    state.lassoPath = [];
     state.pendingShape = null;
     resetTextToolState();
     resetToolbarSettings();
