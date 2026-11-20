@@ -81,6 +81,10 @@ export function bindEditorUI() {
     ?.addEventListener('click', () => { addNewPage(); closeOverflowMenu(); });
   document.getElementById('clearPageBtn')
     ?.addEventListener('click', () => { clearCurrentPage(); closeOverflowMenu(); });
+  document.getElementById('exportPdfFromMenu')
+    ?.addEventListener('click', () => { closeOverflowMenu(); exportToPDF(); });
+  document.getElementById('themeToggleFromMenu')
+    ?.addEventListener('click', () => { toggleTheme(); closeOverflowMenu(); });
   document.getElementById('openSettingsFromMenu')
     ?.addEventListener('click', () => { openSettingsModal(); closeOverflowMenu(); });
 
