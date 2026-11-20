@@ -342,11 +342,13 @@ function _applySnapshot(snap) {
   document.getElementById('selectionMenu')?.classList.add('hidden');
   resetTextToolState();
 
+  const prevPattern = state.bgPattern;
+  const patternChanged = !!(snap.bgPattern && snap.bgPattern !== prevPattern);
   if (snap.bgPattern) {
     state.bgPattern = snap.bgPattern;
   }
 
-  emit('history:restore', snap);
+  emit('history:restore', { ...snap, patternChanged });
 
   historyState.isRestoring = false;
   _lastSnapshotTime = performance.now();

@@ -500,7 +500,15 @@ function restorePageFromSnapshot(snap) {
   page.textBoxes = normalizeTextBoxes(snap.textBoxes || []);
   markPageDirty(page.pageId);
 
-  if (page.canvas) {
+  if (snap.patternChanged) {
+    state.pages.forEach(p => {
+      if (p.canvas) redrawPageCanvas(p);
+    });
+    if (page.index === state.activePageIndex && state.selectedStrokes.length > 0 && page.canvas) {
+      redrawSelectionOverlay(page);
+    }
+    window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
+  } else if (page.canvas) {
     redrawPageCanvas(page);
     if (page.index === state.activePageIndex && state.selectedStrokes.length > 0) {
       redrawSelectionOverlay(page);

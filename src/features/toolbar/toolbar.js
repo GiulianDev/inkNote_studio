@@ -25,7 +25,7 @@ import './toolbar.css';
 import toolbarHtml from './toolbar.html?raw';
 
 import { state } from '../../core/state.js';
-import { showToast, hexToRgbA } from '../../core/utils.js';
+import { showToast, hexToRgbA, on } from '../../core/utils.js';
 import {
   updateSettings, getSettings, onSettingsChanged, MAIN_MENU_IDS
 } from '../../core/app-settings.js';
@@ -123,6 +123,10 @@ export function mountToolbar() {
 
   window.addEventListener('inknote:text-selection-changed', () => {
     applyTextControlsToUI();
+  });
+
+  on('history:restore', () => {
+    applyBgPatternToUI();
   });
 
   _mounted = true;
