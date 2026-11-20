@@ -31,14 +31,14 @@ const _isIOS = typeof navigator !== 'undefined' && (
  */
 const PALM_CONTACT_SIZE = _isIOS ? 100 : 60;
 
-/** Grace dopo pointerup/pointercancel penna (copre micro-stacchi tra parole). */
-const PEN_CONTACT_GRACE_MS = 220;
+/** Grace dopo pointerup/pointercancel penna (filtra solo rimbalzi simultanei al sollevamento). */
+const PEN_CONTACT_GRACE_MS = 80;
 
-/** Grace dopo pointerleave penna (palmo che appoggia dopo). */
-const PEN_LEAVE_GRACE_MS = 500;
+/** Grace dopo pointerleave penna. */
+const PEN_LEAVE_GRACE_MS = 100;
 
 /** Safety net per driver che non emettono pointerleave affidabile. */
-const PEN_HOVER_TIMEOUT_MS = 800;
+const PEN_HOVER_TIMEOUT_MS = 350;
 
 /** Finestra (ms) entro cui un pan breve viene annullato se arriva la penna. */
 const PEN_CANCEL_PAN_WINDOW_MS = 400;
