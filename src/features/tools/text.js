@@ -347,6 +347,14 @@ function _ensureEditorDOM() {
   _editorActions = actions;
 }
 
+function _clampBoxToPage(tb, measuredHeight = tb?.height) {
+  if (!tb) return;
+  const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
+  const h = Math.max(20, measuredHeight || tb.height || 32);
+  tb.x = Math.max(8, Math.min(PAGE_WIDTH - w - 8, tb.x || 0));
+  tb.y = Math.max(8, Math.min(PAGE_HEIGHT - h - 8, tb.y || 0));
+}
+
 function _syncTextareaAutoHeight() {
   if (!_editorTextarea || !_editorWrap) return;
   const found = _findBoxById(state.editingTextBoxId);
@@ -357,6 +365,11 @@ function _syncTextareaAutoHeight() {
   _editorTextarea.style.height = `${nextH}px`;
   if (found && found.textBox) {
     found.textBox.height = nextH;
+    const clampedY = Math.max(8, Math.min(PAGE_HEIGHT - nextH - 8, found.textBox.y || 0));
+    if (clampedY !== found.textBox.y) {
+      found.textBox.y = clampedY;
+      _editorWrap.style.top = `${clampedY}px`;
+    }
   }
 }
 
@@ -525,6 +538,7 @@ export function commitActiveTextBox({ deselect = false } = {}) {
 
   const ctx = _measureCanvasCtx(pageData);
   layoutTextBox(ctx, textBox);
+  _clampBoxToPage(textBox);
 
   if (deselect) {
     state.selectedTextBoxId = null;
@@ -677,6 +691,7 @@ export function applyTextStylePatch(patch) {
     } else {
       const ctx = _measureCanvasCtx(pageData);
       layoutTextBox(ctx, textBox);
+      _clampBoxToPage(textBox);
       if (pageData.canvas) {
         redrawPageCanvas(pageData);
         drawTextBoxSelectionOnOverlay(pageData, textBox);
@@ -828,6 +843,8 @@ export function moveTextPointer(pageData, e) {
     const maxW = PAGE_WIDTH - _origBox.x - 8;
     tb.width = Math.max(MIN_BOX_WIDTH, Math.min(maxW, Math.round(_origBox.width + dx)));
     tb._layoutCache = null;
+    const layout = layoutTextBox(_measureCanvasCtx(targetPage), tb);
+    tb.y = Math.max(8, Math.min(PAGE_HEIGHT - layout.height - 8, _origBox.y));
   } else if (_interactionMode === 'resize-w') {
     targetPage.canvas.style.cursor = 'ew-resize';
     const right = _origBox.x + _origBox.width;
@@ -835,6 +852,8 @@ export function moveTextPointer(pageData, e) {
     tb.x = nextX;
     tb.width = right - nextX;
     tb._layoutCache = null;
+    const layout = layoutTextBox(_measureCanvasCtx(targetPage), tb);
+    tb.y = Math.max(8, Math.min(PAGE_HEIGHT - layout.height - 8, _origBox.y));
   }
 
   drawTextBoxSelectionOnOverlay(targetPage, tb, { drawBox: true });

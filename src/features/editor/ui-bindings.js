@@ -35,6 +35,16 @@ import {
   previewSelectionColor, changeSelectionColor,
   previewSelectionWidth, changeSelectionWidth
 } from '../tools/lazo.js';
+import { finalizePendingShape } from '../tools/shapes.js';
+import { commitActiveTextBox } from '../tools/text.js';
+
+function _openEditorSettings() {
+  if (state.pendingShape) finalizePendingShape();
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
+  openSettingsModal();
+}
 
 export function bindEditorUI() {
   // --- Mainbar: 5 menu contestuali (clic sul tab attivo → chiude/riapre dock) ---
@@ -70,7 +80,7 @@ export function bindEditorUI() {
   document.getElementById('compactExitBtn')
     ?.addEventListener('click', toggleCompactMode);
   document.getElementById('openSettingsBtnHeader')
-    ?.addEventListener('click', openSettingsModal);
+    ?.addEventListener('click', _openEditorSettings);
   document.getElementById('themeToggleBtn')
     ?.addEventListener('click', toggleTheme);
   document.getElementById('exportPdfBtn')
@@ -86,7 +96,7 @@ export function bindEditorUI() {
   document.getElementById('themeToggleFromMenu')
     ?.addEventListener('click', () => { toggleTheme(); closeOverflowMenu(); });
   document.getElementById('openSettingsFromMenu')
-    ?.addEventListener('click', () => { openSettingsModal(); closeOverflowMenu(); });
+    ?.addEventListener('click', () => { closeOverflowMenu(); _openEditorSettings(); });
 
   // --- Menu ⋯: Scrittura con il dito (globale) ---
   // Semantica INVERTITA rispetto al vecchio "palm rejection":
