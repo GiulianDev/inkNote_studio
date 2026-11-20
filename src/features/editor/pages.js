@@ -21,6 +21,9 @@ import {
   markPageDirty, markPageDeleted, markOrderDirty
 } from '../persistence/session.js';
 import { clearSelection } from '../tools/lazo.js';
+import {
+  commitActiveTextBox, resetTextToolState, normalizeTextBoxes
+} from '../tools/text.js';
 import { refreshPageCounter } from '../toolbar/toolbar.js';
 import {
   applyTransform, clampViewport, invalidateClampCache
@@ -40,7 +43,7 @@ let _programmaticScrollUntil = 0;
 // CREAZIONE PAGINA
 // ============================================================
 
-export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null) {
+export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null, initialTextBoxes = []) {
   const container = document.getElementById('canvasContainer');
   const pid = (typeof pageId === 'string' && pageId) ? pageId : generatePageId();
 
@@ -52,6 +55,7 @@ export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null) 
   container.appendChild(pageWrapper);
 
   const strokes = unpackStrokes(initialStrokes);
+  const textBoxes = normalizeTextBoxes(initialTextBoxes);
 
   const pageData = {
     pageId: pid,
@@ -62,6 +66,7 @@ export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null) 
     overlayCanvas: null,
     overlayCtx: null,
     strokes,
+    textBoxes,
     dpr: 0,
     overlayDpr: 0
   };
@@ -73,6 +78,7 @@ export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null) 
 
 export function addNewPage() {
   if (state.selectedStrokes.length > 0) clearSelection();
+  if (state.editingTextBoxId || state.selectedTextBoxId) commitActiveTextBox({ deselect: true });
   const newIndex = state.pages.length;
   const newPage = createNewPageDOM(newIndex, []);
   state.activePageIndex = newIndex;
@@ -227,6 +233,9 @@ export function updateActivePageFromViewport() {
     if (state.selectedStrokes.length > 0) {
       clearSelection();
     }
+    if (state.editingTextBoxId || state.selectedTextBoxId) {
+      commitActiveTextBox({ deselect: true });
+    }
     state.activePageIndex = page.index;
     refreshPageCounter();
     resetHistory();
@@ -272,12 +281,14 @@ export function changeBackgroundPattern(pattern) {
 
 export async function clearCurrentPage() {
   const initialPage = state.pages[state.activePageIndex];
-  if (!initialPage || initialPage.strokes.length === 0) return;
+  const initialHasContent = initialPage &&
+    (initialPage.strokes.length > 0 || (initialPage.textBoxes && initialPage.textBoxes.length > 0));
+  if (!initialHasContent) return;
 
   const targetPageId = initialPage.pageId;
   const confirmed = await showConfirmDialog({
     title: 'Pulisci pagina',
-    message: 'Vuoi davvero cancellare tutti i tratti di questa pagina? L\'operazione è reversibile con Annulla (Ctrl+Z).',
+    message: 'Vuoi davvero cancellare tutti i tratti e i testi di questa pagina? L\'operazione è reversibile con Annulla (Ctrl+Z).',
     confirmText: 'Pulisci',
     cancelText: 'Annulla',
     danger: true
@@ -285,14 +296,18 @@ export async function clearCurrentPage() {
   if (!confirmed) return;
 
   const page = state.pages.find(p => p.pageId === targetPageId);
-  if (!page || page.strokes.length === 0) return;
+  const pageHasContent = page &&
+    (page.strokes.length > 0 || (page.textBoxes && page.textBoxes.length > 0));
+  if (!pageHasContent) return;
 
   const isActive = page.index === state.activePageIndex;
   if (isActive) {
     if (state.pendingShape) state.pendingShape = null;
     if (state.selectedStrokes.length > 0) clearSelection();
+    resetTextToolState();
   }
   page.strokes = [];
+  page.textBoxes = [];
   if (page.canvas) redrawPageCanvas(page);
   markPageDirty(page.pageId);
   scheduleSave({ markDirty: false });
@@ -316,6 +331,9 @@ export function deletePage(index) {
   if (state.activePageIndex === index) {
     state.pendingShape = null;
     if (state.selectedStrokes.length > 0) clearSelection();
+    resetTextToolState();
+  } else if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
   }
 
   pagePool.reset();
@@ -363,6 +381,10 @@ export function movePage(from, to) {
   if (from === to) return false;
   if (from < 0 || from >= state.pages.length) return false;
   if (to < 0 || to >= state.pages.length) return false;
+
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
 
   const container = document.getElementById('canvasContainer');
 
@@ -442,8 +464,9 @@ export function scrollToPage(index) {
   viewport.y = c.y;
 
   const pageChanged = state.activePageIndex !== index;
-  if (state.selectedStrokes.length > 0 && pageChanged) {
-    clearSelection();
+  if (pageChanged) {
+    if (state.selectedStrokes.length > 0) clearSelection();
+    if (state.editingTextBoxId || state.selectedTextBoxId) commitActiveTextBox({ deselect: true });
   }
 
   state.activePageIndex = index;
@@ -473,6 +496,7 @@ function restorePageFromSnapshot(snap) {
   if (!page) return;
 
   page.strokes = unpackStrokes(snap.strokes || []);
+  page.textBoxes = normalizeTextBoxes(snap.textBoxes || []);
   markPageDirty(page.pageId);
 
   if (page.canvas) {

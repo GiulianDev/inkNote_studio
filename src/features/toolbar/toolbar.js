@@ -31,11 +31,17 @@ import {
 } from '../../core/app-settings.js';
 import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
-  updateToolbarSettings, getEraserRadius, STROKE_STYLES
+  updateToolbarSettings, getEraserRadius, STROKE_STYLES,
+  onToolbarSettingsChanged
 } from './toolbar-settings.js';
 import { changeBackgroundPattern } from '../editor/pages.js';
 import { redrawPageCanvas } from '../render/render.js';
 import { clearSelection } from '../tools/lazo.js';
+import {
+  getActiveTextStyle, getActiveTextBox, applyTextStylePatch,
+  editSelectedTextBox, deleteSelectedTextBox, clearTextBoxSelection,
+  refocusActiveTextEditorIfEditing, refreshActiveTextEditorTheme
+} from '../tools/text.js';
 
 let _mounted = false;
 let _hintShownThisSession = false;
@@ -44,7 +50,7 @@ let _hintShownThisSession = false;
 // MENU CONTESTUALE (runtime-only)
 // ============================================================
 
-/** @type {'writing'|'selection'|'shapes'|'eraser'|'page'} */
+/** @type {'writing'|'text'|'selection'|'shapes'|'eraser'|'page'} */
 let _mainMenu = 'writing';
 let _dockCollapsed = false;
 let _isDockDrawingHidden = false;
@@ -54,6 +60,7 @@ const STYLE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
 
 const MENU_TO_DEFAULT_TOOL = {
   writing:   'pen',
+  text:      'text',
   selection: 'lasso',
   shapes:    null,
   eraser:    'eraser',
@@ -62,6 +69,7 @@ const MENU_TO_DEFAULT_TOOL = {
 
 const MENU_META = {
   writing:   { icon: '🖊️', label: 'Scrittura' },
+  text:      { icon: '🔤', label: 'Testo' },
   selection: { icon: '✂️', label: 'Selezione' },
   shapes:    { icon: '◻️', label: 'Forme' },
   eraser:    { icon: '🧹', label: 'Gomma' },
@@ -96,10 +104,21 @@ export function mountToolbar() {
     }
     if (changed.includes('theme') || changed.includes('theme.effective')) {
       applyPageColorsToUI();
+      refreshActiveTextEditorTheme();
     }
     if (changed.includes('autoHideDock') && !getSettings().autoHideDock) {
       setDockDrawingHidden(false);
     }
+  });
+
+  onToolbarSettingsChanged(({ reason }) => {
+    if (reason === 'init' || reason === 'reset' || reason === 'update') {
+      applyTextControlsToUI();
+    }
+  });
+
+  window.addEventListener('inknote:text-selection-changed', () => {
+    applyTextControlsToUI();
   });
 
   _mounted = true;
@@ -360,6 +379,9 @@ function _setMainMenu(menu, opts = {}) {
 
   const defaultTool = MENU_TO_DEFAULT_TOOL[menu];
   if (defaultTool && state.activeTool !== defaultTool) {
+    if (state.activeTool === 'text' && defaultTool !== 'text') {
+      clearTextBoxSelection();
+    }
     updateToolbarSettings({ activeTool: defaultTool });
   }
 
@@ -382,12 +404,14 @@ function _setMainMenu(menu, opts = {}) {
     applySnapTogglesToUI();
     applyEraserLevelToUI();
     applyStrokeStyleToUI();
+    applyTextControlsToUI();
   }
 }
 
 function _applyMenuToDOM() {
   const docks = {
     writing:   document.getElementById('dockWriting'),
+    text:      document.getElementById('dockText'),
     selection: document.getElementById('dockSelection'),
     shapes:    document.getElementById('dockShapes'),
     eraser:    document.getElementById('dockEraser')
@@ -404,11 +428,16 @@ function _applyMenuToDOM() {
 // ============================================================
 
 export function setTool(toolName) {
+  if (state.activeTool === 'text' && toolName !== 'text') {
+    clearTextBoxSelection();
+  }
   updateToolbarSettings({ activeTool: toolName });
   clearSelection();
 
   if (WRITING_TOOLS.includes(toolName)) {
     _mainMenu = 'writing';
+  } else if (toolName === 'text') {
+    _mainMenu = 'text';
   } else if (toolName === 'lasso') {
     _mainMenu = 'selection';
   } else if (toolName === 'eraser') {
@@ -436,12 +465,13 @@ export function setTool(toolName) {
   // La riga "Stile" va aggiornata/nascosta anche per eraser/lasso,
   // dove applyActiveToolToUI fa return early. Chiamata esplicita.
   applyStrokeStyleToUI();
+  applyTextControlsToUI();
 
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
 }
 
 export function applyActiveToolToUI() {
-  if (state.activeTool === 'eraser' || state.activeTool === 'lasso') return;
+  if (state.activeTool === 'eraser' || state.activeTool === 'lasso' || state.activeTool === 'text') return;
 
   const conf = getActiveToolConfig();
   const swatch = document.querySelector(`.color-swatch[data-color="${conf.color}"]`);
@@ -911,6 +941,133 @@ function _setupDockButtons() {
       updateStrokeStyle(btn.dataset.style);
     });
   });
+
+  _setupTextDockControls();
+}
+
+// ============================================================
+// DOCK TESTO
+// ============================================================
+
+const TEXT_SIZE_PRESETS = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60];
+
+function _setupTextDockControls() {
+  const dock = document.getElementById('dockText');
+  if (!dock) return;
+
+  // Evita che i click sui pulsanti rubino il focus durante la digitazione
+  dock.addEventListener('pointerdown', (e) => {
+    const tag = e.target && e.target.tagName;
+    if (tag !== 'SELECT' && tag !== 'OPTION' && tag !== 'INPUT') {
+      e.preventDefault();
+    }
+  });
+
+  document.getElementById('textFontSelect')?.addEventListener('change', (e) => {
+    applyTextStylePatch({ fontFamily: e.target.value });
+    refocusActiveTextEditorIfEditing();
+  });
+
+  document.getElementById('textSizeSelect')?.addEventListener('change', (e) => {
+    const val = parseInt(e.target.value, 10);
+    if (!Number.isNaN(val)) applyTextStylePatch({ fontSize: val });
+    refocusActiveTextEditorIfEditing();
+  });
+
+  document.getElementById('textSizeDecBtn')?.addEventListener('click', () => {
+    const cur = getActiveTextStyle().fontSize || 18;
+    const next = Math.max(10, cur - 2);
+    applyTextStylePatch({ fontSize: next });
+  });
+
+  document.getElementById('textSizeIncBtn')?.addEventListener('click', () => {
+    const cur = getActiveTextStyle().fontSize || 18;
+    const next = Math.min(72, cur + 2);
+    applyTextStylePatch({ fontSize: next });
+  });
+
+  document.getElementById('textBoldBtn')?.addEventListener('click', () => {
+    const cur = getActiveTextStyle();
+    applyTextStylePatch({ bold: !cur.bold });
+  });
+
+  document.getElementById('textItalicBtn')?.addEventListener('click', () => {
+    const cur = getActiveTextStyle();
+    applyTextStylePatch({ italic: !cur.italic });
+  });
+
+  dock.querySelectorAll('.text-align-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      applyTextStylePatch({ align: btn.dataset.align });
+    });
+  });
+
+  dock.querySelectorAll('.text-color-swatch').forEach(swatch => {
+    swatch.addEventListener('click', () => {
+      applyTextStylePatch({ color: swatch.dataset.color });
+    });
+  });
+
+  document.getElementById('textCustomColorPicker')?.addEventListener('input', (e) => {
+    applyTextStylePatch({ color: e.target.value });
+  });
+
+  document.getElementById('textEditBtn')?.addEventListener('click', () => {
+    editSelectedTextBox();
+  });
+
+  document.getElementById('textDeleteBtn')?.addEventListener('click', () => {
+    deleteSelectedTextBox();
+  });
+
+  applyTextControlsToUI();
+}
+
+export function applyTextControlsToUI() {
+  const style = getActiveTextStyle();
+  const fontSel = document.getElementById('textFontSelect');
+  if (fontSel) fontSel.value = style.fontFamily || 'sans';
+
+  const sizeSel = document.getElementById('textSizeSelect');
+  if (sizeSel) {
+    const sz = Math.round(style.fontSize || 18);
+    if (!TEXT_SIZE_PRESETS.includes(sz)) {
+      let customOpt = sizeSel.querySelector('option[data-custom="1"]');
+      if (!customOpt) {
+        customOpt = document.createElement('option');
+        customOpt.dataset.custom = '1';
+        sizeSel.appendChild(customOpt);
+      }
+      customOpt.value = String(sz);
+      customOpt.textContent = String(sz);
+    }
+    sizeSel.value = String(sz);
+  }
+
+  document.getElementById('textBoldBtn')?.classList.toggle('active', !!style.bold);
+  document.getElementById('textItalicBtn')?.classList.toggle('active', !!style.italic);
+
+  document.querySelectorAll('.text-align-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.align === (style.align || 'left'));
+  });
+
+  const colorLower = (style.color || '#000000').toLowerCase();
+  document.querySelectorAll('.text-color-swatch').forEach(el => {
+    const match = (el.dataset.color || '').toLowerCase() === colorLower;
+    el.classList.toggle('ring-2', match);
+    el.classList.toggle('ring-indigo-500', match);
+    el.classList.toggle('scale-105', match);
+  });
+
+  const customColor = document.getElementById('textCustomColorPicker');
+  if (customColor) customColor.value = style.color || '#000000';
+
+  const activeBox = getActiveTextBox();
+  const hasBox = !!(activeBox && activeBox.textBox);
+  const editBtn = document.getElementById('textEditBtn');
+  const delBtn = document.getElementById('textDeleteBtn');
+  if (editBtn) editBtn.disabled = !hasBox || !!state.editingTextBoxId;
+  if (delBtn) delBtn.disabled = !hasBox;
 }
 
 // ============================================================

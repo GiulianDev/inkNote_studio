@@ -6,7 +6,7 @@
  */
 
 import { generatePageId } from '../../core/utils.js';
-import { compressPage, decompressPage } from './serialization-cloud.js';
+import { compressPage, decompressPageBundle } from './serialization-cloud.js';
 
 export const MAGIC = 0x494E4B4E; // "INKN"
 export const VERSION = 2;
@@ -62,7 +62,8 @@ export async function serializeBackup(notebooks, onProgress) {
     for (let i = 0; i < pageCount; i++) {
       const page = nb.pages[i];
       const strokes = (page && page.strokes) || [];
-      const compressed = await compressPage(strokes);
+      const textBoxes = (page && Array.isArray(page.textBoxes)) ? page.textBoxes : [];
+      const compressed = await compressPage(strokes, textBoxes);
 
       const pageHeader = new Uint8Array(8);
       const pageDv = new DataView(pageHeader.buffer);
@@ -132,11 +133,11 @@ export async function deserializeBackup(input, onProgress) {
       o += 4;
       const pageLen = dv.getUint32(o, false); o += 4;
       const compressed = bytes.slice(o, o + pageLen); o += pageLen;
-      const strokes = await decompressPage(compressed);
+      const { strokes, textBoxes } = await decompressPageBundle(compressed);
 
       const pageId = (order[pi] && typeof order[pi] === 'string') ? order[pi] : generatePageId();
       normalizedOrder.push(pageId);
-      pages.push({ pageId, strokes });
+      pages.push({ pageId, strokes, textBoxes });
 
       donePages++;
       if (onProgress) {

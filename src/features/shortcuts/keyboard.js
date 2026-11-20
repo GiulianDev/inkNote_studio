@@ -13,6 +13,9 @@ import { resetZoom } from '../editor/pages.js';
 import { closeSettingsModal } from '../settings/settings-modal.js';
 import { closeNewNotebookModal } from '../library/library.js';
 import { clearSelection } from '../tools/lazo.js';
+import {
+  commitActiveTextBox, clearTextBoxSelection, deleteSelectedTextBox
+} from '../tools/text.js';
 
 function _isEditorInteractive() {
   const lib = document.getElementById('libraryView');
@@ -59,7 +62,11 @@ export function setupKeyboardShortcuts() {
       if (settings && !settings.classList.contains('hidden')) { closeSettingsModal(); return; }
       const newNb = document.getElementById('newNotebookModal');
       if (newNb && !newNb.classList.contains('hidden')) { closeNewNotebookModal(); return; }
-      if (_isEditorInteractive() && state.selectedStrokes.length > 0) { clearSelection(); return; }
+      if (_isEditorInteractive()) {
+        if (state.editingTextBoxId) { commitActiveTextBox(); return; }
+        if (state.selectedTextBoxId) { clearTextBoxSelection(); return; }
+        if (state.selectedStrokes.length > 0) { clearSelection(); return; }
+      }
       return;
     }
 
@@ -73,9 +80,16 @@ export function setupKeyboardShortcuts() {
     }
     if (ctrl || e.altKey || e.metaKey) return;
 
+    if ((key === 'delete' || key === 'backspace') && state.selectedTextBoxId && !state.editingTextBoxId) {
+      e.preventDefault();
+      deleteSelectedTextBox();
+      return;
+    }
+
     if (key === 'p') { setTool('pen'); return; }
     if (key === 'm') { setTool('marker'); return; }
     if (key === 'h') { setTool('highlighter'); return; }
+    if (key === 't') { setTool('text'); return; }
     if (key === 'l') { setTool('lasso'); return; }
     if (key === 'e') { setTool('eraser'); return; }
     if (key === 'x') { setTool('pencil'); return; }

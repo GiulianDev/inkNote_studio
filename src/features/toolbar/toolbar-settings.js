@@ -29,8 +29,19 @@ export const DEFAULT_TOOLBAR_SETTINGS = {
   compactMode: false,
   recentColors: [],
   paperColor: null,
-  patternColor: null
+  patternColor: null,
+  text: {
+    fontFamily: 'sans',
+    fontSize: 18,
+    bold: false,
+    italic: false,
+    align: 'left',
+    color: '#000000'
+  }
 };
+
+const VALID_TEXT_FONTS = ['sans', 'serif', 'mono', 'hand'];
+const VALID_TEXT_ALIGNS = ['left', 'center', 'right'];
 
 export const STROKE_STYLES = ['solid', 'dashed', 'dashed-large', 'dotted', 'dash-dot'];
 
@@ -76,6 +87,7 @@ function _syncRuntime() {
   // Colori foglio (null = default del tema, gestito in render.js)
   state.paperColor   = _current.paperColor   || null;
   state.patternColor = _current.patternColor || null;
+  state.textStyle    = { ..._current.text };
 
   const conf = _current.tools[_activeTool];
   if (conf) {
@@ -143,6 +155,18 @@ function _normalize(raw) {
   merged.paperColor   = _normalizeHexOrNull(merged.paperColor);
   merged.patternColor = _normalizeHexOrNull(merged.patternColor);
 
+  const rawText = (raw && raw.text) || {};
+  merged.text = {
+    fontFamily: VALID_TEXT_FONTS.includes(rawText.fontFamily) ? rawText.fontFamily : 'sans',
+    fontSize: typeof rawText.fontSize === 'number'
+      ? Math.max(10, Math.min(72, Math.round(rawText.fontSize)))
+      : 18,
+    bold: !!rawText.bold,
+    italic: !!rawText.italic,
+    align: VALID_TEXT_ALIGNS.includes(rawText.align) ? rawText.align : 'left',
+    color: _normalizeHexOrNull(rawText.color) || '#000000'
+  };
+
   delete merged.autoShapeEnabled;
   delete merged.subbarVisible;
   return merged;
@@ -182,6 +206,7 @@ export function getToolbarSettingsForSave() {
   if (!_current) initToolbarSettings(null);
   return {
     tools:        JSON.parse(JSON.stringify(_current.tools)),
+    text:         { ..._current.text },
     eraserSize:   _current.eraserSize,
     eraserMode:   _current.eraserMode,
     snapLines:    _current.snapLines,

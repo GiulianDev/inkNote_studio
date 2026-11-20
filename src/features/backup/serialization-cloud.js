@@ -16,7 +16,8 @@
 
 import SerializationWorker from './serialization-cloud.worker.js?worker&inline';
 import {
-  compressPageData, decompressPageData, prepareCloudStrokePayload
+  compressPageBundle, decompressPageData, decompressPageBundle as decompressPageBundleCore,
+  prepareCloudStrokePayload
 } from './serialization-cloud-core.js';
 
 let _worker = null;
@@ -76,28 +77,35 @@ function _call(type, payload, transfer = []) {
 
 async function _runInMainThread(type, payload) {
   if (type === 'compressPage') {
-    return compressPageData(payload.strokes);
+    return compressPageBundle(payload.strokes, payload.textBoxes || []);
   }
   if (type === 'decompressPage') {
     return decompressPageData(payload.compressed);
+  }
+  if (type === 'decompressPageBundle') {
+    return decompressPageBundleCore(payload.compressed);
   }
   throw new Error(`Unknown type: ${type}`);
 }
 
 /**
- * Comprime una pagina (PackedStroke[] o stroke legacy) in Uint8Array gzip-ato.
+ * Comprime una pagina (PackedStroke[] o stroke legacy + textBoxes opzionali) in Uint8Array gzip-ato.
  *
  * @param {Array} strokesPacked — PackedStroke[] (con .packed = Float32Array) o legacy
+ * @param {Array} [textBoxes]
  * @returns {Promise<Uint8Array>}
  */
-export function compressPage(strokesPacked) {
+export function compressPage(strokesPacked, textBoxes = []) {
   const transfer = [];
   const payload = (strokesPacked || []).filter(Boolean).map(raw => {
     const item = prepareCloudStrokePayload(raw);
     transfer.push(item.packedBuffer);
     return item;
   });
-  return _call('compressPage', { strokes: payload }, transfer);
+  return _call('compressPage', {
+    strokes: payload,
+    textBoxes: Array.isArray(textBoxes) ? textBoxes : []
+  }, transfer);
 }
 
 /**
@@ -109,6 +117,17 @@ export function compressPage(strokesPacked) {
 export function decompressPage(compressed) {
   const buf = compressed.slice().buffer;
   return _call('decompressPage', { compressed: buf }, [buf]);
+}
+
+/**
+ * Decomprime Uint8Array gzip-ato in `{ strokes, textBoxes }`.
+ *
+ * @param {Uint8Array} compressed
+ * @returns {Promise<{strokes: Array, textBoxes: Array}>}
+ */
+export function decompressPageBundle(compressed) {
+  const buf = compressed.slice().buffer;
+  return _call('decompressPageBundle', { compressed: buf }, [buf]);
 }
 
 /**

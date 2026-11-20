@@ -456,10 +456,11 @@ async function handleDuplicateSelection() {
         delete cloned.notebookId;
         cloned.pageId = generatePageId();
         if (!Array.isArray(cloned.strokes)) cloned.strokes = [];
+        if (!Array.isArray(cloned.textBoxes)) cloned.textBoxes = [];
         return cloned;
       });
       if (newPages.length === 0) {
-        newPages.push({ pageId: generatePageId(), strokes: [] });
+        newPages.push({ pageId: generatePageId(), strokes: [], textBoxes: [] });
       }
       const newPageIds = newPages.map(p => p.pageId);
 
@@ -624,7 +625,7 @@ export async function confirmCreateNotebook() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       pageOrder: [firstPageId],
-      pages: [{ pageId: firstPageId, strokes: [] }],
+      pages: [{ pageId: firstPageId, strokes: [], textBoxes: [] }],
       lastPageIndex: 0
     };
     await saveNotebookToDB(newNb, [firstPageId], { saveOrder: true });

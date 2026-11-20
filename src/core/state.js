@@ -57,15 +57,17 @@
  * @property {HTMLCanvasElement} overlayCanvas
  * @property {CanvasRenderingContext2D} overlayCtx
  * @property {Stroke[]} strokes
+ * @property {Array} textBoxes
  * @property {number} [dpr]
  * @property {boolean} [_wasVisible]
- * @property {number} [overlayDpr]  DPR usata per l'overlay (limitata a 2)
+ * @property {number} [overlayDpr]  DPR usata per l'overlay (limitato a 2)
  */
 
 /**
  * @typedef {Object} Snapshot
  * @property {number} pageIndex
  * @property {Stroke[]} strokes
+ * @property {Array} [textBoxes]
  * @property {string} bgPattern
  */
 
@@ -84,8 +86,17 @@ export const state = {
   settings: null,
 
   // --- Tool corrente (cache, vedi features/toolbar/toolbar-settings.js) ---
-  /** @type {'pen'|'pencil'|'marker'|'highlighter'|'lasso'|'eraser'} */
+  /** @type {'pen'|'pencil'|'marker'|'highlighter'|'text'|'lasso'|'eraser'} */
   activeTool: 'pen',
+  /** @type {{fontFamily:string, fontSize:number, bold:boolean, italic:boolean, align:string, color:string}} */
+  textStyle: {
+    fontFamily: 'sans',
+    fontSize: 18,
+    bold: false,
+    italic: false,
+    align: 'left',
+    color: '#000000'
+  },
   /** @type {string} hex */
   currentColor: '#000000',
   /** @type {number} 1..25 */
@@ -199,6 +210,14 @@ export const state = {
    * @type {{start:Point, end:Point, tool:string, color:string, size:number, activeHandle:'start'|'end'}|null}
    */
   pendingShape: null,
+
+  // --- Caselle di testo ---
+  /** @type {string|null} */
+  selectedTextBoxId: null,
+  /** @type {string|null} */
+  editingTextBoxId: null,
+  /** @type {string|null} */
+  _draggingTextBoxId: null,
 
   // --- UI flags globali ---
   /** @type {boolean} */

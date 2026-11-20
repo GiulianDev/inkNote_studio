@@ -34,6 +34,10 @@ import {
   getStrokeBBoxCanvas, clearOverlayBBox
 } from '../render/render.js';
 import { beginInkStroke, moveInkStroke, endInkStroke } from './ink.js';
+import {
+  beginTextPointer, moveTextPointer, endTextPointer,
+  commitActiveTextBox, canStartTextDragOnTouch
+} from './text.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import { pagePool } from '../editor/page-pool.js';
 
@@ -65,6 +69,12 @@ export function attachPointerListeners(pageData) {
     if (!pageData.canvas) return;
     handlePointerUp(e, pageData);
   });
+  target.addEventListener('mousedown', (e) => {
+    if (state.activeTool === 'text' && state.editingTextBoxId &&
+        !e.target?.closest?.('.text-box-editor-wrap, #textSelectionMenu')) {
+      e.preventDefault();
+    }
+  });
   target.addEventListener('pointercancel', (e) => {
     if (!pageData.canvas) return;
     handlePointerUp(e, pageData);
@@ -74,6 +84,11 @@ export function attachPointerListeners(pageData) {
 }
 
 export function handlePointerDown(e, pageData) {
+  if (e.target && e.target.closest &&
+      e.target.closest('.text-box-editor-wrap, #textSelectionMenu')) {
+    return;
+  }
+
   const penEraser = isPenEraser(e);
 
   if (penEraser || state.activeTool === 'eraser') {
@@ -82,9 +97,19 @@ export function handlePointerDown(e, pageData) {
     hideEraserCursor();
   }
 
+  const isTextTool = state.activeTool === 'text' && !penEraser;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || penEraser;
-  if (palmCheck && !isPenLike) return;
+
+  if (isTextTool) {
+    const canTextTouch = e.pointerType === 'touch' &&
+      (state.fingerWriting || canStartTextDragOnTouch(e));
+    if (!isPenLike && e.pointerType !== 'mouse' && !canTextTouch) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+  } else if (palmCheck && !isPenLike) {
+    return;
+  }
+
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
 
@@ -116,6 +141,26 @@ export function handlePointerDown(e, pageData) {
   cancelFlush();
 
   clearPredictions(pageData);
+
+  if (isTextTool) {
+    state.activePageIndex = pageData.index;
+    if (pageChanged) resetHistory();
+    state.currentPointerId = e.pointerId;
+    state.currentPageForPointer = pageData;
+    state._penEraserActive = false;
+    refreshPageCounter();
+    const point = getCanvasCoords(e, pageData.canvas);
+    beginTextPointer(pageData, point);
+    if (state.isDrawing) {
+      try { pageData.wrapper.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    return;
+  }
+
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
+
   try { pageData.wrapper.setPointerCapture(e.pointerId); } catch (err) {}
 
   state.activePageIndex = pageData.index;
@@ -147,13 +192,18 @@ export function handlePointerDown(e, pageData) {
 
 export function handlePointerMove(e, pageData) {
   if (!pageData.canvas) return;
+  if (e.target && e.target.closest &&
+      e.target.closest('.text-box-editor-wrap, #textSelectionMenu')) {
+    return;
+  }
 
   if (shouldShowEraserCursor(e)) updateEraserCursor(e, pageData);
   else hideEraserCursor();
 
+  const isTextToolGesture = state.activeTool === 'text' && !state._penEraserActive;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
-  if (palmCheck && !isPenLike) return;
+  if (!isTextToolGesture && palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
 
   // Fix A.1: ignora hover durante stroke attivo
@@ -164,6 +214,11 @@ export function handlePointerMove(e, pageData) {
   }
   if (!state.isDrawing) return;
   if (e.pointerId !== state.currentPointerId) return;
+
+  if (isTextToolGesture) {
+    moveTextPointer(pageData, e);
+    return;
+  }
 
   if (state.pendingShape) { moveInkStroke(pageData, e); return; }
   if (state.isResizingSelection) { applyResizeSelection(getCanvasCoords(e, pageData.canvas)); return; }
@@ -181,10 +236,22 @@ export function handlePointerMove(e, pageData) {
 export function handlePointerUp(e, pageData) {
   if (!pageData.canvas) return;
 
+  const isTextToolGesture = state.activeTool === 'text' && !state._penEraserActive;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
-  if (palmCheck && !isPenLike) return;
+  if (!isTextToolGesture && palmCheck && !isPenLike) return;
   if (e.pointerId !== state.currentPointerId) return;
+
+  if (isTextToolGesture) {
+    try { pageData.wrapper.releasePointerCapture(e.pointerId); } catch (err) {}
+    const wasDraggingText = state.isDrawing;
+    state.isDrawing = false;
+    state.currentPointerId = null;
+    state.currentPageForPointer = null;
+    state._penEraserActive = false;
+    if (wasDraggingText) endTextPointer(pageData);
+    return;
+  }
 
   setDockDrawingHidden(false);
 
@@ -262,6 +329,16 @@ export function abortCurrentDrawing() {
   if (state.pendingShape) finalizePendingShape();
   hideEraserCursor();
   cancelFlush();
+  const currPage = state.currentPageForPointer || state.pages[state.activePageIndex];
+  if (state.activeTool === 'text' && state.isDrawing) {
+    if (state.currentPointerId !== null && state.currentPageForPointer) {
+      try { state.currentPageForPointer.wrapper.releasePointerCapture(state.currentPointerId); } catch (err) {}
+    }
+    state.isDrawing = false;
+    state.currentPointerId = null;
+    state.currentPageForPointer = null;
+    endTextPointer(currPage);
+  }
   if (state.isDrawing || state.currentStroke) {
     if (_gestureUsedEraser) pushHistory();
     if (state.currentPointerId !== null && state.currentPageForPointer) {

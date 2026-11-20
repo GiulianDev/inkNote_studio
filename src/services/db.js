@@ -139,7 +139,8 @@ export function initDB() {
               newPagesStore.put({
                 notebookId: nb.id,
                 pageId: pid,
-                strokes: rec.strokes || []
+                strokes: rec.strokes || [],
+                textBoxes: Array.isArray(rec.textBoxes) ? rec.textBoxes : []
               });
             }
 
@@ -167,7 +168,7 @@ export function initDB() {
             while (finalOrder.length < targetCount) {
               const pid = generatePageId();
               finalOrder.push(pid);
-              newPagesStore.put({ notebookId: nb.id, pageId: pid, strokes: [] });
+              newPagesStore.put({ notebookId: nb.id, pageId: pid, strokes: [], textBoxes: [] });
             }
 
             pagesOrderStore.put({ notebookId: nb.id, order: finalOrder });
@@ -185,7 +186,8 @@ export function initDB() {
               newPagesStore.put({
                 notebookId: nbId,
                 pageId: pid,
-                strokes: rec.strokes || []
+                strokes: rec.strokes || [],
+                textBoxes: Array.isArray(rec.textBoxes) ? rec.textBoxes : []
               });
             }
             if (order.length > 0) {
@@ -315,7 +317,8 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
         pagesStore.put({
           notebookId: notebook.id,
           pageId: page.pageId,
-          strokes: page.strokes || []
+          strokes: page.strokes || [],
+          textBoxes: Array.isArray(page.textBoxes) ? page.textBoxes : []
         });
       }
     } catch (err) {
@@ -354,8 +357,12 @@ export function loadNotebookWithPages(id) {
       const rawWithoutId = [];
       for (const rec of rawPages) {
         if (!rec) continue;
+        const entry = {
+          strokes: rec.strokes || [],
+          textBoxes: Array.isArray(rec.textBoxes) ? rec.textBoxes : []
+        };
         if (typeof rec.pageId === 'string' && rec.pageId) {
-          rawMap.set(rec.pageId, rec.strokes || []);
+          rawMap.set(rec.pageId, entry);
         } else {
           pagesAdjusted = true;
           rawWithoutId.push(rec);
@@ -365,7 +372,10 @@ export function loadNotebookWithPages(id) {
         rawWithoutId.sort((a, b) => (a.pageIndex ?? 0) - (b.pageIndex ?? 0));
         for (const rec of rawWithoutId) {
           const pid = generatePageId();
-          rawMap.set(pid, rec.strokes || []);
+          rawMap.set(pid, {
+            strokes: rec.strokes || [],
+            textBoxes: Array.isArray(rec.textBoxes) ? rec.textBoxes : []
+          });
         }
       }
 
@@ -394,7 +404,7 @@ export function loadNotebookWithPages(id) {
       if (order.length === 0) {
         const pid = generatePageId();
         order.push(pid);
-        rawMap.set(pid, []);
+        rawMap.set(pid, { strokes: [], textBoxes: [] });
         orderAdjusted = true;
         pagesAdjusted = true;
       }
@@ -403,7 +413,7 @@ export function loadNotebookWithPages(id) {
       while (order.length < expectedCount) {
         const pid = generatePageId();
         order.push(pid);
-        rawMap.set(pid, []);
+        rawMap.set(pid, { strokes: [], textBoxes: [] });
         orderAdjusted = true;
         pagesAdjusted = true;
       }
@@ -411,7 +421,9 @@ export function loadNotebookWithPages(id) {
       const legacyPageIds = [];
       const fullPages = order.map((pageId, i) => {
         const hasRec = rawMap.has(pageId);
-        const strokes = hasRec ? rawMap.get(pageId) : [];
+        const rec = hasRec ? rawMap.get(pageId) : { strokes: [], textBoxes: [] };
+        const strokes = rec.strokes;
+        const textBoxes = rec.textBoxes;
         if (!hasRec) {
           pagesAdjusted = true;
         }
@@ -421,7 +433,8 @@ export function loadNotebookWithPages(id) {
         return {
           pageIndex: i,
           pageId,
-          strokes
+          strokes,
+          textBoxes
         };
       });
 

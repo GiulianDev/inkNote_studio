@@ -252,10 +252,10 @@ export function updateSelectionMenuPosition() {
   const rect = getCanvasRect(current.canvas);
   const scaleRatio = rect.width / PAGE_WIDTH;
   const screenX = rect.left + (bbox.minX + bbox.width / 2) * scaleRatio;
-  const screenY = rect.top + bbox.minY * scaleRatio - 60;
+  const screenY = rect.top + bbox.minY * scaleRatio - 52;
   const menuWidth = menu.offsetWidth || 320;
-  menu.style.left = `${Math.max(20, Math.min(window.innerWidth - menuWidth - 20, screenX - menuWidth / 2))}px`;
-  menu.style.top = `${Math.max(60, screenY)}px`;
+  menu.style.left = `${Math.max(16, Math.min(window.innerWidth - menuWidth - 16, screenX - menuWidth / 2))}px`;
+  menu.style.top = `${Math.max(64, screenY)}px`;
 }
 
 export function updateCursorForSelection(e, pageData) {

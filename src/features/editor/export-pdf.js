@@ -7,6 +7,7 @@
 import { state } from '../../core/state.js';
 import { getSettings } from '../../core/app-settings.js';
 import { finalizePendingShape } from '../tools/shapes.js';
+import { commitActiveTextBox } from '../tools/text.js';
 import { redrawPageCanvas } from '../render/render.js';
 import { PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
 
@@ -17,6 +18,9 @@ export function toggleFullscreen() {
 
 export function exportToPDF() {
   if (state.pendingShape) finalizePendingShape();
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
   const settings = getSettings();
   const printDark = settings.printTheme === 'dark';
 
@@ -38,6 +42,8 @@ export function exportToPDF() {
       canvas: c, ctx, dpr,
       overlayCanvas: null, overlayCtx: null, overlayDpr: 0,
       strokes: pageData.strokes,
+      textBoxes: pageData.textBoxes || [],
+      _isExport: true,
       index: pageData.index, wrapper: pageData.wrapper
     };
     pageData.strokes.forEach(s => { s._styleCache = null; });

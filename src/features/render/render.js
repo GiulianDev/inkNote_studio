@@ -462,6 +462,18 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode) {
     renderFullStroke(ctx, stroke, forceTargetDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
   });
 
+  if (Array.isArray(pageData.textBoxes) && pageData.textBoxes.length > 0) {
+    const isExport = !!pageData._isExport;
+    for (let i = 0; i < pageData.textBoxes.length; i++) {
+      const tb = pageData.textBoxes[i];
+      if (!tb) continue;
+      if (!isExport && (tb.id === state.editingTextBoxId || tb.id === state._draggingTextBoxId)) {
+        continue;
+      }
+      drawTextBoxOnCanvas(ctx, tb, forceTargetDark);
+    }
+  }
+
   ctx.restore();
 }
 
@@ -1013,17 +1025,18 @@ export function drawPaperBackground(ctx, isDark) {
 export function drawSelectionHandles(ctx, visualBBox) {
   const scale = viewport.scale;
   const handles = getHandlePositions(visualBBox);
-  const handleSize = 12 / scale;
-  const halfHandle = handleSize / 2;
+  const r = 4.5 / scale;
+  const accent = state.isDarkMode ? '#818cf8' : '#4f46e5';
   ctx.save();
   ['nw', 'se'].forEach(name => {
     const p = handles[name];
-    ctx.fillStyle = '#FFFFFF';
-    ctx.strokeStyle = '#3b82f6';
-    ctx.lineWidth = 2 / scale;
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.5 / scale;
     ctx.beginPath();
-    ctx.rect(p.x - halfHandle, p.y - halfHandle, handleSize, handleSize);
-    ctx.fill(); ctx.stroke();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
   });
   if (state.isResizingSelection) {
     const realBBox = getSelectionBoundingBox(false);
@@ -1040,19 +1053,19 @@ export function drawSelectionBadge(ctx, bbox, label) {
   if (!label) return;
   const scale = viewport.scale;
   const midX = bbox.minX + bbox.width / 2;
-  const by = bbox.minY - 34 / scale;
+  const by = bbox.minY - 32 / scale;
   ctx.save();
-  ctx.font = `600 ${13 / scale}px Inter, sans-serif`;
+  ctx.font = `600 ${12 / scale}px Inter, system-ui, sans-serif`;
   const textW = ctx.measureText(label).width;
   const padX = 8 / scale;
   const badgeW = textW + padX * 2;
   const badgeH = 22 / scale;
-  ctx.fillStyle = 'rgba(59, 130, 246, 0.95)';
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-  ctx.lineWidth = 1.5 / scale;
-  roundRect(ctx, midX - badgeW / 2, by, badgeW, badgeH, 11 / scale);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+  ctx.lineWidth = 1 / scale;
+  roundRect(ctx, midX - badgeW / 2, by, badgeW, badgeH, 8 / scale);
   ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#FFFFFF';
+  ctx.fillStyle = '#f8fafc';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(label, midX, by + badgeH / 2 + 0.5 / scale);
   ctx.restore();
@@ -1100,9 +1113,10 @@ export function drawLassoIncrementalOnOverlay(pageData) {
   const dpr = pageData.overlayDpr || pageData.dpr || 1;
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  octx.strokeStyle = '#2563eb';
-  octx.lineWidth = 1.5;
-  octx.setLineDash([5, 5]);
+  octx.strokeStyle = state.isDarkMode ? 'rgba(129, 140, 248, 0.85)' : 'rgba(79, 70, 229, 0.78)';
+  octx.lineWidth = 1.25;
+  octx.lineCap = 'round';
+  octx.setLineDash([4, 4]);
   octx.beginPath(); octx.moveTo(p1.x, p1.y); octx.lineTo(p2.x, p2.y); octx.stroke();
   octx.restore();
 }
@@ -1115,15 +1129,16 @@ export function drawSelectionBBoxOnOverlay(pageData) {
   const octx = pageData.overlayCtx;
   const dpr = pageData.overlayDpr || pageData.dpr || 1;
   const scale = viewport.scale;
+  const strokeCol = state.isDarkMode ? 'rgba(129, 140, 248, 0.78)' : 'rgba(79, 70, 229, 0.65)';
+  const fillCol = state.isDarkMode ? 'rgba(129, 140, 248, 0.045)' : 'rgba(79, 70, 229, 0.03)';
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  octx.strokeStyle = '#3b82f6';
-  octx.lineWidth = 2 / scale;
-  octx.setLineDash([6 / scale, 6 / scale]);
-  octx.strokeRect(visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height);
-  octx.fillStyle = 'rgba(59, 130, 246, 0.08)';
-  octx.fillRect(visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height);
-  octx.setLineDash([]);
+  octx.fillStyle = fillCol;
+  octx.strokeStyle = strokeCol;
+  octx.lineWidth = 1 / scale;
+  roundRect(octx, visualBBox.minX, visualBBox.minY, visualBBox.width, visualBBox.height, 4 / scale);
+  octx.fill();
+  octx.stroke();
   drawSelectionHandles(octx, visualBBox);
   octx.restore();
 }
@@ -1176,4 +1191,178 @@ function _renderDashedStroke(ctx, stroke, styleInfo, isDark, opacity) {
   for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.stroke();
   ctx.restore();
+}
+
+// ============================================================
+// TEXT BOXES (layout + rendering canvas + overlay selezione)
+// ============================================================
+
+export const TEXT_FONTS = {
+  sans: 'Inter, system-ui, -apple-system, sans-serif',
+  serif: 'Georgia, "Times New Roman", serif',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  hand: '"Segoe Print", "Bradley Hand", "Comic Sans MS", cursive'
+};
+
+export const TEXT_LINE_HEIGHT_MULT = 1.35;
+export const TEXT_PAD_X = 6;
+export const TEXT_PAD_Y = 4;
+
+export function buildTextCanvasFont(tb) {
+  const family = TEXT_FONTS[tb?.fontFamily] || TEXT_FONTS.sans;
+  const size = Math.max(10, Math.min(72, tb?.fontSize || 18));
+  const italic = tb?.italic ? 'italic ' : '';
+  const bold = tb?.bold ? 'bold ' : '';
+  return `${italic}${bold}${size}px ${family}`;
+}
+
+export function layoutTextBox(ctx, tb) {
+  const text = typeof tb.text === 'string' ? tb.text : '';
+  const width = Math.max(80, tb.width || 240);
+  const fontSize = Math.max(10, Math.min(72, tb.fontSize || 18));
+  const fontFamily = tb.fontFamily || 'sans';
+  const bold = !!tb.bold;
+  const italic = !!tb.italic;
+
+  const key = `${text}|${width}|${fontFamily}|${fontSize}|${bold ? 1 : 0}|${italic ? 1 : 0}`;
+  if (tb._layoutCache && tb._layoutCache.key === key) {
+    return tb._layoutCache;
+  }
+
+  ctx.save();
+  ctx.font = buildTextCanvasFont(tb);
+
+  const maxTextW = Math.max(20, width - TEXT_PAD_X * 2);
+  const paragraphs = text.split(/\r?\n/);
+  const lines = [];
+
+  for (let p = 0; p < paragraphs.length; p++) {
+    const para = paragraphs[p];
+    if (para === '') {
+      lines.push('');
+      continue;
+    }
+
+    const words = para.split(' ');
+    let currentLine = '';
+
+    for (let w = 0; w < words.length; w++) {
+      const word = words[w];
+      const candidate = currentLine === '' ? word : `${currentLine} ${word}`;
+      if (ctx.measureText(candidate).width <= maxTextW) {
+        currentLine = candidate;
+      } else {
+        if (currentLine !== '') {
+          lines.push(currentLine);
+          currentLine = '';
+        }
+        // Parola più larga del box → spezza per carattere
+        if (ctx.measureText(word).width <= maxTextW) {
+          currentLine = word;
+        } else {
+          let chunk = '';
+          for (let c = 0; c < word.length; c++) {
+            const ch = word[c];
+            const nextChunk = chunk + ch;
+            if (chunk !== '' && ctx.measureText(nextChunk).width > maxTextW) {
+              lines.push(chunk);
+              chunk = ch;
+            } else {
+              chunk = nextChunk;
+            }
+          }
+          currentLine = chunk;
+        }
+      }
+    }
+    lines.push(currentLine);
+  }
+
+  ctx.restore();
+
+  if (lines.length === 0) lines.push('');
+  const lineHeight = fontSize * TEXT_LINE_HEIGHT_MULT;
+  const height = Math.ceil(Math.max(lineHeight + TEXT_PAD_Y * 2, lines.length * lineHeight + TEXT_PAD_Y * 2));
+  tb.height = height;
+
+  const result = { key, lines, lineHeight, height };
+  Object.defineProperty(tb, '_layoutCache', {
+    value: result,
+    enumerable: false,
+    configurable: true,
+    writable: true
+  });
+  return result;
+}
+
+export function drawTextBoxOnCanvas(ctx, tb, forceTargetDark = state.isDarkMode) {
+  if (!tb || !ctx) return;
+  const layout = layoutTextBox(ctx, tb);
+  const { lines, lineHeight } = layout;
+  const fontSize = Math.max(10, Math.min(72, tb.fontSize || 18));
+  const align = tb.align === 'center' || tb.align === 'right' ? tb.align : 'left';
+  const width = Math.max(80, tb.width || 240);
+
+  let drawX = tb.x + TEXT_PAD_X;
+  if (align === 'center') drawX = tb.x + width / 2;
+  else if (align === 'right') drawX = tb.x + width - TEXT_PAD_X;
+
+  const topOffset = (lineHeight - fontSize) * 0.5;
+
+  ctx.save();
+  ctx.font = buildTextCanvasFont(tb);
+  ctx.fillStyle = getEffectiveColor(tb.color || '#000000', forceTargetDark);
+  ctx.textBaseline = 'top';
+  ctx.textAlign = align;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === '') continue;
+    ctx.fillText(lines[i], drawX, tb.y + TEXT_PAD_Y + topOffset + i * lineHeight);
+  }
+  ctx.restore();
+}
+
+export function drawTextBoxSelectionOnOverlay(pageData, tb, opts = {}) {
+  clearOverlay(pageData);
+  if (!pageData || !pageData.overlayCtx || !tb) return;
+
+  const octx = pageData.overlayCtx;
+  const dpr = pageData.overlayDpr || pageData.dpr || 1;
+  const scale = viewport.scale || 1;
+  const w = Math.max(80, tb.width || 240);
+  const layout = layoutTextBox(octx, tb);
+  const h = tb.height || layout.height;
+  const strokeCol = state.isDarkMode ? 'rgba(129, 140, 248, 0.78)' : 'rgba(79, 70, 229, 0.65)';
+  const fillCol = state.isDarkMode ? 'rgba(129, 140, 248, 0.045)' : 'rgba(79, 70, 229, 0.028)';
+  const handleAccent = state.isDarkMode ? '#818cf8' : '#4f46e5';
+
+  octx.save();
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  if (opts.drawBox) {
+    drawTextBoxOnCanvas(octx, tb, state.isDarkMode);
+  }
+
+  octx.fillStyle = fillCol;
+  octx.strokeStyle = strokeCol;
+  octx.lineWidth = 1 / scale;
+  roundRect(octx, tb.x, tb.y, w, h, 4 / scale);
+  octx.fill();
+  octx.stroke();
+
+  // Maniglie laterali sottili (w / e) per ridimensionare larghezza
+  const handleW = 5 / scale;
+  const handleH = Math.min(h * 0.52, 18 / scale);
+  const midY = tb.y + h / 2;
+
+  [tb.x, tb.x + w].forEach(hx => {
+    octx.fillStyle = '#ffffff';
+    octx.strokeStyle = handleAccent;
+    octx.lineWidth = 1.25 / scale;
+    roundRect(octx, hx - handleW / 2, midY - handleH / 2, handleW, handleH, handleW / 2);
+    octx.fill();
+    octx.stroke();
+  });
+
+  octx.restore();
 }
