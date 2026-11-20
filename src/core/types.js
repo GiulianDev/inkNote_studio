@@ -226,7 +226,10 @@
  * @property {number} eraserSize        1..5
  * @property {'stroke'|'point'} eraserMode
  * @property {boolean} snapLines        riconoscimento linee dritte
- * @property {boolean} snapShapes       riconoscimento forme geometriche
+ * @property {boolean} snapShapes       riconoscimento forme geometriche (globale/compat)
+ * @property {boolean} [snapCircles]    riconoscimento cerchi
+ * @property {boolean} [snapRectangles] riconoscimento rettangoli
+ * @property {boolean} [snapTriangles]  riconoscimento triangoli
  * @property {number} smoothing         0..100
  * @property {boolean} compactMode
  * @property {string[]} recentColors    array di hex

@@ -681,9 +681,45 @@ export function toggleSnapLines() {
   );
 }
 
+export function toggleSnapCircles() {
+  const next = !getToolbarSettings().snapCircles;
+  updateToolbarSettings({ snapCircles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Cerchi: riconoscimento attivo' : 'Cerchi: riconoscimento disattivato',
+    next ? '⭕' : '🚫'
+  );
+}
+
+export function toggleSnapRectangles() {
+  const next = !getToolbarSettings().snapRectangles;
+  updateToolbarSettings({ snapRectangles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Rettangoli: riconoscimento attivo' : 'Rettangoli: riconoscimento disattivato',
+    next ? '⬛' : '🚫'
+  );
+}
+
+export function toggleSnapTriangles() {
+  const next = !getToolbarSettings().snapTriangles;
+  updateToolbarSettings({ snapTriangles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Triangoli: riconoscimento attivo' : 'Triangoli: riconoscimento disattivato',
+    next ? '🔺' : '🚫'
+  );
+}
+
 export function toggleSnapShapes() {
-  const next = !getToolbarSettings().snapShapes;
-  updateToolbarSettings({ snapShapes: next });
+  const s = getToolbarSettings();
+  const next = !(s.snapCircles || s.snapRectangles || s.snapTriangles);
+  updateToolbarSettings({
+    snapShapes: next,
+    snapCircles: next,
+    snapRectangles: next,
+    snapTriangles: next
+  });
   applySnapTogglesToUI();
   showToast(
     next ? 'Forme geometriche: riconoscimento attivo' : 'Forme geometriche: riconoscimento disattivato',
@@ -694,9 +730,13 @@ export function toggleSnapShapes() {
 export function applySnapTogglesToUI() {
   const s = getToolbarSettings();
   const linesEl = document.getElementById('snapLinesToggle');
-  const shapesEl = document.getElementById('snapShapesToggle');
-  if (linesEl)  linesEl.checked  = s.snapLines !== false;
-  if (shapesEl) shapesEl.checked = s.snapShapes !== false;
+  const circlesEl = document.getElementById('snapCirclesToggle');
+  const rectsEl = document.getElementById('snapRectanglesToggle');
+  const trianglesEl = document.getElementById('snapTrianglesToggle');
+  if (linesEl)     linesEl.checked     = s.snapLines !== false;
+  if (circlesEl)   circlesEl.checked   = s.snapCircles !== false;
+  if (rectsEl)     rectsEl.checked     = s.snapRectangles !== false;
+  if (trianglesEl) trianglesEl.checked = s.snapTriangles !== false;
 }
 
 // ============================================================
@@ -981,8 +1021,12 @@ function _setupDockButtons() {
 
   document.getElementById('snapLinesToggle')
     ?.addEventListener('change', toggleSnapLines);
-  document.getElementById('snapShapesToggle')
-    ?.addEventListener('change', toggleSnapShapes);
+  document.getElementById('snapCirclesToggle')
+    ?.addEventListener('change', toggleSnapCircles);
+  document.getElementById('snapRectanglesToggle')
+    ?.addEventListener('change', toggleSnapRectangles);
+  document.getElementById('snapTrianglesToggle')
+    ?.addEventListener('change', toggleSnapTriangles);
 
   document.getElementById('opacityBtn')
     ?.addEventListener('click', (e) => {

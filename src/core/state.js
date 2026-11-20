@@ -111,7 +111,13 @@ export const state = {
   eraserMode: 'stroke',
   /** @type {boolean} riconoscimento linee dritte (auto-shape) */
   snapLines: true,
-  /** @type {boolean} riconoscimento forme geometriche (cerchio/rettangolo/highlighter) */
+  /** @type {boolean} riconoscimento cerchi */
+  snapCircles: true,
+  /** @type {boolean} riconoscimento rettangoli */
+  snapRectangles: true,
+  /** @type {boolean} riconoscimento triangoli */
+  snapTriangles: true,
+  /** @type {boolean} riconoscimento forme geometriche (true se almeno una forma è attiva) */
   snapShapes: true,
   /**
    * @deprecated Usare snapLines / snapShapes.
