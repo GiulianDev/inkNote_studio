@@ -34,6 +34,7 @@ import {
   centerViewport, refreshCanvasResolution
 } from './features/editor/pages.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './features/render/render.js';
+import { hasLassoSelection } from './features/tools/lazo.js';
 import { setupViewportGestures } from './features/viewport/gestures.js';
 import { setupKeyboardShortcuts } from './features/shortcuts/keyboard.js';
 import {
@@ -91,7 +92,7 @@ window.addEventListener('load', async () => {
     state.pages.forEach(p => {
       if (p._wasVisible !== false && p.canvas) {
         redrawPageCanvas(p);
-        if (p.index === state.activePageIndex && state.selectedStrokes.length > 0) {
+        if (p.index === state.activePageIndex && hasLassoSelection()) {
           redrawSelectionOverlay(p);
         }
       }

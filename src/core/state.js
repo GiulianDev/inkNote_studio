@@ -109,6 +109,12 @@ export const state = {
   eraserSize: 3,
   /** @type {'stroke'|'point'} modalità gomma */
   eraserMode: 'stroke',
+  /** @type {'freehand'|'rect'} modalità selezione lazo */
+  lassoMode: 'freehand',
+  /** @type {boolean} seleziona tratti inchiostro col lazo */
+  lassoSelectInk: true,
+  /** @type {boolean} seleziona caselle di testo col lazo */
+  lassoSelectText: true,
   /** @type {boolean} riconoscimento linee dritte (auto-shape) */
   snapLines: true,
   /** @type {boolean} riconoscimento cerchi */
@@ -178,6 +184,8 @@ export const state = {
   lassoPath: [],
   /** @type {Stroke[]} */
   selectedStrokes: [],
+  /** @type {Array<object>} */
+  selectedTextBoxes: [],
   /** @type {boolean} */
   isDraggingSelection: false,
   /** @type {Point|null} */
@@ -204,6 +212,8 @@ export const state = {
   resizeCurrentAngle: 0,
   /** @type {Array<{color:string, size:number, tool:string, points:Point[]}>|null} */
   initialStrokesSnapshot: null,
+  /** @type {Array<{x:number, y:number, width:number, fontSize:number, height:number}>|null} */
+  initialTextBoxesSnapshot: null,
 
   // --- Scribble-to-erase ---
   /** @type {boolean} */

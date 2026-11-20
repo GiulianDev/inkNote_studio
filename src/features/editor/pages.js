@@ -20,7 +20,7 @@ import { scheduleSave } from '../persistence/autosave.js';
 import {
   markPageDirty, markPageDeleted, markOrderDirty
 } from '../persistence/session.js';
-import { clearSelection } from '../tools/lazo.js';
+import { clearSelection, hasLassoSelection } from '../tools/lazo.js';
 import {
   commitActiveTextBox, resetTextToolState, normalizeTextBoxes
 } from '../tools/text.js';
@@ -77,7 +77,7 @@ export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null, 
 }
 
 export function addNewPage() {
-  if (state.selectedStrokes.length > 0) clearSelection();
+  if (hasLassoSelection()) clearSelection();
   if (state.editingTextBoxId || state.selectedTextBoxId) commitActiveTextBox({ deselect: true });
   const newIndex = state.pages.length;
   const newPage = createNewPageDOM(newIndex, []);
@@ -230,7 +230,7 @@ export function updateActivePageFromViewport() {
     if (performance.now() < _programmaticScrollUntil) return;
     const page = getMostCenteredPage();
     if (!page || page.index === state.activePageIndex) return;
-    if (state.selectedStrokes.length > 0) {
+    if (hasLassoSelection()) {
       clearSelection();
     }
     if (state.editingTextBoxId || state.selectedTextBoxId) {
@@ -303,7 +303,7 @@ export async function clearCurrentPage() {
   const isActive = page.index === state.activePageIndex;
   if (isActive) {
     if (state.pendingShape) state.pendingShape = null;
-    if (state.selectedStrokes.length > 0) clearSelection();
+    if (hasLassoSelection()) clearSelection();
     resetTextToolState();
   }
   page.strokes = [];
@@ -330,7 +330,7 @@ export function deletePage(index) {
 
   if (state.activePageIndex === index) {
     state.pendingShape = null;
-    if (state.selectedStrokes.length > 0) clearSelection();
+    if (hasLassoSelection()) clearSelection();
     resetTextToolState();
   } else if (state.editingTextBoxId || state.selectedTextBoxId) {
     commitActiveTextBox({ deselect: true });
@@ -466,7 +466,7 @@ export function scrollToPage(index) {
 
   const pageChanged = state.activePageIndex !== index;
   if (pageChanged) {
-    if (state.selectedStrokes.length > 0) clearSelection();
+    if (hasLassoSelection()) clearSelection();
     if (state.editingTextBoxId || state.selectedTextBoxId) commitActiveTextBox({ deselect: true });
   }
 
@@ -504,13 +504,13 @@ function restorePageFromSnapshot(snap) {
     state.pages.forEach(p => {
       if (p.canvas) redrawPageCanvas(p);
     });
-    if (page.index === state.activePageIndex && state.selectedStrokes.length > 0 && page.canvas) {
+    if (page.index === state.activePageIndex && hasLassoSelection() && page.canvas) {
       redrawSelectionOverlay(page);
     }
     window.dispatchEvent(new CustomEvent('inknote:pages-changed'));
   } else if (page.canvas) {
     redrawPageCanvas(page);
-    if (page.index === state.activePageIndex && state.selectedStrokes.length > 0) {
+    if (page.index === state.activePageIndex && hasLassoSelection()) {
       redrawSelectionOverlay(page);
     }
   }

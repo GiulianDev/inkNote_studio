@@ -12,6 +12,7 @@ import { addNewPage, scheduleResolutionRefresh } from '../editor/pages.js';
 import {
   canStartTextDragOnTouch, handleTextTapAtClientPoint
 } from '../tools/text.js';
+import { canStartLassoDragOnTouch } from '../tools/lazo.js';
 import {
   applyTransform, applyPinchTransform,
   clampViewport, invalidateClampCache
@@ -444,6 +445,11 @@ export function setupViewportGestures() {
       if (e.pointerType === 'touch' && viewport.activePointers.size === 0 && canStartTextDragOnTouch(e)) {
         return;
       }
+    }
+
+    if (state.activeTool === 'lasso' && e.pointerType === 'touch' &&
+        viewport.activePointers.size === 0 && canStartLassoDragOnTouch(e)) {
+      return;
     }
 
     const now = performance.now();

@@ -36,7 +36,10 @@ import {
 } from './toolbar-settings.js';
 import { changeBackgroundPattern } from '../editor/pages.js';
 import { redrawPageCanvas } from '../render/render.js';
-import { clearSelection } from '../tools/lazo.js';
+import {
+  clearSelection, hasLassoSelection, hasLassoClipboard,
+  copySelection, cutSelection, pasteSelection, duplicateSelection, deleteSelection
+} from '../tools/lazo.js';
 import {
   getActiveTextStyle, getActiveTextBox, applyTextStylePatch,
   editSelectedTextBox, deleteSelectedTextBox, clearTextBoxSelection,
@@ -119,10 +122,21 @@ export function mountToolbar() {
     if (changed.includes('text')) {
       applyTextControlsToUI();
     }
+    if (changed.includes('lassoMode') || changed.includes('lassoSelectInk') || changed.includes('lassoSelectText')) {
+      applyLassoControlsToUI();
+    }
   });
 
   window.addEventListener('inknote:text-selection-changed', () => {
     applyTextControlsToUI();
+  });
+
+  window.addEventListener('inknote:selection-changed', (e) => {
+    if (e.detail && e.detail.activateLasso && state.activeTool !== 'lasso') {
+      _activateLassoKeepingSelection();
+    } else {
+      applyLassoControlsToUI();
+    }
   });
 
   on('history:restore', () => {
@@ -411,8 +425,33 @@ function _syncToolbarModeToActiveTool() {
   applyEraserLevelToUI();
   applyStrokeStyleToUI();
   applyTextControlsToUI();
+  applyLassoControlsToUI();
   applyPageColorsToUI();
   _syncPageCursorsForActiveTool();
+}
+
+function _activateLassoKeepingSelection() {
+  if (state.activeTool === 'text') {
+    clearTextBoxSelection();
+  }
+  updateToolbarSettings({ activeTool: 'lasso' });
+  _mainMenu = 'selection';
+  _dockCollapsed = false;
+  _applyMenuToDOM();
+  applyMainMenuOrderToUI();
+
+  document.querySelectorAll('.main-menu-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.menu === _mainMenu);
+  });
+
+  applyActiveToolToUI();
+  applyEraserLevelToUI();
+  applyStrokeStyleToUI();
+  applyTextControlsToUI();
+  applyLassoControlsToUI();
+  _syncPageCursorsForActiveTool();
+
+  document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: 'lasso' } }));
 }
 
 function _setMainMenu(menu, opts = {}) {
@@ -455,6 +494,7 @@ function _setMainMenu(menu, opts = {}) {
     applyEraserLevelToUI();
     applyStrokeStyleToUI();
     applyTextControlsToUI();
+    applyLassoControlsToUI();
     _syncPageCursorsForActiveTool();
   }
 }
@@ -517,6 +557,7 @@ export function setTool(toolName) {
   // dove applyActiveToolToUI fa return early. Chiamata esplicita.
   applyStrokeStyleToUI();
   applyTextControlsToUI();
+  applyLassoControlsToUI();
   _syncPageCursorsForActiveTool();
 
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
@@ -1062,6 +1103,7 @@ function _setupDockButtons() {
   });
 
   _setupTextDockControls();
+  _setupSelectionDockControls();
 }
 
 // ============================================================
@@ -1187,6 +1229,79 @@ export function applyTextControlsToUI() {
   const delBtn = document.getElementById('textDeleteBtn');
   if (editBtn) editBtn.disabled = !hasBox || !!state.editingTextBoxId;
   if (delBtn) delBtn.disabled = !hasBox;
+}
+
+// ============================================================
+// DOCK SELEZIONE (#dockSelection)
+// ============================================================
+
+function _setupSelectionDockControls() {
+  const dock = document.getElementById('dockSelection');
+  if (!dock) return;
+
+  dock.querySelectorAll('.lasso-mode-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mode = btn.dataset.lassoMode === 'rect' ? 'rect' : 'freehand';
+      updateToolbarSettings({ lassoMode: mode });
+      applyLassoControlsToUI();
+    });
+  });
+
+  document.getElementById('lassoFilterInk')?.addEventListener('change', (e) => {
+    const nextInk = !!e.target.checked;
+    if (!nextInk && state.lassoSelectText === false) {
+      updateToolbarSettings({ lassoSelectInk: false, lassoSelectText: true });
+    } else {
+      updateToolbarSettings({ lassoSelectInk: nextInk });
+    }
+    applyLassoControlsToUI();
+  });
+
+  document.getElementById('lassoFilterText')?.addEventListener('change', (e) => {
+    const nextText = !!e.target.checked;
+    if (!nextText && state.lassoSelectInk === false) {
+      updateToolbarSettings({ lassoSelectInk: true, lassoSelectText: false });
+    } else {
+      updateToolbarSettings({ lassoSelectText: nextText });
+    }
+    applyLassoControlsToUI();
+  });
+
+  document.getElementById('lassoCopyBtn')?.addEventListener('click', () => copySelection());
+  document.getElementById('lassoCutBtn')?.addEventListener('click', () => cutSelection());
+  document.getElementById('lassoPasteBtn')?.addEventListener('click', () => pasteSelection());
+  document.getElementById('lassoDuplicateBtn')?.addEventListener('click', () => duplicateSelection());
+  document.getElementById('lassoDeleteBtn')?.addEventListener('click', () => deleteSelection());
+
+  applyLassoControlsToUI();
+}
+
+export function applyLassoControlsToUI() {
+  const mode = state.lassoMode === 'rect' ? 'rect' : 'freehand';
+  document.querySelectorAll('.lasso-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lassoMode === mode);
+  });
+
+  const inkEl = document.getElementById('lassoFilterInk');
+  const textEl = document.getElementById('lassoFilterText');
+  if (inkEl) inkEl.checked = state.lassoSelectInk !== false;
+  if (textEl) textEl.checked = state.lassoSelectText !== false;
+
+  const hasSel = hasLassoSelection();
+  const hasClip = hasLassoClipboard();
+
+  const copyBtn = document.getElementById('lassoCopyBtn');
+  const cutBtn = document.getElementById('lassoCutBtn');
+  const pasteBtn = document.getElementById('lassoPasteBtn');
+  const dupBtn = document.getElementById('lassoDuplicateBtn');
+  const delBtn = document.getElementById('lassoDeleteBtn');
+
+  if (copyBtn) copyBtn.disabled = !hasSel;
+  if (cutBtn) cutBtn.disabled = !hasSel;
+  if (dupBtn) dupBtn.disabled = !hasSel;
+  if (delBtn) delBtn.disabled = !hasSel;
+  if (pasteBtn) pasteBtn.disabled = !hasClip;
 }
 
 // ============================================================

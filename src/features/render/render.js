@@ -46,14 +46,30 @@ const _ptB = { x: 0, y: 0 };
 // ============================================================
 
 export function getSelectionBoundingBox(includePad = true) {
-  if (state.selectedStrokes.length === 0) return null;
+  const hasStrokes = state.selectedStrokes.length > 0;
+  const hasText = Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0;
+  if (!hasStrokes && !hasText) return null;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  state.selectedStrokes.forEach(stroke => {
-    stroke.points.forEach(p => {
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+  if (hasStrokes) {
+    state.selectedStrokes.forEach(stroke => {
+      stroke.points.forEach(p => {
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+      });
     });
-  });
+  }
+  if (hasText) {
+    state.selectedTextBoxes.forEach(tb => {
+      if (!tb) return;
+      const w = Math.max(80, tb.width || 240);
+      const h = Math.max(24, tb.height || 32);
+      if (tb.x < minX) minX = tb.x;
+      if (tb.x + w > maxX) maxX = tb.x + w;
+      if (tb.y < minY) minY = tb.y;
+      if (tb.y + h > maxY) maxY = tb.y + h;
+    });
+  }
+  if (minX === Infinity) return null;
   const pad = includePad ? 12 / viewport.scale : 0;
   return {
     minX: minX - pad, maxX: maxX + pad,
@@ -107,6 +123,24 @@ export function findClosestPointInSelection(target) {
       if (d < minDist) { minDist = d; closest = { x: p.x, y: p.y }; }
     });
   });
+  if (Array.isArray(state.selectedTextBoxes)) {
+    state.selectedTextBoxes.forEach(tb => {
+      if (!tb) return;
+      const w = Math.max(80, tb.width || 240);
+      const h = Math.max(24, tb.height || 32);
+      const corners = [
+        { x: tb.x, y: tb.y },
+        { x: tb.x + w, y: tb.y },
+        { x: tb.x, y: tb.y + h },
+        { x: tb.x + w, y: tb.y + h }
+      ];
+      for (let i = 0; i < corners.length; i++) {
+        const c = corners[i];
+        const d = Math.hypot(c.x - target.x, c.y - target.y);
+        if (d < minDist) { minDist = d; closest = c; }
+      }
+    });
+  }
   return closest;
 }
 
@@ -473,10 +507,13 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode, o
   });
 
   if (!skipTextBoxes && Array.isArray(pageData.textBoxes) && pageData.textBoxes.length > 0) {
+    const selectedTextSet = (!isExport && Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0)
+      ? new Set(state.selectedTextBoxes) : null;
     for (let i = 0; i < pageData.textBoxes.length; i++) {
       const tb = pageData.textBoxes[i];
       if (!tb) continue;
       if (textBoxFilter && !textBoxFilter(tb)) continue;
+      if (selectedTextSet && selectedTextSet.has(tb)) continue;
       if (!isExport && (tb.id === state.editingTextBoxId || tb.id === state._draggingTextBoxId)) {
         continue;
       }
@@ -1119,10 +1156,32 @@ export function drawLassoIncrementalOnOverlay(pageData) {
   if (state.activeTool !== 'lasso') return;
   const n = state.lassoPath.length;
   if (n < 2) return;
-  const p1 = state.lassoPath[n - 2];
-  const p2 = state.lassoPath[n - 1];
   const octx = pageData.overlayCtx;
   const dpr = pageData.overlayDpr || pageData.dpr || 1;
+
+  if (state.lassoMode === 'rect') {
+    const p0 = state.lassoPath[0];
+    const p1 = state.lassoPath[n - 1];
+    const minX = Math.min(p0.x, p1.x);
+    const minY = Math.min(p0.y, p1.y);
+    const w = Math.abs(p1.x - p0.x);
+    const h = Math.abs(p1.y - p0.y);
+    octx.save();
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(0, 0, pageData.overlayCanvas.width, pageData.overlayCanvas.height);
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    octx.fillStyle = state.isDarkMode ? 'rgba(129, 140, 248, 0.08)' : 'rgba(79, 70, 229, 0.06)';
+    octx.strokeStyle = state.isDarkMode ? 'rgba(129, 140, 248, 0.9)' : 'rgba(79, 70, 229, 0.85)';
+    octx.lineWidth = 1.35;
+    octx.setLineDash([5, 4]);
+    octx.fillRect(minX, minY, w, h);
+    octx.strokeRect(minX, minY, w, h);
+    octx.restore();
+    return;
+  }
+
+  const p1 = state.lassoPath[n - 2];
+  const p2 = state.lassoPath[n - 1];
   octx.save();
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   octx.strokeStyle = state.isDarkMode ? 'rgba(129, 140, 248, 0.85)' : 'rgba(79, 70, 229, 0.78)';
@@ -1135,7 +1194,9 @@ export function drawLassoIncrementalOnOverlay(pageData) {
 
 export function drawSelectionBBoxOnOverlay(pageData) {
   if (!pageData.overlayCtx) return;
-  if (state.selectedStrokes.length === 0) return;
+  const hasStrokes = state.selectedStrokes.length > 0;
+  const hasText = Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0;
+  if (!hasStrokes && !hasText) return;
   const visualBBox = getVisualBoundingBox();
   if (!visualBBox) return;
   const octx = pageData.overlayCtx;
@@ -1157,16 +1218,25 @@ export function drawSelectionBBoxOnOverlay(pageData) {
 
 export function redrawSelectionOverlay(pageData) {
   clearOverlay(pageData);
-  if (state.selectedStrokes.length === 0) return;
+  const hasStrokes = state.selectedStrokes.length > 0;
+  const hasText = Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0;
+  if (!hasStrokes && !hasText) return;
   const octx = pageData.overlayCtx;
   if (octx) {
     const dpr = pageData.overlayDpr || pageData.dpr || 1;
     const inkDark = isPaperDark(state.isDarkMode, state.paperColor);
     octx.save();
     octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    state.selectedStrokes.forEach(stroke => {
-      renderFullStroke(octx, stroke, inkDark);
-    });
+    if (hasStrokes) {
+      state.selectedStrokes.forEach(stroke => {
+        renderFullStroke(octx, stroke, inkDark);
+      });
+    }
+    if (hasText) {
+      state.selectedTextBoxes.forEach(tb => {
+        if (tb) drawTextBoxOnCanvas(octx, tb, inkDark);
+      });
+    }
     octx.restore();
   }
   drawSelectionBBoxOnOverlay(pageData);

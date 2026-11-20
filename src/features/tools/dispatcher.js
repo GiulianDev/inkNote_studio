@@ -27,7 +27,8 @@ import {
   clearSelection, applyResizeSelection,
   beginLasso, moveLasso, endLasso,
   beginSelectionDrag, moveSelectionDrag, endSelectionDrag,
-  resetSelectionDragState, updateCursorForSelection
+  resetSelectionDragState, updateCursorForSelection,
+  hasLassoSelection, canStartLassoDragOnTouch
 } from './lazo.js';
 import {
   redrawPageCanvas, clearOverlay, redrawSelectionOverlay,
@@ -39,6 +40,7 @@ import {
   commitActiveTextBox, canStartTextDragOnTouch, updateCursorForText
 } from './text.js';
 import { scheduleSave } from '../persistence/autosave.js';
+import { markPageDirty } from '../persistence/session.js';
 import { pagePool } from '../editor/page-pool.js';
 
 let _gestureUsedEraser = false;
@@ -98,6 +100,7 @@ export function handlePointerDown(e, pageData) {
   }
 
   const isTextTool = state.activeTool === 'text' && !penEraser;
+  const isLassoTool = state.activeTool === 'lasso' && !penEraser;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || penEraser;
 
@@ -106,6 +109,8 @@ export function handlePointerDown(e, pageData) {
       (state.fingerWriting || canStartTextDragOnTouch(e));
     if (!isPenLike && e.pointerType !== 'mouse' && !canTextTouch) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+  } else if (isLassoTool && e.pointerType === 'touch' && canStartLassoDragOnTouch(e)) {
+    // Consente spostamento/ridimensionamento selezione lazo con 1 dito
   } else if (palmCheck && !isPenLike) {
     return;
   }
@@ -133,7 +138,7 @@ export function handlePointerDown(e, pageData) {
   invalidateStrokeRect();
 
   const pageChanged = state.activePageIndex !== pageData.index;
-  if (pageChanged && state.selectedStrokes.length > 0) clearSelection();
+  if (pageChanged && hasLassoSelection()) clearSelection();
 
   if (state.pendingShape) finalizePendingShape();
   state.scribbleMode = false;
@@ -201,9 +206,11 @@ export function handlePointerMove(e, pageData) {
   else hideEraserCursor();
 
   const isTextToolGesture = state.activeTool === 'text' && !state._penEraserActive;
+  const isLassoTouchGesture = state.activeTool === 'lasso' && !state._penEraserActive &&
+    (state.isDraggingSelection || state.isResizingSelection) && e.pointerId === state.currentPointerId;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
-  if (!isTextToolGesture && palmCheck && !isPenLike) return;
+  if (!isTextToolGesture && !isLassoTouchGesture && palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
 
   // Fix A.1: ignora hover durante stroke attivo
@@ -241,9 +248,11 @@ export function handlePointerUp(e, pageData) {
   if (!pageData.canvas) return;
 
   const isTextToolGesture = state.activeTool === 'text' && !state._penEraserActive;
+  const isLassoTouchGesture = state.activeTool === 'lasso' && !state._penEraserActive &&
+    (state.isDraggingSelection || state.isResizingSelection) && e.pointerId === state.currentPointerId;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
-  if (!isTextToolGesture && palmCheck && !isPenLike) return;
+  if (!isTextToolGesture && !isLassoTouchGesture && palmCheck && !isPenLike) return;
   if (e.pointerId !== state.currentPointerId) return;
 
   if (isTextToolGesture) {
@@ -295,11 +304,17 @@ export function handlePointerUp(e, pageData) {
     state.isResizingSelection = false;
     state.resizeHandle = null; state.resizePivot = null;
     state.resizeAnchor = null; state.resizeOffset = null;
-    state.resizeCurrentAngle = 0; state.initialStrokesSnapshot = null;
+    state.resizeCurrentAngle = 0;
+    state.initialStrokesSnapshot = null;
+    state.initialTextBoxesSnapshot = null;
     state.selectionMoved = false;
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
     pageData.canvas.style.cursor = 'crosshair';
-    if (wasMoved) { pushHistory(); scheduleSave(); }
+    if (wasMoved) {
+      if (pageData?.pageId) markPageDirty(pageData.pageId);
+      pushHistory();
+      scheduleSave();
+    }
     resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
   }

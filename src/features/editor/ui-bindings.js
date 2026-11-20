@@ -32,6 +32,7 @@ import {
 import { toggleFingerWriting } from '../viewport/gestures.js';
 import {
   clearSelection, deleteSelectedStrokes,
+  copySelection, cutSelection, duplicateSelection,
   previewSelectionColor, changeSelectionColor,
   previewSelectionWidth, changeSelectionWidth
 } from '../tools/lazo.js';
@@ -127,6 +128,12 @@ export function bindEditorUI() {
   selWidth?.addEventListener('input', (e) => previewSelectionWidth(e.target.value));
   selWidth?.addEventListener('change', (e) => changeSelectionWidth(e.target.value));
 
+  document.getElementById('copySelectionBtn')
+    ?.addEventListener('click', () => copySelection());
+  document.getElementById('cutSelectionBtn')
+    ?.addEventListener('click', () => cutSelection());
+  document.getElementById('duplicateSelectionBtn')
+    ?.addEventListener('click', () => duplicateSelection());
   document.getElementById('deleteSelectionBtn')
     ?.addEventListener('click', deleteSelectedStrokes);
   document.getElementById('clearSelectionBtn')

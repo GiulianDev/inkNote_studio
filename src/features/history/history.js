@@ -331,6 +331,8 @@ function _applySnapshot(snap) {
 
   state.pendingShape = null;
   state.selectedStrokes = [];
+  state.selectedTextBoxes = [];
+  state.initialTextBoxesSnapshot = null;
   state.lassoPath = [];
   state.isDrawing = false;
   state.currentStroke = null;

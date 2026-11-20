@@ -23,6 +23,9 @@ export const DEFAULT_TOOLBAR_SETTINGS = {
   },
   eraserSize: 3,
   eraserMode: 'stroke',
+  lassoMode: 'freehand',
+  lassoSelectInk: true,
+  lassoSelectText: true,
   snapLines: true,
   snapShapes: true,
   snapCircles: true,
@@ -84,6 +87,9 @@ function _syncRuntime() {
   state.compactMode  = !!_current.compactMode;
   state.eraserSize   = _current.eraserSize;
   state.eraserMode   = _current.eraserMode;
+  state.lassoMode       = _current.lassoMode === 'rect' ? 'rect' : 'freehand';
+  state.lassoSelectInk  = _current.lassoSelectInk !== false;
+  state.lassoSelectText = _current.lassoSelectText !== false;
   state.snapLines      = !!_current.snapLines;
   state.snapCircles    = !!_current.snapCircles;
   state.snapRectangles = !!_current.snapRectangles;
@@ -174,9 +180,12 @@ function _normalize(raw) {
   }
   merged.snapShapes = !!(merged.snapCircles || merged.snapRectangles || merged.snapTriangles || merged.snapArrows);
 
-  merged.eraserSize   = Math.max(1, Math.min(5, merged.eraserSize || 3));
-  merged.eraserMode   = merged.eraserMode === 'point' ? 'point' : 'stroke';
-  merged.smoothing    = Math.max(0, Math.min(100, merged.smoothing ?? 50));
+  merged.eraserSize      = Math.max(1, Math.min(5, merged.eraserSize || 3));
+  merged.eraserMode      = merged.eraserMode === 'point' ? 'point' : 'stroke';
+  merged.lassoMode       = merged.lassoMode === 'rect' ? 'rect' : 'freehand';
+  merged.lassoSelectInk  = merged.lassoSelectInk !== false;
+  merged.lassoSelectText = merged.lassoSelectText !== false;
+  merged.smoothing       = Math.max(0, Math.min(100, merged.smoothing ?? 50));
   merged.recentColors = Array.isArray(merged.recentColors) ? merged.recentColors.slice() : [];
 
   merged.paperColor   = _normalizeHexOrNull(merged.paperColor);
@@ -234,8 +243,11 @@ export function getToolbarSettingsForSave() {
   return {
     tools:        JSON.parse(JSON.stringify(_current.tools)),
     text:         { ..._current.text },
-    eraserSize:   _current.eraserSize,
-    eraserMode:   _current.eraserMode,
+    eraserSize:     _current.eraserSize,
+    eraserMode:     _current.eraserMode,
+    lassoMode:      _current.lassoMode,
+    lassoSelectInk: _current.lassoSelectInk,
+    lassoSelectText:_current.lassoSelectText,
     snapLines:      _current.snapLines,
     snapShapes:     _current.snapShapes,
     snapCircles:    _current.snapCircles,
