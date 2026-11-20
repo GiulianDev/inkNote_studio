@@ -383,12 +383,52 @@ function _syncEditorAppearance(tb) {
   _syncTextareaAutoHeight();
 }
 
+function _snapshotTextBoxStyle(tb) {
+  return {
+    fontFamily: tb?.fontFamily || 'sans',
+    fontSize: tb?.fontSize || 18,
+    bold: !!tb?.bold,
+    italic: !!tb?.italic,
+    align: tb?.align || 'left',
+    color: tb?.color || '#000000'
+  };
+}
+
+function _hasTextBoxStyleChanged(tb, initialStyle) {
+  if (!tb || !initialStyle) return false;
+  const cur = _snapshotTextBoxStyle(tb);
+  return (
+    cur.fontFamily !== initialStyle.fontFamily ||
+    cur.fontSize !== initialStyle.fontSize ||
+    cur.bold !== initialStyle.bold ||
+    cur.italic !== initialStyle.italic ||
+    cur.align !== initialStyle.align ||
+    cur.color !== initialStyle.color
+  );
+}
+
+function _captureInitialEditState(tb) {
+  Object.defineProperty(tb, '_initialEditText', {
+    value: tb.text || '',
+    enumerable: false,
+    configurable: true,
+    writable: true
+  });
+  Object.defineProperty(tb, '_initialEditStyle', {
+    value: _snapshotTextBoxStyle(tb),
+    enumerable: false,
+    configurable: true,
+    writable: true
+  });
+}
+
 function _openEditorForBox(pageData, tb, { selectAll = false } = {}) {
   if (!pageData || !pageData.wrapper || !tb) return;
   if (!pageData.canvas) pagePool.forceAssign(pageData.index);
 
   _ensureEditorDOM();
   _hideSelectionMenu();
+  _captureInitialEditState(tb);
 
   state.selectedTextBoxId = tb.id;
   state.editingTextBoxId = tb.id;
@@ -475,10 +515,12 @@ export function commitActiveTextBox({ deselect = false } = {}) {
     return true;
   }
 
-  const changed = trimmed !== textBox._initialEditText || !!textBox._isNewDraft;
+  const styleChanged = _hasTextBoxStyleChanged(textBox, textBox._initialEditStyle);
+  const changed = trimmed !== (textBox._initialEditText ?? '') || styleChanged || !!textBox._isNewDraft;
   textBox.text = trimmed;
   delete textBox._isNewDraft;
   delete textBox._initialEditText;
+  delete textBox._initialEditStyle;
   textBox._layoutCache = null;
 
   const ctx = _measureCanvasCtx(pageData);
@@ -540,7 +582,6 @@ export function editSelectedTextBox() {
   }
   const found = _findBoxById(state.selectedTextBoxId);
   if (!found) return;
-  found.textBox._initialEditText = found.textBox.text;
   _openEditorForBox(found.pageData, found.textBox);
 }
 
@@ -611,7 +652,6 @@ export function createTextBoxAt(pageData, point) {
     color: style.color || '#000000'
   };
   Object.defineProperty(tb, '_isNewDraft', { value: true, enumerable: false, configurable: true, writable: true });
-  Object.defineProperty(tb, '_initialEditText', { value: '', enumerable: false, configurable: true, writable: true });
 
   pageData.textBoxes.push(tb);
   state.activePageIndex = pageData.index;
@@ -722,7 +762,6 @@ export function beginTextPointer(pageData, point) {
     if (isDoubleTap) {
       _interactionMode = null;
       state.isDrawing = false;
-      hitBox._initialEditText = hitBox.text;
       _openEditorForBox(pageData, hitBox);
       return;
     }
