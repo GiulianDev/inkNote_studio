@@ -15,7 +15,7 @@ import {
 } from '../../core/utils.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
 import { attachPointerListeners } from '../tools/dispatcher.js';
-import { pushHistory, resetHistory } from '../history/history.js';
+import { pushHistory, syncHistoryToPage, dropPageHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import {
   markPageDirty, markPageDeleted, markOrderDirty
@@ -88,7 +88,7 @@ export function addNewPage() {
 
   refreshPageCounter();
   scheduleSave({ markDirty: false, immediate: true });
-  resetHistory();
+  syncHistoryToPage();
   scheduleResolutionRefresh();
   invalidateClampCache();
 
@@ -238,7 +238,7 @@ export function updateActivePageFromViewport() {
     }
     state.activePageIndex = page.index;
     refreshPageCounter();
-    resetHistory();
+    syncHistoryToPage();
     pagePool.updateAround(state.activePageIndex);
     scheduleSave({ markDirty: false, silent: true });
 
@@ -365,7 +365,8 @@ export function deletePage(index) {
 
   refreshPageCounter();
   pagePool.updateAround(state.activePageIndex);
-  resetHistory();
+  dropPageHistory(page.pageId);
+  syncHistoryToPage();
   scheduleSave({ markDirty: false, immediate: true });
 
   const activePage = state.pages[state.activePageIndex];
@@ -412,7 +413,7 @@ export function movePage(from, to) {
   refreshPageCounter();
   pagePool.updateAround(state.activePageIndex);
   invalidateClampCache();
-  resetHistory();
+  syncHistoryToPage();
   scheduleSave({ markDirty: false, immediate: true });
 
   const activePage = state.pages[state.activePageIndex];
@@ -471,7 +472,7 @@ export function scrollToPage(index) {
 
   state.activePageIndex = index;
   refreshPageCounter();
-  if (pageChanged) resetHistory();
+  if (pageChanged) syncHistoryToPage();
   applyTransform(true);
   pagePool.updateAround(index);
   scheduleSave({ markDirty: false, silent: true });

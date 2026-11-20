@@ -19,7 +19,7 @@ import {
 import { updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
          beginEraserStroke, moveEraserStroke } from './eraser.js';
 import { clearPredictions } from '../render/prediction.js';
-import { flushHistory, pushHistory, resetHistory } from '../history/history.js';
+import { flushHistory, pushHistory, syncHistoryToPage } from '../history/history.js';
 import { refreshPageCounter, setDockDrawingHidden } from '../toolbar/toolbar.js';
 import { finalizePendingShape } from './shapes.js';
 import { resetScribbleState } from './scribble.js';
@@ -144,7 +144,7 @@ export function handlePointerDown(e, pageData) {
 
   if (isTextTool) {
     state.activePageIndex = pageData.index;
-    if (pageChanged) resetHistory();
+    if (pageChanged) syncHistoryToPage();
     state.currentPointerId = e.pointerId;
     state.currentPageForPointer = pageData;
     state._penEraserActive = false;
@@ -164,7 +164,7 @@ export function handlePointerDown(e, pageData) {
   try { pageData.wrapper.setPointerCapture(e.pointerId); } catch (err) {}
 
   state.activePageIndex = pageData.index;
-  if (pageChanged) resetHistory();
+  if (pageChanged) syncHistoryToPage();
   state.currentPointerId = e.pointerId;
   state.currentPageForPointer = pageData;
   state._penEraserActive = penEraser;
