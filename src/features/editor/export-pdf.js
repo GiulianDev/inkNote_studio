@@ -193,14 +193,19 @@ function _drawVectorPageBackground(pdfPage, options) {
   const lineHex = safeCustomPattern || (useDarkPalette ? '#334155' : '#E2E8F0');
   const dotHex  = safeCustomPattern || (useDarkPalette ? '#475569' : '#94A3B8');
 
+  const ruledMarginX = 44;
+  const ruledMaxY = PAGE_HEIGHT - 48;
+
   if (state.bgPattern === 'ruled') {
     const color = _rgbFromHex(lineHex, '#E2E8F0');
     const thickness = Math.max(0.5, 1 * sy);
-    for (let y = 60; y < PAGE_HEIGHT; y += 32) {
+    const startX = ruledMarginX * sx;
+    const endX = (PAGE_WIDTH - ruledMarginX) * sx;
+    for (let y = 60; y <= ruledMaxY; y += 32) {
       const py = PDF_HEIGHT - y * sy;
       pdfPage.drawLine({
-        start: { x: 0, y: py },
-        end: { x: PDF_WIDTH, y: py },
+        start: { x: startX, y: py },
+        end: { x: endX, y: py },
         thickness,
         color
       });
@@ -209,20 +214,28 @@ function _drawVectorPageBackground(pdfPage, options) {
     const color = _rgbFromHex(lineHex, '#E2E8F0');
     const thickX = Math.max(0.5, 1 * sx);
     const thickY = Math.max(0.5, 1 * sy);
-    for (let x = 0; x < PAGE_WIDTH; x += 25) {
+    const gridMinX = 50;
+    const gridMaxX = 750;
+    const gridMinY = 50;
+    const gridMaxY = 1075;
+    const pdfGridMinX = gridMinX * sx;
+    const pdfGridMaxX = gridMaxX * sx;
+    const pdfGridTopY = PDF_HEIGHT - gridMinY * sy;
+    const pdfGridBotY = PDF_HEIGHT - gridMaxY * sy;
+    for (let x = gridMinX; x <= gridMaxX; x += 25) {
       const px = x * sx;
       pdfPage.drawLine({
-        start: { x: px, y: 0 },
-        end: { x: px, y: PDF_HEIGHT },
+        start: { x: px, y: pdfGridBotY },
+        end: { x: px, y: pdfGridTopY },
         thickness: thickX,
         color
       });
     }
-    for (let y = 0; y < PAGE_HEIGHT; y += 25) {
+    for (let y = gridMinY; y <= gridMaxY; y += 25) {
       const py = PDF_HEIGHT - y * sy;
       pdfPage.drawLine({
-        start: { x: 0, y: py },
-        end: { x: PDF_WIDTH, y: py },
+        start: { x: pdfGridMinX, y: py },
+        end: { x: pdfGridMaxX, y: py },
         thickness: thickY,
         color
       });
@@ -230,9 +243,9 @@ function _drawVectorPageBackground(pdfPage, options) {
   } else if (state.bgPattern === 'dots') {
     const color = _rgbFromHex(dotHex, '#94A3B8');
     const r = 1.2 * sx;
-    for (let x = 20; x < PAGE_WIDTH; x += 20) {
+    for (let x = 40; x <= PAGE_WIDTH - 34; x += 20) {
       const px = x * sx;
-      for (let y = 20; y < PAGE_HEIGHT; y += 24) {
+      for (let y = 44; y <= PAGE_HEIGHT - 47; y += 24) {
         pdfPage.drawCircle({
           x: px,
           y: PDF_HEIGHT - y * sy,
