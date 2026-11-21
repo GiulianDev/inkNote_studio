@@ -468,7 +468,7 @@ function _bindCardInteractions(card, nb) {
 
   card.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.closest('.delete-nb-btn, .favorite-nb-btn')) return;
+    if (e.target.closest('.delete-nb-btn, .favorite-nb-btn, .dnd-drag-handle')) return;
 
     cancelPress();
     pressPointerId = e.pointerId;
@@ -507,7 +507,7 @@ function _bindCardInteractions(card, nb) {
   card.addEventListener('pointerleave', cancelPress);
 
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.delete-nb-btn, .favorite-nb-btn')) return;
+    if (e.target.closest('.delete-nb-btn, .favorite-nb-btn, .dnd-drag-handle')) return;
 
     if (_dndController?.isDragging() || _dndController?.wasRecentDrag()) {
       e.preventDefault();
@@ -555,6 +555,25 @@ function _buildFolderPreviewMap(folders, notebooks, folderMap) {
   return map;
 }
 
+const DRAG_HANDLE_SVG = `
+  <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/>
+    <circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/>
+    <circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/>
+  </svg>
+`;
+
+function _collectionGlyphSvg(className = 'w-6 h-6') {
+  return `
+    <svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M5 7V5a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v1"/>
+      <rect width="18" height="13" x="3" y="8" rx="2.5" fill="currentColor" fill-opacity="0.14"/>
+      <rect width="4" height="7" x="6.5" y="11" rx="1" fill="currentColor" fill-opacity="0.35" stroke="none"/>
+      <rect width="4" height="7" x="12" y="11" rx="1" fill="currentColor" fill-opacity="0.22" stroke="none"/>
+    </svg>
+  `;
+}
+
 function _renderFolderMiniGrid(preview, color) {
   const nbs = (preview?.notebooks || []).slice(0, 4);
   const subs = (preview?.subfolders || []).slice(0, Math.max(0, 4 - nbs.length));
@@ -562,10 +581,8 @@ function _renderFolderMiniGrid(preview, color) {
 
   if (totalSlots === 0) {
     return `
-      <div class="folder-empty-glyph" style="color: ${escapeHtml(color)}; background-color: ${escapeHtml(color)}16;">
-        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
-        </svg>
+      <div class="folder-empty-glyph" style="color: ${escapeHtml(color)}; background-color: ${escapeHtml(color)}18; border-color: ${escapeHtml(color)}30;">
+        ${_collectionGlyphSvg('w-7 h-7')}
       </div>
     `;
   }
@@ -582,9 +599,7 @@ function _renderFolderMiniGrid(preview, color) {
     const sfColor = sf.color || '#6366f1';
     slots.push(`
       <div class="folder-mini-sub" style="background-color: ${escapeHtml(sfColor)}22; color: ${escapeHtml(sfColor)}; border-color: ${escapeHtml(sfColor)}44;">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/>
-        </svg>
+        ${_collectionGlyphSvg('w-4 h-4')}
       </div>
     `);
   }
@@ -617,10 +632,11 @@ function _createFolderCardElement(folder, counts, folderMap, previewMap, showPar
 
   if (viewMode === 'list') {
     card.innerHTML = `
+      <button type="button" class="dnd-drag-handle is-list" title="Trascina raccolta" aria-label="Trascina raccolta">
+        ${DRAG_HANDLE_SVG}
+      </button>
       <div class="list-row-thumb is-folder" style="background-color: ${escapeHtml(color)}18; border-color: ${escapeHtml(color)}40; color: ${escapeHtml(color)};">
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/>
-        </svg>
+        ${_collectionGlyphSvg('w-4 h-4')}
       </div>
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 min-w-0">
@@ -634,7 +650,7 @@ function _createFolderCardElement(folder, counts, folderMap, previewMap, showPar
           <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
         </button>
         <button type="button" class="folder-action-btn" data-folder-action="move" title="Sposta raccolta" aria-label="Sposta raccolta">
-          <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 10 3 3-3 3"/></svg>
+          <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7V5a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v1"/><rect width="18" height="13" x="3" y="8" rx="2.5"/><path d="M8 14h8"/><path d="m13 11 3 3-3 3"/></svg>
         </button>
         <button type="button" class="folder-action-btn danger" data-folder-action="delete" title="Elimina raccolta" aria-label="Elimina raccolta">
           <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -643,19 +659,27 @@ function _createFolderCardElement(folder, counts, folderMap, previewMap, showPar
     `;
   } else {
     card.innerHTML = `
-      <div class="folder-cover" style="--folder-color: ${escapeHtml(color)}; border-color: ${escapeHtml(color)}38; background: linear-gradient(155deg, ${escapeHtml(color)}16 0%, ${escapeHtml(color)}08 100%);">
-        <div class="folder-pill-accent" style="background-color: ${escapeHtml(color)};"></div>
-        ${_renderFolderMiniGrid(preview, color)}
+      <div class="folder-shell">
+        <div class="folder-tab-ear" style="background-color: ${escapeHtml(color)}26; border-color: ${escapeHtml(color)}48;">
+          <span class="folder-tab-dot" style="background-color: ${escapeHtml(color)};"></span>
+        </div>
+        <div class="folder-cover" style="--folder-color: ${escapeHtml(color)}; border-color: ${escapeHtml(color)}42; background: linear-gradient(155deg, ${escapeHtml(color)}18 0%, ${escapeHtml(color)}08 100%);">
+          ${_renderFolderMiniGrid(preview, color)}
 
-        <div class="folder-actions">
-          <button type="button" class="folder-action-btn" data-folder-action="edit" title="Modifica raccolta" aria-label="Modifica raccolta">
-            <svg class="w-3 h-3 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-          </button>
-          <button type="button" class="folder-action-btn" data-folder-action="move" title="Sposta raccolta" aria-label="Sposta raccolta">
-            <svg class="w-3 h-3 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 10 3 3-3 3"/></svg>
-          </button>
-          <button type="button" class="folder-action-btn danger" data-folder-action="delete" title="Elimina raccolta" aria-label="Elimina raccolta">
-            <svg class="w-3 h-3 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          <div class="folder-actions">
+            <button type="button" class="folder-action-btn" data-folder-action="edit" title="Modifica raccolta" aria-label="Modifica raccolta">
+              <svg class="w-3 h-3 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+            </button>
+            <button type="button" class="folder-action-btn" data-folder-action="move" title="Sposta raccolta" aria-label="Sposta raccolta">
+              <svg class="w-3 h-3 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7V5a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v1"/><rect width="18" height="13" x="3" y="8" rx="2.5"/><path d="M8 14h8"/><path d="m13 11 3 3-3 3"/></svg>
+            </button>
+            <button type="button" class="folder-action-btn danger" data-folder-action="delete" title="Elimina raccolta" aria-label="Elimina raccolta">
+              <svg class="w-3 h-3 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+
+          <button type="button" class="dnd-drag-handle is-folder" title="Trascina raccolta" aria-label="Trascina raccolta">
+            ${DRAG_HANDLE_SVG}
           </button>
         </div>
       </div>
@@ -671,6 +695,11 @@ function _createFolderCardElement(folder, counts, folderMap, previewMap, showPar
   card.addEventListener('click', (e) => {
     if (_dndController?.isDragging() || _dndController?.wasRecentDrag()) {
       e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    if (e.target.closest('.dnd-drag-handle')) {
       e.stopPropagation();
       return;
     }
@@ -841,6 +870,9 @@ export function renderLibraryView() {
 
         if (viewMode === 'list') {
           card.innerHTML = `
+            <button type="button" class="dnd-drag-handle is-list" title="Trascina quaderno" aria-label="Trascina quaderno">
+              ${DRAG_HANDLE_SVG}
+            </button>
             <div class="selection-dot is-list" aria-hidden="true">
               <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M20 6 9 17l-5-5"/>
@@ -883,6 +915,10 @@ export function renderLibraryView() {
                   <path d="M20 6 9 17l-5-5"/>
                 </svg>
               </div>
+
+              <button type="button" class="dnd-drag-handle is-notebook" title="Trascina quaderno" aria-label="Trascina quaderno">
+                ${DRAG_HANDLE_SVG}
+              </button>
 
               <button type="button" class="favorite-nb-btn ${isFav ? 'is-favorite' : ''}" data-fav-id="${nb.id}"
                 title="${isFav ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti'}"
@@ -1061,8 +1097,9 @@ async function handleDeleteFolder(folder) {
 }
 
 async function handleMoveSelection() {
-  if (selectedNotebookIds.size === 0) return;
-  const count = selectedNotebookIds.size;
+  const ids = Array.from(selectedNotebookIds);
+  if (ids.length === 0) return;
+  const count = ids.length;
   const destId = await openMoveItemsModal({
     folders: _cachedFolders,
     initialTargetId: _currentFolderId,
@@ -1072,14 +1109,16 @@ async function handleMoveSelection() {
   if (destId === undefined) return;
 
   try {
-    const ids = Array.from(selectedNotebookIds);
     for (const id of ids) {
       await updateNotebookMetadataInDB(id, { folderId: destId });
     }
+    const destName = destId
+      ? (_cachedFolders.find(f => f.id === destId)?.name || 'Raccolta')
+      : 'Libreria';
     _exitSelectionMode();
     renderLibraryView();
     showToast(
-      count === 1 ? 'Quaderno spostato' : `${count} quaderni spostati`,
+      count === 1 ? `Quaderno spostato in "${destName}"` : `${count} quaderni spostati in "${destName}"`,
       '🗂️'
     );
   } catch (err) {
@@ -1667,6 +1706,7 @@ export function bindLibraryUI() {
 
   document.addEventListener('click', (e) => {
     if (!_selectionMode) return;
+    if (document.querySelector('.library-modal')) return;
     if (e.target.closest('.notebook-card')) return;
     if (e.target.closest('#librarySelectionBar')) return;
     if (e.target.closest('#librarySelectBtn')) return;

@@ -190,10 +190,9 @@ export function openMoveItemsModal({
             <polyline points="9 22 9 12 15 12 15 22"/>
           </svg>
           <span class="truncate flex-1">Libreria (principale)</span>
-          ${rootSelected ? '<span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span>' : ''}
+          <span data-row-check class="text-indigo-600 dark:text-indigo-400 font-bold ${rootSelected ? '' : 'hidden'}">✓</span>
         </button>
       `;
-
       const folderItems = flatTree.map(f => {
         const isSel = selectedId === f.id;
         const indentPx = 12 + Math.min(f.depth, 6) * 18;
@@ -205,15 +204,17 @@ export function openMoveItemsModal({
                 : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
             }"
             style="padding-left: ${indentPx}px; touch-action: manipulation;">
-            <svg class="w-4 h-4 shrink-0" style="color: ${escapeHtml(f.color || '#6366f1')};" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/>
+            <svg class="w-4 h-4 shrink-0" style="color: ${escapeHtml(f.color || '#6366f1')};" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 7V5a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v1"/>
+              <rect width="18" height="13" x="3" y="8" rx="2.5" fill="currentColor" fill-opacity="0.18"/>
+              <line x1="8" x2="16" y1="13" y2="13"/>
+              <line x1="8" x2="13" y1="16.5" y2="16.5"/>
             </svg>
             <span class="truncate flex-1">${escapeHtml(f.name)}</span>
-            ${isSel ? '<span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span>' : ''}
+            <span data-row-check class="text-indigo-600 dark:text-indigo-400 font-bold ${isSel ? '' : 'hidden'}">✓</span>
           </button>
         `;
       }).join('');
-
       return rootItem + folderItems;
     };
 
@@ -264,16 +265,38 @@ export function openMoveItemsModal({
     });
 
     const listEl = overlay.querySelector('#moveModalFolderList');
-    const bindRowClicks = () => {
-      listEl?.querySelectorAll('.move-dest-row').forEach(btn => {
-        btn.addEventListener('click', () => {
-          selectedId = btn.dataset.destId ? btn.dataset.destId : null;
-          listEl.innerHTML = renderListHtml();
-          bindRowClicks();
-        });
+    const activeClasses = ['bg-indigo-50', 'dark:bg-indigo-950/60', 'text-indigo-700', 'dark:text-indigo-300', 'font-semibold', 'ring-1', 'ring-indigo-500/40'];
+    const inactiveClasses = ['text-slate-700', 'dark:text-slate-200', 'hover:bg-slate-100', 'dark:hover:bg-slate-800'];
+
+    const syncSelectionUI = () => {
+      listEl?.querySelectorAll('.move-dest-row').forEach(row => {
+        const rowId = row.dataset.destId ? row.dataset.destId : null;
+        const isSel = rowId === selectedId;
+        row.classList.toggle('bg-indigo-50', isSel);
+        row.classList.toggle('dark:bg-indigo-950/60', isSel);
+        row.classList.toggle('text-indigo-700', isSel);
+        row.classList.toggle('dark:text-indigo-300', isSel);
+        row.classList.toggle('font-semibold', isSel || rowId === null);
+        row.classList.toggle('font-medium', !isSel && rowId !== null);
+        row.classList.toggle('ring-1', isSel);
+        row.classList.toggle('ring-indigo-500/40', isSel);
+        row.classList.toggle('text-slate-700', !isSel);
+        row.classList.toggle('dark:text-slate-200', !isSel);
+        row.classList.toggle('hover:bg-slate-100', !isSel);
+        row.classList.toggle('dark:hover:bg-slate-800', !isSel);
+        const chk = row.querySelector('[data-row-check]');
+        if (chk) chk.classList.toggle('hidden', !isSel);
       });
     };
-    bindRowClicks();
+    void activeClasses;
+    void inactiveClasses;
+
+    listEl?.querySelectorAll('.move-dest-row').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedId = btn.dataset.destId ? btn.dataset.destId : null;
+        syncSelectionUI();
+      });
+    });
 
     overlay.querySelector('[data-modal-cancel]')?.addEventListener('click', () => cleanup(undefined));
     overlay.querySelector('[data-modal-confirm]')?.addEventListener('click', () => cleanup(selectedId));

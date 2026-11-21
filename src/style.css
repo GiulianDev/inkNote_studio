@@ -800,12 +800,43 @@ body.dark .library-view-btn.active {
   transform: translateY(-1px) scale(0.98);
 }
 
-.folder-cover {
+.folder-shell {
   position: relative;
   width: 100%;
   aspect-ratio: 3 / 4;
-  border-radius: 15px;
-  border: 1px solid rgba(99, 102, 241, 0.22);
+  display: flex;
+  flex-direction: column;
+}
+
+.folder-tab-ear {
+  position: relative;
+  width: 44%;
+  height: 11px;
+  border-radius: 9px 9px 0 0;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-bottom: none;
+  margin-bottom: -1px;
+  padding: 0 7px;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+  transition: transform .2s ease;
+}
+
+.folder-tab-dot {
+  width: 14px;
+  height: 3px;
+  border-radius: 9999px;
+  opacity: 0.92;
+}
+
+.folder-cover {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border-radius: 0 15px 15px 15px;
+  border: 1px solid rgba(99, 102, 241, 0.24);
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -838,20 +869,11 @@ body.dark .folder-card:hover .folder-cover {
     inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
-.folder-pill-accent {
-  position: absolute;
-  top: 7px;
-  left: 10px;
-  width: 24px;
-  height: 4px;
-  border-radius: 9999px;
-  opacity: 0.9;
-}
-
 .folder-empty-glyph {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+  width: 54px;
+  height: 54px;
+  border-radius: 15px;
+  border: 1px solid transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -859,8 +881,7 @@ body.dark .folder-card:hover .folder-cover {
 
 .folder-mini-grid {
   width: 100%;
-  height: 78%;
-  margin-top: 8px;
+  height: 82%;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(2, 1fr);
@@ -884,7 +905,7 @@ body.dark .folder-card:hover .folder-cover {
 }
 
 .folder-mini-sub {
-  border-radius: 6px;
+  border-radius: 7px;
   border: 1px solid transparent;
   display: flex;
   align-items: center;
@@ -917,10 +938,11 @@ body.dark .folder-mini-placeholder {
   opacity: 1;
 }
 
-@media (hover: none) {
+@media (hover: none), (pointer: coarse) {
   .folder-actions,
   .favorite-nb-btn,
-  .delete-nb-btn {
+  .delete-nb-btn,
+  .dnd-drag-handle {
     opacity: 0.88;
   }
 }
@@ -1136,6 +1158,110 @@ body.dark .favorite-nb-btn.is-list.is-favorite {
   background: #6366f1;
 }
 
+/* --- Maniglia di trascinamento D&D (touch-action: none obbligatorio per touch/penna) --- */
+#libraryView .dnd-drag-handle,
+#libraryView .dnd-drag-handle * {
+  touch-action: none !important;
+}
+
+.dnd-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  transition: opacity .15s ease, background-color .15s ease, color .15s ease, transform .1s ease;
+  z-index: 11;
+}
+
+.dnd-drag-handle:active {
+  cursor: grabbing;
+  transform: scale(0.92);
+}
+
+.dnd-drag-handle.is-notebook {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  opacity: 0;
+}
+
+.dnd-drag-handle.is-notebook:hover {
+  background: rgba(15, 23, 42, 0.56);
+  color: #ffffff;
+}
+
+.notebook-card:hover .dnd-drag-handle.is-notebook,
+.notebook-card:focus-within .dnd-drag-handle.is-notebook {
+  opacity: 1;
+}
+
+.notebook-card.selection-mode .dnd-drag-handle {
+  display: none !important;
+}
+
+.dnd-drag-handle.is-folder {
+  position: absolute;
+  bottom: 7px;
+  right: 7px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #475569;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  opacity: 0;
+}
+
+body.dark .dnd-drag-handle.is-folder {
+  background: rgba(15, 23, 42, 0.86);
+  color: #cbd5e1;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.dnd-drag-handle.is-folder:hover {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+body.dark .dnd-drag-handle.is-folder:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.folder-card:hover .dnd-drag-handle.is-folder,
+.folder-card:focus-within .dnd-drag-handle.is-folder {
+  opacity: 1;
+}
+
+.dnd-drag-handle.is-list {
+  position: static;
+  width: 22px;
+  height: 28px;
+  border-radius: 6px;
+  color: #94a3b8;
+  background: transparent;
+  flex-shrink: 0;
+  opacity: 0.78;
+}
+
+.dnd-drag-handle.is-list:hover {
+  color: #475569;
+  background: rgba(15, 23, 42, 0.06);
+}
+
+body.dark .dnd-drag-handle.is-list:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* --- Drag & Drop Libreria (Android-style merge + collection drop) --- */
 body.library-dnd-active {
   cursor: grabbing !important;
@@ -1157,12 +1283,13 @@ body.library-dnd-active * {
   transform: scale(0.94) !important;
 }
 
-.drop-target-collection .folder-cover,
+.drop-target-collection .folder-shell,
 .folder-card.is-list-item.drop-target-collection {
   outline: 2.5px solid #4f46e5;
-  outline-offset: 2px;
+  outline-offset: 3px;
+  border-radius: 15px;
   transform: scale(1.04);
-  box-shadow: 0 12px 28px -6px rgba(79, 70, 229, 0.32);
+  filter: drop-shadow(0 12px 24px rgba(79, 70, 229, 0.28));
 }
 
 .drop-target-merge .notebook-cover,
@@ -1227,8 +1354,11 @@ body.dark .library-dnd-ghost-card {
 
 .library-dnd-ghost-icon.is-folder {
   width: 20px;
-  height: 18px;
+  height: 20px;
   border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .library-dnd-ghost-title {

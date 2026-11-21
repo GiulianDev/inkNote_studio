@@ -1,28 +1,30 @@
 // ============================================================
 // LIBRERIA — DRAG & DROP UNIFICATO (Mouse, Touch, Surface Pen)
 // Supporta:
+//  - Trascinamento immediato dalla maniglia (.dnd-drag-handle, touch-action: none)
+//    su mouse, touch e Surface Pen senza interferire con scroll o long-press
+//  - Trascinamento diretto dal corpo card su mouse e gesto orizzontale su pen/touch
 //  - Quaderno -> Raccolta (sposta nella raccolta)
 //  - Quaderno -> Quaderno (crea automaticamente una Raccolta, stile Android)
 //  - Raccolta -> Raccolta (annida come sottoraccolta, anti-ciclo)
 //  - Card -> Breadcrumb superiore (porta al livello genitore)
 // ============================================================
 
-const MOUSE_DRAG_THRESHOLD_PX = 7;
-const TOUCH_ARM_DELAY_MS = 230;
-const TOUCH_SCROLL_CANCEL_PX = 9;
-const TOUCH_DRAG_MOVE_PX = 5;
+const HANDLE_DRAG_THRESHOLD_PX = 4;
+const MOUSE_DRAG_THRESHOLD_PX = 6;
+const PEN_DRAG_THRESHOLD_PX = 7;
+const TOUCH_HORIZ_DRAG_PX = 12;
 const EDGE_SCROLL_ZONE_PX = 72;
 const EDGE_SCROLL_SPEED_PX = 10;
 
 export function createLibraryDndController(gridEl, callbacks) {
   let _pointerId = null;
   let _pointerType = 'mouse';
+  let _fromHandle = false;
   let _startX = 0;
   let _startY = 0;
   let _lastX = 0;
   let _lastY = 0;
-  let _armTimer = null;
-  let _armed = false;
   let _dragging = false;
   let _draggedEl = null;
   let _dragged = null; // { type: 'notebook'|'folder', id: string, title: string, color: string }
@@ -31,13 +33,6 @@ export function createLibraryDndController(gridEl, callbacks) {
   let _currentDropTarget = null; // { kind: 'collection'|'merge'|'breadcrumb', id: string|null, el: Element, label: string }
   let _scrollRaf = null;
   let _lastDragEndAt = 0;
-
-  function _clearArmTimer() {
-    if (_armTimer !== null) {
-      clearTimeout(_armTimer);
-      _armTimer = null;
-    }
-  }
 
   function _stopAutoScroll() {
     if (_scrollRaf !== null) {
@@ -67,10 +62,19 @@ export function createLibraryDndController(gridEl, callbacks) {
     ghost.setAttribute('aria-hidden', 'true');
 
     const swatch = document.createElement('div');
-    swatch.className = dragged.type === 'folder'
-      ? 'library-dnd-ghost-icon is-folder'
-      : 'library-dnd-ghost-icon';
-    swatch.style.backgroundColor = dragged.color || '#4f46e5';
+    if (dragged.type === 'folder') {
+      swatch.className = 'library-dnd-ghost-icon is-folder';
+      swatch.style.color = dragged.color || '#6366f1';
+      swatch.innerHTML = `
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 7V5a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v1"/>
+          <rect width="18" height="13" x="3" y="8" rx="2.5" fill="currentColor" fill-opacity="0.2"/>
+        </svg>
+      `;
+    } else {
+      swatch.className = 'library-dnd-ghost-icon';
+      swatch.style.backgroundColor = dragged.color || '#4f46e5';
+    }
 
     const title = document.createElement('span');
     title.className = 'library-dnd-ghost-title';
@@ -86,7 +90,7 @@ export function createLibraryDndController(gridEl, callbacks) {
 
     ghost.appendChild(row);
     ghost.appendChild(badge);
-    ghost.style.transform = `translate3d(${Math.round(x + 12)}px, ${Math.round(y + 12)}px, 0)`;
+    ghost.style.transform = `translate3d(${Math.round(x + 14)}px, ${Math.round(y + 14)}px, 0)`;
 
     document.body.appendChild(ghost);
     _ghostEl = ghost;
@@ -95,7 +99,7 @@ export function createLibraryDndController(gridEl, callbacks) {
 
   function _updateGhostPosition(x, y) {
     if (!_ghostEl) return;
-    _ghostEl.style.transform = `translate3d(${Math.round(x + 12)}px, ${Math.round(y + 12)}px, 0)`;
+    _ghostEl.style.transform = `translate3d(${Math.round(x + 14)}px, ${Math.round(y + 14)}px, 0)`;
   }
 
   function _resolveDropTarget(x, y) {
@@ -192,22 +196,29 @@ export function createLibraryDndController(gridEl, callbacks) {
   function _beginDrag(x, y) {
     if (_dragging || !_draggedEl || !_dragged) return;
     _dragging = true;
-    _armed = false;
-    _draggedEl.classList.remove('dnd-armed');
     _draggedEl.classList.add('is-dragging');
     document.body.classList.add('library-dnd-active');
+    try {
+      if (_pointerId !== null && _draggedEl.setPointerCapture) {
+        _draggedEl.setPointerCapture(_pointerId);
+      }
+    } catch {}
     _createGhost(_dragged, x, y);
     _updateDropTarget(x, y);
-    callbacks.onDragStateChange?.(true);
+    callbacks.onDragStart?.(_dragged);
   }
 
   function _reset(cancelled = false) {
-    _clearArmTimer();
     _stopAutoScroll();
     _clearDropHighlight();
 
     if (_draggedEl) {
       _draggedEl.classList.remove('dnd-armed', 'is-dragging');
+      try {
+        if (_pointerId !== null && _draggedEl.hasPointerCapture?.(_pointerId)) {
+          _draggedEl.releasePointerCapture(_pointerId);
+        }
+      } catch {}
     }
     if (_ghostEl) {
       _ghostEl.remove();
@@ -218,11 +229,10 @@ export function createLibraryDndController(gridEl, callbacks) {
     if (_dragging) {
       _lastDragEndAt = performance.now();
       document.body.classList.remove('library-dnd-active');
-      callbacks.onDragStateChange?.(false);
     }
 
     _pointerId = null;
-    _armed = false;
+    _fromHandle = false;
     _dragging = false;
     _draggedEl = null;
     _dragged = null;
@@ -232,6 +242,7 @@ export function createLibraryDndController(gridEl, callbacks) {
     window.removeEventListener('pointercancel', _onPointerCancel, true);
     window.removeEventListener('keydown', _onKeyDown, true);
     window.removeEventListener('blur', _onBlur, true);
+    window.removeEventListener('contextmenu', _onContextMenu, true);
     window.removeEventListener('touchmove', _onTouchMove, { capture: true });
 
     if (cancelled) {
@@ -240,13 +251,20 @@ export function createLibraryDndController(gridEl, callbacks) {
   }
 
   function _onTouchMove(e) {
-    if (_armed || _dragging) {
+    if (_dragging || _fromHandle) {
       e.preventDefault();
     }
   }
 
+  function _onContextMenu(e) {
+    if (_dragging || _fromHandle) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+
   function _onKeyDown(e) {
-    if (e.key === 'Escape' && (_armed || _dragging)) {
+    if (e.key === 'Escape' && _dragging) {
       e.preventDefault();
       e.stopPropagation();
       _reset(true);
@@ -261,23 +279,37 @@ export function createLibraryDndController(gridEl, callbacks) {
     if (e.pointerId !== _pointerId) return;
     _lastX = e.clientX;
     _lastY = e.clientY;
-    const dist = Math.hypot(e.clientX - _startX, e.clientY - _startY);
+    const dx = e.clientX - _startX;
+    const dy = e.clientY - _startY;
+    const dist = Math.hypot(dx, dy);
 
     if (!_dragging) {
+      if (_fromHandle) {
+        if (dist >= HANDLE_DRAG_THRESHOLD_PX) {
+          _beginDrag(e.clientX, e.clientY);
+        }
+        return;
+      }
+
       if (_pointerType === 'mouse') {
         if (dist >= MOUSE_DRAG_THRESHOLD_PX) {
           _beginDrag(e.clientX, e.clientY);
         }
-      } else {
-        if (!_armed) {
-          if (dist > TOUCH_SCROLL_CANCEL_PX) {
-            _reset(false);
-          }
-          return;
-        }
-        if (dist >= TOUCH_DRAG_MOVE_PX) {
+        return;
+      }
+
+      if (_pointerType === 'pen') {
+        if (dist >= PEN_DRAG_THRESHOLD_PX) {
           _beginDrag(e.clientX, e.clientY);
         }
+        return;
+      }
+
+      // Touch sul corpo card: lascia scorrere in verticale; avvia D&D se trascina di lato
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+        _reset(false);
+      } else if (Math.abs(dx) >= TOUCH_HORIZ_DRAG_PX && Math.abs(dx) > Math.abs(dy) * 1.35) {
+        _beginDrag(e.clientX, e.clientY);
       }
       return;
     }
@@ -307,11 +339,12 @@ export function createLibraryDndController(gridEl, callbacks) {
 
   function _onPointerCancel(e) {
     if (e.pointerId !== _pointerId) return;
-    _reset(true);
+    // Se si era già iniziato a trascinare dalla maniglia, ignora pointercancel spuri
+    if (_dragging) return;
+    _reset(false);
   }
 
   function _onPointerDown(e) {
-    if (_pointerId !== null) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (!callbacks.isEnabled?.() || callbacks.isSelectionMode?.()) return;
     if (e.target.closest('.delete-nb-btn, .favorite-nb-btn, .folder-action-btn, .selection-dot')) return;
@@ -319,36 +352,36 @@ export function createLibraryDndController(gridEl, callbacks) {
     const card = e.target.closest('.notebook-card[data-nb-id], .folder-card[data-folder-id]');
     if (!card || !gridEl.contains(card)) return;
 
+    if (_pointerId !== null) {
+      if (_dragging) return;
+      _reset(false);
+    }
+
     const info = callbacks.getItemInfo?.(card);
     if (!info) return;
 
     _pointerId = e.pointerId;
     _pointerType = e.pointerType || 'mouse';
+    _fromHandle = !!e.target.closest('.dnd-drag-handle');
     _startX = e.clientX;
     _startY = e.clientY;
     _lastX = e.clientX;
     _lastY = e.clientY;
-    _armed = false;
     _dragging = false;
     _draggedEl = card;
     _dragged = info;
+
+    if (_fromHandle) {
+      try { card.setPointerCapture?.(e.pointerId); } catch {}
+    }
 
     window.addEventListener('pointermove', _onPointerMove, true);
     window.addEventListener('pointerup', _onPointerUp, true);
     window.addEventListener('pointercancel', _onPointerCancel, true);
     window.addEventListener('keydown', _onKeyDown, true);
     window.addEventListener('blur', _onBlur, true);
+    window.addEventListener('contextmenu', _onContextMenu, true);
     window.addEventListener('touchmove', _onTouchMove, { capture: true, passive: false });
-
-    if (_pointerType !== 'mouse') {
-      _armTimer = setTimeout(() => {
-        _armTimer = null;
-        if (_pointerId !== e.pointerId || _dragging || !_draggedEl) return;
-        _armed = true;
-        _draggedEl.classList.add('dnd-armed');
-        if (navigator.vibrate) { try { navigator.vibrate(10); } catch {} }
-      }, TOUCH_ARM_DELAY_MS);
-    }
   }
 
   gridEl.addEventListener('pointerdown', _onPointerDown);
