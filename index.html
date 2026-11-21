@@ -206,13 +206,18 @@
                 </button>
 
                 <div class="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden">
-                    <select id="librarySortSelect" aria-label="Ordina libreria per"
-                        class="bg-transparent text-xs font-semibold text-slate-700 dark:text-slate-200 pl-3 pr-2 py-2 outline-none cursor-pointer">
-                        <option value="updatedAt">Ultima modifica</option>
-                        <option value="createdAt">Data creazione</option>
-                        <option value="title">Nome</option>
-                        <option value="pageCount">N° pagine</option>
-                    </select>
+                    <div class="relative flex items-center">
+                        <select id="librarySortSelect" aria-label="Ordina libreria per"
+                            class="appearance-none bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 pl-3 pr-8 py-2 outline-none cursor-pointer">
+                            <option value="updatedAt">Ultima modifica</option>
+                            <option value="createdAt">Data creazione</option>
+                            <option value="title">Nome</option>
+                            <option value="pageCount">N° pagine</option>
+                        </select>
+                        <svg class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="m6 9 6 6 6-6"/>
+                        </svg>
+                    </div>
                     <button id="librarySortDirBtn" type="button"
                         class="px-2.5 py-2 border-l border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-center"
                         title="Cambia ordine crescente/decrescente" aria-label="Inverti ordinamento">
