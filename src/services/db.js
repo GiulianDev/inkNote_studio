@@ -6,7 +6,7 @@
 import { generatePageId } from '../core/utils.js';
 
 const DB_NAME = 'InkNoteStudioDB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 export const CURRENT_NOTEBOOK_FORMAT = 4;
 
 let db = null;
@@ -62,6 +62,11 @@ export function initDB() {
       const hadPageOrders = database.objectStoreNames.contains('pageOrders');
       if (!hadPageOrders) {
         database.createObjectStore('pageOrders', { keyPath: 'notebookId' });
+      }
+
+      if (!database.objectStoreNames.contains('folders')) {
+        const folderStore = database.createObjectStore('folders', { keyPath: 'id' });
+        folderStore.createIndex('parentId', 'parentId');
       }
 
       const hasPages = database.objectStoreNames.contains('pages');
@@ -271,6 +276,8 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
       title: notebook.title,
       coverColor: notebook.coverColor,
       pattern: notebook.pattern || 'ruled',
+      folderId: (typeof notebook.folderId === 'string' && notebook.folderId) ? notebook.folderId : null,
+      isFavorite: !!notebook.isFavorite,
       createdAt: notebook.createdAt || now,
       updatedAt: notebook.updatedAt,
       lastEditAt: notebook.lastEditAt,
@@ -491,6 +498,116 @@ export function deleteNotebookFromDB(id) {
       pagesStore.delete(cursor.primaryKey);
       cursor.continue();
     };
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function updateNotebookMetadataInDB(id, patch = {}, opts = {}) {
+  return new Promise((resolve, reject) => {
+    if (!db || !id) return resolve(null);
+    const tx = db.transaction('notebooks', 'readwrite');
+    const store = tx.objectStore('notebooks');
+    const req = store.get(id);
+    let updated = null;
+
+    req.onsuccess = () => {
+      const existing = req.result;
+      if (!existing) return;
+      updated = { ...existing };
+      if ('title' in patch) updated.title = String(patch.title || '').trim() || existing.title;
+      if ('coverColor' in patch && patch.coverColor) updated.coverColor = patch.coverColor;
+      if ('folderId' in patch) {
+        updated.folderId = (typeof patch.folderId === 'string' && patch.folderId) ? patch.folderId : null;
+      }
+      if ('isFavorite' in patch) updated.isFavorite = !!patch.isFavorite;
+      if (opts.touchUpdatedAt) {
+        updated.updatedAt = new Date().toISOString();
+      }
+      store.put(updated);
+    };
+
+    tx.oncomplete = () => resolve(updated);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function loadAllFoldersFromDB() {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains('folders')) return resolve([]);
+    const tx = db.transaction('folders', 'readonly');
+    const req = tx.objectStore('folders').getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export function saveFolderToDB(folder) {
+  return new Promise((resolve, reject) => {
+    if (!db || !folder || !folder.id) return resolve(null);
+    const now = new Date().toISOString();
+    const record = {
+      id: folder.id,
+      name: String(folder.name || 'Nuova Cartella').trim() || 'Nuova Cartella',
+      parentId: (typeof folder.parentId === 'string' && folder.parentId && folder.parentId !== folder.id)
+        ? folder.parentId
+        : null,
+      color: folder.color || '#6366f1',
+      createdAt: folder.createdAt || now,
+      updatedAt: now
+    };
+    const tx = db.transaction('folders', 'readwrite');
+    tx.objectStore('folders').put(record);
+    tx.oncomplete = () => resolve(record);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteFolderFromDB(folderId) {
+  return new Promise((resolve, reject) => {
+    if (!db || !folderId) return resolve();
+    const tx = db.transaction(['folders', 'notebooks'], 'readwrite');
+    const folderStore = tx.objectStore('folders');
+    const nbStore = tx.objectStore('notebooks');
+
+    const folderReq = folderStore.get(folderId);
+    const allFoldersReq = folderStore.getAll();
+    const allNbsReq = nbStore.getAll();
+
+    let targetFolder = null;
+    let allFolders = null;
+    let allNbs = null;
+    let pending = 3;
+
+    const applyChanges = () => {
+      pending--;
+      if (pending > 0) return;
+
+      const fallbackParentId = (targetFolder && typeof targetFolder.parentId === 'string' && targetFolder.parentId !== folderId)
+        ? targetFolder.parentId
+        : null;
+
+      for (const f of (allFolders || [])) {
+        if (!f || f.id === folderId) continue;
+        if ((f.parentId || null) === folderId) {
+          folderStore.put({ ...f, parentId: fallbackParentId, updatedAt: new Date().toISOString() });
+        }
+      }
+
+      for (const nb of (allNbs || [])) {
+        if (!nb) continue;
+        if ((nb.folderId || null) === folderId) {
+          nbStore.put({ ...nb, folderId: fallbackParentId });
+        }
+      }
+
+      folderStore.delete(folderId);
+    };
+
+    folderReq.onsuccess = () => { targetFolder = folderReq.result || null; applyChanges(); };
+    allFoldersReq.onsuccess = () => { allFolders = allFoldersReq.result || []; applyChanges(); };
+    allNbsReq.onsuccess = () => { allNbs = allNbsReq.result || []; applyChanges(); };
 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);

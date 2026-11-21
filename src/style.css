@@ -390,12 +390,26 @@ body.dark #undoRedoContainer.undo-redo-dragging {
   touch-action: pan-y;
 }
 
-/* --- Card container --- */
+#libraryView input,
+#libraryView select,
+#newNotebookModal input,
+#newNotebookModal select,
+.library-modal input,
+.library-modal select {
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: manipulation;
+}
+
+/* --- Card container (Quaderno) --- */
 .notebook-card {
   position: relative;
   cursor: pointer;
-  transition: transform .18s ease, filter .18s ease;
-  border-radius: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition: transform .18s ease, opacity .15s ease;
+  border-radius: 14px;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
@@ -403,108 +417,150 @@ body.dark #undoRedoContainer.undo-redo-dragging {
 }
 
 .notebook-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-3px);
 }
 
 .notebook-card:active {
-  transform: translateY(-2px) scale(0.98);
+  transform: translateY(-1px) scale(0.98);
 }
 
-/* In selection mode niente hover lift (non vogliamo "salti") */
 .notebook-card.selection-mode:hover {
   transform: none;
 }
 
-/* --- Cover --- */
+/* --- Cover compatta stile editoriale/GoodNotes --- */
 .notebook-cover {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 5;
-  border-radius: 1rem;
+  aspect-ratio: 3 / 4;
+  border-radius: 5px 13px 13px 5px;
   overflow: hidden;
   box-shadow:
-    0 4px 12px -2px rgba(15, 23, 42, 0.15),
-    0 2px 4px -2px rgba(15, 23, 42, 0.10);
+    0 4px 12px -2px rgba(15, 23, 42, 0.16),
+    0 1px 3px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
   transition: box-shadow .2s ease, transform .2s ease;
 }
 
 body.dark .notebook-cover {
   box-shadow:
-    0 6px 18px -4px rgba(0, 0, 0, 0.5),
-    0 2px 4px -2px rgba(0, 0, 0, 0.3);
+    0 6px 16px -3px rgba(0, 0, 0, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .notebook-card:hover .notebook-cover {
   box-shadow:
-    0 12px 28px -6px rgba(15, 23, 42, 0.25),
-    0 4px 8px -4px rgba(15, 23, 42, 0.15);
+    0 10px 24px -5px rgba(15, 23, 42, 0.24),
+    0 4px 8px -3px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 body.dark .notebook-card:hover .notebook-cover {
   box-shadow:
-    0 14px 32px -6px rgba(0, 0, 0, 0.65),
-    0 4px 8px -4px rgba(0, 0, 0, 0.45);
+    0 12px 26px -5px rgba(0, 0, 0, 0.7),
+    0 4px 8px -3px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-/* Dorso (spine) — gradiente verticale sottile invece di bordo netto */
+/* Dorso (spine) */
 .notebook-spine {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 9px;
   background: linear-gradient(
     to right,
-    rgba(0, 0, 0, 0.28) 0%,
-    rgba(0, 0, 0, 0.12) 40%,
-    rgba(255, 255, 255, 0.08) 100%
+    rgba(0, 0, 0, 0.30) 0%,
+    rgba(0, 0, 0, 0.12) 55%,
+    rgba(255, 255, 255, 0.14) 100%
   );
   pointer-events: none;
 }
 
-/* Contenuto interno della cover */
-.notebook-cover-content {
+/* Sottile bordo fogli a destra */
+.notebook-paper-edge {
   position: absolute;
-  inset: 0;
-  padding: 10px 10px 12px 18px; /* padding-left per il dorso */
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  color: #fff;
+  right: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
+  background: linear-gradient(
+    to left,
+    rgba(255, 255, 255, 0.34),
+    rgba(255, 255, 255, 0.08)
+  );
   pointer-events: none;
 }
 
-/* Badge pagine in alto a destra */
-.notebook-badge {
-  align-self: flex-end;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 9999px;
-  background: rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  font-size: 10px;
-  font-weight: 600;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+/* Etichetta centrale minimalista sulla copertina */
+.notebook-cover-label {
+  position: absolute;
+  left: 20%;
+  right: 15%;
+  top: 28%;
+  height: 18%;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  pointer-events: none;
 }
 
-/* Titolo + data in basso */
-.notebook-cover-footer {
+.notebook-cover-label::before,
+.notebook-cover-label::after {
+  content: '';
+  position: absolute;
+  left: 14%;
+  height: 2px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.notebook-cover-label::before {
+  top: 34%;
+  right: 18%;
+}
+
+.notebook-cover-label::after {
+  top: 60%;
+  right: 36%;
+  opacity: 0.72;
+}
+
+/* Badge pagine discreto in basso a destra sulla copertina */
+.notebook-badge {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+/* Metadati puliti sotto la copertina / raccolta */
+.card-meta-below {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  padding: 0 2px;
   min-width: 0;
 }
 
 .notebook-title {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 600;
   line-height: 1.25;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  color: #0f172a;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -512,73 +568,112 @@ body.dark .notebook-card:hover .notebook-cover {
   word-break: break-word;
 }
 
-.notebook-date {
-  font-size: 10px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.85);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+body.dark .notebook-title {
+  color: #f1f5f9;
 }
 
-/* --- Pulsante elimina (hover, nascosto in selection mode) --- */
+.notebook-date {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+body.dark .notebook-date {
+  color: #94a3b8;
+}
+
+.card-path-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #4f46e5;
+  margin-bottom: 1px;
+}
+
+body.dark .card-path-tag {
+  color: #818cf8;
+}
+
+/* --- Pulsanti Stella & Elimina sulle cover --- */
+.favorite-nb-btn,
 .delete-nb-btn {
   position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.35);
+  top: 7px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.35);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity .15s ease, background .15s ease, transform .12s ease;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: opacity .15s ease, background .15s ease, transform .12s ease, color .15s ease;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   z-index: 10;
   cursor: pointer;
 }
 
-.notebook-card:hover .delete-nb-btn {
+.favorite-nb-btn {
+  left: 13px;
+}
+
+.delete-nb-btn {
+  left: 41px;
+}
+
+.notebook-card:hover .favorite-nb-btn,
+.notebook-card:hover .delete-nb-btn,
+.favorite-nb-btn.is-favorite {
   opacity: 1;
 }
 
+.favorite-nb-btn.is-favorite {
+  background: rgba(245, 158, 11, 0.94);
+  border-color: rgba(254, 243, 199, 0.55);
+  color: #ffffff;
+}
+
+.favorite-nb-btn:hover {
+  background: rgba(245, 158, 11, 0.96);
+  color: #ffffff;
+}
+
 .delete-nb-btn:hover {
-  background: rgba(225, 29, 72, 0.85);
+  background: rgba(225, 29, 72, 0.9);
   color: #fff;
 }
 
+.favorite-nb-btn:active,
 .delete-nb-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.9);
 }
 
+.notebook-card.selection-mode .favorite-nb-btn,
 .notebook-card.selection-mode .delete-nb-btn {
   display: none !important;
 }
 
-/* --- Pallino di selezione (Apple-like) --- */
-
+/* --- Pallino di selezione --- */
 .selection-dot {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 22px;
-  height: 22px;
+  top: 7px;
+  right: 7px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.30);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  border: 2px solid rgba(255, 255, 255, 0.9);
+  border: 2px solid rgba(255, 255, 255, 0.92);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   z-index: 20;
   pointer-events: none;
-
-  /* Nascosto di default */
   opacity: 0;
   transform: scale(0.6);
   transition: opacity .18s ease, transform .18s ease, background .15s ease;
@@ -590,7 +685,7 @@ body.dark .notebook-card:hover .notebook-cover {
 }
 
 .selection-dot.active {
-  background: #6366f1; /* indigo-500 */
+  background: #6366f1;
   border-color: #6366f1;
 }
 
@@ -605,24 +700,17 @@ body.dark .notebook-card:hover .notebook-cover {
   transform: scale(1);
 }
 
-/* Card selezionata: ring colorato + cover in scala */
 .notebook-card.is-selected .notebook-cover {
   outline: 2.5px solid #6366f1;
   outline-offset: 2px;
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 
 body.dark .notebook-card.is-selected .notebook-cover {
   outline-color: #818cf8;
 }
 
-.notebook-card.is-selected .notebook-cover-content {
-  /* Leggera sfumatura scura per enfatizzare la selezione */
-  background: linear-gradient(to bottom, transparent 60%, rgba(0, 0, 0, 0.15) 100%);
-}
-
-/* --- Barra selezione: piccola animazione di comparsa --- */
-
+/* --- Barra selezione --- */
 #librarySelectionBar {
   animation: selBarIn .18s ease-out;
 }
@@ -630,6 +718,540 @@ body.dark .notebook-card.is-selected .notebook-cover {
 @keyframes selBarIn {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Nasconde la X nativa del browser su type="search" per evitare doppio bottone */
+#librarySearchInput::-webkit-search-cancel-button,
+#librarySearchInput::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* --- Toggle Filtro Preferiti attivo --- */
+#libraryFavFilterBtn.active {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+  color: #b45309;
+}
+
+#libraryFavFilterBtn.active .fav-filter-star {
+  fill: #f59e0b;
+  stroke: #d97706;
+}
+
+body.dark #libraryFavFilterBtn.active {
+  background-color: rgba(245, 158, 11, 0.20);
+  border-color: rgba(251, 191, 36, 0.55);
+  color: #fcd34d;
+}
+
+body.dark #libraryFavFilterBtn.active .fav-filter-star {
+  fill: #fbbf24;
+  stroke: #fbbf24;
+}
+
+/* --- Toggle Vista Griglia / Lista --- */
+.library-view-btn {
+  color: #64748b;
+  cursor: pointer;
+}
+
+.library-view-btn:hover {
+  color: #0f172a;
+}
+
+.library-view-btn.active {
+  background-color: #eef2ff;
+  color: #4f46e5;
+}
+
+body.dark .library-view-btn {
+  color: #94a3b8;
+}
+
+body.dark .library-view-btn:hover {
+  color: #f8fafc;
+}
+
+body.dark .library-view-btn.active {
+  background-color: rgba(99, 102, 241, 0.24);
+  color: #a5b4fc;
+}
+
+/* --- Card Raccolta (stile iPadOS / Android Launcher 2x2) --- */
+.folder-card {
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition: transform .18s ease, opacity .15s ease;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+}
+
+.folder-card:hover {
+  transform: translateY(-3px);
+}
+
+.folder-card:active {
+  transform: translateY(-1px) scale(0.98);
+}
+
+.folder-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 15px;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    0 3px 10px -2px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+}
+
+body.dark .folder-cover {
+  box-shadow:
+    0 5px 14px -3px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.folder-card:hover .folder-cover {
+  box-shadow:
+    0 10px 22px -5px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+body.dark .folder-card:hover .folder-cover {
+  box-shadow:
+    0 12px 24px -5px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.folder-pill-accent {
+  position: absolute;
+  top: 7px;
+  left: 10px;
+  width: 24px;
+  height: 4px;
+  border-radius: 9999px;
+  opacity: 0.9;
+}
+
+.folder-empty-glyph {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-mini-grid {
+  width: 100%;
+  height: 78%;
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.folder-mini-nb {
+  position: relative;
+  border-radius: 3px 6px 6px 3px;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.16);
+}
+
+.folder-mini-nb-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.folder-mini-sub {
+  border-radius: 6px;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-mini-placeholder {
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+body.dark .folder-mini-placeholder {
+  background: rgba(148, 163, 184, 0.10);
+}
+
+.folder-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 10;
+}
+
+.folder-card:hover .folder-actions,
+.folder-card:focus-within .folder-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .folder-actions,
+  .favorite-nb-btn,
+  .delete-nb-btn {
+    opacity: 0.88;
+  }
+}
+
+.folder-action-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #475569;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color .12s, color .12s, transform .1s;
+}
+
+body.dark .folder-action-btn {
+  background: rgba(15, 23, 42, 0.88);
+  color: #cbd5e1;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.folder-action-btn:hover {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+body.dark .folder-action-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.folder-action-btn.danger:hover {
+  background: #e11d48;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.folder-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #0f172a;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+body.dark .folder-name {
+  color: #f1f5f9;
+}
+
+.folder-meta {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+body.dark .folder-meta {
+  color: #94a3b8;
+}
+
+/* --- Vista Lista Compatta --- */
+.notebook-card.is-list-item,
+.folder-card.is-list-item {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+body.dark .notebook-card.is-list-item,
+body.dark .folder-card.is-list-item {
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+.notebook-card.is-list-item:hover,
+.folder-card.is-list-item:hover {
+  transform: none;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+body.dark .notebook-card.is-list-item:hover,
+body.dark .folder-card.is-list-item:hover {
+  border-color: #334155;
+  background: #1e293b;
+}
+
+.notebook-card.is-list-item.is-selected {
+  outline: 2px solid #6366f1;
+  outline-offset: -1px;
+}
+
+.list-row-thumb {
+  position: relative;
+  width: 28px;
+  height: 36px;
+  border-radius: 3px 6px 6px 3px;
+  flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.16);
+}
+
+.list-row-thumb.is-folder {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.list-row-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.list-path-pill {
+  font-size: 10px;
+  font-weight: 600;
+  color: #4f46e5;
+  background: #eef2ff;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  max-width: 180px;
+}
+
+body.dark .list-path-pill {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.list-row-actions,
+.folder-actions.is-list {
+  position: static;
+  opacity: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.favorite-nb-btn.is-list,
+.delete-nb-btn.is-list {
+  position: static;
+  opacity: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  backdrop-filter: none;
+}
+
+body.dark .favorite-nb-btn.is-list,
+body.dark .delete-nb-btn.is-list {
+  background: #1e293b;
+  color: #94a3b8;
+  border-color: #334155;
+}
+
+.favorite-nb-btn.is-list.is-favorite {
+  background: #fef3c7;
+  color: #d97706;
+  border-color: #fbbf24;
+}
+
+body.dark .favorite-nb-btn.is-list.is-favorite {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.delete-nb-btn.is-list:hover {
+  background: #e11d48;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.selection-dot.is-list {
+  position: static;
+  display: none;
+  flex-shrink: 0;
+  border-color: #94a3b8;
+  background: transparent;
+}
+
+.notebook-card.is-list-item.selection-mode .selection-dot.is-list {
+  display: flex;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.notebook-card.is-list-item.selection-mode .selection-dot.is-list.active {
+  border-color: #6366f1;
+  background: #6366f1;
+}
+
+/* --- Drag & Drop Libreria (Android-style merge + collection drop) --- */
+body.library-dnd-active {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+body.library-dnd-active * {
+  cursor: grabbing !important;
+}
+
+.dnd-armed {
+  transform: scale(1.04) !important;
+  filter: drop-shadow(0 8px 18px rgba(79, 70, 229, 0.25));
+}
+
+.is-dragging {
+  opacity: 0.32 !important;
+  transform: scale(0.94) !important;
+}
+
+.drop-target-collection .folder-cover,
+.folder-card.is-list-item.drop-target-collection {
+  outline: 2.5px solid #4f46e5;
+  outline-offset: 2px;
+  transform: scale(1.04);
+  box-shadow: 0 12px 28px -6px rgba(79, 70, 229, 0.32);
+}
+
+.drop-target-merge .notebook-cover,
+.notebook-card.is-list-item.drop-target-merge {
+  outline: 3px dashed #4f46e5;
+  outline-offset: 4px;
+  transform: scale(1.05);
+  box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.16);
+}
+
+body.dark .drop-target-merge .notebook-cover,
+body.dark .notebook-card.is-list-item.drop-target-merge {
+  outline-color: #818cf8;
+  box-shadow: 0 0 0 8px rgba(129, 140, 248, 0.20);
+}
+
+.drop-target-breadcrumb {
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+  transform: scale(1.05);
+}
+
+.library-dnd-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 200;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  will-change: transform;
+}
+
+.library-dnd-ghost-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 14px 32px -6px rgba(15, 23, 42, 0.28);
+  max-width: 210px;
+  transform: rotate(1.5deg);
+}
+
+body.dark .library-dnd-ghost-card {
+  background: rgba(15, 23, 42, 0.96);
+  border-color: #334155;
+  box-shadow: 0 14px 32px -6px rgba(0, 0, 0, 0.72);
+}
+
+.library-dnd-ghost-icon {
+  width: 18px;
+  height: 22px;
+  border-radius: 2px 5px 5px 2px;
+  flex-shrink: 0;
+}
+
+.library-dnd-ghost-icon.is-folder {
+  width: 20px;
+  height: 18px;
+  border-radius: 5px;
+}
+
+.library-dnd-ghost-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.dark .library-dnd-ghost-title {
+  color: #f8fafc;
+}
+
+.library-dnd-ghost-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: #4f46e5;
+  padding: 2px 9px;
+  border-radius: 9999px;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
 }
 
 /* ============================================================

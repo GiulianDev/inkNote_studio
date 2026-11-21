@@ -42,6 +42,7 @@ export async function serializeBackup(notebooks, onProgress) {
       title: nb.title || '',
       coverColor: nb.coverColor || '#4f46e5',
       pattern: nb.pattern || 'ruled',
+      isFavorite: !!nb.isFavorite,
       createdAt: nb.createdAt || new Date().toISOString(),
       updatedAt: nb.updatedAt || new Date().toISOString(),
       lastEditAt: nb.lastEditAt || nb.updatedAt || new Date().toISOString(),

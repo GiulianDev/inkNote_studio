@@ -30,25 +30,43 @@
         </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap justify-end">
         <button id="newNotebookBtn"
-            class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
+            class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-3 sm:px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14"/><path d="M12 5v14"/>
             </svg>
-            Nuovo Quaderno
+            <span>Nuovo Quaderno</span>
+        </button>
+        <button id="newFolderBtn"
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 sm:px-3.5 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2"
+            title="Nuova Raccolta" aria-label="Nuova Raccolta">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 10v6"/><path d="M9 13h6"/>
+            <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+            </svg>
+            <span class="hidden md:inline">Nuova Raccolta</span>
+        </button>
+        <button id="librarySelectBtn"
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 sm:px-3.5 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2"
+            title="Seleziona quaderni" aria-label="Seleziona quaderni">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            <span class="hidden lg:inline">Seleziona</span>
         </button>
         <button id="importBackupBtn"
-            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-4 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2">
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 sm:px-4 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2"
+            title="Importa backup">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" x2="12" y1="15" y2="3"/>
             </svg>
-            Importa
+            <span class="hidden sm:inline">Importa</span>
         </button>
 
-        <div class="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
+        <div class="hidden sm:block w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
 
         <button id="openSettingsBtnLib"
             class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 w-10 h-10 rounded-xl transition active:scale-95 flex items-center justify-center"
@@ -112,6 +130,15 @@
             </svg>
             <span class="hidden sm:inline">Tutto</span>
         </button>
+        <button id="selectionMoveBtn"
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-2.5 sm:px-3 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+            title="Sposta nella raccolta">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/>
+            <path d="M2 13h10"/><path d="m9 10 3 3-3 3"/>
+            </svg>
+            <span class="hidden sm:inline">Sposta</span>
+        </button>
         <button id="selectionDuplicateBtn"
             class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-2.5 sm:px-3 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
             title="Duplica selezionati">
@@ -143,12 +170,84 @@
         </div>
     </div>
 
+    <!-- BARRA CONTROLLI LIBRERIA: breadcrumb + cerca + preferiti + ordinamento + vista -->
+    <div id="libraryControlsBar" class="max-w-6xl w-full mx-auto mb-5 flex flex-col gap-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <nav id="libraryBreadcrumbs" aria-label="Percorso raccolte" class="flex items-center flex-wrap gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300"></nav>
+            <span id="libraryItemsSummary" class="text-[11px] font-medium text-slate-500 dark:text-slate-400"></span>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <!-- Ricerca -->
+            <div class="relative flex-1 min-w-[200px] sm:max-w-sm">
+                <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                </svg>
+                <input id="librarySearchInput" type="search" placeholder="Cerca quaderni o raccolte..."
+                    aria-label="Cerca quaderni o raccolte"
+                    class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl pl-9 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 transition">
+                <button id="librarySearchClearBtn" type="button" title="Cancella ricerca" aria-label="Cancella ricerca"
+                    class="hidden absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Filtro preferiti + ordinamento + vista Griglia/Lista -->
+            <div class="flex items-center gap-2 flex-wrap">
+                <button id="libraryFavFilterBtn" type="button"
+                    class="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 py-2 rounded-xl transition flex items-center gap-1.5"
+                    title="Mostra solo i quaderni preferiti">
+                    <svg class="w-3.5 h-3.5 fav-filter-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                    </svg>
+                    <span>Preferiti</span>
+                </button>
+
+                <div class="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden">
+                    <select id="librarySortSelect" aria-label="Ordina libreria per"
+                        class="bg-transparent text-xs font-semibold text-slate-700 dark:text-slate-200 pl-3 pr-2 py-2 outline-none cursor-pointer">
+                        <option value="updatedAt">Ultima modifica</option>
+                        <option value="createdAt">Data creazione</option>
+                        <option value="title">Nome</option>
+                        <option value="pageCount">N° pagine</option>
+                    </select>
+                    <button id="librarySortDirBtn" type="button"
+                        class="px-2.5 py-2 border-l border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-center"
+                        title="Cambia ordine crescente/decrescente" aria-label="Inverti ordinamento">
+                        <svg id="librarySortDirIcon" class="w-3.5 h-3.5 transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="m6 9 6 6 6-6"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-0.5" role="group" aria-label="Modalità vista">
+                    <button id="libraryViewGridBtn" type="button"
+                        class="library-view-btn active px-2 py-1.5 rounded-lg transition flex items-center justify-center"
+                        title="Vista Griglia" aria-label="Vista Griglia">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/>
+                            <rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>
+                        </svg>
+                    </button>
+                    <button id="libraryViewListBtn" type="button"
+                        class="library-view-btn px-2 py-1.5 rounded-lg transition flex items-center justify-center"
+                        title="Vista Lista" aria-label="Vista Lista">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/>
+                            <line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="max-w-6xl w-full mx-auto flex-1">
-        <div id="notebooksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5"></div>
+        <div id="notebooksGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4"></div>
         <div id="emptyLibraryMessage" class="hidden flex-col items-center justify-center py-20 text-center text-slate-400">
-        <span class="text-5xl mb-3">📓</span>
-        <p class="font-semibold text-base text-slate-600 dark:text-slate-300">Nessun quaderno presente</p>
-        <p class="text-xs text-slate-500 mt-1">Clicca su "Nuovo Quaderno" per iniziare a prendere appunti.</p>
+        <span id="emptyLibraryIcon" class="text-5xl mb-3">📓</span>
+        <p id="emptyLibraryTitle" class="font-semibold text-base text-slate-600 dark:text-slate-300">Nessun quaderno presente</p>
+        <p id="emptyLibrarySubtitle" class="text-xs text-slate-500 mt-1">Clicca su "Nuovo Quaderno" per iniziare a prendere appunti.</p>
         </div>
     </div>
     </div>
@@ -185,6 +284,12 @@
                             <option value="grid">A Quadretti</option>
                             <option value="dots">Puntinato (Dot Grid)</option>
                             <option value="blank">Bianco Pulito</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="modalNbFolder" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Raccolta</label>
+                        <select id="modalNbFolder" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
+                            <option value="">Libreria (principale)</option>
                         </select>
                     </div>
                 </div>

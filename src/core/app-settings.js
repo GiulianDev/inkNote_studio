@@ -47,7 +47,13 @@ export const DEFAULT_SETTINGS = {
 
   // Personalizzazione mainbar (gestita da toolbar.js, non da UI)
   mainMenuOrder:  ['writing', 'text', 'selection', 'shapes', 'eraser', 'page'],
-  mainMenuHidden: []   // max 3 (min 3 visibili)
+  mainMenuHidden: [],  // max 3 (min 3 visibili)
+
+  // Preferenze libreria (ordinamento, filtro preferiti & vista)
+  librarySortBy: 'updatedAt', // 'updatedAt' | 'createdAt' | 'title' | 'pageCount'
+  librarySortDir: 'desc',     // 'asc' | 'desc'
+  libraryOnlyFavorites: false,
+  libraryViewMode: 'grid'     // 'grid' | 'list'
 };
 
 /** @type {typeof DEFAULT_SETTINGS|null} */
@@ -94,6 +100,12 @@ function _normalizeSettings(raw) {
   };
 
   out.autoHideDock = !!out.autoHideDock;
+
+  const validSorts = ['updatedAt', 'createdAt', 'title', 'pageCount'];
+  if (!validSorts.includes(out.librarySortBy)) out.librarySortBy = 'updatedAt';
+  out.librarySortDir = out.librarySortDir === 'asc' ? 'asc' : 'desc';
+  out.libraryOnlyFavorites = !!out.libraryOnlyFavorites;
+  out.libraryViewMode = out.libraryViewMode === 'list' ? 'list' : 'grid';
 
   return out;
 }
