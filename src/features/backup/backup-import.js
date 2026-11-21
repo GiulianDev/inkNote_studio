@@ -5,12 +5,52 @@
  */
 
 import { deserializeBackup, peekBackup } from './backup-format.js';
-import { loadAllNotebooksFromDB, saveNotebookToDB } from '../../services/db.js';
+import {
+  loadAllNotebooksFromDB,
+  saveNotebookToDB,
+  loadAllFoldersFromDB,
+  saveFolderToDB
+} from '../../services/db.js';
 import { showToast } from '../../core/utils.js';
+
+async function _resolveImportedFolderId(nb, folderById, folderByParentName) {
+  if (Array.isArray(nb.folderPath) && nb.folderPath.length > 0) {
+    let parentId = null;
+    for (const node of nb.folderPath) {
+      if (!node || typeof node !== 'object') continue;
+      const name = String(node.name || 'Raccolta').trim() || 'Raccolta';
+      const color = node.color || '#6366f1';
+      const key = `${parentId || ''}::${name.toLowerCase()}`;
+
+      let target = (node.id && folderById.has(node.id))
+        ? folderById.get(node.id)
+        : folderByParentName.get(key);
+
+      if (!target) {
+        const newId = (node.id && !folderById.has(node.id))
+          ? node.id
+          : `fld_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        target = await saveFolderToDB({ id: newId, name, parentId, color });
+        if (target) {
+          folderById.set(target.id, target);
+          folderByParentName.set(key, target);
+        }
+      }
+      if (target) parentId = target.id;
+    }
+    return parentId;
+  }
+
+  if (typeof nb.folderId === 'string' && nb.folderId && folderById.has(nb.folderId)) {
+    return nb.folderId;
+  }
+  return null;
+}
 
 export async function importNotebooks(file, onProgress) {
   const preview = await peekBackup(file);
-  if (!preview || preview.length === 0) {
+  const previewFolders = Array.isArray(preview?.folders) ? preview.folders : [];
+  if ((!preview || preview.length === 0) && previewFolders.length === 0) {
     showToast('File di backup vuoto', '⚠️');
     return null;
   }
@@ -19,7 +59,7 @@ export async function importNotebooks(file, onProgress) {
   const localById = new Map(local.map(n => [n.id, n]));
 
   const conflicts = [];
-  preview.forEach((p, idx) => {
+  (preview || []).forEach((p, idx) => {
     if (localById.has(p.meta.id)) {
       conflicts.push({
         previewIndex: idx,
@@ -36,10 +76,12 @@ export async function importNotebooks(file, onProgress) {
     strategy = result.strategy;
   }
 
-  const { notebooks } = await deserializeBackup(file, onProgress);
+  const { notebooks, folders: backupFolders = [] } = await deserializeBackup(file, onProgress);
 
   const existingNames = new Set(local.map(n => (n.title || '').toLowerCase()));
   const imported = [];
+  const baseTs = Date.now();
+  let renameSeq = 0;
 
   for (const nb of notebooks) {
     const localNb = localById.get(nb.id);
@@ -66,13 +108,78 @@ export async function importNotebooks(file, onProgress) {
       newName = `${baseName} (${n})`;
     }
     nb.title = newName;
-    nb.id = 'nb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    nb.id = `nb_${baseTs}_${renameSeq++}_${Math.random().toString(36).slice(2, 8)}`;
     existingNames.add(newName.toLowerCase());
     imported.push({ nb, replaceAllPages: false });
   }
 
+  const existingFolders = await loadAllFoldersFromDB();
+  const folderById = new Map(existingFolders.filter(f => f && f.id).map(f => [f.id, f]));
+  const folderByParentName = new Map(
+    existingFolders
+      .filter(f => f && f.id)
+      .map(f => [`${f.parentId || ''}::${(f.name || '').trim().toLowerCase()}`, f])
+  );
+
+  // Ripristina le raccolte presenti nel trailer FLDR (es. anche sottoraccolte vuote)
+  // a meno che l'utente abbia saltato tutti i quaderni in conflitto.
+  const exportedIdToLocalId = new Map();
+  let createdFoldersCount = 0;
+  const shouldRestoreFolders = backupFolders.length > 0 && (notebooks.length === 0 || imported.length > 0);
+
+  if (shouldRestoreFolders) {
+    for (const expFld of backupFolders) {
+      if (!expFld || !expFld.id) continue;
+      const name = String(expFld.name || 'Raccolta').trim() || 'Raccolta';
+      const color = expFld.color || '#6366f1';
+
+      let resolvedParentId = null;
+      if (expFld.parentId) {
+        if (exportedIdToLocalId.has(expFld.parentId)) {
+          resolvedParentId = exportedIdToLocalId.get(expFld.parentId);
+        } else if (folderById.has(expFld.parentId)) {
+          resolvedParentId = expFld.parentId;
+        }
+      }
+
+      const key = `${resolvedParentId || ''}::${name.toLowerCase()}`;
+      let target = folderById.has(expFld.id)
+        ? folderById.get(expFld.id)
+        : folderByParentName.get(key);
+
+      if (!target) {
+        const newId = !folderById.has(expFld.id)
+          ? expFld.id
+          : `fld_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        target = await saveFolderToDB({
+          id: newId,
+          name,
+          parentId: resolvedParentId,
+          color,
+          createdAt: expFld.createdAt || undefined
+        });
+        if (target) {
+          folderById.set(target.id, target);
+          folderByParentName.set(key, target);
+          createdFoldersCount++;
+        }
+      }
+
+      if (target) {
+        exportedIdToLocalId.set(expFld.id, target.id);
+      }
+    }
+  }
+
   for (const item of imported) {
     const { nb, replaceAllPages } = item;
+    if (typeof nb.folderId === 'string' && exportedIdToLocalId.has(nb.folderId)) {
+      nb.folderId = exportedIdToLocalId.get(nb.folderId);
+    } else {
+      nb.folderId = await _resolveImportedFolderId(nb, folderById, folderByParentName);
+    }
+    delete nb.folderPath;
+
     const dirtyPageIds = nb.pages.map(p => p.pageId).filter(Boolean);
     await saveNotebookToDB(nb, dirtyPageIds, {
       preserveLastEditAt: true,
@@ -81,12 +188,23 @@ export async function importNotebooks(file, onProgress) {
     });
   }
 
-  if (imported.length === 0) {
-    showToast('Nessun notebook importato', 'ℹ️');
+  if (imported.length === 0 && createdFoldersCount === 0) {
+    showToast('Nessun elemento importato', 'ℹ️');
+  } else if (imported.length > 0 && createdFoldersCount > 0) {
+    showToast(
+      `Importati ${imported.length} quadern${imported.length === 1 ? 'o' : 'i'} e ${createdFoldersCount} raccolt${createdFoldersCount === 1 ? 'a' : 'e'}`,
+      '📥'
+    );
+  } else if (createdFoldersCount > 0) {
+    showToast(
+      `Importat${createdFoldersCount === 1 ? 'a' : 'e'} ${createdFoldersCount} raccolt${createdFoldersCount === 1 ? 'a' : 'e'}`,
+      '📥'
+    );
   } else {
-    showToast(`Importati ${imported.length} notebook`, '📥');
+    showToast(`Importati ${imported.length} quadern${imported.length === 1 ? 'o' : 'i'}`, '📥');
   }
-  return imported.map(item => item.nb);
+
+  return { notebooks: imported.map(item => item.nb), createdFoldersCount };
 }
 
 // ============================================================

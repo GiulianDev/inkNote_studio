@@ -564,52 +564,140 @@ export function saveFolderToDB(folder) {
   });
 }
 
-export function deleteFolderFromDB(folderId) {
+export function deleteLibraryItemsFromDB({
+  folderIds = [],
+  notebookIds = [],
+  deleteFolderContents = true
+} = {}) {
   return new Promise((resolve, reject) => {
-    if (!db || !folderId) return resolve();
-    const tx = db.transaction(['folders', 'notebooks'], 'readwrite');
-    const folderStore = tx.objectStore('folders');
-    const nbStore = tx.objectStore('notebooks');
+    if (!db) return resolve({ deletedFolderIds: [], deletedNotebookIds: [] });
 
-    const folderReq = folderStore.get(folderId);
-    const allFoldersReq = folderStore.getAll();
+    const stores = ['notebooks', 'pageOrders', 'pages'];
+    const hasFoldersStore = db.objectStoreNames.contains('folders');
+    if (hasFoldersStore) stores.push('folders');
+
+    const tx = db.transaction(stores, 'readwrite');
+    const folderStore = hasFoldersStore ? tx.objectStore('folders') : null;
+    const nbStore = tx.objectStore('notebooks');
+    const pageOrdersStore = tx.objectStore('pageOrders');
+    const pagesStore = tx.objectStore('pages');
+
+    const explicitFolderIds = new Set((folderIds || []).filter(Boolean));
+    const explicitNbIds = new Set((notebookIds || []).filter(Boolean));
+
+    const allFoldersReq = folderStore ? folderStore.getAll() : null;
     const allNbsReq = nbStore.getAll();
 
-    let targetFolder = null;
-    let allFolders = null;
+    let allFolders = allFoldersReq ? null : [];
     let allNbs = null;
-    let pending = 3;
+    let deletedFolderIds = [];
+    let deletedNotebookIds = [];
 
-    const applyChanges = () => {
-      pending--;
-      if (pending > 0) return;
+    const tryApply = () => {
+      if (allFolders === null || allNbs === null) return;
 
-      const fallbackParentId = (targetFolder && typeof targetFolder.parentId === 'string' && targetFolder.parentId !== folderId)
-        ? targetFolder.parentId
-        : null;
+      const folderMap = new Map(allFolders.filter(f => f && f.id).map(f => [f.id, f]));
+      const foldersToDelete = new Set();
 
-      for (const f of (allFolders || [])) {
-        if (!f || f.id === folderId) continue;
-        if ((f.parentId || null) === folderId) {
-          folderStore.put({ ...f, parentId: fallbackParentId, updatedAt: new Date().toISOString() });
+      if (deleteFolderContents) {
+        const queue = [];
+        for (const fid of explicitFolderIds) {
+          if (folderMap.has(fid) && !foldersToDelete.has(fid)) {
+            foldersToDelete.add(fid);
+            queue.push(fid);
+          }
+        }
+        while (queue.length > 0) {
+          const cur = queue.shift();
+          for (const f of allFolders) {
+            if (f && (f.parentId || null) === cur && !foldersToDelete.has(f.id)) {
+              foldersToDelete.add(f.id);
+              queue.push(f.id);
+            }
+          }
+        }
+      } else {
+        for (const fid of explicitFolderIds) {
+          if (folderMap.has(fid)) foldersToDelete.add(fid);
         }
       }
 
-      for (const nb of (allNbs || [])) {
-        if (!nb) continue;
-        if ((nb.folderId || null) === folderId) {
-          nbStore.put({ ...nb, folderId: fallbackParentId });
+      const resolveSurvivingParent = (startParentId) => {
+        const visited = new Set();
+        let cur = startParentId || null;
+        while (cur && !visited.has(cur)) {
+          visited.add(cur);
+          if (!foldersToDelete.has(cur)) return folderMap.has(cur) ? cur : null;
+          const f = folderMap.get(cur);
+          cur = f ? (f.parentId || null) : null;
+        }
+        return null;
+      };
+
+      const nbsToDelete = new Set(explicitNbIds);
+      if (deleteFolderContents) {
+        for (const nb of allNbs) {
+          if (nb && nb.folderId && foldersToDelete.has(nb.folderId)) {
+            nbsToDelete.add(nb.id);
+          }
         }
       }
 
-      folderStore.delete(folderId);
+      if (!deleteFolderContents) {
+        const now = new Date().toISOString();
+        for (const f of allFolders) {
+          if (!f || foldersToDelete.has(f.id)) continue;
+          if (f.parentId && foldersToDelete.has(f.parentId)) {
+            folderStore.put({
+              ...f,
+              parentId: resolveSurvivingParent(f.parentId),
+              updatedAt: now
+            });
+          }
+        }
+        for (const nb of allNbs) {
+          if (!nb || nbsToDelete.has(nb.id)) continue;
+          if (nb.folderId && foldersToDelete.has(nb.folderId)) {
+            nbStore.put({
+              ...nb,
+              folderId: resolveSurvivingParent(nb.folderId)
+            });
+          }
+        }
+      }
+
+      for (const fid of foldersToDelete) {
+        folderStore?.delete(fid);
+      }
+
+      for (const nbId of nbsToDelete) {
+        nbStore.delete(nbId);
+        pageOrdersStore.delete(nbId);
+        pagesStore.index('notebookId').openKeyCursor(IDBKeyRange.only(nbId)).onsuccess = (ev) => {
+          const cursor = ev.target.result;
+          if (!cursor) return;
+          pagesStore.delete(cursor.primaryKey);
+          cursor.continue();
+        };
+      }
+
+      deletedFolderIds = Array.from(foldersToDelete);
+      deletedNotebookIds = Array.from(nbsToDelete);
     };
 
-    folderReq.onsuccess = () => { targetFolder = folderReq.result || null; applyChanges(); };
-    allFoldersReq.onsuccess = () => { allFolders = allFoldersReq.result || []; applyChanges(); };
-    allNbsReq.onsuccess = () => { allNbs = allNbsReq.result || []; applyChanges(); };
+    if (allFoldersReq) {
+      allFoldersReq.onsuccess = () => { allFolders = allFoldersReq.result || []; tryApply(); };
+    }
+    allNbsReq.onsuccess = () => { allNbs = allNbsReq.result || []; tryApply(); };
 
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => resolve({ deletedFolderIds, deletedNotebookIds });
     tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteFolderFromDB(folderId, { deleteContents = false } = {}) {
+  return deleteLibraryItemsFromDB({
+    folderIds: folderId ? [folderId] : [],
+    deleteFolderContents: deleteContents
   });
 }

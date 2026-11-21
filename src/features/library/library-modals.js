@@ -265,8 +265,6 @@ export function openMoveItemsModal({
     });
 
     const listEl = overlay.querySelector('#moveModalFolderList');
-    const activeClasses = ['bg-indigo-50', 'dark:bg-indigo-950/60', 'text-indigo-700', 'dark:text-indigo-300', 'font-semibold', 'ring-1', 'ring-indigo-500/40'];
-    const inactiveClasses = ['text-slate-700', 'dark:text-slate-200', 'hover:bg-slate-100', 'dark:hover:bg-slate-800'];
 
     const syncSelectionUI = () => {
       listEl?.querySelectorAll('.move-dest-row').forEach(row => {
@@ -288,8 +286,6 @@ export function openMoveItemsModal({
         if (chk) chk.classList.toggle('hidden', !isSel);
       });
     };
-    void activeClasses;
-    void inactiveClasses;
 
     listEl?.querySelectorAll('.move-dest-row').forEach(btn => {
       btn.addEventListener('click', () => {

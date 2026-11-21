@@ -227,6 +227,7 @@ export function createLibraryDndController(gridEl, callbacks) {
   }
 
   function _reset(cancelled = false) {
+    const wasActive = _dragging || _armed;
     _clearArmTimer();
     _stopAutoScroll();
     _clearDropHighlight();
@@ -266,7 +267,7 @@ export function createLibraryDndController(gridEl, callbacks) {
     window.removeEventListener('contextmenu', _onContextMenu, true);
     window.removeEventListener('touchmove', _onTouchMove, { capture: true });
 
-    if (cancelled) {
+    if (cancelled && wasActive) {
       _lastDragEndAt = performance.now();
     }
   }
