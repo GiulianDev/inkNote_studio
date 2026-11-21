@@ -575,40 +575,35 @@ function _collectionGlyphSvg(className = 'w-6 h-6') {
   `;
 }
 
-function _renderFolderMiniGrid(preview, color) {
-  const nbs = (preview?.notebooks || []).slice(0, 4);
-  const subs = (preview?.subfolders || []).slice(0, Math.max(0, 4 - nbs.length));
-  const totalSlots = nbs.length + subs.length;
+function _renderFolderMiniGrid(preview) {
+  const nbs = (preview?.notebooks || []).slice(0, 3);
+  const subs = (preview?.subfolders || []).slice(0, Math.max(0, 3 - nbs.length));
+  const items = [
+    ...nbs.map((nb) => ({ kind: 'nb', item: nb })),
+    ...subs.map((sf) => ({ kind: 'sub', item: sf }))
+  ].slice(0, 3);
 
-  if (totalSlots === 0) {
+  if (items.length === 0) {
+    return '';
+  }
+
+  const cards = items.map(({ kind, item }) => {
+    if (kind === 'nb') {
+      return `
+        <div class="folder-peek-nb" style="background-color: ${escapeHtml(item.coverColor || '#4f46e5')};">
+          <span class="folder-peek-nb-spine"></span>
+        </div>
+      `;
+    }
     return `
-      <div class="folder-empty-glyph" style="color: ${escapeHtml(color)}; background-color: ${escapeHtml(color)}18; border-color: ${escapeHtml(color)}30;">
-        ${_collectionGlyphSvg('w-7 h-7')}
+      <div class="folder-peek-sub" style="background-color: ${escapeHtml(item.color || '#6366f1')};">
+        <span class="folder-peek-sub-tab" style="background-color: ${escapeHtml(item.color || '#6366f1')};"></span>
+        ${_collectionGlyphSvg('w-3.5 h-3.5')}
       </div>
     `;
-  }
+  });
 
-  const slots = [];
-  for (const nb of nbs) {
-    slots.push(`
-      <div class="folder-mini-nb" style="background-color: ${escapeHtml(nb.coverColor || '#4f46e5')};">
-        <span class="folder-mini-nb-spine"></span>
-      </div>
-    `);
-  }
-  for (const sf of subs) {
-    const sfColor = sf.color || '#6366f1';
-    slots.push(`
-      <div class="folder-mini-sub" style="background-color: ${escapeHtml(sfColor)}22; color: ${escapeHtml(sfColor)}; border-color: ${escapeHtml(sfColor)}44;">
-        ${_collectionGlyphSvg('w-4 h-4')}
-      </div>
-    `);
-  }
-  while (slots.length < 4) {
-    slots.push(`<div class="folder-mini-placeholder"></div>`);
-  }
-
-  return `<div class="folder-mini-grid">${slots.join('')}</div>`;
+  return `<div class="folder-peek-fan count-${items.length}">${cards.join('')}</div>`;
 }
 
 function _createFolderCardElement(folder, counts, folderMap, previewMap, showParentBadge, viewMode, showTextBelow) {
@@ -660,20 +655,18 @@ function _createFolderCardElement(folder, counts, folderMap, previewMap, showPar
     `;
   } else {
     card.innerHTML = `
-      <div class="folder-shell">
-        <div class="folder-tab-ear" style="background-color: ${escapeHtml(color)}26; border-color: ${escapeHtml(color)}48;">
-          <span class="folder-tab-dot" style="background-color: ${escapeHtml(color)};"></span>
-        </div>
-        <div class="folder-cover" style="--folder-color: ${escapeHtml(color)}; border-color: ${escapeHtml(color)}42; background: linear-gradient(155deg, ${escapeHtml(color)}18 0%, ${escapeHtml(color)}08 100%);">
-          <div class="folder-preview-area">
-            ${_renderFolderMiniGrid(preview, color)}
-          </div>
+      <div class="folder-shell" style="--folder-color: ${escapeHtml(color)};">
+        <div class="folder-tab-ear" aria-hidden="true"></div>
+        <div class="folder-back" aria-hidden="true"></div>
 
-          <div class="folder-cover-footer">
-            ${parentLabel && !showTextBelow ? `<span class="folder-cover-path">${escapeHtml(parentLabel)}</span>` : ''}
-            <span class="folder-cover-name">${escapeHtml(folder.name || 'Raccolta')}</span>
-            <span class="folder-cover-meta">${escapeHtml(metaText)}</span>
-          </div>
+        <div class="folder-peek-area" aria-hidden="true">
+          ${_renderFolderMiniGrid(preview)}
+        </div>
+
+        <div class="folder-cover">
+          <button type="button" class="dnd-drag-handle is-folder" title="Trascina raccolta" aria-label="Trascina raccolta">
+            ${DRAG_HANDLE_SVG}
+          </button>
 
           <div class="folder-actions">
             <button type="button" class="folder-action-btn" data-folder-action="edit" title="Modifica raccolta" aria-label="Modifica raccolta">
@@ -687,9 +680,15 @@ function _createFolderCardElement(folder, counts, folderMap, previewMap, showPar
             </button>
           </div>
 
-          <button type="button" class="dnd-drag-handle is-folder" title="Trascina raccolta" aria-label="Trascina raccolta">
-            ${DRAG_HANDLE_SVG}
-          </button>
+          <div class="folder-cover-label">
+            <span class="folder-cover-title">${escapeHtml(folder.name || 'Raccolta')}</span>
+          </div>
+
+          ${parentLabel && !showTextBelow ? `<div class="folder-cover-path-pill">${escapeHtml(parentLabel)}</div>` : ''}
+
+          <div class="folder-badge">
+            <span>${escapeHtml(metaText)}</span>
+          </div>
         </div>
       </div>
 
