@@ -611,7 +611,7 @@ function _renderFolderMiniGrid(preview, color) {
   return `<div class="folder-mini-grid">${slots.join('')}</div>`;
 }
 
-function _createFolderCardElement(folder, counts, folderMap, previewMap, showParentBadge, viewMode) {
+function _createFolderCardElement(folder, counts, folderMap, previewMap, showParentBadge, viewMode, showTextBelow) {
   const card = document.createElement('div');
   card.className = viewMode === 'list' ? 'folder-card is-list-item group' : 'folder-card group';
   card.dataset.folderId = folder.id;
@@ -665,7 +665,15 @@ function _createFolderCardElement(folder, counts, folderMap, previewMap, showPar
           <span class="folder-tab-dot" style="background-color: ${escapeHtml(color)};"></span>
         </div>
         <div class="folder-cover" style="--folder-color: ${escapeHtml(color)}; border-color: ${escapeHtml(color)}42; background: linear-gradient(155deg, ${escapeHtml(color)}18 0%, ${escapeHtml(color)}08 100%);">
-          ${_renderFolderMiniGrid(preview, color)}
+          <div class="folder-preview-area">
+            ${_renderFolderMiniGrid(preview, color)}
+          </div>
+
+          <div class="folder-cover-footer">
+            ${parentLabel && !showTextBelow ? `<span class="folder-cover-path">${escapeHtml(parentLabel)}</span>` : ''}
+            <span class="folder-cover-name">${escapeHtml(folder.name || 'Raccolta')}</span>
+            <span class="folder-cover-meta">${escapeHtml(metaText)}</span>
+          </div>
 
           <div class="folder-actions">
             <button type="button" class="folder-action-btn" data-folder-action="edit" title="Modifica raccolta" aria-label="Modifica raccolta">
@@ -685,11 +693,12 @@ function _createFolderCardElement(folder, counts, folderMap, previewMap, showPar
         </div>
       </div>
 
+      ${showTextBelow ? `
       <div class="card-meta-below">
         ${parentLabel ? `<span class="card-path-tag truncate">${escapeHtml(parentLabel)}</span>` : ''}
         <h4 class="folder-name">${escapeHtml(folder.name)}</h4>
         <span class="folder-meta">${escapeHtml(metaText)}</span>
-      </div>
+      </div>` : ''}
     `;
   }
 
@@ -851,7 +860,7 @@ export function renderLibraryView() {
       emptyMsg.classList.remove('flex');
 
       visibleFolders.forEach(folder => {
-        grid.appendChild(_createFolderCardElement(folder, folderCounts, folderMap, previewMap, isSearching, viewMode));
+        grid.appendChild(_createFolderCardElement(folder, folderCounts, folderMap, previewMap, isSearching, viewMode, showTextBelow));
       });
 
       visibleNotebooks.forEach(nb => {
@@ -939,9 +948,10 @@ export function renderLibraryView() {
               </button>
 
               <div class="notebook-cover-label">
-                ${folderLabel && !showTextBelow ? `<span class="notebook-cover-path">${escapeHtml(folderLabel)}</span>` : ''}
                 <span class="notebook-cover-title">${escapeHtml(nb.title || 'Quaderno')}</span>
               </div>
+
+              ${folderLabel && !showTextBelow ? `<div class="notebook-cover-path-pill">${escapeHtml(folderLabel)}</div>` : ''}
 
               <div class="notebook-cover-date">
                 <span>${coverDateStr}</span>
