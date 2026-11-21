@@ -36,7 +36,7 @@ let _cachedFolders = [];
 let _cachedNotebooks = [];
 let _dndController = null;
 
-const LP_PRESS_MS = 520;
+const LP_PRESS_MS = 680;
 const LP_MOVE_CANCEL_PX = 8;
 
 // ============================================================
@@ -477,8 +477,9 @@ function _bindCardInteractions(card, nb) {
 
     pressTimer = setTimeout(() => {
       pressTimer = null;
+      if (!card.isConnected) return;
       if (pressPointerId !== e.pointerId) return;
-      if (_dndController?.isDragging()) return;
+      if (_dndController?.isDragging() || _dndController?.wasRecentDrag()) return;
       _dndController?.cancel();
       skipClickAfterLongPress = true;
       if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
@@ -748,6 +749,7 @@ export function renderLibraryView() {
     const sortDir = s.librarySortDir || 'desc';
     const onlyFavorites = !!s.libraryOnlyFavorites;
     const viewMode = s.libraryViewMode === 'list' ? 'list' : 'grid';
+    const showTextBelow = !!s.libraryShowTextBelow;
     const rawQuery = _searchQuery.trim();
     const queryLower = rawQuery.toLowerCase();
     const isSearching = queryLower.length > 0;
@@ -855,6 +857,7 @@ export function renderLibraryView() {
       visibleNotebooks.forEach(nb => {
         const editIso = nb.lastEditAt || nb.updatedAt;
         const dateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+        const coverDateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: '2-digit' });
         const pageCount = nb.pageCount || 1;
         const isFav = !!nb.isFavorite;
         const folderLabel = (showPathTags && nb.folderId && folderMap.has(nb.folderId))
@@ -935,18 +938,26 @@ export function renderLibraryView() {
                 </svg>
               </button>
 
-              <div class="notebook-cover-label" aria-hidden="true"></div>
+              <div class="notebook-cover-label">
+                ${folderLabel && !showTextBelow ? `<span class="notebook-cover-path">${escapeHtml(folderLabel)}</span>` : ''}
+                <span class="notebook-cover-title">${escapeHtml(nb.title || 'Quaderno')}</span>
+              </div>
+
+              <div class="notebook-cover-date">
+                <span>${coverDateStr}</span>
+              </div>
 
               <div class="notebook-badge">
                 <span>${pageCount} pag.</span>
               </div>
             </div>
 
+            ${showTextBelow ? `
             <div class="card-meta-below">
               ${folderLabel ? `<span class="card-path-tag truncate">${escapeHtml(folderLabel)}</span>` : ''}
               <h4 class="notebook-title">${escapeHtml(nb.title)}</h4>
               <span class="notebook-date">${dateStr}</span>
-            </div>
+            </div>` : ''}
           `;
         }
 
@@ -1635,6 +1646,12 @@ export function bindLibraryUI() {
       changed.includes('libraryViewMode')
     ) {
       _syncLibraryControlsToUI();
+    }
+    if (changed.includes('libraryShowTextBelow')) {
+      const libView = document.getElementById('libraryView');
+      if (libView && !libView.classList.contains('hidden')) {
+        renderLibraryView();
+      }
     }
   });
 

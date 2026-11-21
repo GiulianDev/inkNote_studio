@@ -494,38 +494,78 @@ body.dark .notebook-card:hover .notebook-cover {
   pointer-events: none;
 }
 
-/* Etichetta centrale minimalista sulla copertina */
+/* Etichetta centrale sulla copertina con titolo del quaderno */
 .notebook-cover-label {
   position: absolute;
-  left: 20%;
-  right: 15%;
-  top: 28%;
-  height: 18%;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  left: 16%;
+  right: 10%;
+  top: 24%;
+  min-height: 44px;
+  max-height: 48%;
+  padding: 8px 9px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
   pointer-events: none;
+  overflow: hidden;
 }
 
-.notebook-cover-label::before,
-.notebook-cover-label::after {
-  content: '';
+body.dark .notebook-cover-label {
+  background: rgba(248, 250, 252, 0.94);
+}
+
+.notebook-cover-title {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.22;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.notebook-cover-path {
+  max-width: 100%;
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #4f46e5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Data compatta in basso a sinistra sulla copertina */
+.notebook-cover-date {
   position: absolute;
-  left: 14%;
-  height: 2px;
+  left: 14px;
+  bottom: 7px;
+  max-width: calc(100% - 70px);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.34);
-}
-
-.notebook-cover-label::before {
-  top: 34%;
-  right: 18%;
-}
-
-.notebook-cover-label::after {
-  top: 60%;
-  right: 36%;
-  opacity: 0.72;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 /* Badge pagine discreto in basso a destra sulla copertina */
@@ -1274,8 +1314,15 @@ body.library-dnd-active * {
 }
 
 .dnd-armed {
-  transform: scale(1.04) !important;
-  filter: drop-shadow(0 8px 18px rgba(79, 70, 229, 0.25));
+  transform: scale(1.05) !important;
+  filter: drop-shadow(0 12px 24px rgba(79, 70, 229, 0.34));
+  z-index: 25;
+}
+
+.dnd-armed .notebook-cover,
+.dnd-armed .folder-shell {
+  outline: 2px solid rgba(79, 70, 229, 0.72);
+  outline-offset: 2px;
 }
 
 .is-dragging {

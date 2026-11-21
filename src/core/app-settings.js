@@ -49,11 +49,12 @@ export const DEFAULT_SETTINGS = {
   mainMenuOrder:  ['writing', 'text', 'selection', 'shapes', 'eraser', 'page'],
   mainMenuHidden: [],  // max 3 (min 3 visibili)
 
-  // Preferenze libreria (ordinamento, filtro preferiti & vista)
+  // Preferenze libreria (ordinamento, filtro preferiti, vista & testo sotto cover)
   librarySortBy: 'updatedAt', // 'updatedAt' | 'createdAt' | 'title' | 'pageCount'
   librarySortDir: 'desc',     // 'asc' | 'desc'
   libraryOnlyFavorites: false,
-  libraryViewMode: 'grid'     // 'grid' | 'list'
+  libraryViewMode: 'grid',    // 'grid' | 'list'
+  libraryShowTextBelow: false
 };
 
 /** @type {typeof DEFAULT_SETTINGS|null} */
@@ -106,6 +107,7 @@ function _normalizeSettings(raw) {
   out.librarySortDir = out.librarySortDir === 'asc' ? 'asc' : 'desc';
   out.libraryOnlyFavorites = !!out.libraryOnlyFavorites;
   out.libraryViewMode = out.libraryViewMode === 'list' ? 'list' : 'grid';
+  out.libraryShowTextBelow = !!out.libraryShowTextBelow;
 
   return out;
 }
