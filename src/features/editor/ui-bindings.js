@@ -58,10 +58,6 @@ export function bindEditorUI() {
     swatch.addEventListener('click', () => selectColor(swatch.dataset.color, swatch));
   });
 
-  // --- Dock Writing: custom color picker (nascosto, usato dal popover) ---
-  document.getElementById('customColorPicker')
-    ?.addEventListener('change', (e) => selectColor(e.target.value, e.target));
-
   // --- Dock Writing: stroke width ---
   document.getElementById('strokeWidthSlider')
     ?.addEventListener('input', (e) => updateStrokeWidth(e.target.value));

@@ -258,11 +258,11 @@ export async function decompressPageBundle(compressedBuf) {
 
   for (let i = 0; i < strokeCount; i++) {
     const metaLen = dv.getUint16(o, true); o += 2;
-    const metaBytes = raw.slice(o, o + metaLen); o += metaLen;
+    const metaBytes = raw.subarray(o, o + metaLen); o += metaLen;
     const meta = JSON.parse(decoder.decode(metaBytes));
 
     const pointCount = dv.getUint32(o, true); o += 4;
-    const pointBytes = raw.slice(o, o + pointCount * QUANT_STRIDE); o += pointCount * QUANT_STRIDE;
+    const pointBytes = raw.subarray(o, o + pointCount * QUANT_STRIDE); o += pointCount * QUANT_STRIDE;
     const packed = dequantizeStroke(pointBytes, pointCount);
 
     strokes.push({

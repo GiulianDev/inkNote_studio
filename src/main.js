@@ -49,6 +49,7 @@ import { mountSettingsModal } from './features/settings/settings-modal.js';
 import { mountPagesSidebar } from './features/pages-sidebar/pages-sidebar.js';
 import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
 import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
+import { terminateWorker } from './features/backup/serialization-cloud.js';
 import { handleRedirectResult } from './services/firebase.js';
 
 window.addEventListener('load', async () => {
@@ -134,4 +135,5 @@ window.addEventListener('load', async () => {
 window.addEventListener('beforeunload', () => {
   flushHistory();
   flushAutoSave();
+  terminateWorker();
 });
