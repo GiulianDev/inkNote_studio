@@ -53,6 +53,8 @@ import {
   computeTransferExpirationMs,
   classifyInboxTransfers,
   classifyOutgoingTransfers,
+  MAX_OUTGOING_TRANSFERS,
+  checkOutgoingTransferQuota,
   extractGoogleContactCandidates,
   buildUniqueReceivedTitle
 } from '../features/sharing/sharing-helpers.js';
@@ -518,6 +520,14 @@ export async function sendNotebookToFriend({ notebookId, friend, senderProfile, 
   const user = _requireReady();
   if (!friend?.uid || friend.uid === user.uid) {
     throw new Error('Destinatario non valido');
+  }
+
+  const activeOutgoing = await listAndCleanupOutgoingTransfers(user.uid);
+  const quota = checkOutgoingTransferQuota(activeOutgoing, 1, MAX_OUTGOING_TRANSFERS);
+  if (!quota.allowed) {
+    throw new Error(
+      `Limite raggiunto: hai già ${quota.currentCount}/${quota.limit} quaderni in attesa di scaricamento. Annulla un invio dalla scheda "Inviati" o attendi che vengano importati.`
+    );
   }
 
   const profile = senderProfile || await ensureUserProfile(user);

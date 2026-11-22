@@ -10,6 +10,7 @@ export const TRANSFER_TTL_MS = 24 * 60 * 60 * 1000;
 export const CHUNK_BINARY_SIZE = 480 * 1024; // 480 KB -> ~640 KB base64 (< 750 KB rules limit)
 export const MAX_TRANSFER_BYTES = 11 * 1024 * 1024; // ~11 MB binari -> <= 24 chunk
 export const MAX_TRANSFER_CHUNKS = 25;
+export const MAX_OUTGOING_TRANSFERS = 10;
 
 const HANDLE_REGEX = /^[a-z0-9_]{3,24}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -242,6 +243,22 @@ export function classifyOutgoingTransfers(transfers, nowMs = Date.now()) {
 
   activeSent.sort((a, b) => timestampToMs(b.createdAt) - timestampToMs(a.createdAt));
   return { activeSent, cleanupIds };
+}
+
+export function checkOutgoingTransferQuota(activeTransfers, pendingToSendCount = 1, maxAllowed = MAX_OUTGOING_TRANSFERS) {
+  const currentCount = Array.isArray(activeTransfers)
+    ? activeTransfers.length
+    : Math.max(0, Number(activeTransfers) || 0);
+  const requested = Math.max(1, Number(pendingToSendCount) || 1);
+  const limit = Math.max(1, Number(maxAllowed) || MAX_OUTGOING_TRANSFERS);
+  const remaining = Math.max(0, limit - currentCount);
+  return {
+    allowed: currentCount + requested <= limit,
+    currentCount,
+    requested,
+    remaining,
+    limit
+  };
 }
 
 export function extractGoogleContactCandidates(connections) {

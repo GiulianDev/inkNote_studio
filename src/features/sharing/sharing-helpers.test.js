@@ -16,6 +16,8 @@ import {
   formatRemainingTime,
   classifyInboxTransfers,
   classifyOutgoingTransfers,
+  MAX_OUTGOING_TRANSFERS,
+  checkOutgoingTransferQuota,
   extractGoogleContactCandidates,
   buildUniqueReceivedTitle,
   parseInviteHandleFromUrl
@@ -152,4 +154,36 @@ test('buildUniqueReceivedTitle & parseInviteHandleFromUrl behave predictably', (
 
   assert.equal(parseInviteHandleFromUrl('?addFriend=@Mario_99'), 'mario_99');
   assert.equal(parseInviteHandleFromUrl('?addFriend=x'), '');
+});
+
+test('checkOutgoingTransferQuota enforces simultaneous outgoing transfer limit of 10', () => {
+  assert.equal(MAX_OUTGOING_TRANSFERS, 10);
+
+  const empty = checkOutgoingTransferQuota([], 1);
+  assert.deepEqual(empty, { allowed: true, currentCount: 0, requested: 1, remaining: 10, limit: 10 });
+
+  const eight = Array.from({ length: 8 }, (_, i) => ({ id: `t${i}` }));
+  assert.deepEqual(checkOutgoingTransferQuota(eight, 2), {
+    allowed: true,
+    currentCount: 8,
+    requested: 2,
+    remaining: 2,
+    limit: 10
+  });
+  assert.deepEqual(checkOutgoingTransferQuota(eight, 3), {
+    allowed: false,
+    currentCount: 8,
+    requested: 3,
+    remaining: 2,
+    limit: 10
+  });
+
+  const full = Array.from({ length: 10 }, (_, i) => ({ id: `t${i}` }));
+  assert.deepEqual(checkOutgoingTransferQuota(full, 1), {
+    allowed: false,
+    currentCount: 10,
+    requested: 1,
+    remaining: 0,
+    limit: 10
+  });
 });

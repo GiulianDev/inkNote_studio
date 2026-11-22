@@ -35,7 +35,9 @@ import {
 import {
   formatRemainingTime,
   formatTransferSize,
-  parseInviteHandleFromUrl
+  parseInviteHandleFromUrl,
+  MAX_OUTGOING_TRANSFERS,
+  checkOutgoingTransferQuota
 } from './sharing-helpers.js';
 
 const NOTIF_PREF_KEY = 'inknote_browser_notifications';
@@ -404,6 +406,7 @@ export async function openSharingModal({
   let sendStatusText = '';
   let editingHandle = false;
   let localNotebooksCache = null;
+  let sendModeManageSent = false;
 
   if (authState.user && isFirestoreReady()) {
     listAndCleanupOutgoingTransfers(authState.user.uid)
@@ -648,19 +651,46 @@ export async function openSharingModal({
     `;
   };
 
+  const renderQuotaPill = (count) => {
+    const toneClass = count >= MAX_OUTGOING_TRANSFERS
+      ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/70'
+      : (count >= MAX_OUTGOING_TRANSFERS - 2
+        ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/70'
+        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700');
+    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${toneClass} shrink-0">${count}/${MAX_OUTGOING_TRANSFERS} attivi</span>`;
+  };
+
   const renderSentTab = () => {
-    if (_outgoingTransfers.length === 0) {
+    const activeCount = _outgoingTransfers.length;
+    const sentHeader = `
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          ${isSendMode ? `
+            <button type="button" data-action="back-to-send" class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">← Torna all'invio</button>
+            <span class="text-slate-300 dark:text-slate-700">·</span>
+          ` : ''}
+          <span class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+            Limite invii simultanei
+          </span>
+        </div>
+        ${renderQuotaPill(activeCount)}
+      </div>
+    `;
+
+    if (activeCount === 0) {
       return `
+        ${sentHeader}
         <div class="py-12 text-center space-y-2">
           <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Nessun invio in sospeso</p>
           <p class="text-xs text-slate-500 dark:text-slate-400">
-            I quaderni già importati o scaduti dopo 24 ore vengono eliminati automaticamente da Firestore.
+            Puoi tenere fino a ${MAX_OUTGOING_TRANSFERS} quaderni in attesa contemporaneamente. Quelli già importati o scaduti dopo 24 ore si eliminano da soli.
           </p>
         </div>
       `;
     }
 
     return `
+      ${sentHeader}
       <div class="space-y-2.5">
         <p class="text-[11px] text-slate-500 dark:text-slate-400">
           In attesa che il destinatario li scarichi (auto-eliminazione dopo 24 ore):
@@ -694,21 +724,39 @@ export async function openSharingModal({
   const renderFriendsAndSendSection = () => {
     const isGoogle = isGoogleLinkedUser(authState.user);
     const friendIds = new Set(_friends.map(f => f.uid));
+    const sendQuota = checkOutgoingTransferQuota(_outgoingTransfers, isSendMode ? sendNotebooks.length : 1, MAX_OUTGOING_TRANSFERS);
+    const sendBlockedByQuota = isSendMode && !sendQuota.allowed;
 
     const sendBanner = isSendMode ? `
-      <div class="p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/70 mb-4 flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-xs font-bold text-indigo-900 dark:text-indigo-200 truncate">
-            ${sendNotebooks.length === 1
-              ? `Invio quaderno: "${escapeHtml(sendNotebooks[0].title || 'Quaderno')}"`
-              : `Invio di ${sendNotebooks.length} quaderni selezionati`}
+      <div class="p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/70 mb-4 space-y-2.5">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-xs font-bold text-indigo-900 dark:text-indigo-200 truncate">
+              ${sendNotebooks.length === 1
+                ? `Invio quaderno: "${escapeHtml(sendNotebooks[0].title || 'Quaderno')}"`
+                : `Invio di ${sendNotebooks.length} quaderni selezionati`}
+            </div>
+            <div class="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 mt-0.5">
+              ${sendStatusText
+                ? escapeHtml(sendStatusText)
+                : `Disponibile per il destinatario per 24 ore · max ${MAX_OUTGOING_TRANSFERS} in coda contemporanea.`}
+            </div>
           </div>
-          <div class="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 mt-0.5">
-            ${sendStatusText
-              ? escapeHtml(sendStatusText)
-              : 'Disponibile per il destinatario per 24 ore, poi eliminato automaticamente.'}
-          </div>
+          ${renderQuotaPill(sendQuota.currentCount)}
         </div>
+        ${sendBlockedByQuota ? `
+          <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <p class="text-[11px] font-medium text-rose-700 dark:text-rose-300">
+              ${sendQuota.remaining === 0
+                ? `Hai già ${sendQuota.currentCount}/${sendQuota.limit} invii attivi in attesa. Annullane uno per inviarne altri.`
+                : `Hai solo ${sendQuota.remaining} slot liber${sendQuota.remaining === 1 ? 'o' : 'i'} (${sendQuota.currentCount}/${sendQuota.limit} occupati), ma hai selezionato ${sendQuota.requested} quaderni.`}
+            </p>
+            <button type="button" data-action="open-sent-tab"
+              class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-semibold shrink-0 self-end sm:self-center cursor-pointer">
+              Gestisci inviati
+            </button>
+          </div>
+        ` : ''}
       </div>
     ` : '';
 
@@ -734,7 +782,7 @@ export async function openSharingModal({
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
               ${isSendMode ? `
-                <button type="button" data-action="send-to-searched" ${sendingToUid ? 'disabled' : ''}
+                <button type="button" data-action="send-to-searched" ${(sendingToUid || sendBlockedByQuota) ? 'disabled' : ''}
                   class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold cursor-pointer disabled:opacity-50">
                   Invia ora
                 </button>
@@ -817,7 +865,7 @@ export async function openSharingModal({
               </div>
               <div class="flex items-center gap-1.5 shrink-0">
                 ${isSendMode ? `
-                  <button type="button" data-action="send-to-friend" data-uid="${escapeHtml(f.uid)}" ${sendingToUid ? 'disabled' : ''}
+                  <button type="button" data-action="send-to-friend" data-uid="${escapeHtml(f.uid)}" ${(sendingToUid || sendBlockedByQuota) ? 'disabled' : ''}
                     class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold shadow-sm cursor-pointer disabled:opacity-50">
                     ${isSendingThis ? 'Invio...' : 'Invia'}
                   </button>
@@ -843,21 +891,30 @@ export async function openSharingModal({
 
   const renderNotebookPickerForFriend = (friend) => {
     const nbs = localNotebooksCache || [];
+    const pickQuota = checkOutgoingTransferQuota(_outgoingTransfers, 1, MAX_OUTGOING_TRANSFERS);
     return `
       <div class="space-y-3">
         <div class="flex items-center justify-between gap-2">
-          <div class="text-xs font-bold text-slate-900 dark:text-white">
+          <div class="text-xs font-bold text-slate-900 dark:text-white truncate">
             Scegli quale quaderno inviare a ${escapeHtml(friend.displayName)}
           </div>
-          <button type="button" data-action="back-to-friends" class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">← Indietro</button>
+          <div class="flex items-center gap-2 shrink-0">
+            ${renderQuotaPill(pickQuota.currentCount)}
+            <button type="button" data-action="back-to-friends" class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">← Indietro</button>
+          </div>
         </div>
+        ${!pickQuota.allowed ? `
+          <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-[11px] font-medium text-rose-700 dark:text-rose-300">
+            Hai già ${pickQuota.currentCount}/${pickQuota.limit} quaderni in attesa. Annulla un invio dalla scheda "Inviati" per liberare spazio.
+          </div>
+        ` : ''}
         ${sendStatusText ? `<div class="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-xs font-medium text-indigo-700 dark:text-indigo-300">${escapeHtml(sendStatusText)}</div>` : ''}
         ${nbs.length === 0 ? `
           <p class="py-8 text-center text-xs text-slate-500">Nessun quaderno disponibile in libreria.</p>
         ` : `
           <div class="space-y-1.5">
             ${nbs.map(nb => `
-              <button type="button" data-action="send-picked-nb" data-nb-id="${escapeHtml(nb.id)}" data-uid="${escapeHtml(friend.uid)}" ${sendingToUid ? 'disabled' : ''}
+              <button type="button" data-action="send-picked-nb" data-nb-id="${escapeHtml(nb.id)}" data-uid="${escapeHtml(friend.uid)}" ${(sendingToUid || !pickQuota.allowed) ? 'disabled' : ''}
                 class="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 text-left transition cursor-pointer disabled:opacity-50">
                 <div class="flex items-center gap-2.5 min-w-0">
                   <span class="w-4 h-5 rounded-sm shrink-0" style="background:${_safeHexColor(nb.coverColor)}"></span>
@@ -877,9 +934,19 @@ export async function openSharingModal({
   const sendNotebooksToRecipient = async (notebooksList, recipient) => {
     if (!recipient || !Array.isArray(notebooksList) || notebooksList.length === 0) return;
     sendingToUid = recipient.uid;
-    sendStatusText = 'Preparazione invio...';
+    sendStatusText = 'Verifica slot di invio...';
     render();
     try {
+      _outgoingTransfers = await listAndCleanupOutgoingTransfers(authState.user.uid);
+      const quota = checkOutgoingTransferQuota(_outgoingTransfers, notebooksList.length, MAX_OUTGOING_TRANSFERS);
+      if (!quota.allowed) {
+        throw new Error(
+          quota.remaining === 0
+            ? `Limite raggiunto: hai già ${quota.currentCount}/${quota.limit} quaderni in attesa. Annulla un invio in "Inviati" o attendi che vengano scaricati.`
+            : `Puoi inviare ancora solo ${quota.remaining} quadern${quota.remaining === 1 ? 'o' : 'i'} (${quota.currentCount}/${quota.limit} slot attivi).`
+        );
+      }
+
       for (let i = 0; i < notebooksList.length; i++) {
         const nb = notebooksList[i];
         await sendNotebookToFriend({
@@ -902,7 +969,7 @@ export async function openSharingModal({
       cleanup();
     } catch (err) {
       console.error('[sharing] send failed:', err);
-      showToast(_formatSharingError(err, 'Invio fallito'), '❌');
+      showToast(_formatSharingError(err, 'Invio fallito'), '❌', 3800);
       sendingToUid = null;
       sendStatusText = '';
       render();
@@ -916,10 +983,10 @@ export async function openSharingModal({
       bodyHtml = renderSignedOutBody();
     } else if (pickedFriendForSend) {
       bodyHtml = renderNotebookPickerForFriend(pickedFriendForSend);
+    } else if (sendModeManageSent || (!isSendMode && activeTab === 'sent')) {
+      bodyHtml = renderSentTab();
     } else if (isSendMode || activeTab === 'friends') {
       bodyHtml = renderFriendsAndSendSection();
-    } else if (activeTab === 'sent') {
-      bodyHtml = renderSentTab();
     } else {
       bodyHtml = renderInboxTab();
     }
@@ -1108,6 +1175,16 @@ export async function openSharingModal({
     overlay.querySelector('[data-action="back-to-friends"]')?.addEventListener('click', () => {
       pickedFriendForSend = null;
       sendStatusText = '';
+      render();
+    });
+
+    overlay.querySelector('[data-action="open-sent-tab"]')?.addEventListener('click', () => {
+      sendModeManageSent = true;
+      render();
+    });
+
+    overlay.querySelector('[data-action="back-to-send"]')?.addEventListener('click', () => {
+      sendModeManageSent = false;
       render();
     });
 
