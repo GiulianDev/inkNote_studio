@@ -190,7 +190,7 @@ export function applyMainMenuOrderToUI() {
 // --- Drag & drop sulla mainbar ---
 
 const DRAG_LONG_PRESS_MS = 450;
-const DRAG_MOVE_CANCEL_PX = 8;
+const DRAG_MOVE_CANCEL_PX = 10;
 const DRAG_HIDE_THRESHOLD_PX = 40;
 
 const _drag = {
@@ -257,6 +257,7 @@ function _enterDragMode(btn) {
   _drag.skipNextClick = true;
   btn.classList.add('dragging');
   document.body.classList.add('menu-dragging');
+  try { btn.setPointerCapture?.(_drag.pointerId); } catch {}
   if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
 
   if (!_hintShownThisSession) {
@@ -329,6 +330,9 @@ function _onMenuPointerUp(e) {
   _detachDragListeners();
 
   if (wasDragging) {
+    try {
+      if (btn.hasPointerCapture?.(e.pointerId)) btn.releasePointerCapture(e.pointerId);
+    } catch {}
     btn.classList.remove('dragging', 'will-hide');
     document.body.classList.remove('menu-dragging');
     document.getElementById('mainMenuBar')?.classList.remove('drop-outside');

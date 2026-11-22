@@ -61,6 +61,7 @@ import { handleRedirectResult } from './services/firebase.js';
 import { showToast } from './core/utils.js';
 import { getSettings, updateSettings } from './core/app-settings.js';
 import { initBackNavigation } from './core/back-navigation.js';
+import { setupSystemMenuSuppression } from './core/system-menu-guard.js';
 
 window.addEventListener('load', async () => {
   // 1. Componenti grafiche. Devono esistere PRIMA di initSettings():
@@ -133,6 +134,7 @@ window.addEventListener('load', async () => {
   //    (punto 7) non ha catturato la init del punto 3 (registrata dopo).
   renderLibraryView();
   centerViewport();
+  setupSystemMenuSuppression();
   setupViewportGestures();
   setupKeyboardShortcuts();
   initBackNavigation({

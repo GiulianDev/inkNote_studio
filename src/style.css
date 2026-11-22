@@ -18,10 +18,23 @@
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+input:not([type="range"]):not([type="color"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+textarea,
+[contenteditable="true"],
+[contenteditable=""] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 html, body {
   overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 body {
@@ -51,7 +64,8 @@ body.dark {
 #viewport *,
 #undoRedoContainer,
 #undoRedoContainer *,
-#mainMenuBar .main-menu-btn {
+#mainMenuBar,
+#mainMenuBar * {
   touch-action: none;
 }
 
