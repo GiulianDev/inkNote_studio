@@ -40,17 +40,28 @@ import { setupKeyboardShortcuts } from './features/shortcuts/keyboard.js';
 import {
   renderRecentColors, applyActiveToolToUI,
   applySnapTogglesToUI, applyEraserLevelToUI,
-  mountToolbar
+  mountToolbar, hideColorPickerPopover, hidePagePopover, closeToolbarMenu
 } from './features/toolbar/toolbar.js';
 import { flushHistory } from './features/history/history.js';
-import { initEditorHandlers } from './features/editor/editor.js';
+import {
+  initEditorHandlers, returnToLibrary, isEditorActive
+} from './features/editor/editor.js';
 import { bindEditorUI } from './features/editor/ui-bindings.js';
-import { mountSettingsModal } from './features/settings/settings-modal.js';
+import { mountSettingsModal, closeSettingsModal } from './features/settings/settings-modal.js';
 import { mountPagesSidebar } from './features/pages-sidebar/pages-sidebar.js';
-import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
+import {
+  renderLibraryView, bindLibraryUI, closeNewNotebookModal,
+  getCurrentFolderId, setCurrentFolderId, getParentFolderId,
+  isSelectionModeActive, exitSelectionMode,
+  hasActiveLibrarySearch, clearLibrarySearch
+} from './features/library/library.js';
 import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
 import { terminateWorker } from './features/backup/serialization-cloud.js';
 import { handleRedirectResult } from './services/firebase.js';
+import { showToast } from './core/utils.js';
+import { getSettings, updateSettings } from './core/app-settings.js';
+import { initBackNavigation } from './core/back-navigation.js';
+import { setupSystemMenuSuppression } from './core/system-menu-guard.js';
 
 window.addEventListener('load', async () => {
   // 1. Componenti grafiche. Devono esistere PRIMA di initSettings():
@@ -118,19 +129,96 @@ window.addEventListener('load', async () => {
     scheduleSave({ markDirty: false });
   });
 
-  // 8. Vista iniziale e setup gesti / tastiera.
+  // 8. Vista iniziale e setup gesti / tastiera / tasto Indietro.
   //    applyActiveToolToUI() è necessario qui perché la subscription
   //    (punto 7) non ha catturato la init del punto 3 (registrata dopo).
   renderLibraryView();
   centerViewport();
+  setupSystemMenuSuppression();
   setupViewportGestures();
   setupKeyboardShortcuts();
+  initBackNavigation({
+    isEditorOpen: isEditorActive,
+    onReturnToLibrary: async ({ fromPopstate, targetFolderId }) => {
+      setCurrentFolderId(targetFolderId ?? null, { render: false });
+      await returnToLibrary({ fromPopstate });
+    },
+    onNavigateFolder: (folderId) => setCurrentFolderId(folderId, { render: true }),
+    getCurrentFolderId,
+    getParentFolderId,
+    onDismissTransientUI: _dismissTopTransientUI,
+    onExitPrompt: () => showToast('Premi ancora Indietro per uscire', '↩️')
+  });
   applyActiveToolToUI();
   applySnapTogglesToUI();
   renderRecentColors();
 
   window.addEventListener('resize', () => refreshCanvasResolution(true));
 });
+
+function _dismissTopTransientUI() {
+  const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+  if (dialogs.length > 0) {
+    const topDialog = dialogs[dialogs.length - 1];
+    const cancelBtn = topDialog.querySelector('[data-confirm-cancel], [data-modal-cancel]');
+    if (cancelBtn) {
+      cancelBtn.click();
+      return 'dialog';
+    }
+  }
+
+  const settingsModal = document.getElementById('settingsModal');
+  if (settingsModal && !settingsModal.classList.contains('hidden')) {
+    closeSettingsModal();
+    return 'settings-modal';
+  }
+
+  const newNbModal = document.getElementById('newNotebookModal');
+  if (newNbModal && !newNbModal.classList.contains('hidden')) {
+    closeNewNotebookModal();
+    return 'new-notebook-modal';
+  }
+
+  const authDropdown = document.getElementById('authDropdown');
+  if (authDropdown && !authDropdown.classList.contains('hidden')) {
+    authDropdown.classList.add('hidden');
+    return 'auth-dropdown';
+  }
+
+  if (isEditorActive()) {
+    const toolbarMenu = document.getElementById('toolbarMenuPanel');
+    if (toolbarMenu && toolbarMenu.classList.contains('open')) {
+      closeToolbarMenu();
+      return 'toolbar-menu';
+    }
+    const colorPopover = document.getElementById('colorPickerPopover');
+    if (colorPopover && !colorPopover.classList.contains('hidden')) {
+      hideColorPickerPopover();
+      return 'color-popover';
+    }
+    const pagePopover = document.getElementById('pagePopover');
+    if (pagePopover && !pagePopover.classList.contains('hidden')) {
+      hidePagePopover();
+      return 'page-popover';
+    }
+    return null;
+  }
+
+  if (isSelectionModeActive()) {
+    exitSelectionMode();
+    return 'selection-mode';
+  }
+  if (hasActiveLibrarySearch()) {
+    clearLibrarySearch();
+    return 'library-search';
+  }
+  if (getCurrentFolderId() === null && getSettings().libraryOnlyFavorites) {
+    updateSettings({ libraryOnlyFavorites: false });
+    renderLibraryView();
+    return 'favorites-filter';
+  }
+  return null;
+}
 
 window.addEventListener('beforeunload', () => {
   flushHistory();

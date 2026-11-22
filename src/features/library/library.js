@@ -33,6 +33,10 @@ import {
   collectSubtreeSummary
 } from './library-helpers.js';
 import { createFolderCardElement, createNotebookCardElement } from './library-cards.js';
+import {
+  pushFolderBackState,
+  navigateBreadcrumbBackState
+} from '../../core/back-navigation.js';
 
 const COVER_COLOR_ACTIVE_CLASSES = ['ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'];
 
@@ -145,6 +149,9 @@ function _renderBreadcrumbs(folderMap, query, onlyFavorites) {
   nav.querySelectorAll('[data-breadcrumb-id]').forEach(btn => {
     btn.addEventListener('click', () => {
       const targetId = btn.dataset.breadcrumbId || null;
+      const targetDepth = targetId === null
+        ? 0
+        : (path.findIndex(f => f.id === targetId) + 1);
       if (_selectionMode) _exitSelectionMode();
       if (_searchQuery) {
         _searchQuery = '';
@@ -153,10 +160,52 @@ function _renderBreadcrumbs(folderMap, query, onlyFavorites) {
       if (targetId === null && getSettings().libraryOnlyFavorites) {
         updateSettings({ libraryOnlyFavorites: false });
       }
+      if (targetDepth > 0 && navigateBreadcrumbBackState(targetId, targetDepth)) {
+        return;
+      }
+      if (targetId === null && navigateBreadcrumbBackState(null, 0)) {
+        return;
+      }
       _currentFolderId = targetId;
       renderLibraryView();
     });
   });
+}
+
+export function getCurrentFolderId() {
+  return _currentFolderId;
+}
+
+export function setCurrentFolderId(folderId, { render = true } = {}) {
+  _currentFolderId = folderId || null;
+  if (render) renderLibraryView();
+}
+
+export function getParentFolderId(folderId) {
+  if (!folderId) return null;
+  const f = _cachedFolders.find(item => item && item.id === folderId);
+  return f?.parentId || null;
+}
+
+export function isSelectionModeActive() {
+  return _selectionMode;
+}
+
+export function exitSelectionMode() {
+  if (_selectionMode) _exitSelectionMode();
+}
+
+export function hasActiveLibrarySearch() {
+  return _searchQuery.length > 0;
+}
+
+export function clearLibrarySearch() {
+  if (!_searchQuery) return;
+  _searchQuery = '';
+  const searchInput = document.getElementById('librarySearchInput');
+  if (searchInput) searchInput.value = '';
+  _syncLibraryControlsToUI();
+  renderLibraryView();
 }
 
 // ============================================================
@@ -423,6 +472,7 @@ export function renderLibraryView() {
               _searchQuery = '';
               _syncLibraryControlsToUI();
             }
+            pushFolderBackState(targetFolder.id);
             _currentFolderId = targetFolder.id;
             renderLibraryView();
           },

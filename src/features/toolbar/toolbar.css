@@ -872,7 +872,7 @@ body.compact-mode .ui-icon { width: 16px; height: 16px; }
 
 /* ---- Mainbar menu button: allinea icona e label ---- */
 
-.main-menu-btn > svg { pointer-events: none; }
+.main-menu-btn > * { pointer-events: none; }
 
 /* ============================================================
    PRINT

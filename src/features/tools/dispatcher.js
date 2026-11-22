@@ -16,16 +16,20 @@ import {
   getCanvasCoords, invalidateStrokeRect, resetPointPool,
   forceFlushNow, cancelFlush, isPenEraser, _useRawPointerUpdate
 } from './tool-shared.js';
-import { updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
-         beginEraserStroke, moveEraserStroke } from './eraser.js';
+import {
+  updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
+  beginEraserStroke, moveEraserStroke, flushEraserFrame,
+  cancelEraserFrame, consumeEraserModified
+} from './eraser.js';
 import { clearPredictions } from '../render/prediction.js';
 import { flushHistory, pushHistory, syncHistoryToPage } from '../history/history.js';
+import { scheduleSave } from '../persistence/autosave.js';
 import { refreshPageCounter, setDockDrawingHidden } from '../toolbar/toolbar.js';
 import { finalizePendingShape } from './shapes.js';
 import { resetScribbleState } from './scribble.js';
 import {
-  clearSelection, applyResizeSelection,
-  beginLasso, moveLasso, endLasso,
+  clearSelection, applyResizeSelection, endResizeSelection,
+  beginLasso, moveLasso, endLasso, flushLassoFrame,
   beginSelectionDrag, moveSelectionDrag, endSelectionDrag,
   resetSelectionDragState, updateCursorForSelection,
   hasLassoSelection, canStartLassoDragOnTouch
@@ -39,8 +43,6 @@ import {
   beginTextPointer, moveTextPointer, endTextPointer,
   commitActiveTextBox, canStartTextDragOnTouch, updateCursorForText
 } from './text.js';
-import { scheduleSave } from '../persistence/autosave.js';
-import { markPageDirty } from '../persistence/session.js';
 import { pagePool } from '../editor/page-pool.js';
 
 let _gestureUsedEraser = false;
@@ -275,7 +277,11 @@ export function handlePointerUp(e, pageData) {
   clearPredictions(pageData);
 
   if (_gestureUsedEraser) {
-    pushHistory();
+    flushEraserFrame(pageData);
+    if (consumeEraserModified()) {
+      pushHistory();
+      scheduleSave({ pageId: pageData.pageId });
+    }
     _gestureUsedEraser = false;
     _lastGestureWasEraser = true;
   } else {
@@ -301,21 +307,9 @@ export function handlePointerUp(e, pageData) {
 
   if (state.isResizingSelection) {
     const wasMoved = state.selectionMoved;
-    state.isResizingSelection = false;
-    state.resizeHandle = null; state.resizePivot = null;
-    state.resizeAnchor = null; state.resizeOffset = null;
-    state.resizeCurrentAngle = 0;
-    state.initialStrokesSnapshot = null;
-    state.initialTextBoxesSnapshot = null;
-    state.selectionMoved = false;
+    endResizeSelection(pageData, wasMoved);
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
-    pageData.canvas.style.cursor = 'crosshair';
-    if (wasMoved) {
-      if (pageData?.pageId) markPageDirty(pageData.pageId);
-      pushHistory();
-      scheduleSave();
-    }
-    resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
+    resetPointPool(); invalidateStrokeRect();
     return;
   }
 
@@ -334,6 +328,7 @@ export function handlePointerUp(e, pageData) {
   state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
 
   if (state.activeTool === 'lasso') {
+    flushLassoFrame(pageData);
     endLasso(pageData);
     resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
@@ -348,6 +343,7 @@ export function abortCurrentDrawing() {
   if (state.pendingShape) finalizePendingShape();
   hideEraserCursor();
   cancelFlush();
+  cancelEraserFrame();
   const currPage = state.currentPageForPointer || state.pages[state.activePageIndex];
   if (state.activeTool === 'text' && state.isDrawing) {
     if (state.currentPointerId !== null && state.currentPageForPointer) {
@@ -359,7 +355,10 @@ export function abortCurrentDrawing() {
     endTextPointer(currPage);
   }
   if (state.isDrawing || state.currentStroke) {
-    if (_gestureUsedEraser) pushHistory();
+    if (_gestureUsedEraser && consumeEraserModified()) {
+      pushHistory();
+      scheduleSave({ pageId: currPage?.pageId });
+    }
     if (state.currentPointerId !== null && state.currentPageForPointer) {
       try { state.currentPageForPointer.wrapper.releasePointerCapture(state.currentPointerId); } catch (err) {}
     }
@@ -381,6 +380,7 @@ export function abortCurrentDrawing() {
   state._penEraserActive = false;
   _gestureUsedEraser = false;
   _lastGestureWasEraser = false;
+  flushLassoFrame(currPage);
   resetSelectionDragState();
   resetPointPool();
   invalidateStrokeRect();

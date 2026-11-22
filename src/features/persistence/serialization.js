@@ -9,6 +9,8 @@
  *     undefined → default tool, style undefined → 'solid'
  */
 
+import { setNonEnumerable } from '../render/stroke-geometry.js';
+
 export const PACKED_STRIDE = 7;
 
 const PT_PEN = 0;
@@ -42,8 +44,34 @@ function _isLegacyBlack(c) {
 }
 
 export function packStroke(s) {
+  if (!s) return s;
+  if (!s.points && s.packed) {
+    return {
+      tool: s.tool,
+      color: s.color,
+      size: s.size,
+      opacity: s.opacity != null ? s.opacity : 1.0,
+      style: s.style || 'solid',
+      packed: s.packed,
+      count: s.count != null ? s.count : ((s.packed.length / PACKED_STRIDE) | 0)
+    };
+  }
   const pts = s.points;
   const n = pts ? pts.length : 0;
+  const opacity = s.opacity != null ? s.opacity : 1.0;
+  const style = s.style || 'solid';
+
+  const cached = s._packedCache;
+  if (cached &&
+      cached.count === n &&
+      cached.tool === s.tool &&
+      cached.color === s.color &&
+      cached.size === s.size &&
+      cached.opacity === opacity &&
+      cached.style === style) {
+    return cached;
+  }
+
   const buf = new Float32Array(n * PACKED_STRIDE);
   for (let i = 0; i < n; i++) {
     const p = pts[i];
@@ -56,15 +84,17 @@ export function packStroke(s) {
     buf[o + 5] = p.speed || 0;
     buf[o + 6] = _pointerTypeToInt(p.pointerType);
   }
-  return {
+  const packed = {
     tool: s.tool,
     color: s.color,
     size: s.size,
-    opacity: s.opacity != null ? s.opacity : 1.0,
-    style: s.style || 'solid',
+    opacity,
+    style,
     packed: buf,
     count: n
   };
+  setNonEnumerable(s, '_packedCache', packed);
+  return packed;
 }
 
 export function unpackStroke(s) {
@@ -104,7 +134,17 @@ export function unpackStroke(s) {
     };
   }
 
-  return { tool: s.tool, color, size: s.size, opacity, style, points: pts };
+  const out = { tool: s.tool, color, size: s.size, opacity, style, points: pts };
+  setNonEnumerable(out, '_packedCache', {
+    tool: s.tool,
+    color,
+    size: s.size,
+    opacity,
+    style,
+    packed: buf,
+    count: n
+  });
+  return out;
 }
 
 export function packStrokes(strokes) {

@@ -44,7 +44,8 @@ const THUMB_CSS_H = 170;
 const THUMB_W = THUMB_CSS_W * THUMB_DPR;
 const THUMB_H = THUMB_CSS_H * THUMB_DPR;
 
-const REFRESH_DEBOUNCE_MS = 300;
+const REFRESH_DEBOUNCE_MS = 900;
+const REFRESH_DRAW_DEFER_MS = 400;
 const PEN_SCROLL_THRESHOLD_PX = 6;
 const THUMB_SYNC_INITIAL_COUNT = 8;
 const THUMB_BATCH_SIZE = 6;
@@ -168,19 +169,24 @@ export function mountPagesSidebar() {
     }
 
     _pendingContentKeys.add(targetKey);
-    if (_contentRefreshTimer) clearTimeout(_contentRefreshTimer);
-    _contentRefreshTimer = setTimeout(() => {
+    const flushContent = () => {
       _contentRefreshTimer = null;
       if (!_isOpen) {
         for (const key of _pendingContentKeys) _dirtyThumbKeys.add(key);
         _pendingContentKeys.clear();
         return;
       }
+      if (state.isDrawing) {
+        _contentRefreshTimer = setTimeout(flushContent, REFRESH_DRAW_DEFER_MS);
+        return;
+      }
       for (const key of _pendingContentKeys) {
         _updateThumbnail(key);
       }
       _pendingContentKeys.clear();
-    }, REFRESH_DEBOUNCE_MS);
+    };
+    if (_contentRefreshTimer) clearTimeout(_contentRefreshTimer);
+    _contentRefreshTimer = setTimeout(flushContent, REFRESH_DEBOUNCE_MS);
   });
 }
 
@@ -723,10 +729,25 @@ function _drawThumbnail(pageData, canvas) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  const isDark = !!state.isDarkMode;
-  const inkDark = isPaperDark(isDark, state.paperColor);
   const cssW = THUMB_W / THUMB_DPR;
   const cssH = THUMB_H / THUMB_DPR;
+
+  const hasActiveMask = pageData.index === state.activePageIndex && (
+    state.scribbleMode ||
+    state.editingTextBoxId ||
+    state._draggingTextBoxId ||
+    (state.selectedStrokes && state.selectedStrokes.length > 0) ||
+    (Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0)
+  );
+  if (pageData.canvas && pageData.canvas.width > 0 && pageData.canvas.height > 0 && !hasActiveMask) {
+    ctx.setTransform(THUMB_DPR, 0, 0, THUMB_DPR, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    ctx.drawImage(pageData.canvas, 0, 0, cssW, cssH);
+    return;
+  }
+
+  const isDark = !!state.isDarkMode;
+  const inkDark = isPaperDark(isDark, state.paperColor);
   const scaleX = cssW / PAGE_WIDTH;
   const scaleY = cssH / PAGE_HEIGHT;
   const scale = scaleX;

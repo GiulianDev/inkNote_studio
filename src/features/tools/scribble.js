@@ -5,6 +5,7 @@
 import { state } from '../../core/state.js';
 import { showToast, sliderToBaseSize, fastHypot } from '../../core/utils.js';
 import { redrawPageCanvas, clearOverlay, drawScribbleStroke } from '../render/render.js';
+import { getRawStrokeBBox } from '../render/stroke-geometry.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 
@@ -234,12 +235,9 @@ function findStrokesIntersectingScribble(scribblePoints, pageData) {
 
   const targets = [];
   for (const stroke of pageData.strokes) {
-    let stMinX = Infinity, stMaxX = -Infinity, stMinY = Infinity, stMaxY = -Infinity;
-    for (const p of stroke.points) {
-      if (p.x < stMinX) stMinX = p.x; if (p.x > stMaxX) stMaxX = p.x;
-      if (p.y < stMinY) stMinY = p.y; if (p.y > stMaxY) stMaxY = p.y;
-    }
-    if (stMaxX < sbMinX || stMinX > sbMaxX || stMaxY < sbMinY || stMinY > sbMaxY) continue;
+    const raw = getRawStrokeBBox(stroke);
+    if (!raw) continue;
+    if (raw.maxX < sbMinX || raw.minX > sbMaxX || raw.maxY < sbMinY || raw.minY > sbMaxY) continue;
 
     const strokeR = sliderToBaseSize(stroke.size) * SCRIBBLE_STROKE_WEIGHT;
     const threshold = SCRIBBLE_HIT_RADIUS + strokeR;
