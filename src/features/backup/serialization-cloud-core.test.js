@@ -160,3 +160,119 @@ test('compressPageBundle and decompressPageBundle roundtrip strokes and textBoxe
   assert.equal(outBoxes[0].align, 'center');
   assert.equal(outBoxes[0].color, '#4f46e5');
 });
+
+test('compressPageData and decompressPageData preserve negative and >1200 coordinates without clipping', async () => {
+  const outOfBounds = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#0f172a',
+    size: 4,
+    opacity: 1,
+    style: 'solid',
+    points: [
+      { x: -45.5, y: -12.25, pressure: 0.4, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+      { x: 600.25, y: 1205.5, pressure: 0.7, tiltX: 0, tiltY: 0, speed: 2, pointerType: 'pen' },
+      { x: 1350.75, y: 1480.25, pressure: 0.9, tiltX: 0, tiltY: 0, speed: 3, pointerType: 'pen' }
+    ]
+  }));
+
+  const compressed = await compressPageData([outOfBounds]);
+  const restored = await decompressPageData(compressed.buffer);
+
+  assert.equal(restored.length, 1);
+  const unpacked = unpackStroke(restored[0]);
+  assert.equal(unpacked.points.length, 3);
+
+  const expected = [
+    { x: -45.5, y: -12.25 },
+    { x: 600.25, y: 1205.5 },
+    { x: 1350.75, y: 1480.25 }
+  ];
+  expected.forEach((pt, idx) => {
+    assert.ok(Math.abs(unpacked.points[idx].x - pt.x) < 0.05, `x[${idx}] mismatch: ${unpacked.points[idx].x} vs ${pt.x}`);
+    assert.ok(Math.abs(unpacked.points[idx].y - pt.y) < 0.05, `y[${idx}] mismatch: ${unpacked.points[idx].y} vs ${pt.y}`);
+  });
+});
+
+test('compressPageData handles single-point and collinear out-of-bounds strokes without NaN', async () => {
+  const singleOut = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#000000',
+    size: 3,
+    opacity: 1,
+    style: 'solid',
+    points: [
+      { x: 1280.5, y: -33.25, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 0, pointerType: 'pen' }
+    ]
+  }));
+
+  const verticalEdge = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#000000',
+    size: 3,
+    opacity: 1,
+    style: 'solid',
+    points: [
+      { x: 750, y: -10, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 0, pointerType: 'pen' },
+      { x: 750, y: 1240, pressure: 0.6, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' }
+    ]
+  }));
+
+  const compressed = await compressPageData([singleOut, verticalEdge]);
+  const restored = await decompressPageData(compressed.buffer);
+
+  assert.equal(restored.length, 2);
+  const u0 = unpackStroke(restored[0]);
+  assert.ok(Number.isFinite(u0.points[0].x) && Math.abs(u0.points[0].x - 1280.5) < 0.01);
+  assert.ok(Number.isFinite(u0.points[0].y) && Math.abs(u0.points[0].y - (-33.25)) < 0.01);
+
+  const u1 = unpackStroke(restored[1]);
+  assert.ok(Math.abs(u1.points[0].x - 750) < 0.05);
+  assert.ok(Math.abs(u1.points[0].y - (-10)) < 0.05);
+  assert.ok(Math.abs(u1.points[1].x - 750) < 0.05);
+  assert.ok(Math.abs(u1.points[1].y - 1240) < 0.05);
+});
+
+test('compressPageData omits rx/ry metadata for standard [0..1200] strokes on mixed pages', async () => {
+  const { gunzipSync } = await import('node:zlib');
+  const normal = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#000000',
+    size: 3,
+    opacity: 1,
+    style: 'solid',
+    points: [
+      { x: 100, y: 200, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+      { x: 794, y: 1123, pressure: 0.6, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' }
+    ]
+  }));
+  const extended = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#000000',
+    size: 3,
+    opacity: 1,
+    style: 'solid',
+    points: [
+      { x: 100, y: 50, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+      { x: 200, y: 1260, pressure: 0.6, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' }
+    ]
+  }));
+
+  const compressed = await compressPageData([normal, extended]);
+  const raw = new Uint8Array(gunzipSync(compressed));
+  const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  const decoder = new TextDecoder();
+
+  let o = 4; // skip strokeCount
+  const metaLen0 = dv.getUint16(o, true); o += 2;
+  const meta0 = JSON.parse(decoder.decode(raw.subarray(o, o + metaLen0))); o += metaLen0;
+  const ptCount0 = dv.getUint32(o, true); o += 4 + ptCount0 * 9;
+
+  const metaLen1 = dv.getUint16(o, true); o += 2;
+  const meta1 = JSON.parse(decoder.decode(raw.subarray(o, o + metaLen1)));
+
+  assert.equal(meta0.rx, undefined);
+  assert.equal(meta0.ry, undefined);
+  assert.equal(meta1.rx, undefined);
+  assert.deepEqual(meta1.ry, [50, 1260]);
+});
+

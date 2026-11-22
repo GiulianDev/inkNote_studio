@@ -5,8 +5,8 @@
  * Importata sia dal worker che dal main thread (fallback).
  *
  * Formato quantizzato (9 byte/punto):
- *   0-1: x         Uint16 LE (scalato da 0..1200)
- *   2-3: y         Uint16 LE (scalato da 0..1200)
+ *   0-1: x         Uint16 LE (scalato da 0..1200, oppure meta.rx [min, max] se fuori range)
+ *   2-3: y         Uint16 LE (scalato da 0..1200, oppure meta.ry [min, max] se fuori range)
  *   4:   pressure  Uint8 (0..1 → 0..255)
  *   5:   tiltX     Int8 (-90..90 → -128..127)
  *   6:   tiltY     Int8
@@ -17,7 +17,7 @@
  *   strokeCount: uint32
  *   per ogni stroke:
  *     metaLen: uint16
- *     meta: JSON UTF-8 {tool, color, size, opacity}
+ *     meta: JSON UTF-8 {tool, color, size, opacity, style, rx?, ry?}
  *     pointCount: uint32
  *     pointBytes: pointCount * 9
  *   → gzip di tutto
@@ -26,8 +26,9 @@
 import { PACKED_STRIDE, packStroke, unpackStroke } from '../persistence/serialization.js';
 
 const QUANT_STRIDE = 9;
-const X_SCALE = 65535 / 1200;
-const Y_SCALE = 65535 / 1200;
+const DEFAULT_MAX_COORD = 1200;
+const X_SCALE = 65535 / DEFAULT_MAX_COORD;
+const Y_SCALE = 65535 / DEFAULT_MAX_COORD;
 const TILT_SCALE = 128 / 90;
 const SPEED_SCALE = 255 / 10;
 
@@ -67,15 +68,77 @@ export function prepareCloudStrokePayload(raw) {
   };
 }
 
-function quantizeStroke(stroke, outBuffer, outOffset) {
+function _makeAxisBounds(minVal, maxVal) {
+  if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return null;
+  if (minVal >= 0 && maxVal <= DEFAULT_MAX_COORD) return null;
+  const span = maxVal - minVal;
+  const safeMax = span >= 1e-3 ? maxVal : minVal + 1;
+  return [minVal, safeMax];
+}
+
+function _parseAxisBounds(raw) {
+  if (
+    Array.isArray(raw) &&
+    raw.length === 2 &&
+    Number.isFinite(raw[0]) &&
+    Number.isFinite(raw[1]) &&
+    raw[1] > raw[0]
+  ) {
+    return [raw[0], raw[1]];
+  }
+  return null;
+}
+
+function _computeStrokeAxisBounds(stroke) {
+  if (!stroke || !stroke.packedBuffer || !stroke.count) {
+    return { rx: null, ry: null };
+  }
   const packed = new Float32Array(stroke.packedBuffer);
   const maxByBuf = Math.floor(packed.length / PACKED_STRIDE);
   const count = Math.max(0, Math.min(stroke.count || 0, maxByBuf));
+  if (count === 0) return { rx: null, ry: null };
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  for (let i = 0; i < count; i++) {
+    const pi = i * PACKED_STRIDE;
+    const x = packed[pi];
+    const y = packed[pi + 1];
+    if (Number.isFinite(x)) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+    }
+    if (Number.isFinite(y)) {
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  return {
+    rx: _makeAxisBounds(minX, maxX),
+    ry: _makeAxisBounds(minY, maxY)
+  };
+}
+
+function quantizeStroke(stroke, outBuffer, outOffset, xBounds = null, yBounds = null) {
+  const packed = new Float32Array(stroke.packedBuffer);
+  const maxByBuf = Math.floor(packed.length / PACKED_STRIDE);
+  const count = Math.max(0, Math.min(stroke.count || 0, maxByBuf));
+  const xMin = xBounds ? xBounds[0] : 0;
+  const xScale = xBounds ? (65535 / (xBounds[1] - xBounds[0])) : X_SCALE;
+  const yMin = yBounds ? yBounds[0] : 0;
+  const yScale = yBounds ? (65535 / (yBounds[1] - yBounds[0])) : Y_SCALE;
+
   let o = outOffset;
   for (let i = 0; i < count; i++) {
     const pi = i * PACKED_STRIDE;
-    const xq = Math.max(0, Math.min(65535, Math.round(packed[pi] * X_SCALE)));
-    const yq = Math.max(0, Math.min(65535, Math.round(packed[pi + 1] * Y_SCALE)));
+    const rawX = Number.isFinite(packed[pi]) ? packed[pi] : xMin;
+    const rawY = Number.isFinite(packed[pi + 1]) ? packed[pi + 1] : yMin;
+    const xq = Math.max(0, Math.min(65535, Math.round((rawX - xMin) * xScale)));
+    const yq = Math.max(0, Math.min(65535, Math.round((rawY - yMin) * yScale)));
     const pq = Math.max(0, Math.min(255, Math.round(packed[pi + 2] * 255)));
     const txq = Math.max(-128, Math.min(127, Math.round(packed[pi + 3] * TILT_SCALE)));
     const tyq = Math.max(-128, Math.min(127, Math.round(packed[pi + 4] * TILT_SCALE)));
@@ -96,15 +159,20 @@ function quantizeStroke(stroke, outBuffer, outOffset) {
   return o - outOffset;
 }
 
-function dequantizeStroke(buffer, pointCount) {
+function dequantizeStroke(buffer, pointCount, xBounds = null, yBounds = null) {
   const out = new Float32Array(pointCount * PACKED_STRIDE);
+  const xMin = xBounds ? xBounds[0] : 0;
+  const xSpan = xBounds ? (xBounds[1] - xBounds[0]) : DEFAULT_MAX_COORD;
+  const yMin = yBounds ? yBounds[0] : 0;
+  const ySpan = yBounds ? (yBounds[1] - yBounds[0]) : DEFAULT_MAX_COORD;
+
   for (let i = 0; i < pointCount; i++) {
     const o = i * QUANT_STRIDE;
     const pi = i * PACKED_STRIDE;
     const xq = buffer[o] | (buffer[o + 1] << 8);
     const yq = buffer[o + 2] | (buffer[o + 3] << 8);
-    out[pi]     = xq / X_SCALE;
-    out[pi + 1] = yq / Y_SCALE;
+    out[pi]     = xBounds ? (xMin + (xq / 65535) * xSpan) : (xq / X_SCALE);
+    out[pi + 1] = yBounds ? (yMin + (yq / 65535) * ySpan) : (yq / Y_SCALE);
     out[pi + 2] = buffer[o + 4] / 255;
     let txq = buffer[o + 5]; if (txq > 127) txq -= 256;
     let tyq = buffer[o + 6]; if (tyq > 127) tyq -= 256;
@@ -185,8 +253,11 @@ export async function compressPageBundle(strokes, textBoxes = []) {
 
   const encoder = new TextEncoder();
   const metaBuffers = [];
+  const strokeBounds = [];
   let totalMetaLen = 0;
   for (const s of list) {
+    const bounds = _computeStrokeAxisBounds(s);
+    strokeBounds.push(bounds);
     const metaObj = {
       tool: s.tool,
       color: s.color,
@@ -194,6 +265,8 @@ export async function compressPageBundle(strokes, textBoxes = []) {
       opacity: s.opacity != null ? s.opacity : 1.0,
       style: s.style || 'solid'
     };
+    if (bounds.rx) metaObj.rx = bounds.rx;
+    if (bounds.ry) metaObj.ry = bounds.ry;
     const metaBytes = encoder.encode(JSON.stringify(metaObj));
     metaBuffers.push(metaBytes);
     totalMetaLen += 2 + metaBytes.length + 4;
@@ -215,10 +288,11 @@ export async function compressPageBundle(strokes, textBoxes = []) {
   for (let i = 0; i < list.length; i++) {
     const s = list[i];
     const metaBytes = metaBuffers[i];
+    const bounds = strokeBounds[i];
     dv.setUint16(o, metaBytes.length, true); o += 2;
     buffer.set(metaBytes, o); o += metaBytes.length;
     dv.setUint32(o, s.count || 0, true); o += 4;
-    o += quantizeStroke(s, buffer, o);
+    o += quantizeStroke(s, buffer, o, bounds.rx, bounds.ry);
   }
 
   if (tbBytes) {
@@ -263,7 +337,9 @@ export async function decompressPageBundle(compressedBuf) {
 
     const pointCount = dv.getUint32(o, true); o += 4;
     const pointBytes = raw.subarray(o, o + pointCount * QUANT_STRIDE); o += pointCount * QUANT_STRIDE;
-    const packed = dequantizeStroke(pointBytes, pointCount);
+    const xBounds = _parseAxisBounds(meta.rx);
+    const yBounds = _parseAxisBounds(meta.ry);
+    const packed = dequantizeStroke(pointBytes, pointCount, xBounds, yBounds);
 
     strokes.push({
       tool: meta.tool,
