@@ -212,6 +212,44 @@ export function clearLibrarySearch() {
 // SELEZIONE MULTIPLA
 // ============================================================
 
+function _syncHeaderModeUI() {
+  const header = document.getElementById('libraryHeader');
+  const leadingBtn = document.getElementById('libraryLeadingBtn');
+  const titleGroup = document.getElementById('libraryHeaderTitleGroup');
+  const titleEl = document.getElementById('libraryHeaderTitle');
+  const subtitleEl = document.getElementById('libraryHeaderSubtitle');
+
+  if (header) {
+    header.classList.add('has-mode-transition');
+    header.classList.toggle('is-selection-mode', _selectionMode);
+  }
+
+  if (titleGroup) {
+    titleGroup.classList.remove('is-title-swap');
+    void titleGroup.offsetWidth;
+    titleGroup.classList.add('is-title-swap');
+  }
+
+  if (leadingBtn) {
+    leadingBtn.tabIndex = _selectionMode ? 0 : -1;
+    leadingBtn.setAttribute('aria-hidden', _selectionMode ? 'false' : 'true');
+    if (_selectionMode) {
+      leadingBtn.title = 'Esci dalla selezione';
+      leadingBtn.setAttribute('aria-label', 'Esci dalla selezione');
+    } else {
+      leadingBtn.removeAttribute('title');
+      leadingBtn.removeAttribute('aria-label');
+    }
+  }
+
+  if (!_selectionMode) {
+    if (titleEl) titleEl.textContent = 'InkNote Library';
+    if (subtitleEl) subtitleEl.textContent = 'I tuoi blocchetti salvati in locale';
+  } else if (subtitleEl) {
+    subtitleEl.textContent = 'Tocca quaderni o raccolte';
+  }
+}
+
 function _enterSelectionMode(initial = null) {
   if (_selectionMode) return;
   _selectionMode = true;
@@ -224,13 +262,8 @@ function _enterSelectionMode(initial = null) {
     selectedNotebookIds.add(initial);
   }
 
-  document.getElementById('libraryHeader')?.classList.add('hidden');
-  const bar = document.getElementById('librarySelectionBar');
-  if (bar) {
-    bar.classList.remove('hidden');
-    bar.classList.add('flex');
-  }
-
+  document.getElementById('authDropdown')?.classList.add('hidden');
+  _syncHeaderModeUI();
   _applySelectionStateToCards();
   _updateSelectionBar();
 }
@@ -240,13 +273,7 @@ function _exitSelectionMode() {
   selectedNotebookIds.clear();
   selectedFolderIds.clear();
 
-  document.getElementById('libraryHeader')?.classList.remove('hidden');
-  const bar = document.getElementById('librarySelectionBar');
-  if (bar) {
-    bar.classList.add('hidden');
-    bar.classList.remove('flex');
-  }
-
+  _syncHeaderModeUI();
   _applySelectionStateToCards();
 }
 
@@ -290,8 +317,10 @@ function _applySelectionStateToCards() {
 
 function _updateSelectionBar() {
   const count = selectedNotebookIds.size + selectedFolderIds.size;
-  const countEl = document.getElementById('selectionCount');
-  if (countEl) countEl.textContent = `${count} selezionat${count === 1 ? 'o' : 'i'}`;
+  const titleEl = document.getElementById('libraryHeaderTitle');
+  if (titleEl && _selectionMode) {
+    titleEl.textContent = `${count} selezionat${count === 1 ? 'o' : 'i'}`;
+  }
 
   const moveBtn = document.getElementById('selectionMoveBtn');
   const duplicateBtn = document.getElementById('selectionDuplicateBtn');
@@ -1276,7 +1305,9 @@ export function bindLibraryUI() {
   document.getElementById('confirmCreateNbBtn')?.addEventListener('click', _confirmCreateNotebook);
   document.getElementById('cancelNewNbBtn')?.addEventListener('click', closeNewNotebookModal);
 
-  document.getElementById('selectionDoneBtn')?.addEventListener('click', _exitSelectionMode);
+  document.getElementById('libraryLeadingBtn')?.addEventListener('click', () => {
+    if (_selectionMode) _exitSelectionMode();
+  });
   document.getElementById('selectionSelectAllBtn')?.addEventListener('click', _selectAll);
   document.getElementById('selectionMoveBtn')?.addEventListener('click', _handleMoveSelection);
   document.getElementById('selectionDuplicateBtn')?.addEventListener('click', _handleDuplicateSelection);
@@ -1399,10 +1430,20 @@ export function bindLibraryUI() {
     });
   }
 
+  const libViewEl = document.getElementById('libraryView');
+  const topBarWrap = document.getElementById('libraryTopBarWrap');
+  if (libViewEl && topBarWrap) {
+    const syncScrollShadow = () => {
+      topBarWrap.classList.toggle('is-scrolled', libViewEl.scrollTop > 4);
+    };
+    libViewEl.addEventListener('scroll', syncScrollShadow, { passive: true });
+    syncScrollShadow();
+  }
+
   document.addEventListener('click', (e) => {
     if (!_selectionMode) return;
     if (document.querySelector('.library-modal')) return;
-    if (e.target.closest('.notebook-card, .folder-card, #librarySelectionBar, #librarySelectBtn')) return;
+    if (e.target.closest('.notebook-card, .folder-card, #libraryHeader')) return;
     _exitSelectionMode();
   });
 
