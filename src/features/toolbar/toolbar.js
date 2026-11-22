@@ -1012,6 +1012,10 @@ function _openToolbarMenu() {
   _toolbarMenuOpen = true;
 }
 
+export function closeToolbarMenu() {
+  _closeToolbarMenu();
+}
+
 function _closeToolbarMenu() {
   const panel = document.getElementById('toolbarMenuPanel');
   const backdrop = document.getElementById('toolbarMenuBackdrop');

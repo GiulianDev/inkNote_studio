@@ -34,8 +34,14 @@ import {
   getToolbarSettings, getToolbarSettingsForSave
 } from '../toolbar/toolbar-settings.js';
 import { getSettings } from '../../core/app-settings.js';
+import {
+  pushEditorBackState,
+  popEditorBackStateIfActive
+} from '../../core/back-navigation.js';
 
 let _openToken = 0;
+let _isOpeningNotebook = false;
+let _returningPromise = null;
 let _activeOpenDialog = null;
 let _openDialogTimer = null;
 
@@ -82,8 +88,16 @@ export function initEditorHandlers() {
   installViewportResizeObserver();
 }
 
+export function isEditorActive() {
+  if (getCurrentNotebook() !== null || _isOpeningNotebook) return true;
+  const lib = document.getElementById('libraryView');
+  return !!(lib && lib.classList.contains('hidden'));
+}
+
 export async function openNotebook(id) {
   const myToken = ++_openToken;
+  _isOpeningNotebook = true;
+  pushEditorBackState(id);
   _closeOpenDialog();
   cancelPendingSave();
 
@@ -99,7 +113,11 @@ export async function openNotebook(id) {
   try {
     nb = await loadNotebookWithPages(id);
   } catch (err) {
-    if (myToken === _openToken) _closeOpenDialog();
+    if (myToken === _openToken) {
+      _isOpeningNotebook = false;
+      _closeOpenDialog();
+      if (!getCurrentNotebook()) popEditorBackStateIfActive();
+    }
     console.error('[editor] load failed:', err);
     showToast('Errore nel caricamento del quaderno', '❌');
     return;
@@ -110,7 +128,9 @@ export async function openNotebook(id) {
     return;
   }
   if (!nb) {
+    _isOpeningNotebook = false;
     _closeOpenDialog();
+    if (!getCurrentNotebook()) popEditorBackStateIfActive();
     return;
   }
 
@@ -271,41 +291,54 @@ export async function openNotebook(id) {
     }
   } finally {
     if (myToken === _openToken) {
+      _isOpeningNotebook = false;
       _closeOpenDialog();
     }
   }
 }
 
-export async function returnToLibrary() {
-  _openToken++;
-  _closeOpenDialog();
+export async function returnToLibrary({ fromPopstate = false } = {}) {
+  if (_returningPromise) return _returningPromise;
 
-  if (state.pendingShape) finalizePendingShape();
-  if (state.editingTextBoxId || state.selectedTextBoxId) {
-    commitActiveTextBox({ deselect: true });
-  }
-  try {
-    await forceSave();
-  } catch (err) {
-    // errore già loggato in autosave; procediamo comunque
-  }
+  _returningPromise = (async () => {
+    _openToken++;
+    _isOpeningNotebook = false;
+    _closeOpenDialog();
 
-  clearSelection();
-  pagePool.reset();
-  const container = document.getElementById('canvasContainer');
-  if (container) container.innerHTML = '';
-  state.pages = [];
-  state.pendingShape = null;
-  resetTextToolState();
+    if (state.pendingShape) finalizePendingShape();
+    if (state.editingTextBoxId || state.selectedTextBoxId) {
+      commitActiveTextBox({ deselect: true });
+    }
+    try {
+      await forceSave();
+    } catch (err) {
+      // errore già loggato in autosave; procediamo comunque
+    }
 
-  setCurrentNotebook(null);
-  setDockDrawingHidden(false, { immediate: true });
-  resetToolbarSettings();
-  resetHistory();
+    clearSelection();
+    pagePool.reset();
+    const container = document.getElementById('canvasContainer');
+    if (container) container.innerHTML = '';
+    state.pages = [];
+    state.pendingShape = null;
+    resetTextToolState();
 
-  window.dispatchEvent(new CustomEvent('inknote:notebook-closed'));
-  document.getElementById('libraryView').classList.remove('hidden');
-  emit('library:refresh');
+    setCurrentNotebook(null);
+    setDockDrawingHidden(false, { immediate: true });
+    resetToolbarSettings();
+    resetHistory();
+
+    window.dispatchEvent(new CustomEvent('inknote:notebook-closed'));
+    document.getElementById('libraryView').classList.remove('hidden');
+    if (!fromPopstate) {
+      popEditorBackStateIfActive();
+    }
+    emit('library:refresh');
+  })().finally(() => {
+    _returningPromise = null;
+  });
+
+  return _returningPromise;
 }
 
 export function updateCurrentNotebookTitle(newTitle) {
@@ -319,6 +352,7 @@ export function closeNotebookIfOpen(id) {
   const nb = getCurrentNotebook();
   if (nb && nb.id === id) {
     _openToken++;
+    _isOpeningNotebook = false;
     _closeOpenDialog();
     cancelPendingSave();
     clearSelection();
@@ -332,6 +366,7 @@ export function closeNotebookIfOpen(id) {
     resetToolbarSettings();
     resetHistory();
     setCurrentNotebook(null);
+    popEditorBackStateIfActive();
     window.dispatchEvent(new CustomEvent('inknote:notebook-closed'));
   }
 }
