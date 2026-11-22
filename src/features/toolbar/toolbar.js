@@ -44,6 +44,10 @@ import {
   editSelectedTextBox, deleteSelectedTextBox, clearTextBoxSelection,
   refocusActiveTextEditorIfEditing, refreshActiveTextEditorTheme
 } from '../tools/text.js';
+import {
+  createDockAutoHideController,
+  DEFAULT_WRITING_INACTIVITY_MS
+} from './dock-autohide.js';
 
 let _mounted = false;
 let _hintShownThisSession = false;
@@ -55,7 +59,14 @@ let _hintShownThisSession = false;
 /** @type {'writing'|'text'|'selection'|'shapes'|'eraser'|'page'} */
 let _mainMenu = 'writing';
 let _dockCollapsed = false;
-let _isDockDrawingHidden = false;
+
+const _dockAutoHide = createDockAutoHideController({
+  inactivityDelayMs: DEFAULT_WRITING_INACTIVITY_MS,
+  enabled: false,
+  onVisibilityChange: (hidden) => {
+    document.body.classList.toggle('dock-auto-hidden', hidden);
+  }
+});
 
 const WRITING_TOOLS = ['pen', 'pencil', 'marker', 'highlighter'];
 const STYLE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
@@ -98,6 +109,7 @@ export function mountToolbar() {
   _setupMainMenuDrag();
   _setMainMenu('writing', { silent: true });
   applyMainMenuOrderToUI();
+  _dockAutoHide.setEnabled(!!getSettings().autoHideDock);
 
   onSettingsChanged(({ changed }) => {
     if (changed.includes('mainMenuOrder') || changed.includes('mainMenuHidden')) {
@@ -109,7 +121,7 @@ export function mountToolbar() {
       refreshActiveTextEditorTheme();
     }
     if (changed.includes('autoHideDock') && !getSettings().autoHideDock) {
-      setDockDrawingHidden(false);
+      setDockDrawingHidden(false, { immediate: true });
     }
   });
 
@@ -136,6 +148,10 @@ export function mountToolbar() {
     } else {
       applyLassoControlsToUI();
     }
+  });
+
+  window.addEventListener('blur', () => {
+    setDockDrawingHidden(false, { immediate: true });
   });
 
   on('history:restore', () => {
@@ -382,11 +398,27 @@ export function setMainMenu(menu, opts = {}) {
   _setMainMenu(menu, opts);
 }
 
-export function setDockDrawingHidden(hidden) {
-  const next = !!hidden && !!state.settings?.autoHideDock;
-  if (next === _isDockDrawingHidden) return;
-  _isDockDrawingHidden = next;
-  document.body.classList.toggle('dock-auto-hidden', next);
+/**
+ * Gestisce la visibilità del dock durante la scrittura (autoHideDock) tramite
+ * buffer a stati (`idle` → `writing` → `buffering` → `idle`).
+ * Il dock riappare solo se l'attività di scrittura resta inattiva in modo
+ * continuativo, oppure subito passando `{ immediate: true }`.
+ */
+export function setDockDrawingHidden(hidden, { immediate = false } = {}) {
+  const autoHideEnabled = !!state.settings?.autoHideDock;
+  _dockAutoHide.setEnabled(autoHideEnabled);
+
+  if (hidden && autoHideEnabled) {
+    _dockAutoHide.beginWriting();
+    return;
+  }
+
+  if (immediate || !autoHideEnabled) {
+    _dockAutoHide.revealNow();
+    return;
+  }
+
+  _dockAutoHide.endWriting();
 }
 
 const TOOL_TO_MENU = {
@@ -409,8 +441,7 @@ function _syncPageCursorsForActiveTool() {
 function _syncToolbarModeToActiveTool() {
   _mainMenu = TOOL_TO_MENU[state.activeTool] || 'writing';
   _dockCollapsed = false;
-  _isDockDrawingHidden = false;
-  document.body.classList.remove('dock-auto-hidden');
+  setDockDrawingHidden(false, { immediate: true });
   hidePagePopover();
   _applyMenuToDOM();
   applyMainMenuOrderToUI();
@@ -436,6 +467,7 @@ function _activateLassoKeepingSelection() {
   updateToolbarSettings({ activeTool: 'lasso' });
   _mainMenu = 'selection';
   _dockCollapsed = false;
+  setDockDrawingHidden(false, { immediate: true });
   _applyMenuToDOM();
   applyMainMenuOrderToUI();
 
@@ -456,8 +488,13 @@ function _activateLassoKeepingSelection() {
 function _setMainMenu(menu, opts = {}) {
   if (!MAIN_MENU_IDS.includes(menu)) return;
 
+  const wasDrawingHidden = _dockAutoHide.isHidden();
+  if (!opts.silent) {
+    setDockDrawingHidden(false, { immediate: true });
+  }
+
   if (opts.toggle && menu === _mainMenu) {
-    _dockCollapsed = !_dockCollapsed;
+    _dockCollapsed = wasDrawingHidden ? false : !_dockCollapsed;
   } else {
     _dockCollapsed = false;
   }
@@ -535,6 +572,7 @@ export function setTool(toolName) {
   }
 
   _dockCollapsed = false;
+  setDockDrawingHidden(false, { immediate: true });
   _applyMenuToDOM();
   applyMainMenuOrderToUI();
 

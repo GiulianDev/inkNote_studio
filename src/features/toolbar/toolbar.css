@@ -360,6 +360,7 @@ body.dark .eraser-level-btn.active {
   box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.18);
   padding: 12px;
   animation: dockFadeIn .14s ease-out;
+  transition: opacity .12s ease;
 }
 
 #pagePopover.hidden {

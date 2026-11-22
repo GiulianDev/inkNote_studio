@@ -17,7 +17,7 @@ import {
 } from './pages.js';
 import { pagePool } from './page-pool.js';
 import {
-  refreshPageCounter,
+  refreshPageCounter, setDockDrawingHidden,
   applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI
 } from '../toolbar/toolbar.js';
 import { resetHistory } from '../history/history.js';
@@ -299,6 +299,7 @@ export async function returnToLibrary() {
   resetTextToolState();
 
   setCurrentNotebook(null);
+  setDockDrawingHidden(false, { immediate: true });
   resetToolbarSettings();
   resetHistory();
 
@@ -327,6 +328,7 @@ export function closeNotebookIfOpen(id) {
     state.pages = [];
     state.pendingShape = null;
     resetTextToolState();
+    setDockDrawingHidden(false, { immediate: true });
     resetToolbarSettings();
     resetHistory();
     setCurrentNotebook(null);
