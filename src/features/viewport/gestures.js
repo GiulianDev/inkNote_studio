@@ -386,10 +386,6 @@ export function setupViewportGestures() {
       isDrawing: state.isDrawing
     });
     if (!touchEval.allow) {
-      if (touchEval.cancelExisting) {
-        _cancelCurrentGesture(true);
-        _clearTouchPointers(viewportEl);
-      }
       return;
     }
 
@@ -482,9 +478,9 @@ export function setupViewportGestures() {
     const ptr = viewport.activePointers.get(e.pointerId);
     if (!ptr) return;
 
-    if (state.palmRejection && isPalmContact(e, _isIOS)) {
+    if (state.palmRejection && !_panCommitted && !_pinchCommitted && isPalmContact(e, _isIOS)) {
       _palmTracker.blockGesturesUntil(now + GESTURE_BLOCK_COOLDOWN_MS);
-      _cancelCurrentGesture(true);
+      _cancelCurrentGesture(false);
       _clearTouchPointers(viewportEl);
       return;
     }
@@ -503,12 +499,6 @@ export function setupViewportGestures() {
       if (!_panCommitted) {
         if (Math.hypot(dxRaw, dyRaw) < PAN_START_THRESHOLD_PX) return;
         _panCommitted = true;
-        viewport.panStart.x = e.clientX;
-        viewport.panStart.y = e.clientY;
-        _panStartTime = performance.now();
-        _resetVelocitySamples();
-        _pushVelocitySample(e.clientX, e.clientY);
-        return;
       }
 
       _pushVelocitySample(e.clientX, e.clientY);

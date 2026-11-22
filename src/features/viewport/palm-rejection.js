@@ -5,27 +5,25 @@
  * (pan 1 dito / pinch 2 dita) in presenza di stilo o palmo/nocca appoggiata.
  */
 
-export const PALM_CONTACT_SIZE_IOS = 54;
-export const PALM_CONTACT_SIZE_DEFAULT = 44;
-export const PALM_CONTACT_AREA_IOS = 2400;
-export const PALM_CONTACT_AREA_DEFAULT = 1700;
+export const PALM_CONTACT_SIZE_IOS = 100;
+export const PALM_CONTACT_SIZE_DEFAULT = 60;
 
-export const PEN_CONTACT_GRACE_MS = 280;
-export const PEN_LEAVE_GRACE_MS = 220;
-export const PEN_HOVER_TIMEOUT_MS = 400;
+export const PEN_CONTACT_GRACE_MS = 120;
+export const PEN_LEAVE_GRACE_MS = 100;
+export const PEN_HOVER_TIMEOUT_MS = 250;
 
-export const PAN_START_THRESHOLD_PX = 14;
-export const PINCH_MIN_INITIAL_DIST = 45;
+export const PAN_START_THRESHOLD_PX = 6;
+export const PINCH_MIN_INITIAL_DIST = 30;
 export const PINCH_MAX_INITIAL_DIST_IOS = 850;
-export const PINCH_MAX_INITIAL_DIST_DEFAULT = 600;
-export const PINCH_START_DIST_DELTA_PX = 14;
-export const PINCH_START_MOVE_PX = 16;
+export const PINCH_MAX_INITIAL_DIST_DEFAULT = 650;
+export const PINCH_START_DIST_DELTA_PX = 12;
+export const PINCH_START_MOVE_PX = 14;
 
-export const GESTURE_BLOCK_COOLDOWN_MS = 450;
-export const PALM_CONTACT_COOLDOWN_MS = 220;
+export const GESTURE_BLOCK_COOLDOWN_MS = 300;
+export const PALM_CONTACT_COOLDOWN_MS = 150;
 
-export const PEN_CANCEL_GESTURE_WINDOW_MS = 1200;
-export const PEN_CANCEL_MAX_PAN_PX = 160;
+export const PEN_CANCEL_GESTURE_WINDOW_MS = 1000;
+export const PEN_CANCEL_MAX_PAN_PX = 150;
 export const PEN_CANCEL_MAX_ZOOM_DELTA = 0.22;
 
 export function isPenPointerType(pointerType) {
@@ -41,10 +39,7 @@ export function isPalmContact(contact, isIOS = false) {
   const w = Number(contact.width) || 0;
   const h = Number(contact.height) || 0;
   const maxSize = isIOS ? PALM_CONTACT_SIZE_IOS : PALM_CONTACT_SIZE_DEFAULT;
-  const maxArea = isIOS ? PALM_CONTACT_AREA_IOS : PALM_CONTACT_AREA_DEFAULT;
-  if (w > maxSize || h > maxSize) return true;
-  if (w > 1 && h > 1 && (w * h) > maxArea) return true;
-  return false;
+  return w > maxSize || h > maxSize;
 }
 
 /**
@@ -190,7 +185,7 @@ export function createPalmRejectionTracker({ isIOS = false } = {}) {
       }
       if (isPalmContact(contact, isIOS)) {
         blockGesturesUntil(now + PALM_CONTACT_COOLDOWN_MS);
-        return { allow: false, reason: 'palm-contact', cancelExisting: true };
+        return { allow: false, reason: 'palm-contact' };
       }
     }
 

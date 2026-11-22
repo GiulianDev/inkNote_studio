@@ -8,22 +8,24 @@ import {
   PEN_CANCEL_GESTURE_WINDOW_MS
 } from './palm-rejection.js';
 
-test('isPalmContact catches knuckle/palm sizes & areas while allowing normal fingertips', () => {
-  // Normal fingertip
+test('isPalmContact allows tablet finger/thumb sizes and blocks true palm contacts', () => {
+  // Normal fingertips and wider tablet thumbs used for scrolling / pull-to-add-page
   assert.equal(isPalmContact({ width: 24, height: 26 }, false), false);
+  assert.equal(isPalmContact({ width: 48, height: 52 }, false), false);
   assert.equal(isPalmContact({ width: 32, height: 34 }, true), false);
+  assert.equal(isPalmContact({ width: 70, height: 75 }, true), false);
   // Drivers reporting 0 or 1
   assert.equal(isPalmContact({ width: 0, height: 0 }, false), false);
   assert.equal(isPalmContact({ width: 1, height: 1 }, true), false);
 
-  // Pinky knuckle / palm contact
-  assert.equal(isPalmContact({ width: 46, height: 30 }, false), true);
-  assert.equal(isPalmContact({ width: 42, height: 42 }, false), true); // area 1764 > 1700
-  assert.equal(isPalmContact({ width: 56, height: 36 }, true), true);
-  assert.equal(isPalmContact({ width: 50, height: 50 }, true), true);  // area 2500 > 2400
+  // Genuine large palm contacts (> 60px non-iOS, > 100px iOS)
+  assert.equal(isPalmContact({ width: 65, height: 40 }, false), true);
+  assert.equal(isPalmContact({ width: 40, height: 68 }, false), true);
+  assert.equal(isPalmContact({ width: 105, height: 50 }, true), true);
+  assert.equal(isPalmContact({ width: 55, height: 110 }, true), true);
 });
 
-test('pen grace blocks inter-stroke knuckle bounces and allows intentional touch later', () => {
+test('pen grace blocks inter-stroke knuckle bounces and allows intentional touch right after', () => {
   const tracker = createPalmRejectionTracker({ isIOS: false });
 
   tracker.onPenDown(1000);
@@ -31,27 +33,27 @@ test('pen grace blocks inter-stroke knuckle bounces and allows intentional touch
     now: 1050, palmRejection: true, isDrawing: true
   }).allow, false);
 
-  // Lift pen: still blocked within PEN_CONTACT_GRACE_MS (280ms)
+  // Lift pen: still blocked within PEN_CONTACT_GRACE_MS (120ms)
   tracker.onPenUp(1100);
   assert.equal(tracker.evaluateTouchDown({ width: 20, height: 20 }, {
-    now: 1100 + PEN_CONTACT_GRACE_MS - 40, palmRejection: true, isDrawing: false
+    now: 1100 + PEN_CONTACT_GRACE_MS - 30, palmRejection: true, isDrawing: false
   }).allow, false);
 
-  // After grace expires: intentional finger touch is allowed
-  assert.equal(tracker.evaluateTouchDown({ width: 20, height: 20 }, {
+  // After grace expires: intentional finger scroll is immediately allowed
+  assert.equal(tracker.evaluateTouchDown({ width: 48, height: 48 }, {
     now: 1100 + PEN_CONTACT_GRACE_MS + 10, palmRejection: true, isDrawing: false
   }).allow, true);
 });
 
-test('palm contact on touch down triggers cooldown and requests cancelling existing gesture', () => {
+test('palm contact on touch down triggers short cooldown without cancelling active scroll', () => {
   const tracker = createPalmRejectionTracker({ isIOS: false });
 
-  const res = tracker.evaluateTouchDown({ width: 52, height: 45 }, {
+  const res = tracker.evaluateTouchDown({ width: 72, height: 64 }, {
     now: 2000, palmRejection: true, isDrawing: false
   });
   assert.equal(res.allow, false);
   assert.equal(res.reason, 'palm-contact');
-  assert.equal(res.cancelExisting, true);
+  assert.equal(Boolean(res.cancelExisting), false);
 
   // Secondary knuckle edge arriving 100ms later is blocked by cooldown
   const res2 = tracker.evaluateTouchDown({ width: 22, height: 22 }, {
