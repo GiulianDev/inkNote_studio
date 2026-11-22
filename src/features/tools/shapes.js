@@ -10,13 +10,18 @@
 
 import { state } from '../../core/state.js';
 import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
-import { clearOverlay, renderPendingShapeOnOverlay, renderFullStroke } from '../render/render.js';
+import {
+  clearOverlay, renderPendingShapeOnOverlay,
+  renderFullStroke, redrawPageCanvas
+} from '../render/render.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import {
   distSqPointToSegment,
   perpendicularRmsDeviationSampled,
   findArrowTipTarget,
+  findImplicationArrowTarget,
+  buildImplicationArrowGeometry,
   analyzeSingleStrokeArrow
 } from './arrow-recognition.js';
 
@@ -433,8 +438,8 @@ function buildOpenPolylineStrokePoints(vertices, step = 8) {
   return out;
 }
 
-function buildSymmetricArrowHeadPoints(tip, dirX, dirY, wingLen) {
-  const halfAngle = 28 * Math.PI / 180;
+function buildSymmetricArrowHeadPoints(tip, dirX, dirY, wingLen, halfAngleDeg = 28) {
+  const halfAngle = halfAngleDeg * Math.PI / 180;
   const cosA = Math.cos(halfAngle);
   const sinA = Math.sin(halfAngle);
   const px = -dirY;
@@ -448,6 +453,36 @@ function buildSymmetricArrowHeadPoints(tip, dirX, dirY, wingLen) {
     y: tip.y - dirY * wingLen * cosA - py * wingLen * sinA
   };
   return buildOpenPolylineStrokePoints([w1, tip, w2], 6);
+}
+
+function detectImplicationArrow(stroke, pageData) {
+  if (!pageData || !Array.isArray(pageData.strokes) || pageData.strokes.length < 2) return false;
+  const match = findImplicationArrowTarget(stroke.points, pageData.strokes);
+  if (!match) return false;
+
+  const geom = buildImplicationArrowGeometry(match, { snapAxis: !!state.snapLines });
+  const barAStroke = pageData.strokes[match.barAIndex];
+  const barBStroke = pageData.strokes[match.barBIndex];
+  if (barAStroke) {
+    barAStroke.points = buildOpenPolylineStrokePoints(geom.barAEndpoints, 4);
+  }
+  if (barBStroke) {
+    barBStroke.points = buildOpenPolylineStrokePoints(geom.barBEndpoints, 4);
+  }
+  if (pageData.canvas && pageData.ctx) {
+    redrawPageCanvas(pageData);
+  }
+
+  stroke.points = buildSymmetricArrowHeadPoints(
+    geom.tip,
+    geom.dirX,
+    geom.dirY,
+    geom.wingLen,
+    geom.halfAngleDeg
+  );
+  showToast('Forma: Di conseguenza (⇒)', '⇒');
+  triggerSnapAnimation(pageData);
+  return true;
 }
 
 function detectArrowTipOnLine(stroke, pageData) {
@@ -514,6 +549,11 @@ export function detectAndSnapShape(stroke, pageData, extraStrokes = []) {
 
   const pts = stroke.points;
   if (pts.length < 5) return false;
+
+  // Simbolo "di conseguenza" (=> / ⇒): 2 linee parallele + punta >
+  if (allowArrow && detectImplicationArrow(stroke, pageData)) {
+    return true;
+  }
 
   // Freccia 2 tratti: punta a V disegnata sull'estremità di una linea esistente
   if (allowArrow && detectArrowTipOnLine(stroke, pageData)) {

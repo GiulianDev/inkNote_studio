@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   findArrowTipTarget,
+  findImplicationArrowTarget,
+  buildImplicationArrowGeometry,
   analyzeSingleStrokeArrow
 } from './arrow-recognition.js';
 
@@ -110,4 +112,73 @@ test('detects valid single-stroke continuous arrow and ignores short non-arrow s
     ...sampleLine(150, 100, 120, 145, 8).slice(1)
   ];
   assert.equal(analyzeSingleStrokeArrow(sevenPts), null);
+});
+
+test('recognizes "=>" implication symbol (horizontal & compact) and builds crisp parallel geometry', () => {
+  // Due linee leggermente imperfette + ">" finale
+  const topBar = { points: sampleLine(100, 200, 144, 202, 8) };
+  const botBar = { points: sampleLine(140, 214, 102, 213, 8) }; // disegnata anche da destra a sinistra!
+  const chevron = sampleVShape(
+    { x: 134, y: 194 },
+    { x: 152, y: 208 },
+    { x: 134, y: 222 }
+  );
+
+  const match = findImplicationArrowTarget(chevron, [topBar, botBar]);
+  assert.ok(match, 'Expected => implication symbol to match');
+
+  const geom = buildImplicationArrowGeometry(match, { snapAxis: true });
+  assert.equal(geom.dirX, 1);
+  assert.equal(geom.dirY, 0);
+  // Entrambe le barre hanno uguale X iniziale/finale e terminano prima della punta
+  assert.ok(Math.abs(geom.barAEndpoints[1].x - geom.barBEndpoints[1].x) < 0.01);
+  assert.ok(geom.barAEndpoints[1].x < geom.tip.x);
+  assert.ok(Math.abs(geom.barAEndpoints[0].y - geom.barBEndpoints[0].y) >= 7);
+});
+
+test('recognizes vertical "⇓" implication symbol drawn downward', () => {
+  const leftBar = { points: sampleLine(200, 120, 200, 165, 8) };
+  const rightBar = { points: sampleLine(212, 122, 212, 166, 8) };
+  const chevron = sampleVShape(
+    { x: 194, y: 156 },
+    { x: 206, y: 173 },
+    { x: 218, y: 156 }
+  );
+
+  const match = findImplicationArrowTarget(chevron, [leftBar, rightBar]);
+  assert.ok(match, 'Expected vertical implication symbol to match');
+  const geom = buildImplicationArrowGeometry(match, { snapAxis: true });
+  assert.equal(geom.dirX, 0);
+  assert.equal(geom.dirY, 1);
+});
+
+test('rejects "= v", "= <", and "11 v" so math expressions do not falsely snap to =>', () => {
+  const eqTop = { points: sampleLine(100, 200, 132, 200, 6) };
+  const eqBot = { points: sampleLine(100, 212, 132, 212, 6) };
+
+  // "= v" (la v apre verso l'alto, ortogonale a "=")
+  const letterV = sampleVShape(
+    { x: 142, y: 196 },
+    { x: 152, y: 216 },
+    { x: 162, y: 196 }
+  );
+  assert.equal(findImplicationArrowTarget(letterV, [eqTop, eqBot]), null);
+
+  // "= <" (la punta apre in avanti, non indietro su "=")
+  const lessThan = sampleVShape(
+    { x: 160, y: 194 },
+    { x: 144, y: 206 },
+    { x: 160, y: 218 }
+  );
+  assert.equal(findImplicationArrowTarget(lessThan, [eqTop, eqBot]), null);
+
+  // "11 v" (due aste verticali con "v" scritta di fianco a destra)
+  const one1 = { points: sampleLine(100, 120, 100, 165, 6) };
+  const one2 = { points: sampleLine(112, 120, 112, 165, 6) };
+  const sideV = sampleVShape(
+    { x: 124, y: 145 },
+    { x: 134, y: 165 },
+    { x: 144, y: 145 }
+  );
+  assert.equal(findImplicationArrowTarget(sideV, [one1, one2]), null);
 });

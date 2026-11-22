@@ -63,43 +63,44 @@ export function perpendicularRmsDeviationSampled(points, A, B, step = 2) {
  * Verifica che uno stroke esistente sia una linea dritta valida come asta freccia.
  * Esclude lettere curve ("d", "u", "o", "c") e tratti troppo corti.
  */
-export function analyzeStraightShaftCandidate(points) {
+export function analyzeStraightShaftCandidate(points, { minLength = 45, maxRmsFactor = 0.03, minPathRatio = 0.92 } = {}) {
   if (!Array.isArray(points) || points.length < 2) return null;
   const first = points[0];
   const last = points[points.length - 1];
   const dx = last.x - first.x;
   const dy = last.y - first.y;
   const chordLen = Math.hypot(dx, dy);
-  if (chordLen < 45) return null;
+  if (chordLen < minLength) return null;
 
   let pathLen = 0;
   for (let i = 1; i < points.length; i++) {
     pathLen += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
   }
-  if (chordLen / Math.max(pathLen, 1) < 0.92) return null;
+  if (chordLen / Math.max(pathLen, 1) < minPathRatio) return null;
 
   if (points.length >= 3) {
     const rms = perpendicularRmsDeviationSampled(points, first, last, 2);
-    if (rms === null || rms > Math.max(3.5, chordLen * 0.03)) return null;
+    if (rms === null || rms > Math.max(3.5, chordLen * maxRmsFactor)) return null;
   }
 
   const ux = dx / chordLen;
   const uy = dy / chordLen;
   return {
     chordLen,
+    first,
+    last,
     endpoints: [
-      { end: last, dirX: ux, dirY: uy },
-      { end: first, dirX: -ux, dirY: -uy }
+      { end: last, tail: first, dirX: ux, dirY: uy },
+      { end: first, tail: last, dirX: -ux, dirY: -uy }
     ]
   };
 }
 
 /**
- * Analizza se `tipPoints` è una punta `>` allineata all'estremità di una linea dritta
- * in `existingStrokes`. Ritorna `{ target, wingLen }` o `null`.
+ * Analizza se `tipPoints` ha la geometria di una punta a V (`>`).
+ * Ritorna `{ pStart, pEnd, tip, w1, w2, avgWing, bisX, bisY }` o `null`.
  */
-export function findArrowTipTarget(tipPoints, existingStrokes) {
-  if (!Array.isArray(existingStrokes) || existingStrokes.length === 0) return null;
+export function parseChevronTip(tipPoints) {
   if (!Array.isArray(tipPoints) || tipPoints.length < 5) return null;
 
   const n = tipPoints.length;
@@ -133,7 +134,7 @@ export function findArrowTipTarget(tipPoints, existingStrokes) {
   const tip = tipPoints[tipIdx];
   const w1 = Math.hypot(tip.x - pStart.x, tip.y - pStart.y);
   const w2 = Math.hypot(pEnd.x - tip.x, pEnd.y - tip.y);
-  if (w1 < 8 || w2 < 8 || Math.max(w1, w2) > 68) return null;
+  if (w1 < 7.5 || w2 < 7.5 || Math.max(w1, w2) > 68) return null;
   if (Math.min(w1, w2) / Math.max(w1, w2) < 0.45) return null;
   if (pathLen / (w1 + w2) > 1.22) return null;
 
@@ -153,23 +154,42 @@ export function findArrowTipTarget(tipPoints, existingStrokes) {
     if (dSq > Math.max(32, (w2 * 0.20) ** 2)) return null;
   }
 
-  // Angolo di apertura della V (~25° .. 117°)
+  // Angolo di apertura della V (~25° .. 120°)
   const vAx = (pStart.x - tip.x) / w1;
   const vAy = (pStart.y - tip.y) / w1;
   const vBx = (pEnd.x - tip.x) / w2;
   const vBy = (pEnd.y - tip.y) / w2;
   const cosOpen = vAx * vBx + vAy * vBy;
-  if (cosOpen < -0.45 || cosOpen > 0.90) return null;
+  if (cosOpen < -0.50 || cosOpen > 0.90) return null;
 
   // Bisettrice dalla punta verso il centro delle alette
   const midX = (pStart.x + pEnd.x) * 0.5 - tip.x;
   const midY = (pStart.y + pEnd.y) * 0.5 - tip.y;
   const midLen = Math.hypot(midX, midY);
   if (midLen < 4) return null;
-  const bisX = midX / midLen;
-  const bisY = midY / midLen;
 
-  const avgWing = (w1 + w2) * 0.5;
+  return {
+    pStart,
+    pEnd,
+    tip,
+    w1,
+    w2,
+    avgWing: (w1 + w2) * 0.5,
+    bisX: midX / midLen,
+    bisY: midY / midLen
+  };
+}
+
+/**
+ * Analizza se `tipPoints` è una punta `>` allineata all'estremità di una linea dritta
+ * in `existingStrokes`. Ritorna `{ target, wingLen }` o `null`.
+ */
+export function findArrowTipTarget(tipPoints, existingStrokes) {
+  if (!Array.isArray(existingStrokes) || existingStrokes.length === 0) return null;
+  const chevron = parseChevronTip(tipPoints);
+  if (!chevron) return null;
+
+  const { pStart, pEnd, tip, avgWing, bisX, bisY } = chevron;
   const maxLateralOffset = Math.min(9.5, Math.max(5.5, avgWing * 0.34));
   const minAlongOffset = -14;
   const maxAlongOffset = 12;
@@ -218,6 +238,210 @@ export function findArrowTipTarget(tipPoints, existingStrokes) {
 
   const wingLen = Math.max(10, Math.min(48, avgWing));
   return { target: bestTarget, wingLen };
+}
+
+/**
+ * Riconosce il simbolo "di conseguenza" (`=>` / `⇒`) formato da
+ * due linee parallele esistenti + punta `>` all'estremità.
+ * Ritorna `{ barAIndex, barBIndex, barA, barB, chevron }` o `null`.
+ */
+export function findImplicationArrowTarget(tipPoints, existingStrokes) {
+  if (!Array.isArray(existingStrokes) || existingStrokes.length < 2) return null;
+  const chevron = parseChevronTip(tipPoints);
+  if (!chevron) return null;
+
+  const { pStart, pEnd, tip, avgWing, bisX, bisY } = chevron;
+
+  // Raccogli le aste dritte recenti orientate concordemente con -bis
+  const candidates = [];
+  const startScan = Math.max(0, existingStrokes.length - 30);
+  for (let i = existingStrokes.length - 1; i >= startScan; i--) {
+    const s = existingStrokes[i];
+    if (!s || !Array.isArray(s.points)) continue;
+    const shaft = analyzeStraightShaftCandidate(s.points, {
+      minLength: 22,
+      maxRmsFactor: 0.035,
+      minPathRatio: 0.90
+    });
+    if (!shaft) continue;
+
+    // Scegli l'orientamento dell'asta opposto alla bisettrice della V
+    let chosen = null;
+    let bestDot = -Infinity;
+    for (const ep of shaft.endpoints) {
+      const dotFwd = ep.dirX * (-bisX) + ep.dirY * (-bisY);
+      if (dotFwd > bestDot) {
+        bestDot = dotFwd;
+        chosen = ep;
+      }
+    }
+    if (!chosen || bestDot < 0.85) continue;
+
+    // Filtro rapido di vicinanza della punta rispetto all'estremità anteriore dell'asta
+    const roughDist = Math.hypot(tip.x - chosen.end.x, tip.y - chosen.end.y);
+    if (roughDist > Math.max(48, shaft.chordLen * 0.9)) continue;
+
+    candidates.push({
+      strokeIndex: i,
+      chordLen: shaft.chordLen,
+      tail: chosen.tail,
+      end: chosen.end,
+      dirX: chosen.dirX,
+      dirY: chosen.dirY
+    });
+  }
+
+  if (candidates.length < 2) return null;
+
+  let bestMatch = null;
+  let bestScore = Infinity;
+
+  for (let a = 0; a < candidates.length - 1; a++) {
+    const barA = candidates[a];
+    for (let b = a + 1; b < candidates.length; b++) {
+      const barB = candidates[b];
+
+      // 1. Lunghezze comparabili e parallelismo stretto
+      const lenRatio = Math.min(barA.chordLen, barB.chordLen) / Math.max(barA.chordLen, barB.chordLen);
+      if (lenRatio < 0.50) continue;
+
+      const dotAB = barA.dirX * barB.dirX + barA.dirY * barB.dirY;
+      if (dotAB < 0.94) continue;
+
+      const sumDx = barA.dirX + barB.dirX;
+      const sumDy = barA.dirY + barB.dirY;
+      const sumLen = Math.hypot(sumDx, sumDy);
+      if (sumLen < 0.1) continue;
+      const ux = sumDx / sumLen;
+      const uy = sumDy / sumLen;
+      const nx = -uy;
+      const ny = ux;
+
+      // 2. Separazione perpendicolare compatibile con `=`
+      const midAx = (barA.tail.x + barA.end.x) * 0.5;
+      const midAy = (barA.tail.y + barA.end.y) * 0.5;
+      const midBx = (barB.tail.x + barB.end.x) * 0.5;
+      const midBy = (barB.tail.y + barB.end.y) * 0.5;
+      const sep = Math.abs((midBx - midAx) * nx + (midBy - midAy) * ny);
+      if (sep < 5 || sep > Math.min(34, Math.max(24, avgWing * 1.45))) continue;
+
+      // 3. Sovrapposizione longitudinale e terminazione allineata
+      const a0 = barA.tail.x * ux + barA.tail.y * uy;
+      const a1 = barA.end.x * ux + barA.end.y * uy;
+      const b0 = barB.tail.x * ux + barB.tail.y * uy;
+      const b1 = barB.end.x * ux + barB.end.y * uy;
+      const overlap = Math.min(a1, b1) - Math.max(a0, b0);
+      if (overlap / Math.min(barA.chordLen, barB.chordLen) < 0.55) continue;
+
+      const avgLen = (barA.chordLen + barB.chordLen) * 0.5;
+      if (Math.abs(a1 - b1) > Math.max(16, avgLen * 0.38)) continue;
+
+      // 4. Posizione della punta `>` centrata sul punto medio finale di `=`
+      const midEndX = (barA.end.x + barB.end.x) * 0.5;
+      const midEndY = (barA.end.y + barB.end.y) * 0.5;
+      const vx = tip.x - midEndX;
+      const vy = tip.y - midEndY;
+      const along = vx * ux + vy * uy;
+      const lateral = Math.abs(vx * nx + vy * ny);
+
+      if (along < -12 || along > 22) continue;
+      if (lateral > Math.max(9, sep * 0.65)) continue;
+
+      // 5. Le due alette di `>` devono stare sui lati opposti della linea mediana
+      //    e coprire gran parte della separazione tra le due barre.
+      const sideStart = (pStart.x - midEndX) * nx + (pStart.y - midEndY) * ny;
+      const sideEnd = (pEnd.x - midEndX) * nx + (pEnd.y - midEndY) * ny;
+      if (sideStart * sideEnd >= 0) continue;
+      if (Math.min(Math.abs(sideStart), Math.abs(sideEnd)) < 4) continue;
+      if (Math.abs(sideStart - sideEnd) < sep * 0.70) continue;
+
+      // Preferisci barre più vicine e recenti
+      const recencyPenalty = (existingStrokes.length - 1 - barB.strokeIndex) * 0.8;
+      const score = lateral * 1.6 + Math.abs(along - 4) + recencyPenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        bestMatch = {
+          barAIndex: barA.strokeIndex,
+          barBIndex: barB.strokeIndex,
+          barA,
+          barB,
+          chevron
+        };
+      }
+    }
+  }
+
+  return bestMatch;
+}
+
+/**
+ * Costruisce la geometria pulita di `⇒` (2 barre parallele che terminano
+ * esattamente sulle alette della punta `>`).
+ */
+export function buildImplicationArrowGeometry(match, { snapAxis = true } = {}) {
+  const { barA, barB, chevron } = match;
+
+  const sumDx = barA.dirX + barB.dirX;
+  const sumDy = barA.dirY + barB.dirY;
+  const sumLen = Math.hypot(sumDx, sumDy) || 1;
+  let ux = sumDx / sumLen;
+  let uy = sumDy / sumLen;
+
+  if (snapAxis) {
+    const angleDeg = Math.atan2(Math.abs(uy), Math.abs(ux)) * 180 / Math.PI;
+    if (angleDeg <= 7) {
+      ux = ux >= 0 ? 1 : -1;
+      uy = 0;
+    } else if (90 - angleDeg <= 7) {
+      ux = 0;
+      uy = uy >= 0 ? 1 : -1;
+    }
+  }
+
+  const nx = -uy;
+  const ny = ux;
+
+  const projAlong = (p) => p.x * ux + p.y * uy;
+  const projNormal = (p) => p.x * nx + p.y * ny;
+
+  const nA = (projNormal(barA.tail) + projNormal(barA.end)) * 0.5;
+  const nB = (projNormal(barB.tail) + projNormal(barB.end)) * 0.5;
+  const midN = (nA + nB) * 0.5;
+  const rawSep = Math.abs(nB - nA);
+  const cleanSep = Math.max(7, Math.min(24, rawSep));
+  const halfSep = cleanSep * 0.5;
+
+  const halfAngle = 36 * Math.PI / 180;
+  const tanHalf = Math.tan(halfAngle);
+  const sinHalf = Math.sin(halfAngle);
+
+  const tailAlong = (projAlong(barA.tail) + projAlong(barB.tail)) * 0.5;
+  const avgEndAlong = (projAlong(barA.end) + projAlong(barB.end)) * 0.5;
+  const rawTipAlong = Math.max(projAlong(chevron.tip), avgEndAlong + 3);
+  const minTipAlong = tailAlong + 16 + halfSep / tanHalf;
+  const tipAlong = Math.max(rawTipAlong, minTipAlong);
+  const barEndAlong = tipAlong - halfSep / tanHalf;
+
+  const toPoint = (along, normal) => ({
+    x: ux * along + nx * normal,
+    y: uy * along + ny * normal
+  });
+
+  const bar1Sign = nA >= nB ? 1 : -1;
+  const bar2Sign = -bar1Sign;
+
+  const tip = toPoint(tipAlong, midN);
+  const wingLen = Math.max(12, Math.min(48, Math.max(chevron.avgWing, halfSep / sinHalf + 6)));
+
+  return {
+    barAEndpoints: [toPoint(tailAlong, midN + bar1Sign * halfSep), toPoint(barEndAlong, midN + bar1Sign * halfSep)],
+    barBEndpoints: [toPoint(tailAlong, midN + bar2Sign * halfSep), toPoint(barEndAlong, midN + bar2Sign * halfSep)],
+    tip,
+    dirX: ux,
+    dirY: uy,
+    wingLen,
+    halfAngleDeg: 36
+  };
 }
 
 /**
