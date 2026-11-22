@@ -34,6 +34,7 @@ import {
   centerViewport, refreshCanvasResolution
 } from './features/editor/pages.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './features/render/render.js';
+import { hasLassoSelection } from './features/tools/lazo.js';
 import { setupViewportGestures } from './features/viewport/gestures.js';
 import { setupKeyboardShortcuts } from './features/shortcuts/keyboard.js';
 import {
@@ -48,6 +49,7 @@ import { mountSettingsModal } from './features/settings/settings-modal.js';
 import { mountPagesSidebar } from './features/pages-sidebar/pages-sidebar.js';
 import { renderLibraryView, bindLibraryUI } from './features/library/library.js';
 import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
+import { terminateWorker } from './features/backup/serialization-cloud.js';
 import { handleRedirectResult } from './services/firebase.js';
 
 window.addEventListener('load', async () => {
@@ -91,7 +93,7 @@ window.addEventListener('load', async () => {
     state.pages.forEach(p => {
       if (p._wasVisible !== false && p.canvas) {
         redrawPageCanvas(p);
-        if (p.index === state.activePageIndex && state.selectedStrokes.length > 0) {
+        if (p.index === state.activePageIndex && hasLassoSelection()) {
           redrawSelectionOverlay(p);
         }
       }
@@ -133,4 +135,5 @@ window.addEventListener('load', async () => {
 window.addEventListener('beforeunload', () => {
   flushHistory();
   flushAutoSave();
+  terminateWorker();
 });

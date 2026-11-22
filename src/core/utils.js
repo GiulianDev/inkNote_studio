@@ -36,6 +36,33 @@ export function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+export function parseHexRgb(hex) {
+  if (typeof hex !== 'string') return null;
+  let c = hex.trim().replace('#', '');
+  if (c.length === 3) c = c.split('').map(x => x + x).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(c)) return null;
+  const num = parseInt(c, 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255
+  };
+}
+
+export function isDarkColorHex(hex) {
+  const rgb = parseHexRgb(hex);
+  if (!rgb) return false;
+  return (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) < 128;
+}
+
+export function isPaperDark(themeDark, paperColor = null) {
+  if (paperColor) {
+    const rgb = parseHexRgb(paperColor);
+    if (rgb) return (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) < 128;
+  }
+  return !!themeDark;
+}
+
 export function getEffectiveColor(color, forceDark) {
   if (!color) return '#000000';
   const isDarkColor = (color === '#000000' || color === '#0f172a' || color === '#090d16' || color === 'black');
@@ -95,7 +122,8 @@ export function showConfirmDialog({
   message = '',
   confirmText = 'Conferma',
   cancelText = 'Annulla',
-  danger = false
+  danger = false,
+  checkbox = null
 } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -107,10 +135,28 @@ export function showConfirmDialog({
       ? 'bg-rose-600 hover:bg-rose-700 text-white'
       : 'bg-indigo-600 hover:bg-indigo-700 text-white';
 
+    const hasCheckbox = !!(checkbox && typeof checkbox === 'object' && checkbox.label);
+    const initialChecked = hasCheckbox ? !!checkbox.checked : false;
+    const initialMessage = (hasCheckbox && initialChecked && checkbox.checkedMessage)
+      ? checkbox.checkedMessage
+      : message;
+    const initialConfirmText = (hasCheckbox && initialChecked && checkbox.checkedConfirmText)
+      ? checkbox.checkedConfirmText
+      : confirmText;
+
     overlay.innerHTML = `
       <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 p-5">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(title)}</h3>
-        ${message ? `<p class="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed">${escapeHtml(message)}</p>` : ''}
+        ${initialMessage ? `<p data-confirm-message class="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed">${escapeHtml(initialMessage)}</p>` : ''}
+        ${hasCheckbox ? `
+          <label style="touch-action: manipulation;"
+            class="mt-3.5 flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 cursor-pointer select-none">
+            <input type="checkbox" data-confirm-checkbox ${initialChecked ? 'checked' : ''}
+              style="touch-action: manipulation;"
+              class="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0">
+            <span class="text-xs font-medium text-slate-700 dark:text-slate-200 leading-snug">${escapeHtml(checkbox.label)}</span>
+          </label>
+        ` : ''}
         <div class="flex items-center justify-end gap-2 mt-5">
           <button type="button" data-confirm-cancel style="touch-action: manipulation;"
             class="px-3.5 py-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs transition cursor-pointer">
@@ -118,19 +164,36 @@ export function showConfirmDialog({
           </button>
           <button type="button" data-confirm-ok style="touch-action: manipulation;"
             class="px-3.5 py-2 rounded-xl font-semibold text-xs shadow-sm transition cursor-pointer ${confirmClasses}">
-            ${escapeHtml(confirmText)}
+            ${escapeHtml(initialConfirmText)}
           </button>
         </div>
       </div>
     `;
 
+    const msgEl = overlay.querySelector('[data-confirm-message]');
+    const okBtn = overlay.querySelector('[data-confirm-ok]');
+    const checkboxEl = overlay.querySelector('[data-confirm-checkbox]');
+
+    if (hasCheckbox && checkboxEl) {
+      checkboxEl.addEventListener('change', () => {
+        const isChecked = !!checkboxEl.checked;
+        if (msgEl) {
+          msgEl.textContent = (isChecked && checkbox.checkedMessage) ? checkbox.checkedMessage : message;
+        }
+        if (okBtn) {
+          okBtn.textContent = (isChecked && checkbox.checkedConfirmText) ? checkbox.checkedConfirmText : confirmText;
+        }
+      });
+    }
+
     let closed = false;
-    const close = (result) => {
+    const close = (confirmed) => {
       if (closed) return;
       closed = true;
+      const checked = !!(checkboxEl && checkboxEl.checked);
       document.removeEventListener('keydown', onKeyDown, true);
       overlay.remove();
-      resolve(result);
+      resolve(hasCheckbox ? { confirmed, checked } : confirmed);
     };
 
     const onKeyDown = (e) => {
@@ -146,7 +209,7 @@ export function showConfirmDialog({
       if (e.target === overlay) close(false);
     });
     overlay.querySelector('[data-confirm-cancel]')?.addEventListener('click', () => close(false));
-    overlay.querySelector('[data-confirm-ok]')?.addEventListener('click', () => close(true));
+    okBtn?.addEventListener('click', () => close(true));
 
     document.body.appendChild(overlay);
   });

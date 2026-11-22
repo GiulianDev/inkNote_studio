@@ -12,7 +12,13 @@ import { applyPinchTransform } from '../viewport/transform.js';
 import { resetZoom } from '../editor/pages.js';
 import { closeSettingsModal } from '../settings/settings-modal.js';
 import { closeNewNotebookModal } from '../library/library.js';
-import { clearSelection } from '../tools/lazo.js';
+import {
+  clearSelection, hasLassoSelection, hasLassoClipboard,
+  deleteSelection, copySelection, cutSelection, pasteSelection, duplicateSelection
+} from '../tools/lazo.js';
+import {
+  commitActiveTextBox, clearTextBoxSelection, deleteSelectedTextBox
+} from '../tools/text.js';
 
 function _isEditorInteractive() {
   const lib = document.getElementById('libraryView');
@@ -59,7 +65,11 @@ export function setupKeyboardShortcuts() {
       if (settings && !settings.classList.contains('hidden')) { closeSettingsModal(); return; }
       const newNb = document.getElementById('newNotebookModal');
       if (newNb && !newNb.classList.contains('hidden')) { closeNewNotebookModal(); return; }
-      if (_isEditorInteractive() && state.selectedStrokes.length > 0) { clearSelection(); return; }
+      if (_isEditorInteractive()) {
+        if (state.editingTextBoxId) { commitActiveTextBox(); return; }
+        if (state.selectedTextBoxId) { clearTextBoxSelection(); return; }
+        if (hasLassoSelection()) { clearSelection(); return; }
+      }
       return;
     }
 
@@ -71,11 +81,43 @@ export function setupKeyboardShortcuts() {
       showToast('Salvato', '💾');
       return;
     }
+    if (ctrl && !e.altKey && !e.shiftKey) {
+      if (key === 'c') {
+        if (hasLassoSelection()) { e.preventDefault(); copySelection(); }
+        return;
+      }
+      if (key === 'x') {
+        if (hasLassoSelection()) { e.preventDefault(); cutSelection(); }
+        return;
+      }
+      if (key === 'v') {
+        if (hasLassoClipboard()) { e.preventDefault(); pasteSelection(); }
+        return;
+      }
+      if (key === 'd') {
+        if (hasLassoSelection()) { e.preventDefault(); duplicateSelection(); }
+        return;
+      }
+    }
     if (ctrl || e.altKey || e.metaKey) return;
+
+    if (key === 'delete' || key === 'backspace') {
+      if (state.selectedTextBoxId && !state.editingTextBoxId) {
+        e.preventDefault();
+        deleteSelectedTextBox();
+        return;
+      }
+      if (hasLassoSelection()) {
+        e.preventDefault();
+        deleteSelection();
+        return;
+      }
+    }
 
     if (key === 'p') { setTool('pen'); return; }
     if (key === 'm') { setTool('marker'); return; }
     if (key === 'h') { setTool('highlighter'); return; }
+    if (key === 't') { setTool('text'); return; }
     if (key === 'l') { setTool('lasso'); return; }
     if (key === 'e') { setTool('eraser'); return; }
     if (key === 'x') { setTool('pencil'); return; }

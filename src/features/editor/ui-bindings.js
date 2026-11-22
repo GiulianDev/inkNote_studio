@@ -32,9 +32,20 @@ import {
 import { toggleFingerWriting } from '../viewport/gestures.js';
 import {
   clearSelection, deleteSelectedStrokes,
+  copySelection, cutSelection, duplicateSelection,
   previewSelectionColor, changeSelectionColor,
   previewSelectionWidth, changeSelectionWidth
 } from '../tools/lazo.js';
+import { finalizePendingShape } from '../tools/shapes.js';
+import { commitActiveTextBox } from '../tools/text.js';
+
+function _openEditorSettings() {
+  if (state.pendingShape) finalizePendingShape();
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
+  openSettingsModal();
+}
 
 export function bindEditorUI() {
   // --- Mainbar: 5 menu contestuali (clic sul tab attivo → chiude/riapre dock) ---
@@ -46,10 +57,6 @@ export function bindEditorUI() {
   document.querySelectorAll('.color-swatch').forEach(swatch => {
     swatch.addEventListener('click', () => selectColor(swatch.dataset.color, swatch));
   });
-
-  // --- Dock Writing: custom color picker (nascosto, usato dal popover) ---
-  document.getElementById('customColorPicker')
-    ?.addEventListener('change', (e) => selectColor(e.target.value, e.target));
 
   // --- Dock Writing: stroke width ---
   document.getElementById('strokeWidthSlider')
@@ -70,7 +77,7 @@ export function bindEditorUI() {
   document.getElementById('compactExitBtn')
     ?.addEventListener('click', toggleCompactMode);
   document.getElementById('openSettingsBtnHeader')
-    ?.addEventListener('click', openSettingsModal);
+    ?.addEventListener('click', _openEditorSettings);
   document.getElementById('themeToggleBtn')
     ?.addEventListener('click', toggleTheme);
   document.getElementById('exportPdfBtn')
@@ -81,8 +88,12 @@ export function bindEditorUI() {
     ?.addEventListener('click', () => { addNewPage(); closeOverflowMenu(); });
   document.getElementById('clearPageBtn')
     ?.addEventListener('click', () => { clearCurrentPage(); closeOverflowMenu(); });
+  document.getElementById('exportPdfFromMenu')
+    ?.addEventListener('click', () => { closeOverflowMenu(); exportToPDF(); });
+  document.getElementById('themeToggleFromMenu')
+    ?.addEventListener('click', () => { toggleTheme(); closeOverflowMenu(); });
   document.getElementById('openSettingsFromMenu')
-    ?.addEventListener('click', () => { openSettingsModal(); closeOverflowMenu(); });
+    ?.addEventListener('click', () => { closeOverflowMenu(); _openEditorSettings(); });
 
   // --- Menu ⋯: Scrittura con il dito (globale) ---
   // Semantica INVERTITA rispetto al vecchio "palm rejection":
@@ -113,6 +124,12 @@ export function bindEditorUI() {
   selWidth?.addEventListener('input', (e) => previewSelectionWidth(e.target.value));
   selWidth?.addEventListener('change', (e) => changeSelectionWidth(e.target.value));
 
+  document.getElementById('copySelectionBtn')
+    ?.addEventListener('click', () => copySelection());
+  document.getElementById('cutSelectionBtn')
+    ?.addEventListener('click', () => cutSelection());
+  document.getElementById('duplicateSelectionBtn')
+    ?.addEventListener('click', () => duplicateSelection());
   document.getElementById('deleteSelectionBtn')
     ?.addEventListener('click', deleteSelectedStrokes);
   document.getElementById('clearSelectionBtn')

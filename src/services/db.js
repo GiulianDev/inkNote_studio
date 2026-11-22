@@ -6,7 +6,7 @@
 import { generatePageId } from '../core/utils.js';
 
 const DB_NAME = 'InkNoteStudioDB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 export const CURRENT_NOTEBOOK_FORMAT = 4;
 
 let db = null;
@@ -62,6 +62,11 @@ export function initDB() {
       const hadPageOrders = database.objectStoreNames.contains('pageOrders');
       if (!hadPageOrders) {
         database.createObjectStore('pageOrders', { keyPath: 'notebookId' });
+      }
+
+      if (!database.objectStoreNames.contains('folders')) {
+        const folderStore = database.createObjectStore('folders', { keyPath: 'id' });
+        folderStore.createIndex('parentId', 'parentId');
       }
 
       const hasPages = database.objectStoreNames.contains('pages');
@@ -139,7 +144,8 @@ export function initDB() {
               newPagesStore.put({
                 notebookId: nb.id,
                 pageId: pid,
-                strokes: rec.strokes || []
+                strokes: rec.strokes || [],
+                textBoxes: Array.isArray(rec.textBoxes) ? rec.textBoxes : []
               });
             }
 
@@ -167,7 +173,7 @@ export function initDB() {
             while (finalOrder.length < targetCount) {
               const pid = generatePageId();
               finalOrder.push(pid);
-              newPagesStore.put({ notebookId: nb.id, pageId: pid, strokes: [] });
+              newPagesStore.put({ notebookId: nb.id, pageId: pid, strokes: [], textBoxes: [] });
             }
 
             pagesOrderStore.put({ notebookId: nb.id, order: finalOrder });
@@ -185,7 +191,8 @@ export function initDB() {
               newPagesStore.put({
                 notebookId: nbId,
                 pageId: pid,
-                strokes: rec.strokes || []
+                strokes: rec.strokes || [],
+                textBoxes: Array.isArray(rec.textBoxes) ? rec.textBoxes : []
               });
             }
             if (order.length > 0) {
@@ -269,6 +276,8 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
       title: notebook.title,
       coverColor: notebook.coverColor,
       pattern: notebook.pattern || 'ruled',
+      folderId: (typeof notebook.folderId === 'string' && notebook.folderId) ? notebook.folderId : null,
+      isFavorite: !!notebook.isFavorite,
       createdAt: notebook.createdAt || now,
       updatedAt: notebook.updatedAt,
       lastEditAt: notebook.lastEditAt,
@@ -315,7 +324,8 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
         pagesStore.put({
           notebookId: notebook.id,
           pageId: page.pageId,
-          strokes: page.strokes || []
+          strokes: page.strokes || [],
+          textBoxes: Array.isArray(page.textBoxes) ? page.textBoxes : []
         });
       }
     } catch (err) {
@@ -354,8 +364,12 @@ export function loadNotebookWithPages(id) {
       const rawWithoutId = [];
       for (const rec of rawPages) {
         if (!rec) continue;
+        const entry = {
+          strokes: rec.strokes || [],
+          textBoxes: Array.isArray(rec.textBoxes) ? rec.textBoxes : []
+        };
         if (typeof rec.pageId === 'string' && rec.pageId) {
-          rawMap.set(rec.pageId, rec.strokes || []);
+          rawMap.set(rec.pageId, entry);
         } else {
           pagesAdjusted = true;
           rawWithoutId.push(rec);
@@ -365,7 +379,10 @@ export function loadNotebookWithPages(id) {
         rawWithoutId.sort((a, b) => (a.pageIndex ?? 0) - (b.pageIndex ?? 0));
         for (const rec of rawWithoutId) {
           const pid = generatePageId();
-          rawMap.set(pid, rec.strokes || []);
+          rawMap.set(pid, {
+            strokes: rec.strokes || [],
+            textBoxes: Array.isArray(rec.textBoxes) ? rec.textBoxes : []
+          });
         }
       }
 
@@ -394,7 +411,7 @@ export function loadNotebookWithPages(id) {
       if (order.length === 0) {
         const pid = generatePageId();
         order.push(pid);
-        rawMap.set(pid, []);
+        rawMap.set(pid, { strokes: [], textBoxes: [] });
         orderAdjusted = true;
         pagesAdjusted = true;
       }
@@ -403,7 +420,7 @@ export function loadNotebookWithPages(id) {
       while (order.length < expectedCount) {
         const pid = generatePageId();
         order.push(pid);
-        rawMap.set(pid, []);
+        rawMap.set(pid, { strokes: [], textBoxes: [] });
         orderAdjusted = true;
         pagesAdjusted = true;
       }
@@ -411,7 +428,9 @@ export function loadNotebookWithPages(id) {
       const legacyPageIds = [];
       const fullPages = order.map((pageId, i) => {
         const hasRec = rawMap.has(pageId);
-        const strokes = hasRec ? rawMap.get(pageId) : [];
+        const rec = hasRec ? rawMap.get(pageId) : { strokes: [], textBoxes: [] };
+        const strokes = rec.strokes;
+        const textBoxes = rec.textBoxes;
         if (!hasRec) {
           pagesAdjusted = true;
         }
@@ -421,7 +440,8 @@ export function loadNotebookWithPages(id) {
         return {
           pageIndex: i,
           pageId,
-          strokes
+          strokes,
+          textBoxes
         };
       });
 
@@ -481,5 +501,203 @@ export function deleteNotebookFromDB(id) {
 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function updateNotebookMetadataInDB(id, patch = {}, opts = {}) {
+  return new Promise((resolve, reject) => {
+    if (!db || !id) return resolve(null);
+    const tx = db.transaction('notebooks', 'readwrite');
+    const store = tx.objectStore('notebooks');
+    const req = store.get(id);
+    let updated = null;
+
+    req.onsuccess = () => {
+      const existing = req.result;
+      if (!existing) return;
+      updated = { ...existing };
+      if ('title' in patch) updated.title = String(patch.title || '').trim() || existing.title;
+      if ('coverColor' in patch && patch.coverColor) updated.coverColor = patch.coverColor;
+      if ('folderId' in patch) {
+        updated.folderId = (typeof patch.folderId === 'string' && patch.folderId) ? patch.folderId : null;
+      }
+      if ('isFavorite' in patch) updated.isFavorite = !!patch.isFavorite;
+      if (opts.touchUpdatedAt) {
+        updated.updatedAt = new Date().toISOString();
+      }
+      store.put(updated);
+    };
+
+    tx.oncomplete = () => resolve(updated);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function loadAllFoldersFromDB() {
+  return new Promise((resolve, reject) => {
+    if (!db || !db.objectStoreNames.contains('folders')) return resolve([]);
+    const tx = db.transaction('folders', 'readonly');
+    const req = tx.objectStore('folders').getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export function saveFolderToDB(folder) {
+  return new Promise((resolve, reject) => {
+    if (!db || !folder || !folder.id) return resolve(null);
+    const now = new Date().toISOString();
+    const record = {
+      id: folder.id,
+      name: String(folder.name || 'Nuova Cartella').trim() || 'Nuova Cartella',
+      parentId: (typeof folder.parentId === 'string' && folder.parentId && folder.parentId !== folder.id)
+        ? folder.parentId
+        : null,
+      color: folder.color || '#6366f1',
+      createdAt: folder.createdAt || now,
+      updatedAt: now
+    };
+    const tx = db.transaction('folders', 'readwrite');
+    tx.objectStore('folders').put(record);
+    tx.oncomplete = () => resolve(record);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteLibraryItemsFromDB({
+  folderIds = [],
+  notebookIds = [],
+  deleteFolderContents = true
+} = {}) {
+  return new Promise((resolve, reject) => {
+    if (!db) return resolve({ deletedFolderIds: [], deletedNotebookIds: [] });
+
+    const stores = ['notebooks', 'pageOrders', 'pages'];
+    const hasFoldersStore = db.objectStoreNames.contains('folders');
+    if (hasFoldersStore) stores.push('folders');
+
+    const tx = db.transaction(stores, 'readwrite');
+    const folderStore = hasFoldersStore ? tx.objectStore('folders') : null;
+    const nbStore = tx.objectStore('notebooks');
+    const pageOrdersStore = tx.objectStore('pageOrders');
+    const pagesStore = tx.objectStore('pages');
+
+    const explicitFolderIds = new Set((folderIds || []).filter(Boolean));
+    const explicitNbIds = new Set((notebookIds || []).filter(Boolean));
+
+    const allFoldersReq = folderStore ? folderStore.getAll() : null;
+    const allNbsReq = nbStore.getAll();
+
+    let allFolders = allFoldersReq ? null : [];
+    let allNbs = null;
+    let deletedFolderIds = [];
+    let deletedNotebookIds = [];
+
+    const tryApply = () => {
+      if (allFolders === null || allNbs === null) return;
+
+      const folderMap = new Map(allFolders.filter(f => f && f.id).map(f => [f.id, f]));
+      const foldersToDelete = new Set();
+
+      if (deleteFolderContents) {
+        const queue = [];
+        for (const fid of explicitFolderIds) {
+          if (folderMap.has(fid) && !foldersToDelete.has(fid)) {
+            foldersToDelete.add(fid);
+            queue.push(fid);
+          }
+        }
+        while (queue.length > 0) {
+          const cur = queue.shift();
+          for (const f of allFolders) {
+            if (f && (f.parentId || null) === cur && !foldersToDelete.has(f.id)) {
+              foldersToDelete.add(f.id);
+              queue.push(f.id);
+            }
+          }
+        }
+      } else {
+        for (const fid of explicitFolderIds) {
+          if (folderMap.has(fid)) foldersToDelete.add(fid);
+        }
+      }
+
+      const resolveSurvivingParent = (startParentId) => {
+        const visited = new Set();
+        let cur = startParentId || null;
+        while (cur && !visited.has(cur)) {
+          visited.add(cur);
+          if (!foldersToDelete.has(cur)) return folderMap.has(cur) ? cur : null;
+          const f = folderMap.get(cur);
+          cur = f ? (f.parentId || null) : null;
+        }
+        return null;
+      };
+
+      const nbsToDelete = new Set(explicitNbIds);
+      if (deleteFolderContents) {
+        for (const nb of allNbs) {
+          if (nb && nb.folderId && foldersToDelete.has(nb.folderId)) {
+            nbsToDelete.add(nb.id);
+          }
+        }
+      }
+
+      if (!deleteFolderContents) {
+        const now = new Date().toISOString();
+        for (const f of allFolders) {
+          if (!f || foldersToDelete.has(f.id)) continue;
+          if (f.parentId && foldersToDelete.has(f.parentId)) {
+            folderStore.put({
+              ...f,
+              parentId: resolveSurvivingParent(f.parentId),
+              updatedAt: now
+            });
+          }
+        }
+        for (const nb of allNbs) {
+          if (!nb || nbsToDelete.has(nb.id)) continue;
+          if (nb.folderId && foldersToDelete.has(nb.folderId)) {
+            nbStore.put({
+              ...nb,
+              folderId: resolveSurvivingParent(nb.folderId)
+            });
+          }
+        }
+      }
+
+      for (const fid of foldersToDelete) {
+        folderStore?.delete(fid);
+      }
+
+      for (const nbId of nbsToDelete) {
+        nbStore.delete(nbId);
+        pageOrdersStore.delete(nbId);
+        pagesStore.index('notebookId').openKeyCursor(IDBKeyRange.only(nbId)).onsuccess = (ev) => {
+          const cursor = ev.target.result;
+          if (!cursor) return;
+          pagesStore.delete(cursor.primaryKey);
+          cursor.continue();
+        };
+      }
+
+      deletedFolderIds = Array.from(foldersToDelete);
+      deletedNotebookIds = Array.from(nbsToDelete);
+    };
+
+    if (allFoldersReq) {
+      allFoldersReq.onsuccess = () => { allFolders = allFoldersReq.result || []; tryApply(); };
+    }
+    allNbsReq.onsuccess = () => { allNbs = allNbsReq.result || []; tryApply(); };
+
+    tx.oncomplete = () => resolve({ deletedFolderIds, deletedNotebookIds });
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function deleteFolderFromDB(folderId, { deleteContents = false } = {}) {
+  return deleteLibraryItemsFromDB({
+    folderIds: folderId ? [folderId] : [],
+    deleteFolderContents: deleteContents
   });
 }

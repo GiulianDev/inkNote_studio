@@ -23,14 +23,32 @@ export const DEFAULT_TOOLBAR_SETTINGS = {
   },
   eraserSize: 3,
   eraserMode: 'stroke',
+  lassoMode: 'freehand',
+  lassoSelectInk: true,
+  lassoSelectText: true,
   snapLines: true,
   snapShapes: true,
+  snapCircles: true,
+  snapRectangles: true,
+  snapTriangles: true,
+  snapArrows: true,
   smoothing: 50,
   compactMode: false,
   recentColors: [],
   paperColor: null,
-  patternColor: null
+  patternColor: null,
+  text: {
+    fontFamily: 'sans',
+    fontSize: 18,
+    bold: false,
+    italic: false,
+    align: 'left',
+    color: '#000000'
+  }
 };
+
+const VALID_TEXT_FONTS = ['sans', 'serif', 'mono', 'hand'];
+const VALID_TEXT_ALIGNS = ['left', 'center', 'right'];
 
 export const STROKE_STYLES = ['solid', 'dashed', 'dashed-large', 'dotted', 'dash-dot'];
 
@@ -69,13 +87,21 @@ function _syncRuntime() {
   state.compactMode  = !!_current.compactMode;
   state.eraserSize   = _current.eraserSize;
   state.eraserMode   = _current.eraserMode;
-  state.snapLines    = !!_current.snapLines;
-  state.snapShapes   = !!_current.snapShapes;
+  state.lassoMode       = _current.lassoMode === 'rect' ? 'rect' : 'freehand';
+  state.lassoSelectInk  = _current.lassoSelectInk !== false;
+  state.lassoSelectText = _current.lassoSelectText !== false;
+  state.snapLines      = !!_current.snapLines;
+  state.snapCircles    = !!_current.snapCircles;
+  state.snapRectangles = !!_current.snapRectangles;
+  state.snapTriangles  = !!_current.snapTriangles;
+  state.snapArrows     = !!_current.snapArrows;
+  state.snapShapes     = !!(state.snapCircles || state.snapRectangles || state.snapTriangles || state.snapArrows);
   state.autoShapeEnabled = state.snapLines || state.snapShapes;
   state.activeTool   = _activeTool;
   // Colori foglio (null = default del tema, gestito in render.js)
   state.paperColor   = _current.paperColor   || null;
   state.patternColor = _current.patternColor || null;
+  state.textStyle    = { ..._current.text };
 
   const conf = _current.tools[_activeTool];
   if (conf) {
@@ -132,16 +158,50 @@ function _normalize(raw) {
       merged.snapShapes = raw.autoShapeEnabled;
     }
   }
-  merged.snapLines  = merged.snapLines  !== false;
-  merged.snapShapes = merged.snapShapes !== false;
+  merged.snapLines = merged.snapLines !== false;
 
-  merged.eraserSize   = Math.max(1, Math.min(5, merged.eraserSize || 3));
-  merged.eraserMode   = merged.eraserMode === 'point' ? 'point' : 'stroke';
-  merged.smoothing    = Math.max(0, Math.min(100, merged.smoothing ?? 50));
+  // Migrazione soft: snapShapes → snapCircles / snapRectangles / snapTriangles / snapArrows
+  const hasPerShape = raw && (
+    typeof raw.snapCircles === 'boolean' ||
+    typeof raw.snapRectangles === 'boolean' ||
+    typeof raw.snapTriangles === 'boolean' ||
+    typeof raw.snapArrows === 'boolean'
+  );
+  if (!hasPerShape && raw && typeof raw.snapShapes === 'boolean') {
+    merged.snapCircles    = raw.snapShapes;
+    merged.snapRectangles = raw.snapShapes;
+    merged.snapTriangles  = raw.snapShapes;
+    merged.snapArrows     = raw.snapShapes;
+  } else {
+    merged.snapCircles    = merged.snapCircles    !== false;
+    merged.snapRectangles = merged.snapRectangles !== false;
+    merged.snapTriangles  = merged.snapTriangles  !== false;
+    merged.snapArrows     = merged.snapArrows     !== false;
+  }
+  merged.snapShapes = !!(merged.snapCircles || merged.snapRectangles || merged.snapTriangles || merged.snapArrows);
+
+  merged.eraserSize      = Math.max(1, Math.min(5, merged.eraserSize || 3));
+  merged.eraserMode      = merged.eraserMode === 'point' ? 'point' : 'stroke';
+  merged.lassoMode       = merged.lassoMode === 'rect' ? 'rect' : 'freehand';
+  merged.lassoSelectInk  = merged.lassoSelectInk !== false;
+  merged.lassoSelectText = merged.lassoSelectText !== false;
+  merged.smoothing       = Math.max(0, Math.min(100, merged.smoothing ?? 50));
   merged.recentColors = Array.isArray(merged.recentColors) ? merged.recentColors.slice() : [];
 
   merged.paperColor   = _normalizeHexOrNull(merged.paperColor);
   merged.patternColor = _normalizeHexOrNull(merged.patternColor);
+
+  const rawText = (raw && raw.text) || {};
+  merged.text = {
+    fontFamily: VALID_TEXT_FONTS.includes(rawText.fontFamily) ? rawText.fontFamily : 'sans',
+    fontSize: typeof rawText.fontSize === 'number'
+      ? Math.max(10, Math.min(72, Math.round(rawText.fontSize)))
+      : 18,
+    bold: !!rawText.bold,
+    italic: !!rawText.italic,
+    align: VALID_TEXT_ALIGNS.includes(rawText.align) ? rawText.align : 'left',
+    color: _normalizeHexOrNull(rawText.color) || '#000000'
+  };
 
   delete merged.autoShapeEnabled;
   delete merged.subbarVisible;
@@ -182,10 +242,18 @@ export function getToolbarSettingsForSave() {
   if (!_current) initToolbarSettings(null);
   return {
     tools:        JSON.parse(JSON.stringify(_current.tools)),
-    eraserSize:   _current.eraserSize,
-    eraserMode:   _current.eraserMode,
-    snapLines:    _current.snapLines,
-    snapShapes:   _current.snapShapes,
+    text:         { ..._current.text },
+    eraserSize:     _current.eraserSize,
+    eraserMode:     _current.eraserMode,
+    lassoMode:      _current.lassoMode,
+    lassoSelectInk: _current.lassoSelectInk,
+    lassoSelectText:_current.lassoSelectText,
+    snapLines:      _current.snapLines,
+    snapShapes:     _current.snapShapes,
+    snapCircles:    _current.snapCircles,
+    snapRectangles: _current.snapRectangles,
+    snapTriangles:  _current.snapTriangles,
+    snapArrows:     _current.snapArrows,
     smoothing:    _current.smoothing,
     compactMode:  _current.compactMode,
     recentColors: _current.recentColors.slice(),

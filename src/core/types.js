@@ -24,18 +24,22 @@
 /**
  * Nome di uno strumento selezionabile dalla toolbar.
  * - `pen`, `pencil`, `marker`, `highlighter` → tracciano stroke
+ * - `text` → caselle di testo da tastiera
  * - `lasso` → selezione/editing
  * - `eraser` → cancellazione
  *
- * @typedef {'pen'|'pencil'|'marker'|'highlighter'|'lasso'|'eraser'} ToolName
+ * @typedef {'pen'|'pencil'|'marker'|'highlighter'|'text'|'lasso'|'eraser'} ToolName
  */
 
 /**
  * Sottoinsieme di ToolName che produce uno `Stroke` (tutti tranne
- * lasso ed eraser). Usato nel modello dati.
+ * text, lasso ed eraser). Usato nel modello dati.
  *
  * @typedef {'pen'|'pencil'|'marker'|'highlighter'} StrokeTool
  */
+
+/** @typedef {'sans'|'serif'|'mono'|'hand'} TextFontFamily */
+/** @typedef {'left'|'center'|'right'} TextAlign */
 
 /**
  * Pattern di sfondo della pagina.
@@ -105,12 +109,30 @@
  * @property {string} [_cacheKey]      chiave cache (dpr + tema)
  */
 
+/**
+ * Una casella di testo persistita sulla pagina.
+ *
+ * @typedef {Object} TextBox
+ * @property {string} id
+ * @property {number} x
+ * @property {number} y
+ * @property {number} width
+ * @property {number} height
+ * @property {string} text
+ * @property {TextFontFamily} fontFamily
+ * @property {number} fontSize
+ * @property {boolean} bold
+ * @property {boolean} italic
+ * @property {TextAlign} align
+ * @property {string} color
+ */
+
 // ============================================================
 // PAGE
 // ============================================================
 
 /**
- * Una pagina del notebook (canvas + overlay + stroke).
+ * Una pagina del notebook (canvas + overlay + stroke + textBoxes).
  *
  * @typedef {Object} PageData
  * @property {number} index
@@ -120,6 +142,7 @@
  * @property {HTMLCanvasElement} overlayCanvas
  * @property {CanvasRenderingContext2D} overlayCtx
  * @property {Stroke[]} strokes
+ * @property {TextBox[]} textBoxes
  * @property {number} [dpr]           device pixel ratio canvas principale
  * @property {number} [overlayDpr]    dpr overlay (limitato a 1.5)
  * @property {boolean} [_wasVisible]  cache visibilità (per refreshCanvasResolution)
@@ -137,6 +160,7 @@
  * @typedef {Object} Snapshot
  * @property {number} pageIndex
  * @property {Stroke[]} strokes       copia "pulita" (no cache runtime)
+ * @property {TextBox[]} [textBoxes]  copia caselle di testo
  * @property {BgPattern} bgPattern
  * @property {number} [_hash]         hash stato (per skip se identico)
  */
@@ -185,12 +209,28 @@
  *     vengono inizializzati dal vecchio `autoShapeEnabled`)
  *   - `subbarVisible` rimosso (la subbar non esiste più)
  *
+/**
+ * @typedef {Object} TextToolConfig
+ * @property {TextFontFamily} fontFamily
+ * @property {number} fontSize
+ * @property {boolean} bold
+ * @property {boolean} italic
+ * @property {TextAlign} align
+ * @property {string} color
+ */
+
+/**
  * @typedef {Object} ToolbarSettings
  * @property {Object.<StrokeTool, ToolConfig>} tools
+ * @property {TextToolConfig} [text]
  * @property {number} eraserSize        1..5
  * @property {'stroke'|'point'} eraserMode
  * @property {boolean} snapLines        riconoscimento linee dritte
- * @property {boolean} snapShapes       riconoscimento forme geometriche
+ * @property {boolean} snapShapes       riconoscimento forme geometriche (globale/compat)
+ * @property {boolean} [snapCircles]    riconoscimento cerchi
+ * @property {boolean} [snapRectangles] riconoscimento rettangoli
+ * @property {boolean} [snapTriangles]  riconoscimento triangoli
+ * @property {boolean} [snapArrows]     riconoscimento frecce
  * @property {number} smoothing         0..100
  * @property {boolean} compactMode
  * @property {string[]} recentColors    array di hex

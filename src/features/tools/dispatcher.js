@@ -19,7 +19,7 @@ import {
 import { updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
          beginEraserStroke, moveEraserStroke } from './eraser.js';
 import { clearPredictions } from '../render/prediction.js';
-import { flushHistory, pushHistory, resetHistory } from '../history/history.js';
+import { flushHistory, pushHistory, syncHistoryToPage } from '../history/history.js';
 import { refreshPageCounter, setDockDrawingHidden } from '../toolbar/toolbar.js';
 import { finalizePendingShape } from './shapes.js';
 import { resetScribbleState } from './scribble.js';
@@ -27,14 +27,20 @@ import {
   clearSelection, applyResizeSelection,
   beginLasso, moveLasso, endLasso,
   beginSelectionDrag, moveSelectionDrag, endSelectionDrag,
-  resetSelectionDragState, updateCursorForSelection
+  resetSelectionDragState, updateCursorForSelection,
+  hasLassoSelection, canStartLassoDragOnTouch
 } from './lazo.js';
 import {
   redrawPageCanvas, clearOverlay, redrawSelectionOverlay,
   getStrokeBBoxCanvas, clearOverlayBBox
 } from '../render/render.js';
 import { beginInkStroke, moveInkStroke, endInkStroke } from './ink.js';
+import {
+  beginTextPointer, moveTextPointer, endTextPointer,
+  commitActiveTextBox, canStartTextDragOnTouch, updateCursorForText
+} from './text.js';
 import { scheduleSave } from '../persistence/autosave.js';
+import { markPageDirty } from '../persistence/session.js';
 import { pagePool } from '../editor/page-pool.js';
 
 let _gestureUsedEraser = false;
@@ -65,6 +71,12 @@ export function attachPointerListeners(pageData) {
     if (!pageData.canvas) return;
     handlePointerUp(e, pageData);
   });
+  target.addEventListener('mousedown', (e) => {
+    if (state.activeTool === 'text' && state.editingTextBoxId &&
+        !e.target?.closest?.('.text-box-editor-wrap, #textSelectionMenu')) {
+      e.preventDefault();
+    }
+  });
   target.addEventListener('pointercancel', (e) => {
     if (!pageData.canvas) return;
     handlePointerUp(e, pageData);
@@ -74,6 +86,11 @@ export function attachPointerListeners(pageData) {
 }
 
 export function handlePointerDown(e, pageData) {
+  if (e.target && e.target.closest &&
+      e.target.closest('.text-box-editor-wrap, #textSelectionMenu')) {
+    return;
+  }
+
   const penEraser = isPenEraser(e);
 
   if (penEraser || state.activeTool === 'eraser') {
@@ -82,9 +99,22 @@ export function handlePointerDown(e, pageData) {
     hideEraserCursor();
   }
 
+  const isTextTool = state.activeTool === 'text' && !penEraser;
+  const isLassoTool = state.activeTool === 'lasso' && !penEraser;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || penEraser;
-  if (palmCheck && !isPenLike) return;
+
+  if (isTextTool) {
+    const canTextTouch = e.pointerType === 'touch' &&
+      (state.fingerWriting || canStartTextDragOnTouch(e));
+    if (!isPenLike && e.pointerType !== 'mouse' && !canTextTouch) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+  } else if (isLassoTool && e.pointerType === 'touch' && canStartLassoDragOnTouch(e)) {
+    // Consente spostamento/ridimensionamento selezione lazo con 1 dito
+  } else if (palmCheck && !isPenLike) {
+    return;
+  }
+
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
 
@@ -108,7 +138,7 @@ export function handlePointerDown(e, pageData) {
   invalidateStrokeRect();
 
   const pageChanged = state.activePageIndex !== pageData.index;
-  if (pageChanged && state.selectedStrokes.length > 0) clearSelection();
+  if (pageChanged && hasLassoSelection()) clearSelection();
 
   if (state.pendingShape) finalizePendingShape();
   state.scribbleMode = false;
@@ -116,10 +146,30 @@ export function handlePointerDown(e, pageData) {
   cancelFlush();
 
   clearPredictions(pageData);
+
+  if (isTextTool) {
+    state.activePageIndex = pageData.index;
+    if (pageChanged) syncHistoryToPage();
+    state.currentPointerId = e.pointerId;
+    state.currentPageForPointer = pageData;
+    state._penEraserActive = false;
+    refreshPageCounter();
+    const point = getCanvasCoords(e, pageData.canvas);
+    beginTextPointer(pageData, point);
+    if (state.isDrawing) {
+      try { pageData.wrapper.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    return;
+  }
+
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
+
   try { pageData.wrapper.setPointerCapture(e.pointerId); } catch (err) {}
 
   state.activePageIndex = pageData.index;
-  if (pageChanged) resetHistory();
+  if (pageChanged) syncHistoryToPage();
   state.currentPointerId = e.pointerId;
   state.currentPageForPointer = pageData;
   state._penEraserActive = penEraser;
@@ -147,23 +197,39 @@ export function handlePointerDown(e, pageData) {
 
 export function handlePointerMove(e, pageData) {
   if (!pageData.canvas) return;
+  if (e.target && e.target.closest &&
+      e.target.closest('.text-box-editor-wrap, #textSelectionMenu')) {
+    return;
+  }
 
   if (shouldShowEraserCursor(e)) updateEraserCursor(e, pageData);
   else hideEraserCursor();
 
+  const isTextToolGesture = state.activeTool === 'text' && !state._penEraserActive;
+  const isLassoTouchGesture = state.activeTool === 'lasso' && !state._penEraserActive &&
+    (state.isDraggingSelection || state.isResizingSelection) && e.pointerId === state.currentPointerId;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
-  if (palmCheck && !isPenLike) return;
+  if (!isTextToolGesture && !isLassoTouchGesture && palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
 
   // Fix A.1: ignora hover durante stroke attivo
   if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0 && !(e.pressure > 0)) return;
 
-  if (!state.isDrawing && state.activeTool === 'lasso' && e.pointerType !== 'touch') {
-    updateCursorForSelection(e, pageData);
+  if (!state.isDrawing && e.pointerType !== 'touch') {
+    if (state.activeTool === 'lasso') {
+      updateCursorForSelection(e, pageData);
+    } else if (state.activeTool === 'text') {
+      updateCursorForText(e, pageData);
+    }
   }
   if (!state.isDrawing) return;
   if (e.pointerId !== state.currentPointerId) return;
+
+  if (isTextToolGesture) {
+    moveTextPointer(pageData, e);
+    return;
+  }
 
   if (state.pendingShape) { moveInkStroke(pageData, e); return; }
   if (state.isResizingSelection) { applyResizeSelection(getCanvasCoords(e, pageData.canvas)); return; }
@@ -181,10 +247,24 @@ export function handlePointerMove(e, pageData) {
 export function handlePointerUp(e, pageData) {
   if (!pageData.canvas) return;
 
+  const isTextToolGesture = state.activeTool === 'text' && !state._penEraserActive;
+  const isLassoTouchGesture = state.activeTool === 'lasso' && !state._penEraserActive &&
+    (state.isDraggingSelection || state.isResizingSelection) && e.pointerId === state.currentPointerId;
   const palmCheck = state.palmRejection;
   const isPenLike = e.pointerType === 'pen' || e.pointerType === 'eraser' || state._penEraserActive;
-  if (palmCheck && !isPenLike) return;
+  if (!isTextToolGesture && !isLassoTouchGesture && palmCheck && !isPenLike) return;
   if (e.pointerId !== state.currentPointerId) return;
+
+  if (isTextToolGesture) {
+    try { pageData.wrapper.releasePointerCapture(e.pointerId); } catch (err) {}
+    const wasDraggingText = state.isDrawing;
+    state.isDrawing = false;
+    state.currentPointerId = null;
+    state.currentPageForPointer = null;
+    state._penEraserActive = false;
+    if (wasDraggingText) endTextPointer(pageData);
+    return;
+  }
 
   setDockDrawingHidden(false);
 
@@ -224,11 +304,17 @@ export function handlePointerUp(e, pageData) {
     state.isResizingSelection = false;
     state.resizeHandle = null; state.resizePivot = null;
     state.resizeAnchor = null; state.resizeOffset = null;
-    state.resizeCurrentAngle = 0; state.initialStrokesSnapshot = null;
+    state.resizeCurrentAngle = 0;
+    state.initialStrokesSnapshot = null;
+    state.initialTextBoxesSnapshot = null;
     state.selectionMoved = false;
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
     pageData.canvas.style.cursor = 'crosshair';
-    if (wasMoved) { pushHistory(); scheduleSave(); }
+    if (wasMoved) {
+      if (pageData?.pageId) markPageDirty(pageData.pageId);
+      pushHistory();
+      scheduleSave();
+    }
     resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
   }
@@ -262,6 +348,16 @@ export function abortCurrentDrawing() {
   if (state.pendingShape) finalizePendingShape();
   hideEraserCursor();
   cancelFlush();
+  const currPage = state.currentPageForPointer || state.pages[state.activePageIndex];
+  if (state.activeTool === 'text' && state.isDrawing) {
+    if (state.currentPointerId !== null && state.currentPageForPointer) {
+      try { state.currentPageForPointer.wrapper.releasePointerCapture(state.currentPointerId); } catch (err) {}
+    }
+    state.isDrawing = false;
+    state.currentPointerId = null;
+    state.currentPageForPointer = null;
+    endTextPointer(currPage);
+  }
   if (state.isDrawing || state.currentStroke) {
     if (_gestureUsedEraser) pushHistory();
     if (state.currentPointerId !== null && state.currentPageForPointer) {
@@ -271,8 +367,7 @@ export function abortCurrentDrawing() {
     state.currentStroke = null;
     state.currentPointerId = null;
     state.currentPageForPointer = null;
-    state.lassoPath = [];
-    state.selectedStrokes = [];
+    clearSelection();
     resetScribbleState();
     const curr = state.pages[state.activePageIndex];
     if (curr && curr.canvas) {

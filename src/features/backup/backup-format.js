@@ -6,12 +6,13 @@
  */
 
 import { generatePageId } from '../../core/utils.js';
-import { compressPage, decompressPage } from './serialization-cloud.js';
+import { compressPage, decompressPageBundle } from './serialization-cloud.js';
 
 export const MAGIC = 0x494E4B4E; // "INKN"
+export const FOLDER_TRAILER_MAGIC = 0x464C4452; // "FLDR"
 export const VERSION = 2;
 
-export async function serializeBackup(notebooks, onProgress) {
+export async function serializeBackup(notebooks, onProgress, options = {}) {
   const chunks = [];
   const encoder = new TextEncoder();
 
@@ -42,6 +43,9 @@ export async function serializeBackup(notebooks, onProgress) {
       title: nb.title || '',
       coverColor: nb.coverColor || '#4f46e5',
       pattern: nb.pattern || 'ruled',
+      folderId: (typeof nb.folderId === 'string' && nb.folderId) ? nb.folderId : null,
+      folderPath: (Array.isArray(nb.folderPath) && nb.folderPath.length > 0) ? nb.folderPath : null,
+      isFavorite: !!nb.isFavorite,
       createdAt: nb.createdAt || new Date().toISOString(),
       updatedAt: nb.updatedAt || new Date().toISOString(),
       lastEditAt: nb.lastEditAt || nb.updatedAt || new Date().toISOString(),
@@ -62,7 +66,8 @@ export async function serializeBackup(notebooks, onProgress) {
     for (let i = 0; i < pageCount; i++) {
       const page = nb.pages[i];
       const strokes = (page && page.strokes) || [];
-      const compressed = await compressPage(strokes);
+      const textBoxes = (page && Array.isArray(page.textBoxes)) ? page.textBoxes : [];
+      const compressed = await compressPage(strokes, textBoxes);
 
       const pageHeader = new Uint8Array(8);
       const pageDv = new DataView(pageHeader.buffer);
@@ -76,6 +81,17 @@ export async function serializeBackup(notebooks, onProgress) {
         onProgress({ done: donePages, total: totalPages, notebookTitle: nb.title || '' });
       }
     }
+  }
+
+  const exportFolders = Array.isArray(options.folders) ? options.folders : [];
+  if (exportFolders.length > 0) {
+    const fldBytes = encoder.encode(JSON.stringify(exportFolders));
+    const fldHeader = new Uint8Array(8);
+    const fldDv = new DataView(fldHeader.buffer);
+    fldDv.setUint32(0, FOLDER_TRAILER_MAGIC, false);
+    fldDv.setUint32(4, fldBytes.length, false);
+    chunks.push(fldHeader);
+    chunks.push(fldBytes);
   }
 
   return new Blob(chunks, { type: 'application/octet-stream' });
@@ -116,6 +132,11 @@ export async function deserializeBackup(input, onProgress) {
     }
   }
 
+  if (o + 8 <= bytes.length && dv.getUint32(o, false) === FOLDER_TRAILER_MAGIC) {
+    const fldLen = dv.getUint32(o + 4, false);
+    if (o + 8 + fldLen > bytes.length) throw new Error('File troncato (folders)');
+  }
+
   o = 12;
   let donePages = 0;
   for (let ni = 0; ni < notebookCount; ni++) {
@@ -132,11 +153,11 @@ export async function deserializeBackup(input, onProgress) {
       o += 4;
       const pageLen = dv.getUint32(o, false); o += 4;
       const compressed = bytes.slice(o, o + pageLen); o += pageLen;
-      const strokes = await decompressPage(compressed);
+      const { strokes, textBoxes } = await decompressPageBundle(compressed);
 
       const pageId = (order[pi] && typeof order[pi] === 'string') ? order[pi] : generatePageId();
       normalizedOrder.push(pageId);
-      pages.push({ pageId, strokes });
+      pages.push({ pageId, strokes, textBoxes });
 
       donePages++;
       if (onProgress) {
@@ -152,7 +173,15 @@ export async function deserializeBackup(input, onProgress) {
     });
   }
 
-  return { notebooks };
+  let folders = [];
+  if (o + 8 <= bytes.length && dv.getUint32(o, false) === FOLDER_TRAILER_MAGIC) {
+    const fldLen = dv.getUint32(o + 4, false);
+    const fldBytes = bytes.slice(o + 8, o + 8 + fldLen);
+    const parsed = JSON.parse(decoder.decode(fldBytes));
+    if (Array.isArray(parsed)) folders = parsed;
+  }
+
+  return { notebooks, folders };
 }
 
 export async function peekBackup(input) {
@@ -192,5 +221,15 @@ export async function peekBackup(input) {
     }
   }
 
+  const folders = [];
+  if (o + 8 <= bytes.length && dv.getUint32(o, false) === FOLDER_TRAILER_MAGIC) {
+    const fldLen = dv.getUint32(o + 4, false);
+    if (o + 8 + fldLen > bytes.length) throw new Error('File troncato (folders)');
+    const fldBytes = bytes.slice(o + 8, o + 8 + fldLen);
+    const parsed = JSON.parse(decoder.decode(fldBytes));
+    if (Array.isArray(parsed)) folders.push(...parsed);
+  }
+
+  result.folders = folders;
   return result;
 }

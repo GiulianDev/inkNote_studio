@@ -3,8 +3,7 @@
  *
  * FEATURE TOOLBAR v2.3 — mainbar + dock contestuali + colori foglio
  *                          + drag&drop mainbar (long-press)
- *                          + stile tratto (solid/dashed/dotted/dash-dot)
- *                          + toggle sidebar pagine.
+ *                          + stile tratto (solid/dashed/dotted/dash-dot).
  *
  * Interazione mainbar:
  *   - Long-press (450ms) su un .main-menu-btn → drag mode
@@ -25,17 +24,30 @@ import './toolbar.css';
 import toolbarHtml from './toolbar.html?raw';
 
 import { state } from '../../core/state.js';
-import { showToast, hexToRgbA } from '../../core/utils.js';
+import { showToast, hexToRgbA, on } from '../../core/utils.js';
 import {
   updateSettings, getSettings, onSettingsChanged, MAIN_MENU_IDS
 } from '../../core/app-settings.js';
 import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
-  updateToolbarSettings, getEraserRadius, STROKE_STYLES
+  updateToolbarSettings, getEraserRadius, STROKE_STYLES,
+  onToolbarSettingsChanged
 } from './toolbar-settings.js';
 import { changeBackgroundPattern } from '../editor/pages.js';
 import { redrawPageCanvas } from '../render/render.js';
-import { clearSelection } from '../tools/lazo.js';
+import {
+  clearSelection, hasLassoSelection, hasLassoClipboard,
+  copySelection, cutSelection, pasteSelection, duplicateSelection, deleteSelection
+} from '../tools/lazo.js';
+import {
+  getActiveTextStyle, getActiveTextBox, applyTextStylePatch,
+  editSelectedTextBox, deleteSelectedTextBox, clearTextBoxSelection,
+  refocusActiveTextEditorIfEditing, refreshActiveTextEditorTheme
+} from '../tools/text.js';
+import {
+  createDockAutoHideController,
+  DEFAULT_WRITING_INACTIVITY_MS
+} from './dock-autohide.js';
 
 let _mounted = false;
 let _hintShownThisSession = false;
@@ -44,16 +56,24 @@ let _hintShownThisSession = false;
 // MENU CONTESTUALE (runtime-only)
 // ============================================================
 
-/** @type {'writing'|'selection'|'shapes'|'eraser'|'page'} */
+/** @type {'writing'|'text'|'selection'|'shapes'|'eraser'|'page'} */
 let _mainMenu = 'writing';
 let _dockCollapsed = false;
-let _isDockDrawingHidden = false;
+
+const _dockAutoHide = createDockAutoHideController({
+  inactivityDelayMs: DEFAULT_WRITING_INACTIVITY_MS,
+  enabled: false,
+  onVisibilityChange: (hidden) => {
+    document.body.classList.toggle('dock-auto-hidden', hidden);
+  }
+});
 
 const WRITING_TOOLS = ['pen', 'pencil', 'marker', 'highlighter'];
 const STYLE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
 
 const MENU_TO_DEFAULT_TOOL = {
   writing:   'pen',
+  text:      'text',
   selection: 'lasso',
   shapes:    null,
   eraser:    'eraser',
@@ -62,6 +82,7 @@ const MENU_TO_DEFAULT_TOOL = {
 
 const MENU_META = {
   writing:   { icon: '🖊️', label: 'Scrittura' },
+  text:      { icon: '🔤', label: 'Testo' },
   selection: { icon: '✂️', label: 'Selezione' },
   shapes:    { icon: '◻️', label: 'Forme' },
   eraser:    { icon: '🧹', label: 'Gomma' },
@@ -88,6 +109,7 @@ export function mountToolbar() {
   _setupMainMenuDrag();
   _setMainMenu('writing', { silent: true });
   applyMainMenuOrderToUI();
+  _dockAutoHide.setEnabled(!!getSettings().autoHideDock);
 
   onSettingsChanged(({ changed }) => {
     if (changed.includes('mainMenuOrder') || changed.includes('mainMenuHidden')) {
@@ -96,10 +118,44 @@ export function mountToolbar() {
     }
     if (changed.includes('theme') || changed.includes('theme.effective')) {
       applyPageColorsToUI();
+      refreshActiveTextEditorTheme();
     }
     if (changed.includes('autoHideDock') && !getSettings().autoHideDock) {
-      setDockDrawingHidden(false);
+      setDockDrawingHidden(false, { immediate: true });
     }
+  });
+
+  onToolbarSettingsChanged(({ changed }) => {
+    if (changed.includes('init') || changed.includes('reset')) {
+      _syncToolbarModeToActiveTool();
+      return;
+    }
+    if (changed.includes('text')) {
+      applyTextControlsToUI();
+    }
+    if (changed.includes('lassoMode') || changed.includes('lassoSelectInk') || changed.includes('lassoSelectText')) {
+      applyLassoControlsToUI();
+    }
+  });
+
+  window.addEventListener('inknote:text-selection-changed', () => {
+    applyTextControlsToUI();
+  });
+
+  window.addEventListener('inknote:selection-changed', (e) => {
+    if (e.detail && e.detail.activateLasso && state.activeTool !== 'lasso') {
+      _activateLassoKeepingSelection();
+    } else {
+      applyLassoControlsToUI();
+    }
+  });
+
+  window.addEventListener('blur', () => {
+    setDockDrawingHidden(false, { immediate: true });
+  });
+
+  on('history:restore', () => {
+    applyBgPatternToUI();
   });
 
   _mounted = true;
@@ -342,24 +398,115 @@ export function setMainMenu(menu, opts = {}) {
   _setMainMenu(menu, opts);
 }
 
-export function setDockDrawingHidden(hidden) {
-  const next = !!hidden && !!state.settings?.autoHideDock;
-  if (next === _isDockDrawingHidden) return;
-  _isDockDrawingHidden = next;
-  document.body.classList.toggle('dock-auto-hidden', next);
+/**
+ * Gestisce la visibilità del dock durante la scrittura (autoHideDock) tramite
+ * buffer a stati (`idle` → `writing` → `buffering` → `idle`).
+ * Il dock riappare solo se l'attività di scrittura resta inattiva in modo
+ * continuativo, oppure subito passando `{ immediate: true }`.
+ */
+export function setDockDrawingHidden(hidden, { immediate = false } = {}) {
+  const autoHideEnabled = !!state.settings?.autoHideDock;
+  _dockAutoHide.setEnabled(autoHideEnabled);
+
+  if (hidden && autoHideEnabled) {
+    _dockAutoHide.beginWriting();
+    return;
+  }
+
+  if (immediate || !autoHideEnabled) {
+    _dockAutoHide.revealNow();
+    return;
+  }
+
+  _dockAutoHide.endWriting();
+}
+
+const TOOL_TO_MENU = {
+  pen: 'writing',
+  pencil: 'writing',
+  marker: 'writing',
+  highlighter: 'writing',
+  text: 'text',
+  lasso: 'selection',
+  eraser: 'eraser'
+};
+
+function _syncPageCursorsForActiveTool() {
+  const nextCursor = state.activeTool === 'text' ? 'text' : 'crosshair';
+  state.pages.forEach(p => {
+    if (p && p.canvas) p.canvas.style.cursor = nextCursor;
+  });
+}
+
+function _syncToolbarModeToActiveTool() {
+  _mainMenu = TOOL_TO_MENU[state.activeTool] || 'writing';
+  _dockCollapsed = false;
+  setDockDrawingHidden(false, { immediate: true });
+  hidePagePopover();
+  _applyMenuToDOM();
+  applyMainMenuOrderToUI();
+
+  document.querySelectorAll('.main-menu-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.menu === _mainMenu);
+  });
+
+  applyActiveToolToUI();
+  applySnapTogglesToUI();
+  applyEraserLevelToUI();
+  applyStrokeStyleToUI();
+  applyTextControlsToUI();
+  applyLassoControlsToUI();
+  applyPageColorsToUI();
+  _syncPageCursorsForActiveTool();
+}
+
+function _activateLassoKeepingSelection() {
+  if (state.activeTool === 'text') {
+    clearTextBoxSelection();
+  }
+  updateToolbarSettings({ activeTool: 'lasso' });
+  _mainMenu = 'selection';
+  _dockCollapsed = false;
+  setDockDrawingHidden(false, { immediate: true });
+  _applyMenuToDOM();
+  applyMainMenuOrderToUI();
+
+  document.querySelectorAll('.main-menu-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.menu === _mainMenu);
+  });
+
+  applyActiveToolToUI();
+  applyEraserLevelToUI();
+  applyStrokeStyleToUI();
+  applyTextControlsToUI();
+  applyLassoControlsToUI();
+  _syncPageCursorsForActiveTool();
+
+  document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: 'lasso' } }));
 }
 
 function _setMainMenu(menu, opts = {}) {
   if (!MAIN_MENU_IDS.includes(menu)) return;
 
+  const wasDrawingHidden = _dockAutoHide.isHidden();
+  if (!opts.silent) {
+    setDockDrawingHidden(false, { immediate: true });
+  }
+
   if (opts.toggle && menu === _mainMenu) {
-    _dockCollapsed = !_dockCollapsed;
+    _dockCollapsed = wasDrawingHidden ? false : !_dockCollapsed;
   } else {
     _dockCollapsed = false;
   }
 
   const defaultTool = MENU_TO_DEFAULT_TOOL[menu];
   if (defaultTool && state.activeTool !== defaultTool) {
+    if (state.activeTool === 'text' && defaultTool !== 'text') {
+      clearTextBoxSelection();
+    }
+    if (state.activeTool === 'lasso' && defaultTool !== 'lasso') {
+      clearSelection();
+    }
     updateToolbarSettings({ activeTool: defaultTool });
   }
 
@@ -382,12 +529,16 @@ function _setMainMenu(menu, opts = {}) {
     applySnapTogglesToUI();
     applyEraserLevelToUI();
     applyStrokeStyleToUI();
+    applyTextControlsToUI();
+    applyLassoControlsToUI();
+    _syncPageCursorsForActiveTool();
   }
 }
 
 function _applyMenuToDOM() {
   const docks = {
     writing:   document.getElementById('dockWriting'),
+    text:      document.getElementById('dockText'),
     selection: document.getElementById('dockSelection'),
     shapes:    document.getElementById('dockShapes'),
     eraser:    document.getElementById('dockEraser')
@@ -404,11 +555,16 @@ function _applyMenuToDOM() {
 // ============================================================
 
 export function setTool(toolName) {
+  if (state.activeTool === 'text' && toolName !== 'text') {
+    clearTextBoxSelection();
+  }
   updateToolbarSettings({ activeTool: toolName });
   clearSelection();
 
   if (WRITING_TOOLS.includes(toolName)) {
     _mainMenu = 'writing';
+  } else if (toolName === 'text') {
+    _mainMenu = 'text';
   } else if (toolName === 'lasso') {
     _mainMenu = 'selection';
   } else if (toolName === 'eraser') {
@@ -416,6 +572,7 @@ export function setTool(toolName) {
   }
 
   _dockCollapsed = false;
+  setDockDrawingHidden(false, { immediate: true });
   _applyMenuToDOM();
   applyMainMenuOrderToUI();
 
@@ -436,12 +593,23 @@ export function setTool(toolName) {
   // La riga "Stile" va aggiornata/nascosta anche per eraser/lasso,
   // dove applyActiveToolToUI fa return early. Chiamata esplicita.
   applyStrokeStyleToUI();
+  applyTextControlsToUI();
+  applyLassoControlsToUI();
+  _syncPageCursorsForActiveTool();
 
   document.dispatchEvent(new CustomEvent('inknote:tool-changed', { detail: { tool: toolName } }));
 }
 
 export function applyActiveToolToUI() {
-  if (state.activeTool === 'eraser' || state.activeTool === 'lasso') return;
+  document.querySelectorAll('.tool-btn').forEach(btn => {
+    btn.classList.remove('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  });
+  const activeBtn = document.getElementById(`btnTool-${state.activeTool}`);
+  if (activeBtn) {
+    activeBtn.classList.add('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
+  }
+
+  if (state.activeTool === 'eraser' || state.activeTool === 'lasso' || state.activeTool === 'text') return;
 
   const conf = getActiveToolConfig();
   const swatch = document.querySelector(`.color-swatch[data-color="${conf.color}"]`);
@@ -595,9 +763,56 @@ export function toggleSnapLines() {
   );
 }
 
+export function toggleSnapCircles() {
+  const next = !getToolbarSettings().snapCircles;
+  updateToolbarSettings({ snapCircles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Cerchi: riconoscimento attivo' : 'Cerchi: riconoscimento disattivato',
+    next ? '⭕' : '🚫'
+  );
+}
+
+export function toggleSnapRectangles() {
+  const next = !getToolbarSettings().snapRectangles;
+  updateToolbarSettings({ snapRectangles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Rettangoli: riconoscimento attivo' : 'Rettangoli: riconoscimento disattivato',
+    next ? '⬛' : '🚫'
+  );
+}
+
+export function toggleSnapTriangles() {
+  const next = !getToolbarSettings().snapTriangles;
+  updateToolbarSettings({ snapTriangles: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Triangoli: riconoscimento attivo' : 'Triangoli: riconoscimento disattivato',
+    next ? '🔺' : '🚫'
+  );
+}
+
+export function toggleSnapArrows() {
+  const next = !getToolbarSettings().snapArrows;
+  updateToolbarSettings({ snapArrows: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Frecce: riconoscimento attivo' : 'Frecce: riconoscimento disattivato',
+    next ? '➡️' : '🚫'
+  );
+}
+
 export function toggleSnapShapes() {
-  const next = !getToolbarSettings().snapShapes;
-  updateToolbarSettings({ snapShapes: next });
+  const s = getToolbarSettings();
+  const next = !(s.snapCircles || s.snapRectangles || s.snapTriangles || s.snapArrows);
+  updateToolbarSettings({
+    snapShapes: next,
+    snapCircles: next,
+    snapRectangles: next,
+    snapTriangles: next,
+    snapArrows: next
+  });
   applySnapTogglesToUI();
   showToast(
     next ? 'Forme geometriche: riconoscimento attivo' : 'Forme geometriche: riconoscimento disattivato',
@@ -608,9 +823,15 @@ export function toggleSnapShapes() {
 export function applySnapTogglesToUI() {
   const s = getToolbarSettings();
   const linesEl = document.getElementById('snapLinesToggle');
-  const shapesEl = document.getElementById('snapShapesToggle');
-  if (linesEl)  linesEl.checked  = s.snapLines !== false;
-  if (shapesEl) shapesEl.checked = s.snapShapes !== false;
+  const circlesEl = document.getElementById('snapCirclesToggle');
+  const rectsEl = document.getElementById('snapRectanglesToggle');
+  const trianglesEl = document.getElementById('snapTrianglesToggle');
+  const arrowsEl = document.getElementById('snapArrowsToggle');
+  if (linesEl)     linesEl.checked     = s.snapLines !== false;
+  if (circlesEl)   circlesEl.checked   = s.snapCircles !== false;
+  if (rectsEl)     rectsEl.checked     = s.snapRectangles !== false;
+  if (trianglesEl) trianglesEl.checked = s.snapTriangles !== false;
+  if (arrowsEl)    arrowsEl.checked    = s.snapArrows !== false;
 }
 
 // ============================================================
@@ -895,8 +1116,14 @@ function _setupDockButtons() {
 
   document.getElementById('snapLinesToggle')
     ?.addEventListener('change', toggleSnapLines);
-  document.getElementById('snapShapesToggle')
-    ?.addEventListener('change', toggleSnapShapes);
+  document.getElementById('snapCirclesToggle')
+    ?.addEventListener('change', toggleSnapCircles);
+  document.getElementById('snapRectanglesToggle')
+    ?.addEventListener('change', toggleSnapRectangles);
+  document.getElementById('snapTrianglesToggle')
+    ?.addEventListener('change', toggleSnapTriangles);
+  document.getElementById('snapArrowsToggle')
+    ?.addEventListener('change', toggleSnapArrows);
 
   document.getElementById('opacityBtn')
     ?.addEventListener('click', (e) => {
@@ -911,6 +1138,207 @@ function _setupDockButtons() {
       updateStrokeStyle(btn.dataset.style);
     });
   });
+
+  _setupTextDockControls();
+  _setupSelectionDockControls();
+}
+
+// ============================================================
+// DOCK TESTO
+// ============================================================
+
+const TEXT_SIZE_PRESETS = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60];
+
+function _setupTextDockControls() {
+  const dock = document.getElementById('dockText');
+  if (!dock) return;
+
+  // Evita che i click sui pulsanti rubino il focus durante la digitazione
+  dock.addEventListener('pointerdown', (e) => {
+    const tag = e.target && e.target.tagName;
+    if (tag !== 'SELECT' && tag !== 'OPTION' && tag !== 'INPUT') {
+      e.preventDefault();
+    }
+  });
+
+  document.getElementById('textFontSelect')?.addEventListener('change', (e) => {
+    applyTextStylePatch({ fontFamily: e.target.value });
+    refocusActiveTextEditorIfEditing();
+  });
+
+  document.getElementById('textSizeSelect')?.addEventListener('change', (e) => {
+    const val = parseInt(e.target.value, 10);
+    if (!Number.isNaN(val)) applyTextStylePatch({ fontSize: val });
+    refocusActiveTextEditorIfEditing();
+  });
+
+  document.getElementById('textSizeDecBtn')?.addEventListener('click', () => {
+    const cur = getActiveTextStyle().fontSize || 18;
+    const next = Math.max(10, cur - 2);
+    applyTextStylePatch({ fontSize: next });
+  });
+
+  document.getElementById('textSizeIncBtn')?.addEventListener('click', () => {
+    const cur = getActiveTextStyle().fontSize || 18;
+    const next = Math.min(72, cur + 2);
+    applyTextStylePatch({ fontSize: next });
+  });
+
+  document.getElementById('textBoldBtn')?.addEventListener('click', () => {
+    const cur = getActiveTextStyle();
+    applyTextStylePatch({ bold: !cur.bold });
+  });
+
+  document.getElementById('textItalicBtn')?.addEventListener('click', () => {
+    const cur = getActiveTextStyle();
+    applyTextStylePatch({ italic: !cur.italic });
+  });
+
+  dock.querySelectorAll('.text-align-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      applyTextStylePatch({ align: btn.dataset.align });
+    });
+  });
+
+  dock.querySelectorAll('.text-color-swatch').forEach(swatch => {
+    swatch.addEventListener('click', () => {
+      applyTextStylePatch({ color: swatch.dataset.color });
+    });
+  });
+
+  document.getElementById('textCustomColorPicker')?.addEventListener('input', (e) => {
+    applyTextStylePatch({ color: e.target.value });
+  });
+
+  document.getElementById('textEditBtn')?.addEventListener('click', () => {
+    editSelectedTextBox();
+  });
+
+  document.getElementById('textDeleteBtn')?.addEventListener('click', () => {
+    deleteSelectedTextBox();
+  });
+
+  applyTextControlsToUI();
+}
+
+export function applyTextControlsToUI() {
+  const style = getActiveTextStyle();
+  const fontSel = document.getElementById('textFontSelect');
+  if (fontSel) fontSel.value = style.fontFamily || 'sans';
+
+  const sizeSel = document.getElementById('textSizeSelect');
+  if (sizeSel) {
+    const sz = Math.round(style.fontSize || 18);
+    if (!TEXT_SIZE_PRESETS.includes(sz)) {
+      let customOpt = sizeSel.querySelector('option[data-custom="1"]');
+      if (!customOpt) {
+        customOpt = document.createElement('option');
+        customOpt.dataset.custom = '1';
+        sizeSel.appendChild(customOpt);
+      }
+      customOpt.value = String(sz);
+      customOpt.textContent = String(sz);
+    }
+    sizeSel.value = String(sz);
+  }
+
+  document.getElementById('textBoldBtn')?.classList.toggle('active', !!style.bold);
+  document.getElementById('textItalicBtn')?.classList.toggle('active', !!style.italic);
+
+  document.querySelectorAll('.text-align-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.align === (style.align || 'left'));
+  });
+
+  const colorLower = (style.color || '#000000').toLowerCase();
+  document.querySelectorAll('.text-color-swatch').forEach(el => {
+    const match = (el.dataset.color || '').toLowerCase() === colorLower;
+    el.classList.toggle('ring-2', match);
+    el.classList.toggle('ring-indigo-500', match);
+    el.classList.toggle('scale-105', match);
+  });
+
+  const customColor = document.getElementById('textCustomColorPicker');
+  if (customColor) customColor.value = style.color || '#000000';
+
+  const activeBox = getActiveTextBox();
+  const hasBox = !!(activeBox && activeBox.textBox);
+  const editBtn = document.getElementById('textEditBtn');
+  const delBtn = document.getElementById('textDeleteBtn');
+  if (editBtn) editBtn.disabled = !hasBox || !!state.editingTextBoxId;
+  if (delBtn) delBtn.disabled = !hasBox;
+}
+
+// ============================================================
+// DOCK SELEZIONE (#dockSelection)
+// ============================================================
+
+function _setupSelectionDockControls() {
+  const dock = document.getElementById('dockSelection');
+  if (!dock) return;
+
+  dock.querySelectorAll('.lasso-mode-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mode = btn.dataset.lassoMode === 'rect' ? 'rect' : 'freehand';
+      updateToolbarSettings({ lassoMode: mode });
+      applyLassoControlsToUI();
+    });
+  });
+
+  document.getElementById('lassoFilterInk')?.addEventListener('change', (e) => {
+    const nextInk = !!e.target.checked;
+    if (!nextInk && state.lassoSelectText === false) {
+      updateToolbarSettings({ lassoSelectInk: false, lassoSelectText: true });
+    } else {
+      updateToolbarSettings({ lassoSelectInk: nextInk });
+    }
+    applyLassoControlsToUI();
+  });
+
+  document.getElementById('lassoFilterText')?.addEventListener('change', (e) => {
+    const nextText = !!e.target.checked;
+    if (!nextText && state.lassoSelectInk === false) {
+      updateToolbarSettings({ lassoSelectInk: true, lassoSelectText: false });
+    } else {
+      updateToolbarSettings({ lassoSelectText: nextText });
+    }
+    applyLassoControlsToUI();
+  });
+
+  document.getElementById('lassoCopyBtn')?.addEventListener('click', () => copySelection());
+  document.getElementById('lassoCutBtn')?.addEventListener('click', () => cutSelection());
+  document.getElementById('lassoPasteBtn')?.addEventListener('click', () => pasteSelection());
+  document.getElementById('lassoDuplicateBtn')?.addEventListener('click', () => duplicateSelection());
+  document.getElementById('lassoDeleteBtn')?.addEventListener('click', () => deleteSelection());
+
+  applyLassoControlsToUI();
+}
+
+export function applyLassoControlsToUI() {
+  const mode = state.lassoMode === 'rect' ? 'rect' : 'freehand';
+  document.querySelectorAll('.lasso-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lassoMode === mode);
+  });
+
+  const inkEl = document.getElementById('lassoFilterInk');
+  const textEl = document.getElementById('lassoFilterText');
+  if (inkEl) inkEl.checked = state.lassoSelectInk !== false;
+  if (textEl) textEl.checked = state.lassoSelectText !== false;
+
+  const hasSel = hasLassoSelection();
+  const hasClip = hasLassoClipboard();
+
+  const copyBtn = document.getElementById('lassoCopyBtn');
+  const cutBtn = document.getElementById('lassoCutBtn');
+  const pasteBtn = document.getElementById('lassoPasteBtn');
+  const dupBtn = document.getElementById('lassoDuplicateBtn');
+  const delBtn = document.getElementById('lassoDeleteBtn');
+
+  if (copyBtn) copyBtn.disabled = !hasSel;
+  if (cutBtn) cutBtn.disabled = !hasSel;
+  if (dupBtn) dupBtn.disabled = !hasSel;
+  if (delBtn) delBtn.disabled = !hasSel;
+  if (pasteBtn) pasteBtn.disabled = !hasClip;
 }
 
 // ============================================================

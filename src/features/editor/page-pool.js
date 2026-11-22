@@ -10,6 +10,7 @@
 import { state } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
+import { hasLassoSelection } from '../tools/lazo.js';
 
 const POOL_SIZE = 5;
 const POOL_RADIUS = 2;
@@ -226,7 +227,7 @@ function _resizeSlot(slot, page) {
   page.ctx = slot.ctx;
   page.overlayCtx = slot.overlayCtx;
   redrawPageCanvas(page);
-  if (page.index === state.activePageIndex && state.selectedStrokes.length > 0) {
+  if (page.index === state.activePageIndex && hasLassoSelection()) {
     redrawSelectionOverlay(page);
   }
 }

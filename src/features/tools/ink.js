@@ -5,7 +5,7 @@
  */
 
 import { state } from '../../core/state.js';
-import { SHAPE_CAPABLE_TOOLS, showToast } from '../../core/utils.js';
+import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
   drawDotOnly, renderFullStroke,
@@ -111,6 +111,13 @@ export function endInkStroke(pageData) {
   const stroke = state.currentStroke;
   const pts = stroke.points;
 
+  const isHL = stroke.tool === 'highlighter';
+  const pad = isHL
+    ? Math.max(24, (stroke.size * 2) + 8)
+    : 24;
+  const origBBox = getStrokeBBoxCanvas(stroke, pad);
+
+  const extraStrokes = [];
   let snapped = false;
   if (pts.length > 2) {
     if (state.activeTool === 'highlighter') {
@@ -124,21 +131,27 @@ export function endInkStroke(pageData) {
       if (state.snapLines && heldMs >= LINE_HOLD_RELEASE_MIN_MS && trySnapToLine(stroke)) {
         showToast('Linea agganciata', '📏');
         snapped = true;
-      } else if (state.snapShapes && detectAndSnapShape(stroke, pageData)) {
+      } else if (state.snapShapes && detectAndSnapShape(stroke, pageData, extraStrokes)) {
         snapped = true;
       }
     }
   }
 
   pageData.strokes.push(stroke);
-  _renderFinalStroke(pageData, stroke, snapped);
+  for (let i = 0; i < extraStrokes.length; i++) {
+    pageData.strokes.push(extraStrokes[i]);
+  }
+  _renderFinalStroke(pageData, stroke, snapped, snapped ? origBBox : null);
+  for (let i = 0; i < extraStrokes.length; i++) {
+    _renderFinalStroke(pageData, extraStrokes[i], true);
+  }
   scheduleSave();
   pushHistory();
   state.currentStroke = null;
   return 'ink';
 }
 
-function _renderFinalStroke(pageData, stroke, snapped) {
+function _renderFinalStroke(pageData, stroke, snapped, extraClearBBox = null) {
   if (pageData.overlayCanvas) {
     pageData.overlayCanvas.style.opacity = '';
     pageData.overlayCanvas.style.mixBlendMode = '';
@@ -159,6 +172,7 @@ function _renderFinalStroke(pageData, stroke, snapped) {
       renderFullStroke(pctx, stroke, state.isDarkMode);
     }
     pctx.restore();
+    if (extraClearBBox) clearOverlayBBox(pageData, extraClearBBox);
     clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke, pad));
     return;
   }
@@ -168,7 +182,7 @@ function _renderFinalStroke(pageData, stroke, snapped) {
   if (isHL) {
     blitAndClearBBox(pageData, bbox, {
       alpha: opacity,
-      compositeOp: state.isDarkMode ? 'screen' : 'multiply'
+      compositeOp: isPaperDark(state.isDarkMode, state.paperColor) ? 'screen' : 'multiply'
     });
   } else {
     blitAndClearBBox(pageData, bbox, {

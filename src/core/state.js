@@ -57,15 +57,17 @@
  * @property {HTMLCanvasElement} overlayCanvas
  * @property {CanvasRenderingContext2D} overlayCtx
  * @property {Stroke[]} strokes
+ * @property {Array} textBoxes
  * @property {number} [dpr]
  * @property {boolean} [_wasVisible]
- * @property {number} [overlayDpr]  DPR usata per l'overlay (limitata a 2)
+ * @property {number} [overlayDpr]  DPR usata per l'overlay (limitato a 2)
  */
 
 /**
  * @typedef {Object} Snapshot
  * @property {number} pageIndex
  * @property {Stroke[]} strokes
+ * @property {Array} [textBoxes]
  * @property {string} bgPattern
  */
 
@@ -84,8 +86,17 @@ export const state = {
   settings: null,
 
   // --- Tool corrente (cache, vedi features/toolbar/toolbar-settings.js) ---
-  /** @type {'pen'|'pencil'|'marker'|'highlighter'|'lasso'|'eraser'} */
+  /** @type {'pen'|'pencil'|'marker'|'highlighter'|'text'|'lasso'|'eraser'} */
   activeTool: 'pen',
+  /** @type {{fontFamily:string, fontSize:number, bold:boolean, italic:boolean, align:string, color:string}} */
+  textStyle: {
+    fontFamily: 'sans',
+    fontSize: 18,
+    bold: false,
+    italic: false,
+    align: 'left',
+    color: '#000000'
+  },
   /** @type {string} hex */
   currentColor: '#000000',
   /** @type {number} 1..25 */
@@ -98,9 +109,23 @@ export const state = {
   eraserSize: 3,
   /** @type {'stroke'|'point'} modalità gomma */
   eraserMode: 'stroke',
+  /** @type {'freehand'|'rect'} modalità selezione lazo */
+  lassoMode: 'freehand',
+  /** @type {boolean} seleziona tratti inchiostro col lazo */
+  lassoSelectInk: true,
+  /** @type {boolean} seleziona caselle di testo col lazo */
+  lassoSelectText: true,
   /** @type {boolean} riconoscimento linee dritte (auto-shape) */
   snapLines: true,
-  /** @type {boolean} riconoscimento forme geometriche (cerchio/rettangolo/highlighter) */
+  /** @type {boolean} riconoscimento cerchi */
+  snapCircles: true,
+  /** @type {boolean} riconoscimento rettangoli */
+  snapRectangles: true,
+  /** @type {boolean} riconoscimento triangoli */
+  snapTriangles: true,
+  /** @type {boolean} riconoscimento frecce (1 tratto e punta a V su linea) */
+  snapArrows: true,
+  /** @type {boolean} riconoscimento forme geometriche (true se almeno una forma è attiva) */
   snapShapes: true,
   /**
    * @deprecated Usare snapLines / snapShapes.
@@ -159,6 +184,8 @@ export const state = {
   lassoPath: [],
   /** @type {Stroke[]} */
   selectedStrokes: [],
+  /** @type {Array<object>} */
+  selectedTextBoxes: [],
   /** @type {boolean} */
   isDraggingSelection: false,
   /** @type {Point|null} */
@@ -185,6 +212,8 @@ export const state = {
   resizeCurrentAngle: 0,
   /** @type {Array<{color:string, size:number, tool:string, points:Point[]}>|null} */
   initialStrokesSnapshot: null,
+  /** @type {Array<{x:number, y:number, width:number, fontSize:number, height:number}>|null} */
+  initialTextBoxesSnapshot: null,
 
   // --- Scribble-to-erase ---
   /** @type {boolean} */
@@ -199,6 +228,14 @@ export const state = {
    * @type {{start:Point, end:Point, tool:string, color:string, size:number, activeHandle:'start'|'end'}|null}
    */
   pendingShape: null,
+
+  // --- Caselle di testo ---
+  /** @type {string|null} */
+  selectedTextBoxId: null,
+  /** @type {string|null} */
+  editingTextBoxId: null,
+  /** @type {string|null} */
+  _draggingTextBoxId: null,
 
   // --- UI flags globali ---
   /** @type {boolean} */

@@ -54,6 +54,8 @@ export function openSettingsModal() {
   _setValue('settingPagesSidebarPosition', s.pagesSidebar?.position || 'left');
   const autoHideEl = document.getElementById('settingAutoHideDock');
   if (autoHideEl) autoHideEl.checked = !!s.autoHideDock;
+  const libTextEl = document.getElementById('settingLibraryShowTextBelow');
+  if (libTextEl) libTextEl.checked = !!s.libraryShowTextBelow;
   _setValue('pressureLightSlider',     s.pressureLight);
   _setValue('pressureHeavySlider',     s.pressureHeavy);
   _setValue('pressureCurveSlider',     s.pressureCurve);
@@ -90,8 +92,10 @@ export function confirmSettings() {
   const dockSize     = _getValue('settingDockSize')   ?? getSettings().dockSize;
   const autoHideEl   = document.getElementById('settingAutoHideDock');
   const autoHideDock = autoHideEl ? !!autoHideEl.checked : !!getSettings().autoHideDock;
+  const libTextEl    = document.getElementById('settingLibraryShowTextBelow');
+  const libraryShowTextBelow = libTextEl ? !!libTextEl.checked : !!getSettings().libraryShowTextBelow;
 
-  updateSettings({ printTheme, handedness, dockSize, autoHideDock }, { persist: true });
+  updateSettings({ printTheme, handedness, dockSize, autoHideDock, libraryShowTextBelow }, { persist: true });
 
   _draftSnapshot = null;
   _isOpen = false;
@@ -142,6 +146,11 @@ function _bindAll() {
   document.getElementById('settingAutoHideDock')
     ?.addEventListener('change', (e) => {
       updateSettings({ autoHideDock: !!e.target.checked }, { persist: false });
+    });
+
+  document.getElementById('settingLibraryShowTextBelow')
+    ?.addEventListener('change', (e) => {
+      updateSettings({ libraryShowTextBelow: !!e.target.checked }, { persist: false });
     });
 
   ['pressureLightSlider', 'pressureHeavySlider', 'pressureCurveSlider'].forEach(id => {

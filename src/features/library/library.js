@@ -1,149 +1,179 @@
 // ============================================================
-// LIBRERIA QUADERNI + BACKUP EXPORT/IMPORT
+// LIBRERIA QUADERNI + CARTELLE + RICERCA + ORDINAMENTO + PREFERITI
 // ============================================================
 
 import { escapeHtml, showToast, showConfirmDialog, on, generatePageId } from '../../core/utils.js';
-import { loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB, loadNotebookWithPages } from '../../services/db.js';
+import { getSettings, updateSettings, onSettingsChanged } from '../../core/app-settings.js';
 import {
-  signInWithGoogle, signOutGoogle, onAuthChange
-} from '../../services/firebase.js';
-import { authState } from '../../core/state.js';
+  loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB, loadNotebookWithPages,
+  updateNotebookMetadataInDB, loadAllFoldersFromDB, saveFolderToDB, deleteLibraryItemsFromDB
+} from '../../services/db.js';
 import { openNotebook, closeNotebookIfOpen } from '../editor/editor.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
 import { exportNotebooks } from '../backup/backup-export.js';
 import { importNotebooks } from '../backup/backup-import.js';
 import { showProgressDialog } from '../backup/backup-progress.js';
+import {
+  buildFolderTreeList, openFolderEditorModal, openMoveItemsModal
+} from './library-modals.js';
+import { createLibraryDndController } from './library-dnd.js';
+import { bindLibraryAuth } from './library-auth.js';
+import {
+  getFolderPath,
+  formatFolderPathLabel,
+  getDescendantFolderIds,
+  computeFolderCounts,
+  buildFolderPreviewMap,
+  compareNotebooks,
+  compareFolders,
+  filterLibraryItems,
+  deepClone,
+  generateDuplicateTitle,
+  collectNotebookIdsInSelection,
+  collectSubtreeSummary
+} from './library-helpers.js';
+import { createFolderCardElement, createNotebookCardElement } from './library-cards.js';
+
+const COVER_COLOR_ACTIVE_CLASSES = ['ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'];
 
 let selectedCoverColor = '#4f46e5';
-
 let _selectionMode = false;
 let _isDuplicating = false;
 let _isCreatingNotebook = false;
 let _renderRequestToken = 0;
 const selectedNotebookIds = new Set();
+const selectedFolderIds = new Set();
 
-const LP_PRESS_MS = 500;
-const LP_MOVE_CANCEL_PX = 8;
+let _currentFolderId = null;
+let _searchQuery = '';
+let _cachedFolders = [];
+let _cachedNotebooks = [];
+let _dndController = null;
 
 // ============================================================
-// AUTH
+// CONTROLLI & BREADCRUMBS
 // ============================================================
 
-export function initAuth() {
-  onAuthChange((user) => {
-    authState.user = user;
-    authState.loading = false;
-    updateAuthUI();
-  });
+function _syncLibraryControlsToUI() {
+  const s = getSettings();
+  const sortSel = document.getElementById('librarySortSelect');
+  if (sortSel) sortSel.value = s.librarySortBy || 'updatedAt';
 
-  document.addEventListener('click', (e) => {
-    const authContainer = document.getElementById('authContainer');
-    const authDropdown = document.getElementById('authDropdown');
-    if (authContainer && authDropdown && !authDropdown.classList.contains('hidden')) {
-      if (!authContainer.contains(e.target)) authDropdown.classList.add('hidden');
-    }
-  });
-}
-
-function _colorFromString(str) {
-  const palette = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
-                   '#10b981', '#14b8a6', '#06b6d4', '#3b82f6', '#a855f7'];
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash * 31) + str.charCodeAt(i)) | 0;
+  const dirIcon = document.getElementById('librarySortDirIcon');
+  const dirBtn = document.getElementById('librarySortDirBtn');
+  const isAsc = s.librarySortDir === 'asc';
+  if (dirIcon) {
+    dirIcon.style.transform = isAsc ? 'rotate(180deg)' : 'rotate(0deg)';
   }
-  return palette[Math.abs(hash) % palette.length];
-}
-
-function _getInitials(user) {
-  const name = user.displayName || user.email || '';
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  if (dirBtn) {
+    dirBtn.title = isAsc ? 'Ordine crescente (clicca per decrescente)' : 'Ordine decrescente (clicca per crescente)';
   }
-  return name.slice(0, 2).toUpperCase();
-}
 
-function _renderAvatar(user, size) {
-  if (user.photoURL) {
-    return `<img src="${user.photoURL}" alt="" class="w-full h-full object-cover" referrerpolicy="no-referrer">`;
+  document.getElementById('libraryFavFilterBtn')?.classList.toggle('active', !!s.libraryOnlyFavorites);
+
+  const viewMode = s.libraryViewMode === 'list' ? 'list' : 'grid';
+  document.getElementById('libraryViewGridBtn')?.classList.toggle('active', viewMode === 'grid');
+  document.getElementById('libraryViewListBtn')?.classList.toggle('active', viewMode === 'list');
+
+  const grid = document.getElementById('notebooksGrid');
+  if (grid) {
+    grid.className = viewMode === 'list'
+      ? 'flex flex-col gap-1.5'
+      : 'grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4';
   }
-  const initials = _getInitials(user);
-  const bg = _colorFromString(user.email || user.displayName || user.uid);
-  return `<span class="flex items-center justify-center w-full h-full text-white font-bold" style="background-color: ${bg}; font-size: ${Math.round(size * 0.4)}px;">${initials}</span>`;
+
+  const searchInput = document.getElementById('librarySearchInput');
+  const clearBtn = document.getElementById('librarySearchClearBtn');
+  if (searchInput && searchInput.value !== _searchQuery) {
+    searchInput.value = _searchQuery;
+  }
+  if (clearBtn) {
+    const hasQuery = _searchQuery.length > 0;
+    clearBtn.classList.toggle('hidden', !hasQuery);
+    clearBtn.classList.toggle('flex', hasQuery);
+  }
 }
 
-function updateAuthUI() {
-  const btn = document.getElementById('authBtn');
-  const content = document.getElementById('authBtnContent');
-  const dropdown = document.getElementById('authDropdown');
-  if (!btn || !content) return;
+function _renderBreadcrumbs(folderMap, query, onlyFavorites) {
+  const nav = document.getElementById('libraryBreadcrumbs');
+  if (!nav) return;
 
-  if (authState.user) {
-    btn.title = 'Profilo';
-    content.outerHTML = `<span id="authBtnContent" class="w-full h-full">${_renderAvatar(authState.user, 40)}</span>`;
+  const isSearching = query.length > 0;
+  const path = getFolderPath(_currentFolderId, folderMap);
+  const rootActive = !isSearching && _currentFolderId === null && !onlyFavorites;
 
-    const dAvatar = document.getElementById('authDropdownAvatar');
-    const dName = document.getElementById('authDropdownName');
-    const dEmail = document.getElementById('authDropdownEmail');
-    if (dAvatar) dAvatar.outerHTML = `<div id="authDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">${_renderAvatar(authState.user, 40)}</div>`;
-    if (dName) dName.textContent = authState.user.displayName || 'Utente';
-    if (dEmail) dEmail.textContent = authState.user.email || '';
-  } else {
-    btn.title = 'Accedi con Google';
-    content.outerHTML = `<span id="authBtnContent" class="text-base">
-      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
+  const parts = [`
+    <button type="button" data-breadcrumb-id=""
+      class="inline-flex items-center gap-1 px-2 py-1 rounded-lg transition cursor-pointer ${
+        rootActive
+          ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+          : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+      }">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
       </svg>
-    </span>`;
-    if (dropdown) dropdown.classList.add('hidden');
-  }
-}
+      <span>Libreria</span>
+    </button>
+  `];
 
-export async function handleAuthClick() {
-  if (authState.loading) return;
-
-  if (authState.user) {
-    const dropdown = document.getElementById('authDropdown');
-    if (dropdown) dropdown.classList.toggle('hidden');
-    return;
+  if (isSearching) {
+    parts.push(`<span class="text-slate-400">›</span>`);
+    parts.push(`<span class="px-2 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">Ricerca: "${escapeHtml(query)}"</span>`);
+  } else if (onlyFavorites && _currentFolderId === null) {
+    parts.push(`<span class="text-slate-400">›</span>`);
+    parts.push(`<span class="px-2 py-1 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">★ Preferiti</span>`);
+  } else {
+    path.forEach((f, idx) => {
+      const isLast = idx === path.length - 1;
+      parts.push(`<span class="text-slate-400">›</span>`);
+      parts.push(`
+        <button type="button" data-breadcrumb-id="${escapeHtml(f.id)}"
+          class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg transition cursor-pointer max-w-[160px] ${
+            isLast
+              ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+              : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+          }">
+          <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${escapeHtml(f.color || '#6366f1')};"></span>
+          <span class="truncate">${escapeHtml(f.name)}</span>
+        </button>
+      `);
+    });
   }
 
-  try {
-    const user = await signInWithGoogle();
-    if (user) {
-      showToast(`Benvenuto, ${user.displayName || user.email}!`, '👋');
-    }
-  } catch (err) {
-    console.error('[auth] login failed:', err);
-    if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
-      showToast('Login fallito', '❌');
-    }
-  }
-}
-
-async function handleLogout() {
-  try {
-    await signOutGoogle();
-    const dropdown = document.getElementById('authDropdown');
-    if (dropdown) dropdown.classList.add('hidden');
-    showToast('Disconnesso', '👋');
-  } catch (err) {
-    console.error('[auth] signOut failed:', err);
-    showToast('Logout fallito', '❌');
-  }
+  nav.innerHTML = parts.join('');
+  nav.querySelectorAll('[data-breadcrumb-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.breadcrumbId || null;
+      if (_selectionMode) _exitSelectionMode();
+      if (_searchQuery) {
+        _searchQuery = '';
+        _syncLibraryControlsToUI();
+      }
+      if (targetId === null && getSettings().libraryOnlyFavorites) {
+        updateSettings({ libraryOnlyFavorites: false });
+      }
+      _currentFolderId = targetId;
+      renderLibraryView();
+    });
+  });
 }
 
 // ============================================================
-// SELEZIONE
+// SELEZIONE MULTIPLA
 // ============================================================
 
-function _enterSelectionMode(initialId = null) {
+function _enterSelectionMode(initial = null) {
   if (_selectionMode) return;
   _selectionMode = true;
+  _dndController?.cancel();
 
-  if (initialId) selectedNotebookIds.add(initialId);
+  if (initial && typeof initial === 'object') {
+    if (initial.type === 'folder' && initial.id) selectedFolderIds.add(initial.id);
+    else if (initial.type === 'notebook' && initial.id) selectedNotebookIds.add(initial.id);
+  } else if (typeof initial === 'string' && initial) {
+    selectedNotebookIds.add(initial);
+  }
 
   document.getElementById('libraryHeader')?.classList.add('hidden');
   const bar = document.getElementById('librarySelectionBar');
@@ -159,6 +189,7 @@ function _enterSelectionMode(initialId = null) {
 function _exitSelectionMode() {
   _selectionMode = false;
   selectedNotebookIds.clear();
+  selectedFolderIds.clear();
 
   document.getElementById('libraryHeader')?.classList.remove('hidden');
   const bar = document.getElementById('librarySelectionBar');
@@ -170,19 +201,20 @@ function _exitSelectionMode() {
   _applySelectionStateToCards();
 }
 
-function _toggleSelection(id) {
-  if (!_selectionMode) return;
+function _toggleSelection(type, id) {
+  if (!_selectionMode || !id) return;
 
-  if (selectedNotebookIds.has(id)) {
-    selectedNotebookIds.delete(id);
+  const targetSet = type === 'folder' ? selectedFolderIds : selectedNotebookIds;
+  if (targetSet.has(id)) {
+    targetSet.delete(id);
   } else {
-    selectedNotebookIds.add(id);
+    targetSet.add(id);
   }
 
   _applySelectionStateToCards();
   _updateSelectionBar();
 
-  if (selectedNotebookIds.size === 0) {
+  if (selectedNotebookIds.size === 0 && selectedFolderIds.size === 0) {
     _exitSelectionMode();
   }
 }
@@ -194,22 +226,29 @@ function _applySelectionStateToCards() {
     const isSelected = selectedNotebookIds.has(id);
     card.classList.toggle('is-selected', isSelected);
     card.classList.toggle('selection-mode', _selectionMode);
+    card.querySelector('.selection-dot')?.classList.toggle('active', isSelected);
+  });
 
-    const dot = card.querySelector('.selection-dot');
-    if (dot) {
-      dot.classList.toggle('active', isSelected);
-    }
+  document.querySelectorAll('.folder-card').forEach(card => {
+    const id = card.dataset.folderId;
+    if (!id) return;
+    const isSelected = selectedFolderIds.has(id);
+    card.classList.toggle('is-selected', isSelected);
+    card.classList.toggle('selection-mode', _selectionMode);
+    card.querySelector('.selection-dot')?.classList.toggle('active', isSelected);
   });
 }
 
 function _updateSelectionBar() {
-  const count = selectedNotebookIds.size;
+  const count = selectedNotebookIds.size + selectedFolderIds.size;
   const countEl = document.getElementById('selectionCount');
   if (countEl) countEl.textContent = `${count} selezionat${count === 1 ? 'o' : 'i'}`;
 
+  const moveBtn = document.getElementById('selectionMoveBtn');
   const duplicateBtn = document.getElementById('selectionDuplicateBtn');
   const exportBtn = document.getElementById('selectionExportBtn');
   const deleteBtn = document.getElementById('selectionDeleteBtn');
+  if (moveBtn) moveBtn.disabled = count === 0;
   if (duplicateBtn) duplicateBtn.disabled = count === 0 || _isDuplicating;
   if (exportBtn) exportBtn.disabled = count === 0;
   if (deleteBtn) deleteBtn.disabled = count === 0;
@@ -219,161 +258,210 @@ function _selectAll() {
   document.querySelectorAll('.notebook-card').forEach(card => {
     if (card.dataset.nbId) selectedNotebookIds.add(card.dataset.nbId);
   });
+  document.querySelectorAll('.folder-card').forEach(card => {
+    if (card.dataset.folderId) selectedFolderIds.add(card.dataset.folderId);
+  });
   _applySelectionStateToCards();
   _updateSelectionBar();
 }
 
 // ============================================================
-// LONG-PRESS SULLE CARD
+// RENDERING LIBRERIA
 // ============================================================
 
-function _bindCardInteractions(card, nb) {
-  let pressTimer = null;
-  let pressStart = null;
-  let pressPointerId = null;
-  let skipClickAfterLongPress = false;
+function _updateEmptyState({ isVisible, isSearching, onlyFavorites, rawQuery }) {
+  const emptyMsg = document.getElementById('emptyLibraryMessage');
+  if (!emptyMsg) return;
 
-  const cancelPress = () => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-    pressStart = null;
-    pressPointerId = null;
-  };
+  if (!isVisible) {
+    emptyMsg.classList.add('hidden');
+    emptyMsg.classList.remove('flex');
+    return;
+  }
 
-  card.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.closest('.delete-nb-btn')) return;
+  const iconEl = document.getElementById('emptyLibraryIcon');
+  const titleEl = document.getElementById('emptyLibraryTitle');
+  const subEl = document.getElementById('emptyLibrarySubtitle');
 
-    cancelPress();
-    pressPointerId = e.pointerId;
-    pressStart = { x: e.clientX, y: e.clientY };
-    skipClickAfterLongPress = false;
+  if (isSearching) {
+    if (iconEl) iconEl.textContent = '🔍';
+    if (titleEl) titleEl.textContent = 'Nessun risultato trovato';
+    if (subEl) subEl.textContent = `Nessuna raccolta o quaderno corrisponde a "${rawQuery}".`;
+  } else if (onlyFavorites) {
+    if (iconEl) iconEl.textContent = '⭐';
+    if (titleEl) titleEl.textContent = 'Nessun quaderno preferito';
+    if (subEl) subEl.textContent = 'Clicca sulla stella di un quaderno per aggiungerlo ai preferiti.';
+  } else if (_currentFolderId !== null) {
+    if (iconEl) iconEl.textContent = '🗂️';
+    if (titleEl) titleEl.textContent = 'Questa raccolta è vuota';
+    if (subEl) subEl.textContent = 'Crea un quaderno, una sottoraccolta o trascina qui i tuoi appunti.';
+  } else {
+    if (iconEl) iconEl.textContent = '📓';
+    if (titleEl) titleEl.textContent = 'Nessun quaderno presente';
+    if (subEl) subEl.textContent = 'Clicca su "Nuovo Quaderno" per iniziare a prendere appunti.';
+  }
 
-    pressTimer = setTimeout(() => {
-      pressTimer = null;
-      if (pressPointerId !== e.pointerId) return;
-      skipClickAfterLongPress = true;
-      if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
-
-      if (!_selectionMode) {
-        _enterSelectionMode(nb.id);
-      } else {
-        _toggleSelection(nb.id);
-      }
-    }, LP_PRESS_MS);
-  });
-
-  card.addEventListener('pointermove', (e) => {
-    if (!pressStart || e.pointerId !== pressPointerId) return;
-    const dx = e.clientX - pressStart.x;
-    const dy = e.clientY - pressStart.y;
-    if (Math.hypot(dx, dy) > LP_MOVE_CANCEL_PX) cancelPress();
-  });
-
-  card.addEventListener('pointerup', cancelPress);
-  card.addEventListener('pointercancel', cancelPress);
-  card.addEventListener('pointerleave', cancelPress);
-
-  card.addEventListener('click', (e) => {
-    if (e.target.closest('.delete-nb-btn')) return;
-
-    if (skipClickAfterLongPress) {
-      skipClickAfterLongPress = false;
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-
-    if (_selectionMode) {
-      e.preventDefault();
-      e.stopPropagation();
-      _toggleSelection(nb.id);
-      return;
-    }
-
-    openNotebook(nb.id);
-  });
+  emptyMsg.classList.remove('hidden');
+  emptyMsg.classList.add('flex');
 }
-
-// ============================================================
-// LIBRERIA — rendering
-// ============================================================
 
 export function renderLibraryView() {
   const token = ++_renderRequestToken;
-  loadAllNotebooksFromDB().then(notebooks => {
+  Promise.all([loadAllNotebooksFromDB(), loadAllFoldersFromDB()]).then(([notebooks, folders]) => {
     if (token !== _renderRequestToken) return;
+
+    _cachedNotebooks = notebooks || [];
+    _cachedFolders = folders || [];
+
+    const folderMap = new Map();
+    for (const f of _cachedFolders) {
+      if (f && f.id) folderMap.set(f.id, f);
+    }
+
+    if (_currentFolderId && !folderMap.has(_currentFolderId)) {
+      _currentFolderId = null;
+    }
+
+    const s = getSettings();
+    const sortBy = s.librarySortBy || 'updatedAt';
+    const sortDir = s.librarySortDir || 'desc';
+    const onlyFavorites = !!s.libraryOnlyFavorites;
+    const viewMode = s.libraryViewMode === 'list' ? 'list' : 'grid';
+    const showTextBelow = !!s.libraryShowTextBelow;
+    const rawQuery = _searchQuery.trim();
+    const isSearching = rawQuery.length > 0;
+
+    _syncLibraryControlsToUI();
+    _renderBreadcrumbs(folderMap, rawQuery, onlyFavorites);
+
     const grid = document.getElementById('notebooksGrid');
     const emptyMsg = document.getElementById('emptyLibraryMessage');
+    if (!grid || !emptyMsg) return;
     grid.innerHTML = '';
 
+    const folderCounts = computeFolderCounts(_cachedFolders, _cachedNotebooks, folderMap);
+    const previewMap = buildFolderPreviewMap(_cachedFolders, _cachedNotebooks, folderMap);
+
+    const { visibleFolders, visibleNotebooks } = filterLibraryItems({
+      folders: _cachedFolders,
+      notebooks: _cachedNotebooks,
+      folderMap,
+      currentFolderId: _currentFolderId,
+      query: rawQuery,
+      onlyFavorites
+    });
+
+    visibleFolders.sort((a, b) => compareFolders(a, b, sortBy, sortDir, folderCounts));
+    visibleNotebooks.sort((a, b) => compareNotebooks(a, b, sortBy, sortDir));
+
+    const visibleNbIds = new Set(visibleNotebooks.map(n => n.id));
     for (const id of Array.from(selectedNotebookIds)) {
-      if (!notebooks.some(n => n.id === id)) selectedNotebookIds.delete(id);
+      if (!visibleNbIds.has(id)) selectedNotebookIds.delete(id);
     }
-    if (_selectionMode && selectedNotebookIds.size === 0) {
+    const visibleFolderIds = new Set(visibleFolders.map(f => f.id));
+    for (const fid of Array.from(selectedFolderIds)) {
+      if (!visibleFolderIds.has(fid)) selectedFolderIds.delete(fid);
+    }
+    if (_selectionMode && selectedNotebookIds.size === 0 && selectedFolderIds.size === 0) {
       _exitSelectionMode();
     }
 
-    if (notebooks.length === 0) {
-      emptyMsg.classList.remove('hidden');
-      emptyMsg.classList.add('flex');
-    } else {
-      emptyMsg.classList.add('hidden');
-      emptyMsg.classList.remove('flex');
-      notebooks.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    const selectBtn = document.getElementById('librarySelectBtn');
+    if (selectBtn) {
+      const noItems = visibleFolders.length === 0 && visibleNotebooks.length === 0;
+      selectBtn.disabled = noItems;
+      selectBtn.classList.toggle('opacity-40', noItems);
+      selectBtn.classList.toggle('cursor-not-allowed', noItems);
+      selectBtn.title = noItems
+        ? 'Nessun elemento da selezionare in questa vista'
+        : 'Seleziona quaderni o raccolte';
+    }
 
-      notebooks.forEach(nb => {
-        const editIso = nb.lastEditAt || nb.updatedAt;
-        const dateStr = new Date(editIso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
-        const pageCount = nb.pageCount || 1;
+    const summaryEl = document.getElementById('libraryItemsSummary');
+    if (summaryEl) {
+      const sumParts = [];
+      if (visibleFolders.length > 0) {
+        sumParts.push(`${visibleFolders.length} raccolt${visibleFolders.length === 1 ? 'a' : 'e'}`);
+      }
+      sumParts.push(`${visibleNotebooks.length} quadern${visibleNotebooks.length === 1 ? 'o' : 'i'}`);
+      summaryEl.textContent = sumParts.join(' · ');
+    }
 
-        const card = document.createElement('div');
-        card.className = 'notebook-card group relative';
-        card.dataset.nbId = nb.id;
+    const showPathTags = isSearching || (onlyFavorites && _currentFolderId === null);
+    const isEmpty = visibleFolders.length === 0 && visibleNotebooks.length === 0;
 
-        card.innerHTML = `
-          <div class="selection-dot" aria-hidden="true">
-            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 6 9 17l-5-5"/>
-            </svg>
-          </div>
+    _updateEmptyState({ isVisible: isEmpty, isSearching, onlyFavorites, rawQuery });
 
-          <div class="notebook-cover" style="background-color: ${nb.coverColor || '#4f46e5'};">
-            <div class="notebook-spine"></div>
-            <div class="notebook-cover-content">
-              <div class="notebook-badge">
-                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
-                  <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
-                </svg>
-                <span>${pageCount} pag.</span>
-              </div>
-              <div class="notebook-cover-footer">
-                <h4 class="notebook-title">${escapeHtml(nb.title)}</h4>
-                <span class="notebook-date">${dateStr}</span>
-              </div>
-            </div>
-          </div>
+    if (!isEmpty) {
+      const fragment = document.createDocumentFragment();
 
-          <button class="delete-nb-btn" data-delete-id="${nb.id}" title="Elimina Quaderno">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-            </svg>
-          </button>
-        `;
+      for (const folder of visibleFolders) {
+        fragment.appendChild(createFolderCardElement({
+          folder,
+          counts: folderCounts,
+          folderMap,
+          previewMap,
+          showParentBadge: isSearching,
+          viewMode,
+          showTextBelow,
+          getDndController: () => _dndController,
+          onLongPress: (targetFolder) => {
+            if (!_selectionMode) {
+              _enterSelectionMode({ type: 'folder', id: targetFolder.id });
+            } else {
+              _toggleSelection('folder', targetFolder.id);
+            }
+          },
+          onClick: (e, targetFolder) => {
+            if (_selectionMode) {
+              e.preventDefault();
+              e.stopPropagation();
+              _toggleSelection('folder', targetFolder.id);
+              return;
+            }
+            if (_searchQuery) {
+              _searchQuery = '';
+              _syncLibraryControlsToUI();
+            }
+            _currentFolderId = targetFolder.id;
+            renderLibraryView();
+          },
+          onEdit: _handleEditFolder,
+          onMove: _handleMoveFolder,
+          onDelete: _handleDeleteFolder
+        }));
+      }
 
-        _bindCardInteractions(card, nb);
+      for (const nb of visibleNotebooks) {
+        fragment.appendChild(createNotebookCardElement({
+          nb,
+          folderMap,
+          showPathTags,
+          viewMode,
+          showTextBelow,
+          getDndController: () => _dndController,
+          onLongPress: (targetNb) => {
+            if (!_selectionMode) {
+              _enterSelectionMode({ type: 'notebook', id: targetNb.id });
+            } else {
+              _toggleSelection('notebook', targetNb.id);
+            }
+          },
+          onClick: (e, targetNb) => {
+            if (_selectionMode) {
+              e.preventDefault();
+              e.stopPropagation();
+              _toggleSelection('notebook', targetNb.id);
+              return;
+            }
+            openNotebook(targetNb.id);
+          },
+          onToggleFavorite: _toggleNotebookFavorite,
+          onDelete: _deleteNotebook
+        }));
+      }
 
-        card.querySelector('.delete-nb-btn').addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          deleteNotebook(ev, nb.id);
-        });
-
-        grid.appendChild(card);
-      });
+      grid.appendChild(fragment);
 
       if (_selectionMode) {
         _applySelectionStateToCards();
@@ -381,99 +469,437 @@ export function renderLibraryView() {
       }
     }
 
-    document.getElementById('libraryView').classList.remove('hidden');
+    document.getElementById('libraryView')?.classList.remove('hidden');
   });
 }
 
 // ============================================================
-// AZIONI SELEZIONE (export, delete, select all)
+// AZIONI RACCOLTE, DRAG & DROP & PREFERITI
 // ============================================================
 
-function _deepClone(val) {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(val);
+async function _toggleNotebookFavorite(nb) {
+  const next = !nb.isFavorite;
+  try {
+    await updateNotebookMetadataInDB(nb.id, { isFavorite: next });
+    nb.isFavorite = next;
+    renderLibraryView();
+    showToast(next ? 'Aggiunto ai preferiti' : 'Rimosso dai preferiti', next ? '⭐' : '☆');
+  } catch (err) {
+    console.error('[library] toggle favorite failed:', err);
+    showToast('Errore aggiornamento preferiti', '❌');
   }
-  if (val === null || typeof val !== 'object') return val;
-  if (ArrayBuffer.isView(val)) {
-    return new val.constructor(val);
-  }
-  if (Array.isArray(val)) {
-    return val.map(_deepClone);
-  }
-  const copy = {};
-  for (const k of Object.keys(val)) {
-    copy[k] = _deepClone(val[k]);
-  }
-  return copy;
 }
 
-function _generateDuplicateTitle(rawTitle, existingTitles) {
-  const trimmed = (rawTitle || 'Senza titolo').trim() || 'Senza titolo';
-  const match = trimmed.match(/^(.*?)\s*\(([2-9]\d*)\)$/);
+async function _handleCreateFolder() {
+  const folderMap = new Map(_cachedFolders.map(f => [f.id, f]));
+  const parentName = _currentFolderId
+    ? formatFolderPathLabel(_currentFolderId, folderMap)
+    : 'Libreria (principale)';
 
-  let baseTitle = trimmed;
-  let nextNum = 2;
-  if (match && match[1].trim()) {
-    baseTitle = match[1].trim();
-    nextNum = parseInt(match[2], 10) + 1;
-  }
+  const res = await openFolderEditorModal({
+    mode: 'create',
+    parentName
+  });
+  if (!res) return;
 
-  let candidate = `${baseTitle} (${nextNum})`;
-  while (existingTitles.has(candidate.toLowerCase())) {
-    nextNum++;
-    candidate = `${baseTitle} (${nextNum})`;
+  const folder = {
+    id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    name: res.name,
+    parentId: _currentFolderId || null,
+    color: res.color
+  };
+
+  try {
+    await saveFolderToDB(folder);
+    if (getSettings().libraryOnlyFavorites) {
+      updateSettings({ libraryOnlyFavorites: false });
+    }
+    if (_searchQuery) {
+      _searchQuery = '';
+      _syncLibraryControlsToUI();
+    }
+    renderLibraryView();
+    showToast(`Raccolta "${folder.name}" creata`, '🗂️');
+  } catch (err) {
+    console.error('[library] create collection failed:', err);
+    showToast('Creazione raccolta fallita', '❌');
   }
-  return candidate;
 }
 
-async function handleDuplicateSelection() {
-  if (_isDuplicating || selectedNotebookIds.size === 0) return;
+async function _handleEditFolder(folder) {
+  const res = await openFolderEditorModal({
+    mode: 'edit',
+    folder
+  });
+  if (!res) return;
+
+  try {
+    await saveFolderToDB({
+      ...folder,
+      name: res.name,
+      color: res.color
+    });
+    renderLibraryView();
+    showToast('Raccolta aggiornata', '🗂️');
+  } catch (err) {
+    console.error('[library] edit collection failed:', err);
+    showToast('Modifica raccolta fallita', '❌');
+  }
+}
+
+async function _handleMoveFolder(folder) {
+  const excluded = getDescendantFolderIds(folder.id, _cachedFolders);
+  const destId = await openMoveItemsModal({
+    folders: _cachedFolders,
+    initialTargetId: folder.parentId || null,
+    excludedFolderIds: excluded,
+    title: `Sposta "${folder.name}"`,
+    subtitle: 'Scegli la raccolta di destinazione'
+  });
+  if (destId === undefined) return;
+  if ((folder.parentId || null) === destId) return;
+
+  try {
+    await saveFolderToDB({
+      ...folder,
+      parentId: destId
+    });
+    renderLibraryView();
+    showToast('Raccolta spostata', '🗂️');
+  } catch (err) {
+    console.error('[library] move collection failed:', err);
+    showToast('Spostamento fallito', '❌');
+  }
+}
+
+function _formatSubtreeContentsLabel(subCount, nbCount) {
+  const parts = [];
+  if (subCount > 0) parts.push(`${subCount} sottoraccolt${subCount === 1 ? 'a' : 'e'}`);
+  if (nbCount > 0) parts.push(`${nbCount} quadern${nbCount === 1 ? 'o' : 'i'}`);
+  return parts.join(' e ');
+}
+
+async function _handleDeleteFolder(folder) {
+  const subtree = collectSubtreeSummary({
+    folderIds: [folder.id],
+    folders: _cachedFolders,
+    notebooks: _cachedNotebooks
+  });
+  const subCount = subtree.subfolderCount;
+  const nbCount = subtree.nestedNotebooks.length;
+  const hasContents = subCount > 0 || nbCount > 0;
+
+  let confirmed = false;
+  let deleteContents = true;
+
+  if (!hasContents) {
+    confirmed = await showConfirmDialog({
+      title: `Eliminare la raccolta "${folder.name}"?`,
+      message: 'Questa raccolta è vuota.',
+      confirmText: 'Elimina raccolta',
+      danger: true
+    });
+  } else {
+    const contentLabel = _formatSubtreeContentsLabel(subCount, nbCount);
+    const res = await showConfirmDialog({
+      title: `Eliminare la raccolta "${folder.name}"?`,
+      message: `Contiene ${contentLabel}. Verranno eliminati definitivamente anche tutto il suo contenuto e le relative pagine.`,
+      confirmText: 'Elimina tutto',
+      danger: true,
+      checkbox: {
+        label: 'Mantieni i contenuti (spostali nella raccolta superiore)',
+        checked: false,
+        checkedMessage: `Contiene ${contentLabel}. Verrà eliminata solo la raccolta: quaderni e sottoraccolte saranno spostati nella raccolta superiore.`,
+        checkedConfirmText: 'Elimina solo raccolta'
+      }
+    });
+    confirmed = !!res?.confirmed;
+    deleteContents = !res?.checked;
+  }
+
+  if (!confirmed) return;
+
+  try {
+    const { deletedFolderIds, deletedNotebookIds } = await deleteLibraryItemsFromDB({
+      folderIds: [folder.id],
+      deleteFolderContents: deleteContents
+    });
+    for (const delFldId of deletedFolderIds) selectedFolderIds.delete(delFldId);
+    for (const delNbId of deletedNotebookIds) {
+      selectedNotebookIds.delete(delNbId);
+      closeNotebookIfOpen(delNbId);
+    }
+    if (_currentFolderId && deletedFolderIds.includes(_currentFolderId)) {
+      _currentFolderId = folder.parentId || null;
+    }
+    renderLibraryView();
+    if (hasContents && deleteContents) {
+      showToast('Raccolta e contenuti eliminati', '🗑️');
+    } else {
+      showToast('Raccolta eliminata', '🗑️');
+    }
+  } catch (err) {
+    console.error('[library] delete collection failed:', err);
+    showToast('Eliminazione raccolta fallita', '❌');
+  }
+}
+
+async function _handleMoveSelection() {
+  const nbIds = Array.from(selectedNotebookIds);
+  const fldIds = Array.from(selectedFolderIds);
+  const total = nbIds.length + fldIds.length;
+  if (total === 0) return;
+
+  const excludedFolderIds = new Set();
+  for (const fid of fldIds) {
+    for (const descId of getDescendantFolderIds(fid, _cachedFolders)) {
+      excludedFolderIds.add(descId);
+    }
+  }
+
+  let modalTitle;
+  if (nbIds.length > 0 && fldIds.length === 0) {
+    modalTitle = `Sposta ${nbIds.length} quadern${nbIds.length === 1 ? 'o' : 'i'}`;
+  } else if (fldIds.length > 0 && nbIds.length === 0) {
+    modalTitle = `Sposta ${fldIds.length} raccolt${fldIds.length === 1 ? 'a' : 'e'}`;
+  } else {
+    modalTitle = `Sposta ${total} elementi selezionati`;
+  }
+
+  const destId = await openMoveItemsModal({
+    folders: _cachedFolders,
+    initialTargetId: _currentFolderId,
+    excludedFolderIds,
+    title: modalTitle,
+    subtitle: 'Scegli la raccolta di destinazione'
+  });
+  if (destId === undefined) return;
+
+  try {
+    for (const id of nbIds) {
+      await updateNotebookMetadataInDB(id, { folderId: destId });
+    }
+    for (const fid of fldIds) {
+      const folder = _cachedFolders.find(f => f.id === fid);
+      if (folder && (folder.parentId || null) !== destId) {
+        await saveFolderToDB({ ...folder, parentId: destId });
+      }
+    }
+    const destName = destId
+      ? (_cachedFolders.find(f => f.id === destId)?.name || 'Raccolta')
+      : 'Libreria';
+    _exitSelectionMode();
+    renderLibraryView();
+    showToast(
+      total === 1
+        ? `Elemento spostato in "${destName}"`
+        : `${total} elementi spostati in "${destName}"`,
+      '🗂️'
+    );
+  } catch (err) {
+    console.error('[library] move selection failed:', err);
+    showToast('Spostamento fallito', '❌');
+  }
+}
+
+function _canMoveDraggedToFolder(dragged, destId, allowRoot) {
+  if (!dragged) return false;
+  if (dragged.type === 'notebook') {
+    const nb = _cachedNotebooks.find(n => n.id === dragged.id);
+    return !!nb && (nb.folderId || null) !== destId;
+  }
+  if (dragged.type === 'folder') {
+    if (!allowRoot && dragged.id === destId) return false;
+    const folder = _cachedFolders.find(f => f.id === dragged.id);
+    if (!folder || (folder.parentId || null) === destId) return false;
+    if (!destId) return allowRoot;
+    const excluded = getDescendantFolderIds(dragged.id, _cachedFolders);
+    return !excluded.has(destId);
+  }
+  return false;
+}
+
+async function _moveDraggedItemToFolder(dragged, destId, targetLabel) {
+  try {
+    if (dragged.type === 'notebook') {
+      const nb = _cachedNotebooks.find(n => n.id === dragged.id);
+      if (!nb || (nb.folderId || null) === destId) return;
+      await updateNotebookMetadataInDB(dragged.id, { folderId: destId });
+      renderLibraryView();
+      showToast(`"${nb.title}" spostato in "${targetLabel}"`, '🗂️');
+    } else if (dragged.type === 'folder') {
+      const folder = _cachedFolders.find(f => f.id === dragged.id);
+      if (!folder || (folder.parentId || null) === destId) return;
+      if (destId) {
+        const excluded = getDescendantFolderIds(folder.id, _cachedFolders);
+        if (excluded.has(destId)) return;
+      }
+      await saveFolderToDB({ ...folder, parentId: destId });
+      renderLibraryView();
+      showToast(`"${folder.name}" spostata in "${targetLabel}"`, '🗂️');
+    }
+  } catch (err) {
+    console.error('[library-dnd] move item failed:', err);
+    showToast('Spostamento fallito', '❌');
+  }
+}
+
+async function _handleDndDropOnCollection(dragged, targetFolderId) {
+  const targetFolder = _cachedFolders.find(f => f.id === targetFolderId);
+  if (!targetFolder) return;
+  await _moveDraggedItemToFolder(dragged, targetFolderId, targetFolder.name);
+}
+
+async function _handleDndDropOnBreadcrumb(dragged, targetFolderId) {
+  const destId = targetFolderId || null;
+  const targetName = destId
+    ? (_cachedFolders.find(f => f.id === destId)?.name || 'Raccolta')
+    : 'Libreria';
+  await _moveDraggedItemToFolder(dragged, destId, targetName);
+}
+
+async function _handleDndMergeNotebooks(sourceNbId, targetNbId) {
+  if (!sourceNbId || !targetNbId || sourceNbId === targetNbId) return;
+  const sourceNb = _cachedNotebooks.find(n => n.id === sourceNbId);
+  const targetNb = _cachedNotebooks.find(n => n.id === targetNbId);
+  if (!sourceNb || !targetNb) return;
+
+  const res = await openFolderEditorModal({
+    mode: 'create',
+    title: 'Crea Nuova Raccolta',
+    subtitle: `Raggruppa "${sourceNb.title}" e "${targetNb.title}"`,
+    initialName: 'Nuova raccolta'
+  });
+  if (!res) return;
+
+  const parentId = (targetNb.folderId && _cachedFolders.some(f => f.id === targetNb.folderId))
+    ? targetNb.folderId
+    : (_currentFolderId || null);
+
+  const newFolder = {
+    id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    name: res.name,
+    parentId,
+    color: res.color
+  };
+
+  try {
+    await saveFolderToDB(newFolder);
+    await updateNotebookMetadataInDB(targetNb.id, { folderId: newFolder.id });
+    await updateNotebookMetadataInDB(sourceNb.id, { folderId: newFolder.id });
+    renderLibraryView();
+    showToast(`Raccolta "${newFolder.name}" creata`, '🗂️');
+  } catch (err) {
+    console.error('[library-dnd] merge notebooks failed:', err);
+    showToast('Creazione raccolta fallita', '❌');
+  }
+}
+
+// ============================================================
+// AZIONI SELEZIONE (duplicate, export, delete) & IMPORT
+// ============================================================
+
+async function _handleDuplicateSelection() {
+  if (_isDuplicating || (selectedNotebookIds.size === 0 && selectedFolderIds.size === 0)) return;
 
   _isDuplicating = true;
   _updateSelectionBar();
 
-  const ids = Array.from(selectedNotebookIds);
+  const directNbIds = Array.from(selectedNotebookIds);
+  const directFldIds = Array.from(selectedFolderIds);
   try {
-    const allNotebooks = await loadAllNotebooksFromDB();
+    const [allNotebooks, allFolders] = await Promise.all([
+      loadAllNotebooksFromDB(),
+      loadAllFoldersFromDB()
+    ]);
+
     const existingTitles = new Set(
       allNotebooks.map(n => (n.title || '').trim().toLowerCase())
     );
+    const originalFolders = allFolders.slice();
+    const folderMap = new Map(originalFolders.filter(f => f && f.id).map(f => [f.id, f]));
+    const selectedFolderSet = new Set(directFldIds);
 
-    let duplicatedCount = 0;
+    const rootSelectedFolderIds = directFldIds.filter(fid => {
+      const f = folderMap.get(fid);
+      if (!f || !f.parentId) return true;
+      return !getFolderPath(f.parentId, folderMap).some(anc => selectedFolderSet.has(anc.id));
+    });
+
+    const oldToNewFolderId = new Map();
     const baseTs = Date.now();
+    let seq = 0;
 
-    for (let i = 0; i < ids.length; i++) {
-      const src = await loadNotebookWithPages(ids[i]);
-      if (!src) continue;
+    const cloneFolderRecursive = async (srcFolder, newParentId, isRootClone) => {
+      let nextName = srcFolder.name || 'Raccolta';
+      if (isRootClone) {
+        const siblingNames = new Set(
+          allFolders
+            .filter(f => (f.parentId || null) === (newParentId || null))
+            .map(f => (f.name || '').trim().toLowerCase())
+        );
+        nextName = generateDuplicateTitle(nextName, siblingNames);
+      }
+      const newFolder = {
+        id: `fld_${baseTs}_${seq++}_${Math.random().toString(36).slice(2, 6)}`,
+        name: nextName,
+        parentId: newParentId || null,
+        color: srcFolder.color || '#6366f1'
+      };
+      const saved = await saveFolderToDB(newFolder);
+      if (saved) allFolders.push(saved);
+      oldToNewFolderId.set(srcFolder.id, newFolder.id);
 
-      const newTitle = _generateDuplicateTitle(src.title, existingTitles);
+      const children = originalFolders.filter(
+        f => (f.parentId || null) === srcFolder.id && !oldToNewFolderId.has(f.id)
+      );
+      for (const child of children) {
+        await cloneFolderRecursive(child, newFolder.id, false);
+      }
+    };
+
+    for (const rootFid of rootSelectedFolderIds) {
+      const srcFolder = folderMap.get(rootFid);
+      if (srcFolder) {
+        await cloneFolderRecursive(srcFolder, srcFolder.parentId || null, true);
+      }
+    }
+
+    const cloneNotebookIntoFolder = async (nbId, targetFolderId) => {
+      const src = await loadNotebookWithPages(nbId);
+      if (!src) return false;
+
+      const newTitle = generateDuplicateTitle(src.title, existingTitles);
       existingTitles.add(newTitle.toLowerCase());
 
       const now = new Date().toISOString();
       const newPages = (src.pages || []).map(p => {
-        const cloned = _deepClone(p || {});
+        const cloned = deepClone(p || {});
         delete cloned.pageIndex;
         delete cloned.notebookId;
         cloned.pageId = generatePageId();
         if (!Array.isArray(cloned.strokes)) cloned.strokes = [];
+        if (!Array.isArray(cloned.textBoxes)) cloned.textBoxes = [];
         return cloned;
       });
       if (newPages.length === 0) {
-        newPages.push({ pageId: generatePageId(), strokes: [] });
+        newPages.push({ pageId: generatePageId(), strokes: [], textBoxes: [] });
       }
       const newPageIds = newPages.map(p => p.pageId);
 
       const { pages: _ignoredPages, pageOrder: _ignoredOrder, ...restSrc } = src;
       const dupNb = {
-        ..._deepClone(restSrc),
-        id: `nb_${baseTs}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+        ...deepClone(restSrc),
+        id: `nb_${baseTs}_${seq++}_${Math.random().toString(36).slice(2, 6)}`,
         title: newTitle,
         coverColor: src.coverColor || '#4f46e5',
         pattern: src.pattern || 'ruled',
+        folderId: targetFolderId || null,
+        isFavorite: false,
         createdAt: now,
         updatedAt: now,
         lastEditAt: now,
-        toolbarSettings: src.toolbarSettings ? _deepClone(src.toolbarSettings) : null,
+        toolbarSettings: src.toolbarSettings ? deepClone(src.toolbarSettings) : null,
         pageOrder: newPageIds.slice(),
         pages: newPages,
         lastPageIndex: typeof src.lastPageIndex === 'number'
@@ -482,17 +908,49 @@ async function handleDuplicateSelection() {
       };
 
       await saveNotebookToDB(dupNb, newPageIds, { saveOrder: true });
-      duplicatedCount++;
+      return true;
+    };
+
+    let duplicatedNbs = 0;
+    const clonedSrcNbIds = new Set();
+
+    for (const nb of allNotebooks) {
+      if (nb.folderId && oldToNewFolderId.has(nb.folderId)) {
+        if (await cloneNotebookIntoFolder(nb.id, oldToNewFolderId.get(nb.folderId))) {
+          duplicatedNbs++;
+          clonedSrcNbIds.add(nb.id);
+        }
+      }
     }
 
+    for (const nbId of directNbIds) {
+      if (clonedSrcNbIds.has(nbId)) continue;
+      const srcMeta = allNotebooks.find(n => n.id === nbId);
+      const targetFld = (srcMeta && oldToNewFolderId.has(srcMeta.folderId))
+        ? oldToNewFolderId.get(srcMeta.folderId)
+        : (srcMeta?.folderId || null);
+      if (await cloneNotebookIntoFolder(nbId, targetFld)) {
+        duplicatedNbs++;
+      }
+    }
+
+    const duplicatedFolders = oldToNewFolderId.size;
     _exitSelectionMode();
     renderLibraryView();
 
-    if (duplicatedCount > 0) {
+    if (duplicatedFolders > 0 && duplicatedNbs > 0) {
       showToast(
-        duplicatedCount === 1
-          ? 'Quaderno duplicato'
-          : `${duplicatedCount} quaderni duplicati`,
+        `Duplicat${duplicatedFolders === 1 ? 'a' : 'e'} ${duplicatedFolders} raccolt${duplicatedFolders === 1 ? 'a' : 'e'} e ${duplicatedNbs} quadern${duplicatedNbs === 1 ? 'o' : 'i'}`,
+        '📄'
+      );
+    } else if (duplicatedFolders > 0) {
+      showToast(
+        duplicatedFolders === 1 ? 'Raccolta duplicata' : `${duplicatedFolders} raccolte duplicate`,
+        '🗂️'
+      );
+    } else if (duplicatedNbs > 0) {
+      showToast(
+        duplicatedNbs === 1 ? 'Quaderno duplicato' : `${duplicatedNbs} quaderni duplicati`,
         '📄'
       );
     }
@@ -505,15 +963,30 @@ async function handleDuplicateSelection() {
   }
 }
 
-async function handleExportSelection() {
-  if (selectedNotebookIds.size === 0) return;
-  const ids = Array.from(selectedNotebookIds);
+async function _handleExportSelection() {
+  const nbCount = selectedNotebookIds.size;
+  const fldCount = selectedFolderIds.size;
+  if (nbCount === 0 && fldCount === 0) return;
+
+  const ids = collectNotebookIdsInSelection({
+    selectedNotebookIds,
+    selectedFolderIds,
+    folders: _cachedFolders,
+    notebooks: _cachedNotebooks
+  });
 
   const progress = showProgressDialog('Esportazione in corso...');
   try {
-    await exportNotebooks(ids, ({ done, total, notebookTitle }) => {
-      progress.update({ done, total, label: notebookTitle });
-    });
+    await exportNotebooks(
+      ids,
+      ({ done, total, notebookTitle }) => {
+        progress.update({ done, total, label: notebookTitle });
+      },
+      {
+        folders: _cachedFolders,
+        selectedFolderIds: new Set(selectedFolderIds)
+      }
+    );
     progress.close();
     _exitSelectionMode();
     renderLibraryView();
@@ -524,37 +997,86 @@ async function handleExportSelection() {
   }
 }
 
-async function handleDeleteSelection() {
-  if (selectedNotebookIds.size === 0) return;
-  const ids = Array.from(selectedNotebookIds);
-  const count = ids.length;
-  const confirmed = await showConfirmDialog({
-    title: `Eliminare ${count} quadern${count === 1 ? 'o' : 'i'}?`,
-    message: 'Verranno eliminate definitivamente anche tutte le relative pagine.',
-    confirmText: 'Elimina',
-    danger: true
-  });
+async function _handleDeleteSelection() {
+  const nbIds = Array.from(selectedNotebookIds);
+  const fldIds = Array.from(selectedFolderIds);
+  if (nbIds.length === 0 && fldIds.length === 0) return;
+
+  const subtree = fldIds.length > 0
+    ? collectSubtreeSummary({ folderIds: fldIds, folders: _cachedFolders, notebooks: _cachedNotebooks })
+    : { subfolderCount: 0, nestedNotebooks: [] };
+
+  const subCount = subtree.subfolderCount;
+  const nestedNbCount = subtree.nestedNotebooks.length;
+  const hasFolderContents = fldIds.length > 0 && (subCount > 0 || nestedNbCount > 0);
+
+  let title;
+  if (nbIds.length > 0 && fldIds.length === 0) {
+    title = `Eliminare ${nbIds.length} quadern${nbIds.length === 1 ? 'o' : 'i'}?`;
+  } else if (fldIds.length > 0 && nbIds.length === 0) {
+    title = `Eliminare ${fldIds.length} raccolt${fldIds.length === 1 ? 'a' : 'e'}?`;
+  } else {
+    title = `Eliminare ${nbIds.length} quadern${nbIds.length === 1 ? 'o' : 'i'} e ${fldIds.length} raccolt${fldIds.length === 1 ? 'a' : 'e'}?`;
+  }
+
+  let confirmed = false;
+  let deleteContents = true;
+
+  if (!hasFolderContents) {
+    const message = fldIds.length === 0
+      ? 'Verranno eliminate definitivamente anche tutte le relative pagine.'
+      : (nbIds.length > 0
+          ? 'Le raccolte sono vuote; i quaderni selezionati e le loro pagine verranno eliminati definitivamente.'
+          : 'Le raccolte selezionate sono vuote.');
+    confirmed = await showConfirmDialog({
+      title,
+      message,
+      confirmText: 'Elimina',
+      danger: true
+    });
+  } else {
+    const contentLabel = _formatSubtreeContentsLabel(subCount, nestedNbCount);
+    const res = await showConfirmDialog({
+      title,
+      message: `Le raccolte contengono ${contentLabel}. Verranno eliminati definitivamente tutto il contenuto e le relative pagine.`,
+      confirmText: 'Elimina tutto',
+      danger: true,
+      checkbox: {
+        label: 'Mantieni i contenuti delle raccolte (sposta quaderni e sottoraccolte nella raccolta superiore)',
+        checked: false,
+        checkedMessage: 'Verranno eliminate solo le raccolte selezionate (e gli eventuali quaderni selezionati direttamente), spostando gli altri contenuti nella raccolta superiore.',
+        checkedConfirmText: 'Elimina raccolte'
+      }
+    });
+    confirmed = !!res?.confirmed;
+    deleteContents = !res?.checked;
+  }
+
   if (!confirmed) return;
 
   try {
-    for (const id of ids) {
-      await deleteNotebookFromDB(id);
-      closeNotebookIfOpen(id);
+    const { deletedFolderIds, deletedNotebookIds } = await deleteLibraryItemsFromDB({
+      folderIds: fldIds,
+      notebookIds: nbIds,
+      deleteFolderContents: deleteContents
+    });
+    for (const delNbId of deletedNotebookIds) {
+      closeNotebookIfOpen(delNbId);
     }
+    const deletedCount = deletedFolderIds.length + deletedNotebookIds.length;
     _exitSelectionMode();
     renderLibraryView();
-    showToast(`${count} quadern${count === 1 ? 'o eliminato' : 'i eliminati'}`, '🗑️');
+    showToast(
+      deletedCount === 1 ? 'Elemento eliminato' : `${deletedCount} elementi eliminati`,
+      '🗑️'
+    );
   } catch (err) {
     console.error('[delete-selection] failed:', err);
     showToast('Eliminazione fallita', '❌');
   }
 }
 
-// ============================================================
-// IMPORT
-// ============================================================
-
-async function handleImportFile(file) {
+async function _handleImportFile(file) {
   if (!file) return;
 
   const progress = showProgressDialog('Importazione in corso...');
@@ -563,7 +1085,7 @@ async function handleImportFile(file) {
       progress.update({ done, total, label: notebookTitle });
     });
     progress.close();
-    if (result && result.length > 0) {
+    if (result && (result.notebooks?.length > 0 || result.createdFoldersCount > 0 || result.length > 0)) {
       renderLibraryView();
     }
   } catch (err) {
@@ -577,20 +1099,46 @@ async function handleImportFile(file) {
 // MODALE NUOVO QUADERNO
 // ============================================================
 
-export function openNewNotebookModal() {
+function _setActiveCoverColorBtn(activeBtn) {
+  document.querySelectorAll('#coverColorOptions button').forEach(b => {
+    b.classList.remove(...COVER_COLOR_ACTIVE_CLASSES);
+  });
+  activeBtn?.classList.add(...COVER_COLOR_ACTIVE_CLASSES);
+}
+
+function _populateModalFolderSelect(folders, targetFolderId) {
+  const sel = document.getElementById('modalNbFolder');
+  if (!sel) return;
+  const tree = buildFolderTreeList(folders);
+  sel.innerHTML = `<option value="">Libreria (principale)</option>`;
+  for (const f of tree) {
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    const prefix = f.depth > 0 ? `${'— '.repeat(Math.min(f.depth, 5))}` : '';
+    opt.textContent = `${prefix}${f.name}`;
+    sel.appendChild(opt);
+  }
+  sel.value = (targetFolderId && tree.some(f => f.id === targetFolderId)) ? targetFolderId : '';
+}
+
+async function _openNewNotebookModal() {
   const modal = document.getElementById('newNotebookModal');
   if (!modal) return;
 
   selectedCoverColor = '#4f46e5';
-  document.querySelectorAll('#coverColorOptions button').forEach(b =>
-    b.classList.remove('ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'));
-  const first = document.querySelector('#coverColorOptions button');
-  if (first) first.classList.add('ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110');
+  _setActiveCoverColorBtn(document.querySelector('#coverColorOptions button'));
+  _populateModalFolderSelect(_cachedFolders, _currentFolderId);
 
   modal.classList.remove('hidden');
   modal.classList.add('flex');
   const body = modal.querySelector('.overflow-y-auto');
   if (body) body.scrollTop = 0;
+
+  try {
+    const latestFolders = await loadAllFoldersFromDB();
+    _cachedFolders = latestFolders || [];
+    _populateModalFolderSelect(_cachedFolders, _currentFolderId);
+  } catch {}
 }
 
 export function closeNewNotebookModal() {
@@ -600,34 +1148,40 @@ export function closeNewNotebookModal() {
   modal.classList.remove('flex');
 }
 
-export function selectCoverColor(btn) {
-  document.querySelectorAll('#coverColorOptions button').forEach(b =>
-    b.classList.remove('ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'));
-  btn.classList.add('ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110');
+function _selectCoverColor(btn) {
+  _setActiveCoverColorBtn(btn);
   selectedCoverColor = btn.dataset.color;
 }
 
-export async function confirmCreateNotebook() {
+async function _confirmCreateNotebook() {
   if (_isCreatingNotebook) return;
   _isCreatingNotebook = true;
   const confirmBtn = document.getElementById('confirmCreateNbBtn');
   if (confirmBtn) confirmBtn.disabled = true;
 
   try {
-    const title = document.getElementById('modalNbTitle').value.trim() || 'Nuovo Quaderno';
-    const pattern = document.getElementById('modalNbPattern').value;
+    const title = document.getElementById('modalNbTitle')?.value.trim() || 'Nuovo Quaderno';
+    const pattern = document.getElementById('modalNbPattern')?.value || 'ruled';
+    const folderId = document.getElementById('modalNbFolder')?.value || null;
     const firstPageId = generatePageId();
     const rand = Math.random().toString(36).slice(2, 7);
     const newNb = {
       id: `nb_${Date.now()}_${rand}`,
-      title, coverColor: selectedCoverColor, pattern,
+      title,
+      coverColor: selectedCoverColor,
+      pattern,
+      folderId,
+      isFavorite: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       pageOrder: [firstPageId],
-      pages: [{ pageId: firstPageId, strokes: [] }],
+      pages: [{ pageId: firstPageId, strokes: [], textBoxes: [] }],
       lastPageIndex: 0
     };
     await saveNotebookToDB(newNb, [firstPageId], { saveOrder: true });
+    if (folderId !== _currentFolderId) {
+      _currentFolderId = folderId;
+    }
     closeNewNotebookModal();
     openNotebook(newNb.id);
   } finally {
@@ -636,7 +1190,7 @@ export async function confirmCreateNotebook() {
   }
 }
 
-export async function deleteNotebook(e, id) {
+async function _deleteNotebook(_e, id) {
   const confirmed = await showConfirmDialog({
     title: 'Eliminare questo quaderno?',
     message: 'Verranno eliminate definitivamente anche tutte le sue pagine.',
@@ -657,38 +1211,148 @@ export async function deleteNotebook(e, id) {
 // ============================================================
 
 export function bindLibraryUI() {
-  initAuth();
+  bindLibraryAuth();
 
-  document.getElementById('authBtn')
-    ?.addEventListener('click', handleAuthClick);
-  document.getElementById('authLogoutBtn')
-    ?.addEventListener('click', handleLogout);
+  document.getElementById('newNotebookBtn')?.addEventListener('click', _openNewNotebookModal);
+  document.getElementById('newFolderBtn')?.addEventListener('click', _handleCreateFolder);
+  document.getElementById('librarySelectBtn')?.addEventListener('click', () => {
+    if (_selectionMode) {
+      _exitSelectionMode();
+    } else {
+      _enterSelectionMode(null);
+    }
+  });
+  document.getElementById('openSettingsBtnLib')?.addEventListener('click', openSettingsModal);
+  document.getElementById('confirmCreateNbBtn')?.addEventListener('click', _confirmCreateNotebook);
+  document.getElementById('cancelNewNbBtn')?.addEventListener('click', closeNewNotebookModal);
 
-  document.getElementById('newNotebookBtn')
-    ?.addEventListener('click', openNewNotebookModal);
-  document.getElementById('openSettingsBtnLib')
-    ?.addEventListener('click', openSettingsModal);
-  document.getElementById('confirmCreateNbBtn')
-    ?.addEventListener('click', confirmCreateNotebook);
-  document.getElementById('cancelNewNbBtn')
-    ?.addEventListener('click', closeNewNotebookModal);
+  document.getElementById('selectionDoneBtn')?.addEventListener('click', _exitSelectionMode);
+  document.getElementById('selectionSelectAllBtn')?.addEventListener('click', _selectAll);
+  document.getElementById('selectionMoveBtn')?.addEventListener('click', _handleMoveSelection);
+  document.getElementById('selectionDuplicateBtn')?.addEventListener('click', _handleDuplicateSelection);
+  document.getElementById('selectionExportBtn')?.addEventListener('click', _handleExportSelection);
+  document.getElementById('selectionDeleteBtn')?.addEventListener('click', _handleDeleteSelection);
 
-  document.getElementById('selectionDoneBtn')
-    ?.addEventListener('click', _exitSelectionMode);
-  document.getElementById('selectionSelectAllBtn')
-    ?.addEventListener('click', _selectAll);
-  document.getElementById('selectionExportBtn')
-    ?.addEventListener('click', handleExportSelection);
-  document.getElementById('selectionDeleteBtn')
-    ?.addEventListener('click', handleDeleteSelection);
+  const searchInput = document.getElementById('librarySearchInput');
+  const searchClearBtn = document.getElementById('librarySearchClearBtn');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      _searchQuery = searchInput.value;
+      _syncLibraryControlsToUI();
+      renderLibraryView();
+    });
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && _searchQuery) {
+        e.preventDefault();
+        e.stopPropagation();
+        _searchQuery = '';
+        searchInput.value = '';
+        _syncLibraryControlsToUI();
+        renderLibraryView();
+      }
+    });
+  }
+  searchClearBtn?.addEventListener('click', () => {
+    _searchQuery = '';
+    if (searchInput) {
+      searchInput.value = '';
+      searchInput.focus();
+    }
+    _syncLibraryControlsToUI();
+    renderLibraryView();
+  });
 
-  document.getElementById('selectionDuplicateBtn')
-    ?.addEventListener('click', handleDuplicateSelection);
+  document.getElementById('libraryFavFilterBtn')?.addEventListener('click', () => {
+    updateSettings({ libraryOnlyFavorites: !getSettings().libraryOnlyFavorites });
+    renderLibraryView();
+  });
+
+  document.getElementById('librarySortSelect')?.addEventListener('change', (e) => {
+    const nextSort = e.target.value;
+    const prevSort = getSettings().librarySortBy;
+    let nextDir = getSettings().librarySortDir;
+    if (nextSort === 'title' && prevSort !== 'title') nextDir = 'asc';
+    else if (nextSort !== 'title' && prevSort === 'title') nextDir = 'desc';
+    updateSettings({ librarySortBy: nextSort, librarySortDir: nextDir });
+    renderLibraryView();
+  });
+
+  document.getElementById('librarySortDirBtn')?.addEventListener('click', () => {
+    const nextDir = getSettings().librarySortDir === 'asc' ? 'desc' : 'asc';
+    updateSettings({ librarySortDir: nextDir });
+    renderLibraryView();
+  });
+
+  document.getElementById('libraryViewGridBtn')?.addEventListener('click', () => {
+    if (getSettings().libraryViewMode === 'grid') return;
+    updateSettings({ libraryViewMode: 'grid' });
+    renderLibraryView();
+  });
+
+  document.getElementById('libraryViewListBtn')?.addEventListener('click', () => {
+    if (getSettings().libraryViewMode === 'list') return;
+    updateSettings({ libraryViewMode: 'list' });
+    renderLibraryView();
+  });
+
+  onSettingsChanged(({ changed }) => {
+    if (
+      changed.includes('librarySortBy') ||
+      changed.includes('librarySortDir') ||
+      changed.includes('libraryOnlyFavorites') ||
+      changed.includes('libraryViewMode')
+    ) {
+      _syncLibraryControlsToUI();
+    }
+    if (changed.includes('libraryShowTextBelow')) {
+      const libView = document.getElementById('libraryView');
+      if (libView && !libView.classList.contains('hidden')) {
+        renderLibraryView();
+      }
+    }
+  });
+
+  const grid = document.getElementById('notebooksGrid');
+  if (grid && !_dndController) {
+    _dndController = createLibraryDndController(grid, {
+      isEnabled: () => !document.getElementById('libraryView')?.classList.contains('hidden'),
+      isSelectionMode: () => _selectionMode,
+      getItemInfo: (card) => {
+        if (card.dataset.nbId) {
+          return {
+            type: 'notebook',
+            id: card.dataset.nbId,
+            title: card.dataset.nbTitle || 'Quaderno',
+            color: card.dataset.nbColor || '#4f46e5'
+          };
+        }
+        if (card.dataset.folderId) {
+          return {
+            type: 'folder',
+            id: card.dataset.folderId,
+            title: card.dataset.folderName || 'Raccolta',
+            color: card.dataset.folderColor || '#6366f1'
+          };
+        }
+        return null;
+      },
+      canDropOnCollection: (dragged, targetFolderId) => _canMoveDraggedToFolder(dragged, targetFolderId, false),
+      canDropOnBreadcrumb: (dragged, targetFolderId) => _canMoveDraggedToFolder(dragged, targetFolderId || null, true),
+      canMergeNotebooks: (sourceNbId, targetNbId) => {
+        if (!sourceNbId || !targetNbId || sourceNbId === targetNbId) return false;
+        if (_searchQuery.trim().length > 0) return false;
+        return !getSettings().libraryOnlyFavorites;
+      },
+      onDropOnCollection: _handleDndDropOnCollection,
+      onDropOnBreadcrumb: _handleDndDropOnBreadcrumb,
+      onMergeNotebooks: _handleDndMergeNotebooks
+    });
+  }
 
   document.addEventListener('click', (e) => {
     if (!_selectionMode) return;
-    if (e.target.closest('.notebook-card')) return;
-    if (e.target.closest('#librarySelectionBar')) return;
+    if (document.querySelector('.library-modal')) return;
+    if (e.target.closest('.notebook-card, .folder-card, #librarySelectionBar, #librarySelectBtn')) return;
     _exitSelectionMode();
   });
 
@@ -698,20 +1362,22 @@ export function bindLibraryUI() {
     importBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files?.[0];
-      if (file) handleImportFile(file);
+      if (file) _handleImportFile(file);
       fileInput.value = '';
     });
   }
 
   document.querySelectorAll('#coverColorOptions button').forEach(btn => {
-    btn.addEventListener('click', () => selectCoverColor(btn));
+    btn.addEventListener('click', () => _selectCoverColor(btn));
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && _selectionMode) {
+    if (e.key === 'Escape' && _selectionMode && !document.querySelector('.library-modal')) {
       _exitSelectionMode();
     }
   });
+
+  _syncLibraryControlsToUI();
 }
 
 on('library:refresh', renderLibraryView);

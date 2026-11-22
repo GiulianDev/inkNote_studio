@@ -17,15 +17,18 @@ import {
 } from './pages.js';
 import { pagePool } from './page-pool.js';
 import {
-  refreshPageCounter,
+  refreshPageCounter, setDockDrawingHidden,
   applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI
 } from '../toolbar/toolbar.js';
 import { resetHistory } from '../history/history.js';
 import {
   setViewportChangeHandler, applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
-import { updateSelectionMenuPosition } from '../tools/lazo.js';
+import { clearSelection, updateSelectionMenuPosition } from '../tools/lazo.js';
 import { finalizePendingShape } from '../tools/shapes.js';
+import {
+  commitActiveTextBox, resetTextToolState, updateTextSelectionMenuPosition
+} from '../tools/text.js';
 import {
   initToolbarSettings, resetToolbarSettings,
   getToolbarSettings, getToolbarSettingsForSave
@@ -73,6 +76,7 @@ export function initEditorHandlers() {
       updateActivePageFromViewport();
     }
     updateSelectionMenuPosition();
+    updateTextSelectionMenuPosition();
   });
   window.addEventListener('resize', () => updateActivePageFromViewport());
   installViewportResizeObserver();
@@ -183,12 +187,12 @@ export async function openNotebook(id) {
     container.innerHTML = '';
     state.pages = [];
     state.pendingShape = null;
-    state.selectedStrokes = [];
-    state.lassoPath = [];
+    clearSelection();
     state.currentStroke = null;
     state.currentPointerId = null;
     state.currentPageForPointer = null;
     state.isDrawing = false;
+    resetTextToolState();
 
     if (nb.pages && nb.pages.length > 0) {
       const total = nb.pages.length;
@@ -196,7 +200,7 @@ export async function openNotebook(id) {
         if (myToken !== _openToken) return;
         const pageData = nb.pages[i];
         const initialStrokes = unpackedByPageId.get(pageData.pageId) || pageData.strokes || [];
-        createNewPageDOM(pageData.pageIndex, initialStrokes, pageData.pageId);
+        createNewPageDOM(pageData.pageIndex, initialStrokes, pageData.pageId, pageData.textBoxes || []);
 
         if (_activeOpenDialog) {
           _activeOpenDialog.update({ done: i + 1, total, label: 'Preparazione pagine' });
@@ -206,7 +210,7 @@ export async function openNotebook(id) {
         }
       }
     } else {
-      createNewPageDOM(0, []);
+      createNewPageDOM(0, [], null, []);
     }
 
     if (myToken !== _openToken) return;
@@ -277,21 +281,25 @@ export async function returnToLibrary() {
   _closeOpenDialog();
 
   if (state.pendingShape) finalizePendingShape();
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
   try {
     await forceSave();
   } catch (err) {
     // errore già loggato in autosave; procediamo comunque
   }
 
+  clearSelection();
   pagePool.reset();
   const container = document.getElementById('canvasContainer');
   if (container) container.innerHTML = '';
   state.pages = [];
-  state.selectedStrokes = [];
-  state.lassoPath = [];
   state.pendingShape = null;
+  resetTextToolState();
 
   setCurrentNotebook(null);
+  setDockDrawingHidden(false, { immediate: true });
   resetToolbarSettings();
   resetHistory();
 
@@ -313,13 +321,14 @@ export function closeNotebookIfOpen(id) {
     _openToken++;
     _closeOpenDialog();
     cancelPendingSave();
+    clearSelection();
     pagePool.reset();
     const container = document.getElementById('canvasContainer');
     if (container) container.innerHTML = '';
     state.pages = [];
-    state.selectedStrokes = [];
-    state.lassoPath = [];
     state.pendingShape = null;
+    resetTextToolState();
+    setDockDrawingHidden(false, { immediate: true });
     resetToolbarSettings();
     resetHistory();
     setCurrentNotebook(null);

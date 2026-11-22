@@ -360,6 +360,7 @@ body.dark .eraser-level-btn.active {
   box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.18);
   padding: 12px;
   animation: dockFadeIn .14s ease-out;
+  transition: opacity .12s ease;
 }
 
 #pagePopover.hidden {
@@ -944,3 +945,90 @@ body.dark .stroke-style-btn.active {
   }
 }
 
+/* ============================================================
+   DOCK TESTO (#dockText)
+   ============================================================ */
+
+.dock-select {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.dock-select-compact {
+  padding: 0 4px;
+  min-width: 52px;
+  text-align: center;
+}
+
+body.dark .dock-select {
+  background: #334155;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
+.text-dock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color .12s, color .12s, border-color .12s;
+}
+
+.text-dock-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.text-dock-btn.active {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+  color: #4338ca;
+}
+
+.text-dock-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.text-dock-action.danger:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+body.dark .text-dock-btn {
+  color: #cbd5e1;
+}
+
+body.dark .text-dock-btn:hover:not(:disabled) {
+  background: #334155;
+  color: #f8fafc;
+}
+
+body.dark .text-dock-btn.active {
+  background: #312e81;
+  border-color: #4338ca;
+  color: #c7d2fe;
+}
+
+body.dark .text-dock-action.danger:hover:not(:disabled) {
+  background: #7f1d1d;
+  color: #fecaca;
+}
