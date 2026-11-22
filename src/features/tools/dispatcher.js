@@ -16,10 +16,14 @@ import {
   getCanvasCoords, invalidateStrokeRect, resetPointPool,
   forceFlushNow, cancelFlush, isPenEraser, _useRawPointerUpdate
 } from './tool-shared.js';
-import { updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
-         beginEraserStroke, moveEraserStroke } from './eraser.js';
+import {
+  updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
+  beginEraserStroke, moveEraserStroke, flushEraserFrame,
+  cancelEraserFrame, consumeEraserModified
+} from './eraser.js';
 import { clearPredictions } from '../render/prediction.js';
 import { flushHistory, pushHistory, syncHistoryToPage } from '../history/history.js';
+import { scheduleSave } from '../persistence/autosave.js';
 import { refreshPageCounter, setDockDrawingHidden } from '../toolbar/toolbar.js';
 import { finalizePendingShape } from './shapes.js';
 import { resetScribbleState } from './scribble.js';
@@ -273,7 +277,11 @@ export function handlePointerUp(e, pageData) {
   clearPredictions(pageData);
 
   if (_gestureUsedEraser) {
-    pushHistory();
+    flushEraserFrame(pageData);
+    if (consumeEraserModified()) {
+      pushHistory();
+      scheduleSave({ pageId: pageData.pageId });
+    }
     _gestureUsedEraser = false;
     _lastGestureWasEraser = true;
   } else {
@@ -335,6 +343,7 @@ export function abortCurrentDrawing() {
   if (state.pendingShape) finalizePendingShape();
   hideEraserCursor();
   cancelFlush();
+  cancelEraserFrame();
   const currPage = state.currentPageForPointer || state.pages[state.activePageIndex];
   if (state.activeTool === 'text' && state.isDrawing) {
     if (state.currentPointerId !== null && state.currentPageForPointer) {
@@ -346,7 +355,10 @@ export function abortCurrentDrawing() {
     endTextPointer(currPage);
   }
   if (state.isDrawing || state.currentStroke) {
-    if (_gestureUsedEraser) pushHistory();
+    if (_gestureUsedEraser && consumeEraserModified()) {
+      pushHistory();
+      scheduleSave({ pageId: currPage?.pageId });
+    }
     if (state.currentPointerId !== null && state.currentPageForPointer) {
       try { state.currentPageForPointer.wrapper.releasePointerCapture(state.currentPointerId); } catch (err) {}
     }

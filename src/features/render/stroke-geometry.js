@@ -86,6 +86,13 @@ export function getStrokeBBoxRect(stroke, pad = 32) {
   };
 }
 
+export function invalidateStrokePacked(stroke) {
+  if (!stroke || typeof stroke !== 'object') return;
+  if (stroke._packedCache !== undefined && stroke._packedCache !== null) {
+    setNonEnumerable(stroke, '_packedCache', null);
+  }
+}
+
 export function invalidateStrokeBBox(stroke) {
   if (!stroke || typeof stroke !== 'object') return;
   if (stroke._bbox !== undefined && stroke._bbox !== null) {
@@ -100,6 +107,7 @@ export function invalidateStrokeBBox(stroke) {
   if (stroke._jitterOffsets !== undefined && stroke._jitterOffsets !== null) {
     setNonEnumerable(stroke, '_jitterOffsets', null);
   }
+  invalidateStrokePacked(stroke);
 }
 
 /**
@@ -135,6 +143,28 @@ export function translateStrokeInPlace(stroke, dx, dy) {
     cacheEntry.bbox.x += dx;
     cacheEntry.bbox.y += dy;
   }
+  invalidateStrokePacked(stroke);
+}
+
+export function mergeDirtyBBox(acc, minX, maxX, minY, maxY) {
+  if (!acc) {
+    return { minX, maxX, minY, maxY };
+  }
+  if (minX < acc.minX) acc.minX = minX;
+  if (maxX > acc.maxX) acc.maxX = maxX;
+  if (minY < acc.minY) acc.minY = minY;
+  if (maxY > acc.maxY) acc.maxY = maxY;
+  return acc;
+}
+
+export function clampDirtyRect(rect, pageWidth, pageHeight) {
+  if (!rect) return null;
+  const minX = Math.max(0, rect.minX);
+  const minY = Math.max(0, rect.minY);
+  const maxX = Math.min(pageWidth, rect.maxX);
+  const maxY = Math.min(pageHeight, rect.maxY);
+  if (!(maxX > minX && maxY > minY)) return null;
+  return { minX, maxX, minY, maxY };
 }
 
 export function bboxesOverlap(a, b, pad = 0) {

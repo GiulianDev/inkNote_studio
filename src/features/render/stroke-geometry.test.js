@@ -7,7 +7,10 @@ import {
   getStrokeBBox,
   getStrokeBBoxRect,
   invalidateStrokeBBox,
+  invalidateStrokePacked,
   translateStrokeInPlace,
+  mergeDirtyBBox,
+  clampDirtyRect,
   bboxesOverlap,
   computePolygonBBox,
   isPointInPolygon,
@@ -146,5 +149,40 @@ describe('stroke-geometry: broad-phase polygon & selection bbox', () => {
     assert.equal(computeSegmentSteps(1, 0), 1);
     assert.equal(computeSegmentSteps(12, 1), 3);
     assert.ok(computeSegmentSteps(6, 0.5) >= 1);
+  });
+
+  it('invalidates _packedCache on translateStrokeInPlace, invalidateStrokeBBox, and invalidateStrokePacked', () => {
+    const stroke = {
+      tool: 'pen',
+      color: '#000000',
+      size: 3,
+      points: [{ x: 10, y: 20 }]
+    };
+    setNonEnumerable(stroke, '_packedCache', { count: 1 });
+    assert.ok(stroke._packedCache);
+    assert.equal(Object.keys(stroke).includes('_packedCache'), false);
+
+    translateStrokeInPlace(stroke, 5, -5);
+    assert.equal(stroke._packedCache, null);
+
+    setNonEnumerable(stroke, '_packedCache', { count: 1 });
+    invalidateStrokeBBox(stroke);
+    assert.equal(stroke._packedCache, null);
+
+    setNonEnumerable(stroke, '_packedCache', { count: 1 });
+    invalidateStrokePacked(stroke);
+    assert.equal(stroke._packedCache, null);
+  });
+
+  it('merges and clamps dirtyRect bounds safely', () => {
+    let dirty = mergeDirtyBBox(null, 20, 60, 30, 90);
+    dirty = mergeDirtyBBox(dirty, -15, 50, 40, 1200);
+    assert.deepEqual(dirty, { minX: -15, maxX: 60, minY: 30, maxY: 1200 });
+
+    const clamped = clampDirtyRect(dirty, 794, 1123);
+    assert.deepEqual(clamped, { minX: 0, maxX: 60, minY: 30, maxY: 1123 });
+
+    assert.equal(clampDirtyRect({ minX: 800, maxX: 900, minY: 10, maxY: 50 }, 794, 1123), null);
+    assert.equal(clampDirtyRect(null, 794, 1123), null);
   });
 });

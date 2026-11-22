@@ -9,8 +9,8 @@ import { state } from '../../core/state.js';
 import { sliderToBaseSize } from '../../core/utils.js';
 import { getStrokeBBoxRect, setNonEnumerable } from './stroke-geometry.js';
 
-const MAX_CACHE_ENTRIES = 220;
-const MAX_CACHE_PIXELS = 24_000_000;
+const MAX_CACHE_ENTRIES = 900;
+const MAX_CACHE_PIXELS = 36_000_000;
 const MAX_SINGLE_STROKE_PIXELS = 4_000_000;
 const MIN_CACHE_POINTS = 10;
 const CACHEABLE_TOOLS = new Set(['pen', 'pencil', 'marker', 'highlighter']);

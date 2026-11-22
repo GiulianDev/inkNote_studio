@@ -7,6 +7,7 @@
 import { state } from '../../core/state.js';
 import { emit } from '../../core/utils.js';
 import { scheduleSave } from '../persistence/autosave.js';
+import { packStroke } from '../persistence/serialization.js';
 import { normalizeTextBoxes, resetTextToolState } from '../tools/text.js';
 
 const MAX_HISTORY_STEPS = 20;
@@ -16,8 +17,8 @@ let _activeHistoryPageId = null;
 
 const historyState = { stack: [], index: -1, maxSteps: MAX_HISTORY_STEPS, isRestoring: false };
 
-const HISTORY_DEBOUNCE_MS = 800;
-const MAX_CONTINUOUS_DRAW_MS = 3000;
+const HISTORY_DEBOUNCE_MS = 1000;
+const MAX_CONTINUOUS_DRAW_MS = 8000;
 
 let _pushHistoryTimer = null;
 let _idlePushId = null;
@@ -36,29 +37,6 @@ function _cancelIdlePush() {
   _idlePushIsRic = false;
 }
 
-function cloneStrokeFast(s) {
-  const pts = s.points;
-  const n = pts.length;
-  const clonedPts = new Array(n);
-  for (let i = 0; i < n; i++) {
-    const p = pts[i];
-    clonedPts[i] = {
-      x: p.x, y: p.y,
-      pressure: p.pressure,
-      tiltX: p.tiltX, tiltY: p.tiltY,
-      speed: p.speed,
-      pointerType: p.pointerType
-    };
-  }
-  return {
-    tool: s.tool,
-    color: s.color,
-    size: s.size,
-    opacity: s.opacity != null ? s.opacity : 1.0,
-    style: s.style || 'solid',
-    points: clonedPts
-  };
-}
 
 function _hashString(h, str) {
   for (let j = 0; j < str.length; j++) {
@@ -133,7 +111,7 @@ function _computeStateHash(page = _resolveHistoryPage()) {
 
 function captureSnapshot(page = _resolveHistoryPage()) {
   if (!page) return null;
-  const strokesClone = page.strokes.map(cloneStrokeFast);
+  const strokesClone = page.strokes.map(packStroke);
   const textBoxesClone = normalizeTextBoxes(page.textBoxes || []);
   return {
     pageId: page.pageId,

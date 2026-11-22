@@ -16,6 +16,7 @@ import {
   setNonEnumerable,
   getRawStrokeBBox,
   invalidateStrokeBBox,
+  invalidateStrokePacked,
   translateStrokeInPlace,
   bboxesOverlap,
   computePolygonBBox,
@@ -33,6 +34,7 @@ import {
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import { markPageDirty } from '../persistence/session.js';
+import { packStrokes, unpackStrokes } from '../persistence/serialization.js';
 import { pagePool } from '../editor/page-pool.js';
 import { getCanvasCoords, getCanvasRect } from './tool-shared.js';
 
@@ -78,30 +80,18 @@ function _measureCtx(pageData) {
     document.createElement('canvas').getContext('2d');
 }
 
-function _cloneStrokeData(s) {
-  const pts = s.points;
-  const n = pts.length;
-  const clonedPts = new Array(n);
-  for (let i = 0; i < n; i++) {
-    const p = pts[i];
-    clonedPts[i] = {
-      x: p.x,
-      y: p.y,
-      pressure: p.pressure,
-      tiltX: p.tiltX,
-      tiltY: p.tiltY,
-      speed: p.speed,
-      pointerType: p.pointerType
-    };
+function _getSelectionDirtyRect(strokes, textBoxes) {
+  let maxSize = 4;
+  if (Array.isArray(strokes)) {
+    for (let i = 0; i < strokes.length; i++) {
+      const s = strokes[i];
+      if (s && s.size > maxSize) maxSize = s.size;
+    }
   }
-  return {
-    tool: s.tool,
-    color: s.color,
-    size: s.size,
-    opacity: s.opacity != null ? s.opacity : 1.0,
-    style: s.style || 'solid',
-    points: clonedPts
-  };
+  const pad = Math.max(28, Math.ceil(sliderToBaseSize(maxSize) * 4 + 16));
+  const box = getSelectionBBoxFromItems(strokes, textBoxes, pad);
+  if (!box) return null;
+  return { minX: box.minX, maxX: box.maxX, minY: box.minY, maxY: box.maxY };
 }
 
 function _cloneTextBoxData(tb, freshId = false) {
@@ -229,7 +219,8 @@ export function selectStrokesInsideLasso(pageData) {
     const label = _formatSelectionLabel(state.selectedStrokes.length, state.selectedTextBoxes.length);
     showToast(`${label} selezionati`, '✂️');
     if (pageData.canvas) {
-      redrawPageCanvas(pageData);
+      const dirtyRect = _getSelectionDirtyRect(state.selectedStrokes, state.selectedTextBoxes);
+      redrawPageCanvas(pageData, state.isDarkMode, dirtyRect ? { dirtyRect } : {});
       redrawSelectionOverlay(pageData);
     }
     _notifySelectionChanged();
@@ -251,6 +242,9 @@ export function selectStrokesInsideLasso(pageData) {
 export function clearSelection() {
   const hadSelection = hasLassoSelection();
   const hadLasso = state.lassoPath.length > 0;
+  const dirtyRect = hadSelection
+    ? _getSelectionDirtyRect(state.selectedStrokes, state.selectedTextBoxes)
+    : null;
   _cancelLassoFrame();
   _cancelResizeFrame();
   state.selectedStrokes = [];
@@ -271,7 +265,9 @@ export function clearSelection() {
     const current = state.pages[state.activePageIndex];
     if (current && current.canvas) {
       _setCanvasCursor(current, 'crosshair');
-      redrawPageCanvas(current);
+      if (hadSelection) {
+        redrawPageCanvas(current, state.isDarkMode, dirtyRect ? { dirtyRect } : {});
+      }
       redrawSelectionOverlay(current);
     }
     _notifySelectionChanged();
@@ -540,6 +536,7 @@ export function previewSelectionColor(newColor) {
     const s = state.selectedStrokes[i];
     s.color = newColor;
     setNonEnumerable(s, '_styleCache', null);
+    invalidateStrokePacked(s);
     invalidateStrokeBitmap(s);
   }
   const current = state.pages[state.activePageIndex];
@@ -593,6 +590,8 @@ export function deleteSelection() {
   _cancelResizeFrame();
   resetSelectionDragState();
 
+  const dirtyRect = _getSelectionDirtyRect(state.selectedStrokes, state.selectedTextBoxes);
+
   if (state.selectedStrokes.length > 0) {
     const strokeSet = new Set(state.selectedStrokes);
     current.strokes = current.strokes.filter(s => !strokeSet.has(s));
@@ -608,7 +607,7 @@ export function deleteSelection() {
   state.initialTextBoxesSnapshot = null;
   hideSelectionMenu();
   if (current.canvas) {
-    redrawPageCanvas(current);
+    redrawPageCanvas(current, state.isDarkMode, dirtyRect ? { dirtyRect } : {});
     clearOverlay(current);
   }
   markPageDirty(current.pageId);
@@ -625,7 +624,7 @@ export function copySelection({ silent = false } = {}) {
   if (!hasLassoSelection()) return false;
   const current = state.pages[state.activePageIndex];
   _clipboard = {
-    strokes: state.selectedStrokes.map(_cloneStrokeData),
+    strokes: packStrokes(state.selectedStrokes),
     textBoxes: state.selectedTextBoxes.map(tb => _cloneTextBoxData(tb, false)),
     sourcePageId: current?.pageId || null,
     pasteCount: 0
@@ -648,6 +647,7 @@ export function cutSelection() {
   resetSelectionDragState();
   const current = state.pages[state.activePageIndex];
   if (current) {
+    const dirtyRect = _getSelectionDirtyRect(state.selectedStrokes, state.selectedTextBoxes);
     if (state.selectedStrokes.length > 0) {
       const strokeSet = new Set(state.selectedStrokes);
       current.strokes = current.strokes.filter(s => !strokeSet.has(s));
@@ -660,7 +660,7 @@ export function cutSelection() {
     state.selectedTextBoxes = [];
     hideSelectionMenu();
     if (current.canvas) {
-      redrawPageCanvas(current);
+      redrawPageCanvas(current, state.isDarkMode, dirtyRect ? { dirtyRect } : {});
       clearOverlay(current);
     }
     markPageDirty(current.pageId);
@@ -694,17 +694,23 @@ function _pasteItemsIntoPage(pageData, items, dx, dy) {
   _cancelResizeFrame();
   resetSelectionDragState();
 
-  const clonedStrokes = (items.strokes || []).map(_cloneStrokeData);
+  const prevDirtyRect = hasLassoSelection()
+    ? _getSelectionDirtyRect(state.selectedStrokes, state.selectedTextBoxes)
+    : null;
+
+  const clonedStrokes = unpackStrokes(items.strokes || []);
   const clonedTexts = (items.textBoxes || []).map(tb => _cloneTextBoxData(tb, true));
   const { dx: clampedDx, dy: clampedDy } = _computeItemsOffsetForPage(clonedStrokes, clonedTexts, dx, dy);
 
   for (let i = 0; i < clonedStrokes.length; i++) {
-    const pts = clonedStrokes[i].points;
+    const s = clonedStrokes[i];
+    const pts = s.points;
     for (let j = 0; j < pts.length; j++) {
       pts[j].x = Math.max(0, Math.min(PAGE_WIDTH, pts[j].x + clampedDx));
       pts[j].y = Math.max(0, Math.min(PAGE_HEIGHT, pts[j].y + clampedDy));
     }
-    pageData.strokes.push(clonedStrokes[i]);
+    invalidateStrokePacked(s);
+    pageData.strokes.push(s);
   }
   for (let i = 0; i < clonedTexts.length; i++) {
     const tb = clonedTexts[i];
@@ -718,7 +724,9 @@ function _pasteItemsIntoPage(pageData, items, dx, dy) {
   state.selectedTextBoxes = clonedTexts;
 
   if (pageData.canvas) {
-    redrawPageCanvas(pageData);
+    if (prevDirtyRect) {
+      redrawPageCanvas(pageData, state.isDarkMode, { dirtyRect: prevDirtyRect });
+    }
     redrawSelectionOverlay(pageData);
   }
   showSelectionMenu();
@@ -750,7 +758,7 @@ export function duplicateSelection() {
   const current = state.pages[state.activePageIndex];
   if (!current) return false;
   const snapshot = {
-    strokes: state.selectedStrokes.map(_cloneStrokeData),
+    strokes: packStrokes(state.selectedStrokes),
     textBoxes: state.selectedTextBoxes.map(tb => _cloneTextBoxData(tb, false))
   };
   const ok = _pasteItemsIntoPage(current, snapshot, 20, 20);

@@ -9,11 +9,11 @@
  */
 
 import { state, viewport } from '../../core/state.js';
-import { PAGE_WIDTH } from '../../core/utils.js';
+import { PAGE_WIDTH, sliderToBaseSize } from '../../core/utils.js';
 import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
-import { getRawStrokeBBox, invalidateStrokeBBox } from '../render/stroke-geometry.js';
+import { getRawStrokeBBox, invalidateStrokeBBox, mergeDirtyBBox } from '../render/stroke-geometry.js';
 import { redrawPageCanvas } from '../render/render.js';
-import { scheduleSave } from '../persistence/autosave.js';
+import { markPageDirty } from '../persistence/session.js';
 import { getEraserRadius } from '../toolbar/toolbar-settings.js';
 import { getCanvasCoords, getCanvasRect, isPenEraser, resetPointPool } from './tool-shared.js';
 
@@ -95,17 +95,72 @@ document.addEventListener('inknote:tool-changed', () => {
 // TOOL ERASER
 // ============================================================
 
+let _eraserRaf = null;
+let _eraserRafPage = null;
+let _pendingEraserPoints = [];
+let _eraserGestureModified = false;
+
+function _flushEraserFrame() {
+  _eraserRaf = null;
+  const page = _eraserRafPage;
+  _eraserRafPage = null;
+  if (!page || _pendingEraserPoints.length === 0) return;
+  const pts = _pendingEraserPoints;
+  _pendingEraserPoints = [];
+  performEraserBatch(page, pts);
+}
+
+export function flushEraserFrame(pageData = null) {
+  if (_eraserRaf !== null) {
+    cancelAnimationFrame(_eraserRaf);
+    _eraserRaf = null;
+  }
+  const page = pageData || _eraserRafPage;
+  _eraserRafPage = null;
+  if (_pendingEraserPoints.length === 0) return;
+  const pts = _pendingEraserPoints;
+  _pendingEraserPoints = [];
+  if (page && page.canvas) {
+    performEraserBatch(page, pts);
+  }
+}
+
+export function cancelEraserFrame() {
+  if (_eraserRaf !== null) {
+    cancelAnimationFrame(_eraserRaf);
+    _eraserRaf = null;
+  }
+  _eraserRafPage = null;
+  _pendingEraserPoints.length = 0;
+}
+
+export function consumeEraserModified() {
+  const modified = _eraserGestureModified;
+  _eraserGestureModified = false;
+  return modified;
+}
+
 export function beginEraserStroke(point, pageData) {
-  performEraserBatch(pageData, [point]);
+  cancelEraserFrame();
+  _eraserGestureModified = false;
+  performEraserBatch(pageData, [{ x: point.x, y: point.y }]);
 }
 
 export function moveEraserStroke(pageData, e) {
   const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
-  const evs = (coalesced && coalesced.length > 0) ? coalesced.slice(-15) : [e];
+  const evs = (coalesced && coalesced.length > 0) ? coalesced : [e];
   resetPointPool();
-  const points = [];
-  for (const ev of evs) points.push(getCanvasCoords(ev, pageData.canvas));
-  performEraserBatch(pageData, points);
+  for (let i = 0; i < evs.length; i++) {
+    const p = getCanvasCoords(evs[i], pageData.canvas);
+    _pendingEraserPoints.push({ x: p.x, y: p.y });
+  }
+  if (_pendingEraserPoints.length > 96) {
+    _pendingEraserPoints.splice(0, _pendingEraserPoints.length - 96);
+  }
+  _eraserRafPage = pageData;
+  if (_eraserRaf === null) {
+    _eraserRaf = requestAnimationFrame(_flushEraserFrame);
+  }
 }
 
 function distSqPointToSegment(px, py, ax, ay, bx, by) {
@@ -182,11 +237,25 @@ function performEraserBatch(pageData, points) {
 
   const modified = new Set();
   let anyChanged = false;
+  let dirtyRect = null;
+
+  const _strokePad = (stroke) => {
+    const baseSize = sliderToBaseSize(stroke.size);
+    return stroke.tool === 'highlighter'
+      ? Math.max(24, baseSize * 2.5 + 12)
+      : Math.max(20, baseSize * 2.5 + 14);
+  };
 
   if (mode === 'stroke') {
-    pageData.strokes = pageData.strokes.filter(stroke => {
-      if (!stroke.points || stroke.points.length === 0) return false;
-      if (!strokeBBoxOverlaps(stroke)) return true;
+    const hitSet = new Set();
+    for (let sIdx = 0; sIdx < pageData.strokes.length; sIdx++) {
+      const stroke = pageData.strokes[sIdx];
+      if (!stroke.points || stroke.points.length === 0) {
+        hitSet.add(stroke);
+        anyChanged = true;
+        continue;
+      }
+      if (!strokeBBoxOverlaps(stroke)) continue;
 
       let hit = false;
       if (stroke.points.length === 1) {
@@ -202,16 +271,31 @@ function performEraserBatch(pageData, points) {
         }
       }
       if (hit) {
+        hitSet.add(stroke);
         modified.add(stroke);
         anyChanged = true;
+        const raw = getRawStrokeBBox(stroke);
+        if (raw) {
+          const pad = _strokePad(stroke);
+          dirtyRect = mergeDirtyBBox(
+            dirtyRect,
+            raw.minX - pad,
+            raw.maxX + pad,
+            raw.minY - pad,
+            raw.maxY + pad
+          );
+        }
       }
-      return !hit;
-    });
+    }
+    if (anyChanged) {
+      pageData.strokes = pageData.strokes.filter(s => !hitSet.has(s));
+    }
   } else {
     const nextStrokes = [];
     const subStep = Math.max(3, radius * 0.35);
 
-    for (const stroke of pageData.strokes) {
+    for (let sIdx = 0; sIdx < pageData.strokes.length; sIdx++) {
+      const stroke = pageData.strokes[sIdx];
       const pts = stroke.points;
       if (!pts || pts.length === 0) continue;
       if (!strokeBBoxOverlaps(stroke)) {
@@ -219,10 +303,19 @@ function performEraserBatch(pageData, points) {
         continue;
       }
 
+      const sPad = _strokePad(stroke);
+
       if (pts.length === 1) {
         if (isPointErased(pts[0].x, pts[0].y, points, radiusSq)) {
           modified.add(stroke);
           anyChanged = true;
+          dirtyRect = mergeDirtyBBox(
+            dirtyRect,
+            pts[0].x - sPad,
+            pts[0].x + sPad,
+            pts[0].y - sPad,
+            pts[0].y + sPad
+          );
         } else {
           nextStrokes.push(stroke);
         }
@@ -237,6 +330,13 @@ function performEraserBatch(pageData, points) {
         currentSeg.push(pts[0]);
       } else {
         strokeTouched = true;
+        dirtyRect = mergeDirtyBBox(
+          dirtyRect,
+          pts[0].x - sPad,
+          pts[0].x + sPad,
+          pts[0].y - sPad,
+          pts[0].y + sPad
+        );
       }
 
       for (let i = 0; i < pts.length - 1; i++) {
@@ -248,6 +348,13 @@ function performEraserBatch(pageData, points) {
         }
 
         strokeTouched = true;
+        dirtyRect = mergeDirtyBBox(
+          dirtyRect,
+          Math.min(a.x, b.x) - sPad,
+          Math.max(a.x, b.x) + sPad,
+          Math.min(a.y, b.y) - sPad,
+          Math.max(a.y, b.y) + sPad
+        );
         const segLen = Math.hypot(b.x - a.x, b.y - a.y);
         const steps = segLen > subStep ? Math.ceil(segLen / subStep) : 1;
         const pA = a.pressure ?? 0.5;
@@ -279,6 +386,13 @@ function performEraserBatch(pageData, points) {
       } else {
         anyChanged = true;
         modified.add(stroke);
+        dirtyRect = mergeDirtyBBox(
+          dirtyRect,
+          batchMinX - sPad,
+          batchMaxX + sPad,
+          batchMinY - sPad,
+          batchMaxY + sPad
+        );
         for (const segPts of segments) {
           const segStroke = cloneStrokeSegment(stroke, segPts);
           nextStrokes.push(segStroke);
@@ -293,11 +407,12 @@ function performEraserBatch(pageData, points) {
   }
 
   if (anyChanged) {
+    _eraserGestureModified = true;
     modified.forEach(s => {
       invalidateStrokeBitmap(s);
       invalidateStrokeBBox(s);
     });
-    redrawPageCanvas(pageData);
-    scheduleSave({ pageId: pageData.pageId });
+    redrawPageCanvas(pageData, state.isDarkMode, dirtyRect ? { dirtyRect } : {});
+    if (pageData.pageId) markPageDirty(pageData.pageId);
   }
 }

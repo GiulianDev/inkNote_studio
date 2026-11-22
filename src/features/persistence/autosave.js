@@ -63,7 +63,7 @@ export function scheduleSave(opts = {}) {
   }
 
   _cancelScheduled();
-  _timer = setTimeout(_commit, 500);
+  _timer = setTimeout(_commit, 1200);
   return Promise.resolve();
 }
 

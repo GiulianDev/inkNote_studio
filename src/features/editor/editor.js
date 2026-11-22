@@ -16,6 +16,7 @@ import {
   installViewportResizeObserver, refreshCanvasResolution, centerViewport
 } from './pages.js';
 import { pagePool } from './page-pool.js';
+import { clearStrokeCache } from '../render/stroke-cache.js';
 import {
   refreshPageCounter, setDockDrawingHidden,
   applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI
@@ -328,6 +329,7 @@ export async function returnToLibrary({ fromPopstate = false } = {}) {
 
     clearSelection();
     pagePool.reset();
+    clearStrokeCache();
     const container = document.getElementById('canvasContainer');
     if (container) container.innerHTML = '';
     state.pages = [];
@@ -368,6 +370,7 @@ export function closeNotebookIfOpen(id) {
     cancelPendingSave();
     clearSelection();
     pagePool.reset();
+    clearStrokeCache();
     const container = document.getElementById('canvasContainer');
     if (container) container.innerHTML = '';
     state.pages = [];

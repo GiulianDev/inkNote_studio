@@ -26,7 +26,8 @@
 import { getStrokeBitmap, buildStrokeBitmap } from './stroke-cache.js';
 import {
   setNonEnumerable, getRawStrokeBBox,
-  getSelectionBBoxFromItems, computeSegmentSteps
+  getSelectionBBoxFromItems, computeSegmentSteps,
+  bboxesOverlap, clampDirtyRect
 } from './stroke-geometry.js';
 import { state, viewport } from '../../core/state.js';
 import {
@@ -498,6 +499,7 @@ function drawStrokeWithCache(ctx, stroke, drawDpr, inkDark, isTarget = false, bu
 
 export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode, opts = {}) {
   const ctx = pageData.ctx;
+  if (!ctx || !pageData.canvas) return;
   const dpr = pageData.dpr || 1;
   const skipBackground = !!opts.skipBackground;
   const skipTextBoxes = !!opts.skipTextBoxes;
@@ -506,9 +508,30 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode, o
     ? !!opts.inkDark
     : isPaperDark(forceTargetDark, skipBackground ? null : state.paperColor);
 
+  const dirtyRect = opts.dirtyRect
+    ? clampDirtyRect(opts.dirtyRect, PAGE_WIDTH, PAGE_HEIGHT)
+    : null;
+  if (opts.dirtyRect && !dirtyRect) return;
+
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, pageData.canvas.width, pageData.canvas.height);
+
+  if (dirtyRect) {
+    const px = Math.max(0, Math.floor(dirtyRect.minX * dpr));
+    const py = Math.max(0, Math.floor(dirtyRect.minY * dpr));
+    const pw = Math.min(pageData.canvas.width - px, Math.ceil(dirtyRect.maxX * dpr) - px);
+    const ph = Math.min(pageData.canvas.height - py, Math.ceil(dirtyRect.maxY * dpr) - py);
+    if (pw <= 0 || ph <= 0) {
+      ctx.restore();
+      return;
+    }
+    ctx.clearRect(px, py, pw, ph);
+    ctx.beginPath();
+    ctx.rect(px, py, pw, ph);
+    ctx.clip();
+  } else {
+    ctx.clearRect(0, 0, pageData.canvas.width, pageData.canvas.height);
+  }
   ctx.scale(dpr, dpr);
 
   if (!skipBackground) {
@@ -524,6 +547,15 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode, o
   for (let i = 0; i < pageData.strokes.length; i++) {
     const stroke = pageData.strokes[i];
     if (selectedSet && selectedSet.has(stroke)) continue;
+    if (dirtyRect) {
+      const raw = getRawStrokeBBox(stroke);
+      if (!raw) continue;
+      const baseSize = sliderToBaseSize(stroke.size);
+      const pad = stroke.tool === 'highlighter'
+        ? Math.max(24, baseSize * 2.5 + 10)
+        : Math.max(20, baseSize * 2 + 12);
+      if (!bboxesOverlap(raw, dirtyRect, pad)) continue;
+    }
     const isTarget = !!(targetSet && targetSet.has(stroke));
     if (isExport) {
       renderFullStroke(ctx, stroke, inkDark, null);
@@ -542,6 +574,12 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode, o
       if (selectedTextSet && selectedTextSet.has(tb)) continue;
       if (!isExport && (tb.id === state.editingTextBoxId || tb.id === state._draggingTextBoxId)) {
         continue;
+      }
+      if (dirtyRect) {
+        const w = Math.max(80, tb.width || 240);
+        const hEst = Math.max(48, tb.height || (tb._layoutCache && tb._layoutCache.height) || 400);
+        const tbBox = { minX: tb.x - 8, maxX: tb.x + w + 8, minY: tb.y - 8, maxY: tb.y + hEst + 12 };
+        if (!bboxesOverlap(tbBox, dirtyRect, 0)) continue;
       }
       drawTextBoxOnCanvas(ctx, tb, inkDark);
     }
