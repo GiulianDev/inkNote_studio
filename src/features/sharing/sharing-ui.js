@@ -58,6 +58,25 @@ function _isBrowserNotifSupported() {
   return typeof window !== 'undefined' && 'Notification' in window;
 }
 
+function _formatSharingError(err, fallback = 'Operazione non riuscita') {
+  const raw = typeof err?.message === 'string' ? err.message.trim() : '';
+  let text = raw;
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.error === 'string') text = parsed.error;
+    } catch {}
+  }
+  const lower = text.toLowerCase();
+  if (lower.includes('missing or insufficient permissions') || lower.includes('permission_denied') || lower.includes('permission denied')) {
+    return 'Permessi Firestore mancanti: pubblica firestore.rules su questo progetto Firebase.';
+  }
+  if (lower.includes('not_found') || lower.includes('database') && lower.includes('not found')) {
+    return 'Database Firestore non trovato o non ancora inizializzato su questo progetto.';
+  }
+  return text || fallback;
+}
+
 function _areBrowserNotifsActive() {
   if (!_isBrowserNotifSupported()) return false;
   return Notification.permission === 'granted' && localStorage.getItem(NOTIF_PREF_KEY) === '1';
@@ -148,20 +167,22 @@ function _renderMiniAvatar(user, sizePx = 36) {
 
 function _syncSharingBadgesUI() {
   const count = _incomingTransfers.length;
-  const badge = document.getElementById('libraryInboxBadge');
-  const inboxBtn = document.getElementById('libraryInboxBtn');
+  const authBadge = document.getElementById('authInboxBadge');
+  const authBtn = document.getElementById('authBtn');
   const dropdownBadge = document.getElementById('authDropdownInboxBadge');
 
-  if (badge) {
-    badge.textContent = count > 99 ? '99+' : String(count);
-    badge.classList.toggle('hidden', count === 0);
-    badge.classList.toggle('flex', count > 0);
+  if (authBadge) {
+    authBadge.textContent = count > 99 ? '99+' : String(count);
+    authBadge.classList.toggle('hidden', count === 0);
+    authBadge.classList.toggle('flex', count > 0);
   }
-  if (inboxBtn) {
-    inboxBtn.classList.toggle('is-has-unread', count > 0);
-    inboxBtn.title = count > 0
-      ? `Ricevuti e Amici (${count} in attesa)`
-      : 'Ricevuti e Amici';
+  if (authBtn) {
+    authBtn.classList.toggle('is-has-unread', count > 0);
+    if (count > 0) {
+      authBtn.title = `Profilo (${count} quadern${count === 1 ? 'o' : 'i'} in attesa)`;
+    } else if (authBtn.title.includes('in attesa')) {
+      authBtn.title = 'Profilo';
+    }
   }
   if (dropdownBadge) {
     dropdownBadge.textContent = count > 99 ? '99+' : String(count);
@@ -881,7 +902,7 @@ export async function openSharingModal({
       cleanup();
     } catch (err) {
       console.error('[sharing] send failed:', err);
-      showToast(err?.message || 'Invio fallito', '❌');
+      showToast(_formatSharingError(err, 'Invio fallito'), '❌');
       sendingToUid = null;
       sendStatusText = '';
       render();
@@ -981,7 +1002,7 @@ export async function openSharingModal({
         showToast(`Username aggiornato a @${_profile.handle}`, '✅');
         render();
       } catch (err) {
-        showToast(err?.message || 'Impossibile aggiornare username', '⚠️');
+        showToast(_formatSharingError(err, 'Impossibile aggiornare username'), '⚠️');
       }
     });
 
@@ -997,7 +1018,7 @@ export async function openSharingModal({
         if (!res) searchError = 'Nessun utente InkNote trovato con questa email o @username.';
         else searchResult = res;
       } catch (err) {
-        searchError = err?.message || 'Ricerca fallita';
+        searchError = _formatSharingError(err, 'Ricerca fallita');
       } finally {
         searchLoading = false;
         render();
@@ -1010,7 +1031,7 @@ export async function openSharingModal({
         await addFriend(searchResult, 'manual');
         showToast(`${searchResult.displayName} aggiunto agli amici!`, '🤝');
       } catch (err) {
-        showToast(err?.message || 'Errore aggiunta amico', '❌');
+        showToast(_formatSharingError(err, 'Errore aggiunta amico'), '❌');
       }
     });
 
@@ -1030,7 +1051,7 @@ export async function openSharingModal({
         contactsMatches = res.matches;
         contactsScannedTotal = res.totalContactsWithEmail;
       } catch (err) {
-        contactsError = err?.message || 'Impossibile leggere i contatti Google';
+        contactsError = _formatSharingError(err, 'Impossibile leggere i contatti Google');
       } finally {
         contactsLoading = false;
         render();
@@ -1137,7 +1158,7 @@ export async function openSharingModal({
           showToast(`"${importedTitle}" importato con successo!`, '✅', 3800);
         } catch (err) {
           console.error('[sharing] import failed:', err);
-          showToast(err?.message || 'Importazione fallita', '❌', 3500);
+          showToast(_formatSharingError(err, 'Importazione fallita'), '❌', 3500);
         } finally {
           transferBusyId = null;
           importStatusText = '';

@@ -1091,16 +1091,15 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 #libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(5) { animation-delay: 116ms; }
 #libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(6) { animation-delay: 132ms; }
 #libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(7) { animation-delay: 148ms; }
-#libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(8) { animation-delay: 164ms; }
 
-#libraryInboxBtn.is-has-unread {
-  background-color: #eef2ff;
-  color: #4f46e5;
+#authBtn.is-has-unread {
+  border-color: #e11d48;
+  box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.25);
 }
 
-body.dark #libraryInboxBtn.is-has-unread {
-  background-color: rgba(99, 102, 241, 0.22);
-  color: #a5b4fc;
+body.dark #authBtn.is-has-unread {
+  border-color: #fb7185;
+  box-shadow: 0 0 0 2px rgba(251, 113, 133, 0.35);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1135,16 +1134,21 @@ body.dark #libraryInboxBtn.is-has-unread {
     width: 2.5rem;
   }
 
+  .lib-actions-layer {
+    justify-content: flex-end;
+    justify-self: end;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+  }
+}
+
+@media (min-width: 768px) {
   #libraryActionsSlot {
     width: auto;
   }
 
   .lib-actions-layer {
-    justify-content: flex-end;
-    justify-self: end;
     width: auto;
-    gap: 0.5rem;
-    flex-wrap: wrap;
   }
 }
 

@@ -1334,7 +1334,6 @@ export function bindLibraryUI() {
   document.getElementById('libraryLeadingBtn')?.addEventListener('click', () => {
     if (_selectionMode) _exitSelectionMode();
   });
-  document.getElementById('libraryInboxBtn')?.addEventListener('click', () => openSharingModal({ initialTab: 'inbox' }));
   document.getElementById('selectionSelectAllBtn')?.addEventListener('click', _selectAll);
   document.getElementById('selectionMoveBtn')?.addEventListener('click', _handleMoveSelection);
   document.getElementById('selectionDuplicateBtn')?.addEventListener('click', _handleDuplicateSelection);
