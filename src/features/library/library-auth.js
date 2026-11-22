@@ -5,6 +5,12 @@
 import { escapeHtml, showToast } from '../../core/utils.js';
 import { authState } from '../../core/state.js';
 import { signInWithGoogle, signOutGoogle, onAuthChange } from '../../services/firebase.js';
+import {
+  initSharingSession,
+  openSharingModal,
+  copyMyInviteLink,
+  handleGoogleAuthError
+} from '../sharing/sharing-ui.js';
 
 const AVATAR_PALETTE = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
@@ -86,10 +92,7 @@ async function _handleAuthClick() {
       showToast(`Benvenuto, ${user.displayName || user.email}!`, '👋');
     }
   } catch (err) {
-    console.error('[auth] login failed:', err);
-    if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
-      showToast('Login fallito', '❌');
-    }
+    await handleGoogleAuthError(err);
   }
 }
 
@@ -112,6 +115,7 @@ export function bindLibraryAuth() {
     authState.user = user;
     authState.loading = false;
     _updateAuthUI();
+    void initSharingSession(user);
   });
 
   document.addEventListener('click', (e) => {
@@ -123,5 +127,13 @@ export function bindLibraryAuth() {
   });
 
   document.getElementById('authBtn')?.addEventListener('click', _handleAuthClick);
+  document.getElementById('authDropdownSharingBtn')?.addEventListener('click', () => {
+    document.getElementById('authDropdown')?.classList.add('hidden');
+    openSharingModal({ initialTab: 'inbox' });
+  });
+  document.getElementById('authDropdownCopyInviteBtn')?.addEventListener('click', () => {
+    document.getElementById('authDropdown')?.classList.add('hidden');
+    void copyMyInviteLink();
+  });
   document.getElementById('authLogoutBtn')?.addEventListener('click', _handleLogout);
 }

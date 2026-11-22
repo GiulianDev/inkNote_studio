@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — InkNote Studio</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #e2e8f0;
+      --accent: #4f46e5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #020617;
+        --card: #0f172a;
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --border: #1e293b;
+        --accent: #818cf8;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 32px 16px 64px;
+    }
+    .wrap {
+      max-width: 760px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 12px 30px -12px rgba(15, 23, 42, 0.14);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.65rem;
+      line-height: 1.25;
+    }
+    h2 {
+      margin: 28px 0 8px;
+      font-size: 1.1rem;
+    }
+    p, li {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    ul {
+      padding-left: 20px;
+    }
+    .meta {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    a.back {
+      display: inline-block;
+      margin-top: 24px;
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    a.back:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>Privacy Policy — InkNote Studio</h1>
+    <p class="meta">Ultimo aggiornamento: Novembre 2026</p>
+
+    <p>
+      <strong>InkNote Studio</strong> è un'applicazione per prendere appunti pensata per funzionare
+      principalmente in locale sul tuo dispositivo. I tuoi quaderni, le raccolte e le pagine vengono
+      salvati nella memoria locale del browser (IndexedDB).
+    </p>
+
+    <h2>1. Accesso e Profilo Utente (Firebase Authentication)</h2>
+    <p>
+      Quando scegli facoltativamente di accedere (ad esempio tramite Google Sign-In con Firebase),
+      utilizziamo i dati base del tuo profilo:
+    </p>
+    <ul>
+      <li>Nome visualizzato e immagine del profilo (avatar), mostrati ai tuoi amici per riconoscerti.</li>
+      <li>Identificativo univoco Firebase (UID) e codice amico (<code>@username</code>) scelto da te.</li>
+      <li>Un'impronta crittografica non reversibile (<strong>hash SHA-256</strong>) del tuo indirizzo email, usata esclusivamente per consentire a chi conosce già la tua email di trovarti su InkNote Studio senza esporre l'email in chiaro nel database.</li>
+    </ul>
+
+    <h2>2. Uso facoltativo dei Contatti Google (<code>contacts.readonly</code>)</h2>
+    <p>
+      Solo se attivi manualmente la funzione <em>"Trova amici dai Contatti Google"</em>, l'app richiede
+      l'accesso in sola lettura ai tuoi contatti tramite Google People API:
+    </p>
+    <ul>
+      <li>La lettura avviene direttamente sul tuo dispositivo e solo per gli indirizzi email dei contatti.</li>
+      <li>Ogni indirizzo email viene convertito localmente nel browser in un hash SHA-256 prima di verificare se corrisponde a un utente registrato su InkNote Studio.</li>
+      <li><strong>Non salviamo, non archiviamo e non condividiamo con terze parti la tua rubrica né le email dei tuoi contatti.</strong></li>
+      <li>Solo gli utenti che decidi di aggiungere vengono salvati nella tua lista personale di amici.</li>
+    </ul>
+
+    <h2>3. Invio e Ricezione Quaderni</h2>
+    <p>
+      Quando invii un quaderno a un amico tramite InkNote Studio:
+    </p>
+    <ul>
+      <li>Il contenuto del quaderno viene caricato temporaneamente su Cloud Firestore esclusivamente per consentirne il download al destinatario indicato.</li>
+      <li>Il trasferimento viene <strong>eliminato automaticamente</strong> subito dopo che il destinatario lo importa o lo rifiuta.</li>
+      <li>Se non viene scaricato, ogni trasferimento scade ed è progettato per essere rimosso automaticamente dopo <strong>24 ore</strong>.</li>
+    </ul>
+
+    <h2>4. Controllo e Cancellazione dei Dati</h2>
+    <p>
+      Puoi disconnetterti in qualsiasi momento dall'app, modificare il tuo <code>@username</code>,
+      disattivare la visibilità del profilo o rimuovere amici e trasferimenti in sospeso direttamente
+      dall'interfaccia di condivisione.
+    </p>
+
+    <a class="back" href="./">← Torna a InkNote Studio</a>
+  </main>
+</body>
+</html>

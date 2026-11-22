@@ -1091,6 +1091,17 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 #libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(5) { animation-delay: 116ms; }
 #libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(6) { animation-delay: 132ms; }
 #libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(7) { animation-delay: 148ms; }
+#libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(8) { animation-delay: 164ms; }
+
+#libraryInboxBtn.is-has-unread {
+  background-color: #eef2ff;
+  color: #4f46e5;
+}
+
+body.dark #libraryInboxBtn.is-has-unread {
+  background-color: rgba(99, 102, 241, 0.22);
+  color: #a5b4fc;
+}
 
 @media (prefers-reduced-motion: reduce) {
   #libraryLeadingBtn,

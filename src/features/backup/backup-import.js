@@ -190,18 +190,22 @@ export async function importNotebooks(file, onProgress) {
 
   if (imported.length === 0 && createdFoldersCount === 0) {
     showToast('Nessun elemento importato', 'ℹ️');
+  } else if (imported.length === 1 && createdFoldersCount === 0) {
+    showToast(`Quaderno "${imported[0].nb.title || 'Quaderno'}" importato con successo!`, '✅', 3600);
   } else if (imported.length > 0 && createdFoldersCount > 0) {
     showToast(
-      `Importati ${imported.length} quadern${imported.length === 1 ? 'o' : 'i'} e ${createdFoldersCount} raccolt${createdFoldersCount === 1 ? 'a' : 'e'}`,
-      '📥'
+      `Importati con successo ${imported.length} quadern${imported.length === 1 ? 'o' : 'i'} e ${createdFoldersCount} raccolt${createdFoldersCount === 1 ? 'a' : 'e'}`,
+      '✅',
+      3600
     );
   } else if (createdFoldersCount > 0) {
     showToast(
-      `Importat${createdFoldersCount === 1 ? 'a' : 'e'} ${createdFoldersCount} raccolt${createdFoldersCount === 1 ? 'a' : 'e'}`,
-      '📥'
+      `Importat${createdFoldersCount === 1 ? 'a' : 'e'} con successo ${createdFoldersCount} raccolt${createdFoldersCount === 1 ? 'a' : 'e'}`,
+      '✅',
+      3600
     );
   } else {
-    showToast(`Importati ${imported.length} quadern${imported.length === 1 ? 'o' : 'i'}`, '📥');
+    showToast(`Importati con successo ${imported.length} quadern${imported.length === 1 ? 'o' : 'i'}`, '✅', 3600);
   }
 
   return { notebooks: imported.map(item => item.nb), createdFoldersCount };

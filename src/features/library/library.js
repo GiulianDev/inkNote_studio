@@ -18,6 +18,7 @@ import {
 } from './library-modals.js';
 import { createLibraryDndController } from './library-dnd.js';
 import { bindLibraryAuth } from './library-auth.js';
+import { openSharingModal } from '../sharing/sharing-ui.js';
 import {
   getFolderPath,
   formatFolderPathLabel,
@@ -324,10 +325,18 @@ function _updateSelectionBar() {
 
   const moveBtn = document.getElementById('selectionMoveBtn');
   const duplicateBtn = document.getElementById('selectionDuplicateBtn');
+  const sendBtn = document.getElementById('selectionSendBtn');
   const exportBtn = document.getElementById('selectionExportBtn');
   const deleteBtn = document.getElementById('selectionDeleteBtn');
+  const sendableNbIds = collectNotebookIdsInSelection({
+    selectedNotebookIds,
+    selectedFolderIds,
+    folders: _cachedFolders,
+    notebooks: _cachedNotebooks
+  });
   if (moveBtn) moveBtn.disabled = count === 0;
   if (duplicateBtn) duplicateBtn.disabled = count === 0 || _isDuplicating;
+  if (sendBtn) sendBtn.disabled = sendableNbIds.length === 0;
   if (exportBtn) exportBtn.disabled = count === 0;
   if (deleteBtn) deleteBtn.disabled = count === 0;
 }
@@ -1042,6 +1051,23 @@ async function _handleDuplicateSelection() {
   }
 }
 
+async function _handleSendSelection() {
+  const ids = collectNotebookIdsInSelection({
+    selectedNotebookIds,
+    selectedFolderIds,
+    folders: _cachedFolders,
+    notebooks: _cachedNotebooks
+  });
+  if (ids.length === 0) {
+    showToast('Seleziona almeno un quaderno da inviare', '⚠️');
+    return;
+  }
+  const nbMap = new Map(_cachedNotebooks.map(n => [n.id, n]));
+  const sendNotebooks = ids.map(id => nbMap.get(id)).filter(Boolean);
+  if (sendNotebooks.length === 0) return;
+  openSharingModal({ sendNotebooks });
+}
+
 async function _handleExportSelection() {
   const nbCount = selectedNotebookIds.size;
   const fldCount = selectedFolderIds.size;
@@ -1308,9 +1334,11 @@ export function bindLibraryUI() {
   document.getElementById('libraryLeadingBtn')?.addEventListener('click', () => {
     if (_selectionMode) _exitSelectionMode();
   });
+  document.getElementById('libraryInboxBtn')?.addEventListener('click', () => openSharingModal({ initialTab: 'inbox' }));
   document.getElementById('selectionSelectAllBtn')?.addEventListener('click', _selectAll);
   document.getElementById('selectionMoveBtn')?.addEventListener('click', _handleMoveSelection);
   document.getElementById('selectionDuplicateBtn')?.addEventListener('click', _handleDuplicateSelection);
+  document.getElementById('selectionSendBtn')?.addEventListener('click', _handleSendSelection);
   document.getElementById('selectionExportBtn')?.addEventListener('click', _handleExportSelection);
   document.getElementById('selectionDeleteBtn')?.addEventListener('click', _handleDeleteSelection);
 
@@ -1472,3 +1500,6 @@ export function bindLibraryUI() {
 }
 
 on('library:refresh', renderLibraryView);
+on('library:open-notebook', (nbId) => {
+  if (nbId) openNotebook(nbId);
+});

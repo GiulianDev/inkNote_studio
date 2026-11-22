@@ -70,6 +70,14 @@
 
                     <div class="hidden sm:block w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
 
+                    <button id="libraryInboxBtn" type="button" class="lib-bar-btn lib-bar-btn--icon relative" title="Ricevuti e Amici" aria-label="Ricevuti e Amici">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+                            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+                        </svg>
+                        <span id="libraryInboxBadge" class="hidden absolute -top-1 -right-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none items-center justify-center ring-2 ring-slate-100 dark:ring-slate-950">0</span>
+                    </button>
+
                     <button id="openSettingsBtnLib" type="button" class="lib-bar-btn lib-bar-btn--icon" title="Impostazioni" aria-label="Impostazioni">
                         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
@@ -88,18 +96,32 @@
                             </span>
                         </button>
                         <div id="authDropdown"
-                            class="hidden absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
+                            class="hidden absolute right-0 top-full mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
                             <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
                                 <div class="flex items-center gap-3">
                                     <div id="authDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-indigo-500 text-white font-bold flex-shrink-0"></div>
                                     <div class="min-w-0">
                                         <div id="authDropdownName" class="text-sm font-semibold text-slate-900 dark:text-white truncate"></div>
                                         <div id="authDropdownEmail" class="text-[11px] text-slate-500 dark:text-slate-400 truncate"></div>
+                                        <div id="authDropdownHandle" class="hidden text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 truncate mt-0.5"></div>
                                     </div>
                                 </div>
                             </div>
+                            <button id="authDropdownSharingBtn" type="button"
+                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-between cursor-pointer">
+                                <span>Ricevuti e Amici</span>
+                                <span id="authDropdownInboxBadge" class="hidden px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none">0</span>
+                            </button>
+                            <button id="authDropdownCopyInviteBtn" type="button"
+                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
+                                Copia link invito amici
+                            </button>
+                            <a href="privacy.html" target="_blank" rel="noopener noreferrer"
+                                class="block w-full text-left px-4 py-2.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition border-t border-slate-100 dark:border-slate-800">
+                                Privacy Policy
+                            </a>
                             <button id="authLogoutBtn"
-                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition">
+                                class="w-full text-left px-4 py-2.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition border-t border-slate-100 dark:border-slate-800 cursor-pointer">
                                 Esci
                             </button>
                         </div>
@@ -127,6 +149,13 @@
                             <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
                         </svg>
                         <span class="hidden md:inline">Duplica</span>
+                    </button>
+                    <button id="selectionSendBtn" type="button" class="lib-bar-btn lib-bar-btn--secondary" title="Invia a un amico" aria-label="Invia a un amico">
+                        <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
+                            <path d="m21.854 2.147-10.94 10.939"/>
+                        </svg>
+                        <span class="hidden sm:inline">Invia</span>
                     </button>
                     <button id="selectionExportBtn" type="button" class="lib-bar-btn lib-bar-btn--secondary" title="Esporta selezionati" aria-label="Esporta selezionati">
                         <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -347,7 +376,7 @@
         <button id="resetZoomBtn" class="ml-1 bg-slate-700 hover:bg-slate-600 text-white px-2 py-0.5 rounded-lg text-[10px]">Reset</button>
     </div>
 
-    <div id="toastNotification" class="fixed top-24 right-6 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs flex items-center gap-2 transform translate-y-2 opacity-0 pointer-events-none transition-all duration-300 z-50 font-medium">
+    <div id="toastNotification" role="status" aria-live="polite" class="fixed top-24 right-6 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs flex items-center gap-2 transform translate-y-2 opacity-0 pointer-events-none transition-all duration-300 z-[200] font-medium">
         <span id="toastIcon">ℹ️</span>
         <span id="toastMessage">Messaggio</span>
     </div>
