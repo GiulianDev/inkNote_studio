@@ -17,6 +17,17 @@ import {
   applyTransform, applyPinchTransform,
   clampViewport, invalidateClampCache
 } from './transform.js';
+import {
+  createPalmRejectionTracker,
+  isPenPointerType,
+  isPalmContact,
+  shouldCommitPinch,
+  PAN_START_THRESHOLD_PX,
+  PINCH_MIN_INITIAL_DIST,
+  PINCH_MAX_INITIAL_DIST_IOS,
+  PINCH_MAX_INITIAL_DIST_DEFAULT,
+  GESTURE_BLOCK_COOLDOWN_MS
+} from './palm-rejection.js';
 
 // Rilevamento iPadOS / iOS WebKit (iPadOS 13+ si dichiara MacIntel + maxTouchPoints > 1)
 const _isIOS = typeof navigator !== 'undefined' && (
@@ -24,41 +35,9 @@ const _isIOS = typeof navigator !== 'undefined' && (
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 );
 
-// ============================================================
-// COSTANTI — PALM REJECTION
-// ============================================================
-
-/**
- * Dimensione massima (px CSS) di un tocco valido come "dito".
- * Su iPadOS WebKit `e.width`/`e.height` = 2 * majorRadius, quindi un dito
- * appoggiato normalmente supera facilmente 60px; su Surface/Android resta 60.
- */
-const PALM_CONTACT_SIZE = _isIOS ? 100 : 60;
-
-/** Grace dopo pointerup/pointercancel penna (filtra solo rimbalzi simultanei al sollevamento). */
-const PEN_CONTACT_GRACE_MS = 80;
-
-/** Grace dopo pointerleave penna. */
-const PEN_LEAVE_GRACE_MS = 100;
-
-/** Safety net per driver che non emettono pointerleave affidabile. */
-const PEN_HOVER_TIMEOUT_MS = 350;
-
-/** Finestra (ms) entro cui un pan breve viene annullato se arriva la penna. */
-const PEN_CANCEL_PAN_WINDOW_MS = 400;
-
-/** Deadzone (px CSS) prima di avviare lo spostamento effettivo del foglio (riduce micro-scatti del palmo). */
-const PAN_START_THRESHOLD_PX = 6;
-
-/** Cooldown (ms) anti-palmo dopo 3+ tocchi simultanei (timestamp, zero timer). */
-const GESTURE_BLOCK_COOLDOWN_MS = 400;
-
-// ============================================================
-// COSTANTI — PINCH
-// ============================================================
-
-const PINCH_MIN_INITIAL_DIST = 30;
-const PINCH_MAX_INITIAL_DIST = _isIOS ? 850 : 600;
+const PINCH_MAX_INITIAL_DIST = _isIOS
+  ? PINCH_MAX_INITIAL_DIST_IOS
+  : PINCH_MAX_INITIAL_DIST_DEFAULT;
 
 // ============================================================
 // COSTANTI — SCROLL AXIS LOCK
@@ -89,16 +68,13 @@ const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 // STATO MODULO
 // ============================================================
 
-let _penDown = false;
-let _penInRange = false;
-let _lastPenContactEndTime = 0;
-let _lastPenLeaveTime = 0;
-let _lastPenEventTime = 0;
-
-let _gestureBlockedUntil = 0;
+const _palmTracker = createPalmRejectionTracker({ isIOS: _isIOS });
 
 let _panStartTime = 0;
+let _gestureStartTime = 0;
+let _gestureOriginTransform = { x: 0, y: 0, scale: 1 };
 let _panCommitted = false;
+let _pinchCommitted = false;
 let _startedAtBottom = false;
 let _scrollDecisionMade = false;
 let _scrollAxisLocked = false;
@@ -119,11 +95,7 @@ let _tmpP1 = null;
 // ============================================================
 
 function _isPenEvent(e) {
-  return e.pointerType === 'pen' || e.pointerType === 'eraser';
-}
-
-function _isPalmContact(e) {
-  return (e.width || 0) > PALM_CONTACT_SIZE || (e.height || 0) > PALM_CONTACT_SIZE;
+  return isPenPointerType(e.pointerType);
 }
 
 function _readTwoPointers() {
@@ -141,39 +113,11 @@ function _readTwoPointers() {
 
 function _clearTouchPointers(viewportEl) {
   for (const [id, ptr] of viewport.activePointers) {
-    if (ptr.pointerType !== 'pen' && ptr.pointerType !== 'eraser') {
+    if (!isPenPointerType(ptr.pointerType)) {
       viewport.activePointers.delete(id);
       try { viewportEl.releasePointerCapture(id); } catch (err) {}
     }
   }
-}
-
-function _isPenBlockingTouches() {
-  if (_penDown) return true;
-
-  const now = performance.now();
-
-  if (_lastPenContactEndTime > 0 &&
-      now - _lastPenContactEndTime < PEN_CONTACT_GRACE_MS) {
-    return true;
-  }
-
-  if (_lastPenLeaveTime > 0 &&
-      now - _lastPenLeaveTime < PEN_LEAVE_GRACE_MS) {
-    return true;
-  }
-
-  if (_penInRange) {
-    if (_lastPenEventTime > 0 &&
-        now - _lastPenEventTime > PEN_HOVER_TIMEOUT_MS) {
-      _penInRange = false;
-      _lastPenEventTime = 0;
-      return false;
-    }
-    return true;
-  }
-
-  return false;
 }
 
 // ============================================================
@@ -290,20 +234,17 @@ function _momentumStep(now) {
 
 function _cancelCurrentGesture(rollbackPosition) {
   if (rollbackPosition) {
-    if (viewport.isPinching && viewport.pinchStartTransform) {
-      viewport.x = viewport.pinchStartTransform.x;
-      viewport.y = viewport.pinchStartTransform.y;
-      viewport.scale = viewport.pinchStartTransform.scale;
-      applyTransform(false);
-    } else if (viewport.isPanning && _panCommitted && viewport.panStartTransform) {
-      viewport.x = viewport.panStartTransform.x;
-      viewport.y = viewport.panStartTransform.y;
+    if ((viewport.isPinching && _pinchCommitted) || (viewport.isPanning && _panCommitted)) {
+      viewport.x = _gestureOriginTransform.x;
+      viewport.y = _gestureOriginTransform.y;
+      viewport.scale = _gestureOriginTransform.scale;
       applyTransform(false);
     }
   }
   viewport.isPanning = false;
   viewport.isPinching = false;
   _panCommitted = false;
+  _pinchCommitted = false;
   _startedAtBottom = false;
   _scrollDecisionMade = false;
   _scrollAxisLocked = false;
@@ -321,12 +262,7 @@ export function setupViewportGestures() {
   window.addEventListener('resize', invalidateClampCache);
 
   window.addEventListener('blur', () => {
-    _penDown = false;
-    _penInRange = false;
-    _lastPenContactEndTime = 0;
-    _lastPenLeaveTime = 0;
-    _lastPenEventTime = 0;
-    _gestureBlockedUntil = 0;
+    _palmTracker.resetAll();
     viewport.activePointers.clear();
     _cancelCurrentGesture(false);
   });
@@ -334,11 +270,7 @@ export function setupViewportGestures() {
   // Safety net globale se la penna viene sollevata fuori da #viewport
   const onGlobalPenEnd = (e) => {
     if (_isPenEvent(e)) {
-      if (_penDown || _penInRange) {
-        _penDown = false;
-        _penInRange = false;
-        _lastPenContactEndTime = performance.now();
-      }
+      _palmTracker.onGlobalPenEnd(performance.now());
     }
   };
   window.addEventListener('pointerup', onGlobalPenEnd, { capture: true, passive: true });
@@ -357,56 +289,57 @@ export function setupViewportGestures() {
   // PEN TRACKING
   // ----------------------------------------------------------
 
+  const _rollbackOnPenArrival = (now) => {
+    if (!viewport.isPanning && !viewport.isPinching) return;
+    const shouldRollback = _palmTracker.shouldRollbackGestureOnPenArrival({
+      isPanning: viewport.isPanning,
+      isPinching: viewport.isPinching,
+      panCommitted: _panCommitted,
+      pinchCommitted: _pinchCommitted,
+      gestureStartTime: _gestureStartTime,
+      now,
+      originTransform: _gestureOriginTransform,
+      currentTransform: { x: viewport.x, y: viewport.y, scale: viewport.scale }
+    });
+    _clearTouchPointers(viewportEl);
+    _cancelCurrentGesture(shouldRollback);
+  };
+
   viewportEl.addEventListener('pointerenter', (e) => {
     if (_isPenEvent(e)) {
-      _penInRange = true;
-      _lastPenEventTime = performance.now();
-
-      if (viewport.isPanning || viewport.isPinching) {
-        const panDuration = performance.now() - _panStartTime;
-        const shouldRollback = viewport.isPanning && (!_panCommitted || panDuration < PEN_CANCEL_PAN_WINDOW_MS);
-        _clearTouchPointers(viewportEl);
-        _cancelCurrentGesture(shouldRollback);
-      }
+      const now = performance.now();
+      _palmTracker.onPenEnter(now);
+      _rollbackOnPenArrival(now);
     }
   }, { capture: true, passive: true });
 
   viewportEl.addEventListener('pointermove', (e) => {
     if (_isPenEvent(e)) {
-      _penInRange = true;
-      _lastPenEventTime = performance.now();
+      _palmTracker.onPenHoverMove(performance.now());
     }
   }, { capture: true, passive: true });
 
   viewportEl.addEventListener('pointerleave', (e) => {
     if (_isPenEvent(e)) {
-      _penInRange = false;
-      _lastPenEventTime = 0;
-      _lastPenLeaveTime = performance.now();
+      _palmTracker.onPenLeave(performance.now());
     }
   }, { capture: true, passive: true });
 
   viewportEl.addEventListener('pointerdown', (e) => {
     if (_isPenEvent(e)) {
-      _penDown = true;
-      _penInRange = true;
-      _lastPenEventTime = performance.now();
+      _palmTracker.onPenDown(performance.now());
     }
   }, { capture: true, passive: true });
 
   viewportEl.addEventListener('pointerup', (e) => {
     if (_isPenEvent(e)) {
-      _penDown = false;
-      _penInRange = false;
-      _lastPenContactEndTime = performance.now();
+      _palmTracker.onPenUp(performance.now());
     }
   }, { capture: true, passive: true });
 
   viewportEl.addEventListener('pointercancel', (e) => {
     if (_isPenEvent(e)) {
-      _penDown = false;
-      _penInRange = false;
-      _lastPenContactEndTime = performance.now();
+      _palmTracker.onPenUp(performance.now());
     }
   }, { capture: true, passive: true });
 
@@ -421,13 +354,7 @@ export function setupViewportGestures() {
       _scrollDecisionMade = false;
       _startedAtBottom = false;
 
-      if (viewport.isPanning || viewport.isPinching) {
-        const panDuration = performance.now() - _panStartTime;
-        const shouldRollback = viewport.isPanning && (!_panCommitted || panDuration < PEN_CANCEL_PAN_WINDOW_MS);
-        _cancelCurrentGesture(shouldRollback);
-      }
-      _clearTouchPointers(viewportEl);
-      _gestureBlockedUntil = 0;
+      _rollbackOnPenArrival(performance.now());
       return;
     }
 
@@ -453,27 +380,42 @@ export function setupViewportGestures() {
     }
 
     const now = performance.now();
-
-    if (state.palmRejection) {
-      if (state.isDrawing || _isPenBlockingTouches()) return;
-      if (_isPalmContact(e)) return;
+    const touchEval = _palmTracker.evaluateTouchDown(e, {
+      now,
+      palmRejection: state.palmRejection,
+      isDrawing: state.isDrawing
+    });
+    if (!touchEval.allow) {
+      if (touchEval.cancelExisting) {
+        _cancelCurrentGesture(true);
+        _clearTouchPointers(viewportEl);
+      }
+      return;
     }
-
-    if (now < _gestureBlockedUntil) return;
 
     _cancelMomentum();
     _resetVelocitySamples();
     _scrollAxisLocked = false;
     _scrollDecisionMade = false;
 
+    const hadPointers = viewport.activePointers.size > 0;
     viewport.activePointers.set(e.pointerId, {
-      x: e.clientX, y: e.clientY, pointerType: e.pointerType
+      x: e.clientX,
+      y: e.clientY,
+      pointerType: e.pointerType,
+      width: e.width || 0,
+      height: e.height || 0
     });
+
+    if (!hadPointers) {
+      _gestureStartTime = now;
+      _gestureOriginTransform = { x: viewport.x, y: viewport.y, scale: viewport.scale };
+    }
 
     const count = viewport.activePointers.size;
 
     if (count >= 3) {
-      _gestureBlockedUntil = now + GESTURE_BLOCK_COOLDOWN_MS;
+      _palmTracker.blockGesturesUntil(now + GESTURE_BLOCK_COOLDOWN_MS);
       _cancelCurrentGesture(true);
       _clearTouchPointers(viewportEl);
       return;
@@ -486,6 +428,7 @@ export function setupViewportGestures() {
 
       viewport.isPanning = true;
       _panCommitted = false;
+      _pinchCommitted = false;
       viewport.panStart = { x: e.clientX, y: e.clientY };
       viewport.panStartTransform = { x: viewport.x, y: viewport.y };
       _panStartTime = now;
@@ -512,6 +455,7 @@ export function setupViewportGestures() {
       viewport.isPanning = false;
       _panCommitted = false;
       viewport.isPinching = true;
+      _pinchCommitted = false;
       _startedAtBottom = false;
       abortCurrentDrawing();
 
@@ -532,13 +476,14 @@ export function setupViewportGestures() {
   // ----------------------------------------------------------
   const onPointerMove = (e) => {
     if (_isPenEvent(e)) return;
-    if (performance.now() < _gestureBlockedUntil) return;
+    const now = performance.now();
+    if (_palmTracker.isGestureBlocked(now)) return;
 
     const ptr = viewport.activePointers.get(e.pointerId);
     if (!ptr) return;
 
-    if (state.palmRejection && _isPalmContact(e)) {
-      _gestureBlockedUntil = performance.now() + 250;
+    if (state.palmRejection && isPalmContact(e, _isIOS)) {
+      _palmTracker.blockGesturesUntil(now + GESTURE_BLOCK_COOLDOWN_MS);
       _cancelCurrentGesture(true);
       _clearTouchPointers(viewportEl);
       return;
@@ -546,6 +491,8 @@ export function setupViewportGestures() {
 
     ptr.x = e.clientX;
     ptr.y = e.clientY;
+    ptr.width = e.width || ptr.width;
+    ptr.height = e.height || ptr.height;
 
     if (viewport.isPanning && viewport.activePointers.size === 1) {
       e.preventDefault();
@@ -620,6 +567,17 @@ export function setupViewportGestures() {
       _pinchCenter.x = (_tmpP0.x + _tmpP1.x) / 2;
       _pinchCenter.y = (_tmpP0.y + _tmpP1.y) / 2;
 
+      if (!_pinchCommitted) {
+        if (!shouldCommitPinch(viewport.pinchStartDist, viewport.pinchStartCenter, currentDist, _pinchCenter)) {
+          return;
+        }
+        _pinchCommitted = true;
+        viewport.pinchStartDist = currentDist;
+        viewport.pinchStartCenter = { x: _pinchCenter.x, y: _pinchCenter.y };
+        viewport.pinchStartTransform = { x: viewport.x, y: viewport.y, scale: viewport.scale };
+        return;
+      }
+
       if (viewport.pinchStartDist > 0) {
         const factor = currentDist / viewport.pinchStartDist;
         const targetScale = Math.min(
@@ -655,10 +613,11 @@ export function setupViewportGestures() {
       hidePullIndicator();
 
       const wasPanning = viewport.isPanning && _panCommitted;
-      const wasPinching = viewport.isPinching;
+      const wasPinching = viewport.isPinching && _pinchCommitted;
       viewport.isPanning = false;
       viewport.isPinching = false;
       _panCommitted = false;
+      _pinchCommitted = false;
 
       if (shouldAddPage) {
         addNewPage();
@@ -702,13 +661,15 @@ export function setupViewportGestures() {
     }
 
     if (viewport.activePointers.size === 1 && viewport.isPinching) {
+      const wasPinchCommitted = _pinchCommitted;
       viewport.isPinching = false;
+      _pinchCommitted = false;
 
       if (!state.fingerWriting) {
         const remaining = viewport.activePointers.values().next().value;
         if (remaining) {
           viewport.isPanning = true;
-          _panCommitted = true;
+          _panCommitted = wasPinchCommitted;
           viewport.panStart = { x: remaining.x, y: remaining.y };
           viewport.panStartTransform = { x: viewport.x, y: viewport.y };
           _panStartTime = performance.now();
