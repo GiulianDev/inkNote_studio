@@ -14,34 +14,35 @@
 <body class="h-screen flex flex-col select-none" data-dock-size="medium">
 
     <!-- VISTA 1: LIBRERIA -->
-    <div id="libraryView" class="fixed inset-0 bg-slate-100 dark:bg-slate-950 z-50 overflow-y-auto p-6 md:p-10 flex flex-col">
+    <div id="libraryView" class="fixed inset-0 bg-slate-100 dark:bg-slate-950 z-50 overflow-y-auto p-4 sm:p-6 md:p-10 flex flex-col">
 
     <!-- HEADER default (nascosto in selection mode) -->
-    <div id="libraryHeader" class="max-w-6xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between mb-8 pb-4 border-b border-slate-300 dark:border-slate-800 gap-4">
+    <div id="libraryHeader" class="max-w-6xl w-full mx-auto flex flex-col sm:flex-row items-stretch sm:items-center justify-between mb-6 sm:mb-8 pb-4 border-b border-slate-300 dark:border-slate-800 gap-3.5 sm:gap-4">
         <div class="flex items-center space-x-3">
-        <div class="bg-indigo-600 text-white w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
+        <div class="bg-indigo-600 text-white w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 shrink-0">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>
             </svg>
         </div>
         <div>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">InkNote Library</h1>
+            <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">InkNote Library</h1>
             <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">I tuoi blocchetti salvati in locale</p>
         </div>
         </div>
 
-        <div class="flex items-center gap-2 flex-wrap justify-end">
+        <div class="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 w-full sm:w-auto flex-nowrap sm:flex-wrap">
         <button id="newNotebookBtn"
-            class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-3 sm:px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition active:scale-95">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs h-9 sm:h-10 px-2.5 sm:px-4 rounded-xl shadow-md flex items-center justify-center gap-1.5 sm:gap-2 transition active:scale-95 shrink-0 whitespace-nowrap"
+            title="Nuovo Quaderno" aria-label="Nuovo Quaderno">
+            <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14"/><path d="M12 5v14"/>
             </svg>
-            <span>Nuovo Quaderno</span>
+            <span><span class="hidden sm:inline">Nuovo </span>Quaderno</span>
         </button>
         <button id="newFolderBtn"
-            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 sm:px-3.5 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2"
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs w-9 h-9 sm:w-auto sm:h-10 sm:px-3.5 rounded-xl transition active:scale-95 flex items-center justify-center gap-2 shrink-0"
             title="Nuova Raccolta" aria-label="Nuova Raccolta">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 7V5a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v1"/>
             <rect width="18" height="14" x="3" y="7" rx="2.5"/>
             <path d="M12 11v6"/><path d="M9 14h6"/>
@@ -49,17 +50,17 @@
             <span class="hidden md:inline">Nuova Raccolta</span>
         </button>
         <button id="librarySelectBtn"
-            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 sm:px-3.5 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2"
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs w-9 h-9 sm:w-auto sm:h-10 sm:px-3.5 rounded-xl transition active:scale-95 flex items-center justify-center gap-2 shrink-0"
             title="Seleziona quaderni o raccolte" aria-label="Seleziona quaderni o raccolte">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
             </svg>
             <span class="hidden lg:inline">Seleziona</span>
         </button>
         <button id="importBackupBtn"
-            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 sm:px-4 py-2.5 rounded-xl transition active:scale-95 flex items-center gap-2"
-            title="Importa backup">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs w-9 h-9 sm:w-auto sm:h-10 sm:px-4 rounded-xl transition active:scale-95 flex items-center justify-center gap-2 shrink-0"
+            title="Importa backup" aria-label="Importa backup">
+            <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" x2="12" y1="15" y2="3"/>
@@ -70,18 +71,18 @@
         <div class="hidden sm:block w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
 
         <button id="openSettingsBtnLib"
-            class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 w-10 h-10 rounded-xl transition active:scale-95 flex items-center justify-center"
-            title="Impostazioni">
+            class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition active:scale-95 flex items-center justify-center shrink-0"
+            title="Impostazioni" aria-label="Impostazioni">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
             <circle cx="12" cy="12" r="3"/>
             </svg>
         </button>
 
-        <div class="relative" id="authContainer">
+        <div class="relative shrink-0" id="authContainer">
             <button id="authBtn"
-            class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition active:scale-95 overflow-hidden border border-slate-300 dark:border-slate-700"
-            title="Accedi">
+            class="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition active:scale-95 overflow-hidden border border-slate-300 dark:border-slate-700"
+            title="Accedi" aria-label="Profilo o accedi">
             <span id="authBtnContent" class="text-base">
                 <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
@@ -195,31 +196,31 @@
             </div>
 
             <!-- Filtro preferiti + ordinamento + vista Griglia/Lista -->
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 w-full sm:w-auto flex-nowrap">
                 <button id="libraryFavFilterBtn" type="button"
-                    class="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-3 py-2 rounded-xl transition flex items-center gap-1.5"
+                    class="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-semibold text-xs px-2.5 sm:px-3 py-2 rounded-xl transition flex items-center gap-1 sm:gap-1.5 shrink-0"
                     title="Mostra solo i quaderni preferiti">
-                    <svg class="w-3.5 h-3.5 fav-filter-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <svg class="w-3.5 h-3.5 fav-filter-star shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                     </svg>
                     <span>Preferiti</span>
                 </button>
 
-                <div class="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden">
-                    <div class="relative flex items-center">
+                <div class="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden min-w-0">
+                    <div class="relative flex items-center min-w-0">
                         <select id="librarySortSelect" aria-label="Ordina libreria per"
-                            class="appearance-none bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 pl-3 pr-8 py-2 outline-none cursor-pointer">
+                            class="appearance-none bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 pl-2.5 pr-6 sm:pl-3 sm:pr-8 py-2 outline-none cursor-pointer max-w-full truncate">
                             <option value="updatedAt">Ultima modifica</option>
                             <option value="createdAt">Data creazione</option>
                             <option value="title">Nome</option>
                             <option value="pageCount">N° pagine</option>
                         </select>
-                        <svg class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <svg class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute right-2 sm:right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <path d="m6 9 6 6 6-6"/>
                         </svg>
                     </div>
                     <button id="librarySortDirBtn" type="button"
-                        class="px-2.5 py-2 border-l border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-center"
+                        class="px-2 sm:px-2.5 py-2 border-l border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-center shrink-0"
                         title="Cambia ordine crescente/decrescente" aria-label="Inverti ordinamento">
                         <svg id="librarySortDirIcon" class="w-3.5 h-3.5 transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <path d="m6 9 6 6 6-6"/>
@@ -227,7 +228,7 @@
                     </button>
                 </div>
 
-                <div class="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-0.5" role="group" aria-label="Modalità vista">
+                <div class="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-0.5 shrink-0" role="group" aria-label="Modalità vista">
                     <button id="libraryViewGridBtn" type="button"
                         class="library-view-btn active px-2 py-1.5 rounded-lg transition flex items-center justify-center"
                         title="Vista Griglia" aria-label="Vista Griglia">
