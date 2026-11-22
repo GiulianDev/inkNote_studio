@@ -197,11 +197,32 @@ export function findArrowTipTarget(tipPoints, existingStrokes) {
   let bestTarget = null;
   let bestScore = Infinity;
 
+  const maxAlongAbs = Math.max(Math.abs(minAlongOffset), maxAlongOffset);
+  const maxTipDistSq = maxAlongAbs * maxAlongAbs + maxLateralOffset * maxLateralOffset + 1;
+  const minShaftChord = Math.max(45, avgWing * 1.6);
+  const minShaftChordSq = minShaftChord * minShaftChord;
+
   for (let i = existingStrokes.length - 1; i >= 0; i--) {
     const s = existingStrokes[i];
-    if (!s || !Array.isArray(s.points)) continue;
+    const pts = s && s.points;
+    if (!Array.isArray(pts) || pts.length < 2) continue;
 
-    const shaft = analyzeStraightShaftCandidate(s.points);
+    // Filtro O(1) senza scansione punti: corda minima e distanza punta dagli estremi
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const cdx = last.x - first.x;
+    const cdy = last.y - first.y;
+    if (cdx * cdx + cdy * cdy < minShaftChordSq) continue;
+
+    const dfx = tip.x - first.x;
+    const dfy = tip.y - first.y;
+    const dlx = tip.x - last.x;
+    const dly = tip.y - last.y;
+    if (dfx * dfx + dfy * dfy > maxTipDistSq && dlx * dlx + dly * dly > maxTipDistSq) {
+      continue;
+    }
+
+    const shaft = analyzeStraightShaftCandidate(pts);
     if (!shaft) continue;
     if (shaft.chordLen < avgWing * 1.6) continue;
 
@@ -257,8 +278,12 @@ export function findImplicationArrowTarget(tipPoints, existingStrokes) {
   const startScan = Math.max(0, existingStrokes.length - 30);
   for (let i = existingStrokes.length - 1; i >= startScan; i--) {
     const s = existingStrokes[i];
-    if (!s || !Array.isArray(s.points)) continue;
-    const shaft = analyzeStraightShaftCandidate(s.points, {
+    const pts = s && s.points;
+    if (!Array.isArray(pts) || pts.length < 2) continue;
+    const cdx = pts[pts.length - 1].x - pts[0].x;
+    const cdy = pts[pts.length - 1].y - pts[0].y;
+    if (cdx * cdx + cdy * cdy < 22 * 22) continue;
+    const shaft = analyzeStraightShaftCandidate(pts, {
       minLength: 22,
       maxRmsFactor: 0.035,
       minPathRatio: 0.90

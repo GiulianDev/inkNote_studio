@@ -24,7 +24,7 @@ import { resetHistory } from '../history/history.js';
 import {
   setViewportChangeHandler, applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
-import { clearSelection, updateSelectionMenuPosition } from '../tools/lazo.js';
+import { clearSelection, hasLassoSelection, updateSelectionMenuPosition } from '../tools/lazo.js';
 import { finalizePendingShape } from '../tools/shapes.js';
 import {
   commitActiveTextBox, resetTextToolState, updateTextSelectionMenuPosition
@@ -75,14 +75,25 @@ function _closeOpenDialog() {
   }
 }
 
+let _menuPosRaf = null;
+function _scheduleSelectionMenuReposition() {
+  if (_menuPosRaf !== null) return;
+  _menuPosRaf = requestAnimationFrame(() => {
+    _menuPosRaf = null;
+    if (hasLassoSelection()) updateSelectionMenuPosition();
+    if (state.selectedTextBoxId && !state.editingTextBoxId) updateTextSelectionMenuPosition();
+  });
+}
+
 export function initEditorHandlers() {
   setViewportChangeHandler(() => {
     if (!viewport.isPinching) {
       scheduleResolutionRefresh();
       updateActivePageFromViewport();
     }
-    updateSelectionMenuPosition();
-    updateTextSelectionMenuPosition();
+    if (hasLassoSelection() || (state.selectedTextBoxId && !state.editingTextBoxId)) {
+      _scheduleSelectionMenuReposition();
+    }
   });
   window.addEventListener('resize', () => updateActivePageFromViewport());
   installViewportResizeObserver();

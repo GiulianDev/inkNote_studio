@@ -14,6 +14,14 @@ import {
   clearOverlay, renderPendingShapeOnOverlay,
   renderFullStroke, redrawPageCanvas
 } from '../render/render.js';
+import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
+import { invalidateStrokeBBox } from '../render/stroke-geometry.js';
+
+function _invalidateStrokeCaches(stroke) {
+  if (!stroke) return;
+  invalidateStrokeBBox(stroke);
+  invalidateStrokeBitmap(stroke);
+}
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import {
@@ -219,6 +227,7 @@ export function trySnapToLine(stroke) {
     });
   }
   stroke.points = straightPts;
+  _invalidateStrokeCaches(stroke);
   return true;
 }
 
@@ -465,9 +474,11 @@ function detectImplicationArrow(stroke, pageData) {
   const barBStroke = pageData.strokes[match.barBIndex];
   if (barAStroke) {
     barAStroke.points = buildOpenPolylineStrokePoints(geom.barAEndpoints, 4);
+    _invalidateStrokeCaches(barAStroke);
   }
   if (barBStroke) {
     barBStroke.points = buildOpenPolylineStrokePoints(geom.barBEndpoints, 4);
+    _invalidateStrokeCaches(barBStroke);
   }
   if (pageData.canvas && pageData.ctx) {
     redrawPageCanvas(pageData);
@@ -480,6 +491,7 @@ function detectImplicationArrow(stroke, pageData) {
     geom.wingLen,
     geom.halfAngleDeg
   );
+  _invalidateStrokeCaches(stroke);
   showToast('Forma: Di conseguenza (⇒)', '⇒');
   triggerSnapAnimation(pageData);
   return true;
@@ -496,6 +508,7 @@ function detectArrowTipOnLine(stroke, pageData) {
     match.target.dirY,
     match.wingLen
   );
+  _invalidateStrokeCaches(stroke);
   showToast('Forma: Punta freccia', '➡️');
   triggerSnapAnimation(pageData);
   return true;
@@ -523,6 +536,7 @@ function detectSingleStrokeArrow(stroke, pageData, extraStrokes) {
   const wingLen = Math.max(10, Math.min(48, finalLen * 0.42, rawWingLen * 0.95));
 
   stroke.points = buildOpenPolylineStrokePoints([{ x: tail.x, y: tail.y }, finalTip], 4);
+  _invalidateStrokeCaches(stroke);
   extraStrokes.push({
     tool: stroke.tool,
     color: stroke.color,
@@ -613,6 +627,7 @@ export function detectAndSnapShape(stroke, pageData, extraStrokes = []) {
         circlePts.push({ x: cx + Math.cos(a) * avgRadius, y: cy + Math.sin(a) * avgRadius, pressure: 0.5 });
       }
       stroke.points = circlePts;
+      _invalidateStrokeCaches(stroke);
       showToast('Forma: Cerchio', '⭕');
       triggerSnapAnimation(pageData);
       return true;
@@ -625,6 +640,7 @@ export function detectAndSnapShape(stroke, pageData, extraStrokes = []) {
         { x: maxX, y: maxY },
         { x: minX, y: maxY }
       ]);
+      _invalidateStrokeCaches(stroke);
       showToast('Forma: Rettangolo', '⬛');
       triggerSnapAnimation(pageData);
       return true;
@@ -634,6 +650,7 @@ export function detectAndSnapShape(stroke, pageData, extraStrokes = []) {
       const triVerts = detectTriangleVertices(pts, pathLen, bboxDiag);
       if (triVerts) {
         stroke.points = buildPolygonStrokePoints(triVerts);
+        _invalidateStrokeCaches(stroke);
         showToast('Forma: Triangolo', '🔺');
         triggerSnapAnimation(pageData);
         return true;
@@ -680,5 +697,6 @@ export function trySnapHighlighter(stroke) {
     });
   }
   stroke.points = straightPts;
+  _invalidateStrokeCaches(stroke);
   return true;
 }

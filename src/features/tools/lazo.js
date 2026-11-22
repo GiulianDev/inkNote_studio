@@ -2,22 +2,33 @@
  * @module features/tools/lazo
  *
  * TOOL LAZO UNIFICATO — selezione mista (inchiostro + caselle di testo),
- * modalità mano libera o rettangolo, spostamento, resize/rotazione,
- * copia/taglia/incolla/duplica e barra contestuale.
+ * modalità mano libera o rettangolo, spostamento via offscreen snapshot + rAF,
+ * resize/rotazione coalesced in rAF, copia/taglia/incolla/duplica e barra contestuale GPU.
  *
  * @see core/types.js  — Stroke, BBox
  * @see features/render/render.js  — bbox, handlers, overlay
+ * @see features/render/stroke-geometry.js — BBox cache & broad-phase
  * @see features/history/history.js
  */
 
 import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
+import {
+  setNonEnumerable,
+  getRawStrokeBBox,
+  invalidateStrokeBBox,
+  translateStrokeInPlace,
+  bboxesOverlap,
+  computePolygonBBox,
+  isPointInPolygon as _isPointInPolygonGeom,
+  getSelectionBBoxFromItems
+} from '../render/stroke-geometry.js';
 import { state, viewport } from '../../core/state.js';
-import { showToast, PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
+import { showToast, PAGE_WIDTH, PAGE_HEIGHT, sliderToBaseSize } from '../../core/utils.js';
 import {
   redrawPageCanvas, redrawSelectionOverlay, clearOverlay,
   getSelectionBoundingBox, getVisualBoundingBox, getHandlePositions,
   isPointInBBox, hitTestHandle, findClosestPointInSelection,
-  drawLassoIncrementalOnOverlay, layoutTextBox
+  drawLassoIncrementalOnOverlay, drawSelectionBBoxOnOverlay, layoutTextBox
 } from '../render/render.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
@@ -26,6 +37,19 @@ import { pagePool } from '../editor/page-pool.js';
 import { getCanvasCoords, getCanvasRect } from './tool-shared.js';
 
 let _clipboard = null; // { strokes: [], textBoxes: [], sourcePageId: string|null, pasteCount: number }
+
+let _cachedMenuWidth = 0;
+let _menuInteractingHidden = false;
+
+let _lassoRaf = null;
+let _lassoRafPage = null;
+
+function _setCanvasCursor(pageData, cursor) {
+  if (!pageData || !pageData.canvas) return;
+  if (pageData._lastCursor === cursor) return;
+  pageData._lastCursor = cursor;
+  pageData.canvas.style.cursor = cursor;
+}
 
 export function hasLassoSelection() {
   return (state.selectedStrokes.length > 0) ||
@@ -55,13 +79,12 @@ function _measureCtx(pageData) {
 }
 
 function _cloneStrokeData(s) {
-  return {
-    tool: s.tool,
-    color: s.color,
-    size: s.size,
-    opacity: s.opacity != null ? s.opacity : 1.0,
-    style: s.style || 'solid',
-    points: s.points.map(p => ({
+  const pts = s.points;
+  const n = pts.length;
+  const clonedPts = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    clonedPts[i] = {
       x: p.x,
       y: p.y,
       pressure: p.pressure,
@@ -69,7 +92,15 @@ function _cloneStrokeData(s) {
       tiltY: p.tiltY,
       speed: p.speed,
       pointerType: p.pointerType
-    }))
+    };
+  }
+  return {
+    tool: s.tool,
+    color: s.color,
+    size: s.size,
+    opacity: s.opacity != null ? s.opacity : 1.0,
+    style: s.style || 'solid',
+    points: clonedPts
   };
 }
 
@@ -97,16 +128,6 @@ function _formatSelectionLabel(strokesCount, textCount) {
   return parts.join(' · ');
 }
 
-function isPointInPolygon(point, vs) {
-  let x = point.x, y = point.y, inside = false;
-  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-    let xi = vs[i].x, yi = vs[i].y, xj = vs[j].x, yj = vs[j].y;
-    let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
 function _isTextBoxInPolygon(tb, polygon, ctx) {
   if (!tb) return false;
   const layout = layoutTextBox(ctx, tb);
@@ -123,7 +144,7 @@ function _isTextBoxInPolygon(tb, polygon, ctx) {
     { x: x0, y: ym }, { x: x1, y: ym }
   ];
   for (let i = 0; i < samples.length; i++) {
-    if (isPointInPolygon(samples[i], polygon)) return true;
+    if (_isPointInPolygonGeom(samples[i], polygon)) return true;
   }
   for (let i = 0; i < polygon.length; i++) {
     const p = polygon[i];
@@ -162,21 +183,39 @@ export function selectStrokesInsideLasso(pageData) {
       maxY: Math.max(p0.y, p1.y)
     };
     state.selectedStrokes = selectInk
-      ? pageData.strokes.filter(stroke =>
-          stroke.points.some(pt =>
-            pt.x >= rect.minX && pt.x <= rect.maxX &&
-            pt.y >= rect.minY && pt.y <= rect.maxY
-          )
-        )
+      ? pageData.strokes.filter(stroke => {
+          const sb = getRawStrokeBBox(stroke);
+          if (!bboxesOverlap(sb, rect)) return false;
+          if (sb.minX >= rect.minX && sb.maxX <= rect.maxX &&
+              sb.minY >= rect.minY && sb.maxY <= rect.maxY) {
+            return true;
+          }
+          const pts = stroke.points;
+          for (let i = 0; i < pts.length; i++) {
+            const pt = pts[i];
+            if (pt.x >= rect.minX && pt.x <= rect.maxX &&
+                pt.y >= rect.minY && pt.y <= rect.maxY) {
+              return true;
+            }
+          }
+          return false;
+        })
       : [];
     state.selectedTextBoxes = (selectText && Array.isArray(pageData.textBoxes))
       ? pageData.textBoxes.filter(tb => _isTextBoxInRect(tb, rect, ctx))
       : [];
   } else {
-    state.selectedStrokes = selectInk
-      ? pageData.strokes.filter(stroke =>
-          stroke.points.some(pt => isPointInPolygon(pt, path))
-        )
+    const polyBBox = computePolygonBBox(path);
+    state.selectedStrokes = selectInk && polyBBox
+      ? pageData.strokes.filter(stroke => {
+          const sb = getRawStrokeBBox(stroke);
+          if (!bboxesOverlap(sb, polyBBox)) return false;
+          const pts = stroke.points;
+          for (let i = 0; i < pts.length; i++) {
+            if (_isPointInPolygonGeom(pts[i], path)) return true;
+          }
+          return false;
+        })
       : [];
     state.selectedTextBoxes = (selectText && Array.isArray(pageData.textBoxes))
       ? pageData.textBoxes.filter(tb => _isTextBoxInPolygon(tb, path, ctx))
@@ -212,6 +251,8 @@ export function selectStrokesInsideLasso(pageData) {
 export function clearSelection() {
   const hadSelection = hasLassoSelection();
   const hadLasso = state.lassoPath.length > 0;
+  _cancelLassoFrame();
+  _cancelResizeFrame();
   state.selectedStrokes = [];
   state.selectedTextBoxes = [];
   state.lassoPath = [];
@@ -229,7 +270,7 @@ export function clearSelection() {
   if (hadSelection || hadLasso) {
     const current = state.pages[state.activePageIndex];
     if (current && current.canvas) {
-      current.canvas.style.cursor = 'crosshair';
+      _setCanvasCursor(current, 'crosshair');
       redrawPageCanvas(current);
       redrawSelectionOverlay(current);
     }
@@ -257,6 +298,23 @@ function snapshotSelectedTextBoxes() {
   }));
 }
 
+// ============================================================
+// RESIZE / ROTAZIONE (coalesced via rAF)
+// ============================================================
+
+let _resizeRaf = null;
+let _resizePendingPoint = null;
+let _resizePage = null;
+
+function _cancelResizeFrame() {
+  if (_resizeRaf !== null) {
+    cancelAnimationFrame(_resizeRaf);
+    _resizeRaf = null;
+  }
+  _resizePendingPoint = null;
+  _resizePage = null;
+}
+
 export function startResizeSelection(handle, startPoint) {
   const visualBBox = getVisualBoundingBox();
   if (!visualBBox) return;
@@ -272,6 +330,7 @@ export function startResizeSelection(handle, startPoint) {
     showToast('Selezione troppo piccola per ridimensionare', '⚠️');
     return;
   }
+  _cancelResizeFrame();
   const offset = { x: startPoint.x - anchor.x, y: startPoint.y - anchor.y };
   state.isResizingSelection = true;
   state.isDrawing = true;
@@ -285,11 +344,15 @@ export function startResizeSelection(handle, startPoint) {
   state.initialStrokesSnapshot = snapshotSelectedStrokes();
   state.initialTextBoxesSnapshot = snapshotSelectedTextBoxes();
   state.selectionMoved = false;
+  _setSelectionMenuInteracting(true);
   const current = state.pages[state.activePageIndex];
-  if (current && current.canvas) { current.canvas.style.cursor = 'nwse-resize'; redrawSelectionOverlay(current); }
+  if (current && current.canvas) {
+    _setCanvasCursor(current, 'nwse-resize');
+    redrawSelectionOverlay(current);
+  }
 }
 
-export function applyResizeSelection(point) {
+function _applyResizeNow(point, targetPage = null) {
   if (!state.isResizingSelection || !state.resizePivot) return;
   const pivot = state.resizePivot;
   const offset = state.resizeOffset || { x: 0, y: 0 };
@@ -386,10 +449,11 @@ export function applyResizeSelection(point) {
         };
       }
     }
+    invalidateStrokeBBox(stroke);
     if (stroke._cacheCanvas) invalidateStrokeBitmap(stroke);
   }
 
-  const current = state.pages[state.activePageIndex];
+  const current = targetPage || state.pages[state.activePageIndex];
   const mCtx = _measureCtx(current);
   for (let i = 0; i < state.selectedTextBoxes.length; i++) {
     const tb = state.selectedTextBoxes[i];
@@ -411,18 +475,77 @@ export function applyResizeSelection(point) {
 
   state.selectionMoved = true;
   if (current && current.canvas) redrawSelectionOverlay(current);
-  updateSelectionMenuPosition();
+}
+
+function _flushResizeFrame() {
+  _resizeRaf = null;
+  const pt = _resizePendingPoint;
+  const page = _resizePage;
+  _resizePendingPoint = null;
+  if (!pt || !state.isResizingSelection) return;
+  _applyResizeNow(pt, page);
+}
+
+export function applyResizeSelection(point) {
+  if (!state.isResizingSelection || !state.resizePivot) return;
+  _resizePendingPoint = { x: point.x, y: point.y };
+  _resizePage = state.pages[state.activePageIndex];
+  if (_resizeRaf === null) {
+    _resizeRaf = requestAnimationFrame(_flushResizeFrame);
+  }
+}
+
+export function endResizeSelection(pageData, wasMoved = false) {
+  const pendingPt = _resizePendingPoint;
+  const targetPage = pageData || _resizePage || state.pages[state.activePageIndex];
+  if (_resizeRaf !== null) {
+    cancelAnimationFrame(_resizeRaf);
+    _resizeRaf = null;
+  }
+  _resizePendingPoint = null;
+  _resizePage = null;
+
+  if (pendingPt && state.isResizingSelection) {
+    _applyResizeNow(pendingPt, targetPage);
+  }
+  const finalMoved = !!(wasMoved || state.selectionMoved);
+
+  state.isResizingSelection = false;
+  state.resizeHandle = null;
+  state.resizePivot = null;
+  state.resizeAnchor = null;
+  state.resizeOffset = null;
+  state.resizeCurrentAngle = 0;
+  state.initialStrokesSnapshot = null;
+  state.initialTextBoxesSnapshot = null;
+  state.selectionMoved = false;
+
+  if (targetPage && targetPage.canvas) {
+    _setCanvasCursor(targetPage, 'crosshair');
+    // Ridisegna overlay per rimuovere il badge dimensionale di resize attivo
+    redrawSelectionOverlay(targetPage);
+  }
+  _setSelectionMenuInteracting(false);
+  if (finalMoved) {
+    if (targetPage?.pageId) markPageDirty(targetPage.pageId);
+    pushHistory();
+    scheduleSave();
+  }
+  resetSelectionDragState();
 }
 
 export function previewSelectionColor(newColor) {
   if (state.selectedStrokes.length === 0) return;
-  state.selectedStrokes.forEach(s => {
+  for (let i = 0; i < state.selectedStrokes.length; i++) {
+    const s = state.selectedStrokes[i];
     s.color = newColor;
-    s._styleCache = null;
+    setNonEnumerable(s, '_styleCache', null);
     invalidateStrokeBitmap(s);
-  });
+  }
   const current = state.pages[state.activePageIndex];
-  if (current && current.canvas) { redrawPageCanvas(current); redrawSelectionOverlay(current); }
+  if (current && current.canvas) {
+    redrawSelectionOverlay(current);
+  }
 }
 
 export function changeSelectionColor(newColor) {
@@ -438,14 +561,19 @@ export function changeSelectionColor(newColor) {
 export function previewSelectionWidth(newWidth) {
   if (state.selectedStrokes.length === 0) return;
   const w = parseInt(newWidth, 10);
-  state.selectedStrokes.forEach(s => {
+  for (let i = 0; i < state.selectedStrokes.length; i++) {
+    const s = state.selectedStrokes[i];
     s.size = w;
+    setNonEnumerable(s, '_styleCache', null);
+    invalidateStrokeBBox(s);
     invalidateStrokeBitmap(s);
-  });
+  }
   const label = document.getElementById('selectionWidthValue');
   if (label) label.innerText = w;
   const current = state.pages[state.activePageIndex];
-  if (current && current.canvas) { redrawPageCanvas(current); redrawSelectionOverlay(current); }
+  if (current && current.canvas) {
+    redrawSelectionOverlay(current);
+  }
 }
 
 export function changeSelectionWidth(newWidth) {
@@ -461,6 +589,9 @@ export function changeSelectionWidth(newWidth) {
 export function deleteSelection() {
   const current = state.pages[state.activePageIndex];
   if (!current || !hasLassoSelection()) return false;
+
+  _cancelResizeFrame();
+  resetSelectionDragState();
 
   if (state.selectedStrokes.length > 0) {
     const strokeSet = new Set(state.selectedStrokes);
@@ -513,6 +644,8 @@ export function cutSelection() {
   const textLen = _clipboard.textBoxes.length;
   // Dopo un taglia, incollare nella stessa pagina non deve applicare offset eccessivo al primo incolla
   _clipboard.pasteCount = -1;
+  _cancelResizeFrame();
+  resetSelectionDragState();
   const current = state.pages[state.activePageIndex];
   if (current) {
     if (state.selectedStrokes.length > 0) {
@@ -541,37 +674,25 @@ export function cutSelection() {
 }
 
 function _computeItemsOffsetForPage(strokes, textBoxes, desiredDx, desiredDy) {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (let i = 0; i < strokes.length; i++) {
-    const pts = strokes[i].points;
-    for (let j = 0; j < pts.length; j++) {
-      const p = pts[j];
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-    }
-  }
-  for (let i = 0; i < textBoxes.length; i++) {
-    const tb = textBoxes[i];
-    const w = Math.max(80, tb.width || 240);
-    const h = Math.max(24, tb.height || 32);
-    if (tb.x < minX) minX = tb.x; if (tb.x + w > maxX) maxX = tb.x + w;
-    if (tb.y < minY) minY = tb.y; if (tb.y + h > maxY) maxY = tb.y + h;
-  }
-  if (minX === Infinity) return { dx: 0, dy: 0 };
+  const box = getSelectionBBoxFromItems(strokes, textBoxes, 0);
+  if (!box) return { dx: 0, dy: 0 };
 
   let dx = desiredDx;
   let dy = desiredDy;
-  if (maxX + dx > PAGE_WIDTH - 8) dx = (PAGE_WIDTH - 8) - maxX;
-  if (minX + dx < 8) dx = 8 - minX;
-  if (maxY + dy > PAGE_HEIGHT - 8) dy = (PAGE_HEIGHT - 8) - maxY;
-  if (minY + dy < 8) dy = 8 - minY;
+  if (box.maxX + dx > PAGE_WIDTH - 8) dx = (PAGE_WIDTH - 8) - box.maxX;
+  if (box.minX + dx < 8) dx = 8 - box.minX;
+  if (box.maxY + dy > PAGE_HEIGHT - 8) dy = (PAGE_HEIGHT - 8) - box.maxY;
+  if (box.minY + dy < 8) dy = 8 - box.minY;
   return { dx, dy };
 }
 
 function _pasteItemsIntoPage(pageData, items, dx, dy) {
   if (!pageData || !items) return false;
-  if (!pageData.canvas) pagePool.forceAssign(pageData.index);
+  if (!pageData.canvas) pagePool.forceAssign(pageData.index, { skipRedraw: true });
   if (!Array.isArray(pageData.textBoxes)) pageData.textBoxes = [];
+
+  _cancelResizeFrame();
+  resetSelectionDragState();
 
   const clonedStrokes = (items.strokes || []).map(_cloneStrokeData);
   const clonedTexts = (items.textBoxes || []).map(tb => _cloneTextBoxData(tb, true));
@@ -642,6 +763,7 @@ export function duplicateSelection() {
 function showSelectionMenu() {
   const menu = document.getElementById('selectionMenu');
   if (!menu) return;
+  _menuInteractingHidden = false;
   menu.classList.remove('hidden');
 
   const hasStrokes = state.selectedStrokes.length > 0;
@@ -658,26 +780,48 @@ function showSelectionMenu() {
     if (widthSlider) widthSlider.value = first.size || 3;
     if (widthValue) widthValue.innerText = first.size || 3;
   }
+  _cachedMenuWidth = menu.offsetWidth || 360;
   updateSelectionMenuPosition();
 }
 
+function _setSelectionMenuInteracting(interacting) {
+  const menu = document.getElementById('selectionMenu');
+  if (!menu) return;
+  if (interacting) {
+    _menuInteractingHidden = true;
+    menu.classList.add('hidden');
+  } else {
+    _menuInteractingHidden = false;
+    if (hasLassoSelection()) {
+      menu.classList.remove('hidden');
+      if (!_cachedMenuWidth) _cachedMenuWidth = menu.offsetWidth || 360;
+      updateSelectionMenuPosition();
+    }
+  }
+}
+
 function hideSelectionMenu() {
+  _menuInteractingHidden = false;
+  _cachedMenuWidth = 0;
   document.getElementById('selectionMenu')?.classList.add('hidden');
 }
 
 export function updateSelectionMenuPosition() {
   const menu = document.getElementById('selectionMenu');
-  if (!menu || menu.classList.contains('hidden')) return;
+  if (!menu || _menuInteractingHidden || menu.classList.contains('hidden')) return;
   const bbox = getVisualBoundingBox();
   const current = state.pages[state.activePageIndex];
   if (!bbox || !current || !current.canvas) return;
   const rect = getCanvasRect(current.canvas);
+  if (!rect || rect.width <= 0) return;
   const scaleRatio = rect.width / PAGE_WIDTH;
   const screenX = rect.left + (bbox.minX + bbox.width / 2) * scaleRatio;
   const screenY = rect.top + bbox.minY * scaleRatio - 52;
-  const menuWidth = menu.offsetWidth || 360;
-  menu.style.left = `${Math.max(16, Math.min(window.innerWidth - menuWidth - 16, screenX - menuWidth / 2))}px`;
-  menu.style.top = `${Math.max(64, screenY)}px`;
+  const menuWidth = _cachedMenuWidth || menu.offsetWidth || 360;
+  if (!_cachedMenuWidth && menuWidth) _cachedMenuWidth = menuWidth;
+  const x = Math.round(Math.max(16, Math.min(window.innerWidth - menuWidth - 16, screenX - menuWidth / 2)));
+  const y = Math.round(Math.max(64, screenY));
+  menu.style.transform = `translate3d(${x}px, ${y}px, 0)`;
 }
 
 export function canStartLassoDragOnTouch(e) {
@@ -697,7 +841,8 @@ export function canStartLassoDragOnTouch(e) {
 export function updateCursorForSelection(e, pageData) {
   if (!pageData || !pageData.canvas) return;
   if (state.activeTool !== 'lasso' || !hasLassoSelection()) {
-    pageData.canvas.style.cursor = 'crosshair'; return;
+    _setCanvasCursor(pageData, 'crosshair');
+    return;
   }
   const rect = getCanvasRect(pageData.canvas);
   const point = {
@@ -706,14 +851,33 @@ export function updateCursorForSelection(e, pageData) {
   };
   const visualBBox = getVisualBoundingBox();
   const handle = hitTestHandle(point, visualBBox);
-  if (handle) pageData.canvas.style.cursor = 'nwse-resize';
-  else if (isPointInBBox(point, visualBBox)) pageData.canvas.style.cursor = 'move';
-  else pageData.canvas.style.cursor = 'crosshair';
+  if (handle) _setCanvasCursor(pageData, 'nwse-resize');
+  else if (isPointInBBox(point, visualBBox)) _setCanvasCursor(pageData, 'move');
+  else _setCanvasCursor(pageData, 'crosshair');
 }
 
 // ============================================================
 // TOOL LAZO (begin / move / end)
 // ============================================================
+
+function _cancelLassoFrame() {
+  if (_lassoRaf !== null) {
+    cancelAnimationFrame(_lassoRaf);
+    _lassoRaf = null;
+  }
+  _lassoRafPage = null;
+}
+
+export function flushLassoFrame(pageData = null) {
+  if (_lassoRaf === null) return;
+  cancelAnimationFrame(_lassoRaf);
+  _lassoRaf = null;
+  const target = pageData || _lassoRafPage;
+  _lassoRafPage = null;
+  if (target && target.canvas && state.lassoPath.length >= 2) {
+    drawLassoIncrementalOnOverlay(target);
+  }
+}
 
 export function beginLasso(pageData, point) {
   const visualBBox = getVisualBoundingBox();
@@ -744,13 +908,23 @@ export function moveLasso(pageData, e) {
     } else {
       state.lassoPath.push({ x: lp.x, y: lp.y, pressure: lp.pressure });
     }
+    _lassoRafPage = pageData;
+    if (_lassoRaf === null) {
+      _lassoRaf = requestAnimationFrame(() => {
+        _lassoRaf = null;
+        const target = _lassoRafPage;
+        _lassoRafPage = null;
+        if (target && target.canvas) drawLassoIncrementalOnOverlay(target);
+      });
+    }
   } else {
     state.lassoPath.push({ x: lp.x, y: lp.y, pressure: lp.pressure });
+    drawLassoIncrementalOnOverlay(pageData);
   }
-  drawLassoIncrementalOnOverlay(pageData);
 }
 
 export function endLasso(pageData) {
+  flushLassoFrame(pageData);
   if (state.lassoMode === 'rect') {
     if (state.lassoPath.length >= 2) {
       const dx = Math.abs(state.lassoPath[1].x - state.lassoPath[0].x);
@@ -770,39 +944,53 @@ export function endLasso(pageData) {
 }
 
 // ============================================================
-// SELECTION DRAG (spostamento della selezione)
+// SELECTION DRAG (offscreen snapshot + single rAF coalescing)
 // ============================================================
 
 let _dragStartPoint = null;
 let _dragStartBBox = null;
+let _dragStartVisualBBox = null;
 let _dragAccX = 0;
 let _dragAccY = 0;
+let _dragRaf = null;
+let _dragPendingPoint = null;
+let _dragPage = null;
+
+let _dragSnapshotCanvas = null;
+let _dragCropX = 0;
+let _dragCropY = 0;
+let _dragCropW = 0;
+let _dragCropH = 0;
+
+function _freeDragSnapshot() {
+  if (_dragSnapshotCanvas) {
+    _dragSnapshotCanvas.width = 0;
+    _dragSnapshotCanvas.height = 0;
+    _dragSnapshotCanvas = null;
+  }
+  _dragCropX = 0;
+  _dragCropY = 0;
+  _dragCropW = 0;
+  _dragCropH = 0;
+}
 
 export function resetSelectionDragState() {
+  if (_dragRaf !== null) {
+    cancelAnimationFrame(_dragRaf);
+    _dragRaf = null;
+  }
+  _dragPendingPoint = null;
+  _dragPage = null;
   _dragStartPoint = null;
   _dragStartBBox = null;
+  _dragStartVisualBBox = null;
   _dragAccX = 0;
   _dragAccY = 0;
+  _freeDragSnapshot();
 }
 
-function _getSelectedBBox() {
-  return getSelectionBoundingBox(false);
-}
-
-export function beginSelectionDrag(point, pageData) {
-  state.isDraggingSelection = true;
-  _dragStartPoint = { x: point.x, y: point.y };
-  _dragStartBBox = _getSelectedBBox();
-  _dragAccX = 0;
-  _dragAccY = 0;
-  state.dragStartPoint = _dragStartPoint;
-  state.isDrawing = true;
-  state.selectionMoved = false;
-  if (pageData?.canvas) pageData.canvas.style.cursor = 'grabbing';
-}
-
-export function moveSelectionDrag(pageData, rawPoint) {
-  if (!_dragStartPoint || !_dragStartBBox) return;
+function _computeClampedDragDelta(rawPoint) {
+  if (!_dragStartPoint || !_dragStartBBox) return { dx: 0, dy: 0 };
   let desiredX = rawPoint.x - _dragStartPoint.x;
   let desiredY = rawPoint.y - _dragStartPoint.y;
 
@@ -810,19 +998,101 @@ export function moveSelectionDrag(pageData, rawPoint) {
   if (_dragStartBBox.minX + desiredX < 0)           desiredX = -_dragStartBBox.minX;
   if (_dragStartBBox.maxY + desiredY > PAGE_HEIGHT) desiredY = PAGE_HEIGHT - _dragStartBBox.maxY;
   if (_dragStartBBox.minY + desiredY < 0)           desiredY = -_dragStartBBox.minY;
+  return { dx: desiredX, dy: desiredY };
+}
 
-  const incX = desiredX - _dragAccX;
-  const incY = desiredY - _dragAccY;
-  if (incX !== 0 || incY !== 0) {
-    state.selectionMoved = true;
-    state.selectedStrokes.forEach(stroke => {
-      const pts = stroke.points;
-      for (let i = 0; i < pts.length; i++) {
-        pts[i].x += incX;
-        pts[i].y += incY;
-      }
-      if (stroke._cacheCanvas) invalidateStrokeBitmap(stroke);
+function _buildDragSnapshot(pageData) {
+  _freeDragSnapshot();
+  if (!pageData || !pageData.overlayCanvas || !_dragStartBBox) return;
+
+  redrawSelectionOverlay(pageData, { skipBBox: true });
+
+  let maxStrokeSize = 4;
+  for (let i = 0; i < state.selectedStrokes.length; i++) {
+    const s = state.selectedStrokes[i];
+    if (s && s.size > maxStrokeSize) maxStrokeSize = s.size;
+  }
+  const pad = Math.max(48, Math.ceil(sliderToBaseSize(maxStrokeSize) * 4 + 16));
+  const minX = Math.max(0, Math.floor(_dragStartBBox.minX - pad));
+  const minY = Math.max(0, Math.floor(_dragStartBBox.minY - pad));
+  const maxX = Math.min(PAGE_WIDTH, Math.ceil(_dragStartBBox.maxX + pad));
+  const maxY = Math.min(PAGE_HEIGHT, Math.ceil(_dragStartBBox.maxY + pad));
+
+  const oDpr = pageData.overlayDpr || pageData.dpr || 1;
+  const oCanvas = pageData.overlayCanvas;
+  const sx = Math.max(0, Math.floor(minX * oDpr));
+  const sy = Math.max(0, Math.floor(minY * oDpr));
+  const sw = Math.min(oCanvas.width - sx, Math.ceil((maxX - minX) * oDpr));
+  const sh = Math.min(oCanvas.height - sy, Math.ceil((maxY - minY) * oDpr));
+
+  if (sw > 0 && sh > 0) {
+    const snap = document.createElement('canvas');
+    snap.width = sw;
+    snap.height = sh;
+    const sctx = snap.getContext('2d');
+    if (sctx) {
+      sctx.drawImage(oCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      _dragSnapshotCanvas = snap;
+      _dragCropX = sx / oDpr;
+      _dragCropY = sy / oDpr;
+      _dragCropW = sw / oDpr;
+      _dragCropH = sh / oDpr;
+    }
+  }
+
+  drawSelectionBBoxOnOverlay(pageData, _dragStartVisualBBox);
+}
+
+function _renderDragPreview(pageData, dx, dy) {
+  if (!pageData || !pageData.overlayCtx || !pageData.overlayCanvas) return;
+  const octx = pageData.overlayCtx;
+  const oCanvas = pageData.overlayCanvas;
+  const oDpr = pageData.overlayDpr || pageData.dpr || 1;
+
+  if (_dragSnapshotCanvas && _dragStartVisualBBox) {
+    octx.save();
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(0, 0, oCanvas.width, oCanvas.height);
+    octx.setTransform(oDpr, 0, 0, oDpr, 0, 0);
+    octx.drawImage(
+      _dragSnapshotCanvas,
+      _dragCropX + dx,
+      _dragCropY + dy,
+      _dragCropW,
+      _dragCropH
+    );
+    octx.restore();
+
+    const v = _dragStartVisualBBox;
+    drawSelectionBBoxOnOverlay(pageData, {
+      minX: v.minX + dx,
+      maxX: v.maxX + dx,
+      minY: v.minY + dy,
+      maxY: v.maxY + dy,
+      width: v.width,
+      height: v.height
     });
+  } else {
+    redrawSelectionOverlay(pageData);
+  }
+}
+
+function _flushDragFrame() {
+  _dragRaf = null;
+  const pt = _dragPendingPoint;
+  const page = _dragPage;
+  if (!pt || !page || !state.isDraggingSelection) return;
+
+  const { dx, dy } = _computeClampedDragDelta(pt);
+  if (dx === _dragAccX && dy === _dragAccY) return;
+
+  state.selectionMoved = true;
+  if (!_dragSnapshotCanvas) {
+    const incX = dx - _dragAccX;
+    const incY = dy - _dragAccY;
+    for (let i = 0; i < state.selectedStrokes.length; i++) {
+      translateStrokeInPlace(state.selectedStrokes[i], incX, incY);
+    }
     if (Array.isArray(state.selectedTextBoxes)) {
       for (let i = 0; i < state.selectedTextBoxes.length; i++) {
         const tb = state.selectedTextBoxes[i];
@@ -831,22 +1101,91 @@ export function moveSelectionDrag(pageData, rawPoint) {
         tb.y += incY;
       }
     }
-    _dragAccX = desiredX;
-    _dragAccY = desiredY;
-    redrawSelectionOverlay(pageData);
-    updateSelectionMenuPosition();
+  }
+  _dragAccX = dx;
+  _dragAccY = dy;
+  _renderDragPreview(page, dx, dy);
+}
+
+export function beginSelectionDrag(point, pageData) {
+  resetSelectionDragState();
+  state.isDraggingSelection = true;
+  _dragStartPoint = { x: point.x, y: point.y };
+  _dragStartBBox = getSelectionBoundingBox(false);
+  _dragStartVisualBBox = getVisualBoundingBox(_dragStartBBox);
+  _dragAccX = 0;
+  _dragAccY = 0;
+  _dragPage = pageData;
+  state.dragStartPoint = _dragStartPoint;
+  state.isDrawing = true;
+  state.selectionMoved = false;
+  _setSelectionMenuInteracting(true);
+  _setCanvasCursor(pageData, 'grabbing');
+  _buildDragSnapshot(pageData);
+}
+
+export function moveSelectionDrag(pageData, rawPoint) {
+  if (!_dragStartPoint || !_dragStartBBox) return;
+  _dragPage = pageData;
+  _dragPendingPoint = { x: rawPoint.x, y: rawPoint.y };
+  if (_dragRaf === null) {
+    _dragRaf = requestAnimationFrame(_flushDragFrame);
   }
 }
 
 export function endSelectionDrag(pageData, wasMoved) {
+  const targetPage = pageData || _dragPage || state.pages[state.activePageIndex];
+  const hadSnapshot = !!_dragSnapshotCanvas;
+
+  if (_dragRaf !== null) {
+    cancelAnimationFrame(_dragRaf);
+    _dragRaf = null;
+  }
+
+  let finalDx = _dragAccX;
+  let finalDy = _dragAccY;
+  if (_dragPendingPoint && _dragStartPoint && _dragStartBBox) {
+    const clamped = _computeClampedDragDelta(_dragPendingPoint);
+    finalDx = clamped.dx;
+    finalDy = clamped.dy;
+  }
+  _dragPendingPoint = null;
+
+  const commitDx = hadSnapshot ? finalDx : (finalDx - _dragAccX);
+  const commitDy = hadSnapshot ? finalDy : (finalDy - _dragAccY);
+
+  if (commitDx !== 0 || commitDy !== 0) {
+    for (let i = 0; i < state.selectedStrokes.length; i++) {
+      translateStrokeInPlace(state.selectedStrokes[i], commitDx, commitDy);
+    }
+    if (Array.isArray(state.selectedTextBoxes)) {
+      for (let i = 0; i < state.selectedTextBoxes.length; i++) {
+        const tb = state.selectedTextBoxes[i];
+        if (!tb) continue;
+        tb.x += commitDx;
+        tb.y += commitDy;
+      }
+    }
+    wasMoved = true;
+  } else if (finalDx !== 0 || finalDy !== 0) {
+    wasMoved = true;
+  }
+
   state.isDraggingSelection = false;
   state.dragStartPoint = null;
   state.selectionMoved = false;
-  if (pageData?.canvas) pageData.canvas.style.cursor = 'crosshair';
-  if (wasMoved) {
-    if (pageData?.pageId) markPageDirty(pageData.pageId);
-    pushHistory();
-  }
-  scheduleSave();
+
   resetSelectionDragState();
+
+  if (targetPage && targetPage.canvas) {
+    _setCanvasCursor(targetPage, 'crosshair');
+    redrawSelectionOverlay(targetPage);
+  }
+  _setSelectionMenuInteracting(false);
+
+  if (wasMoved) {
+    if (targetPage?.pageId) markPageDirty(targetPage.pageId);
+    pushHistory();
+    scheduleSave();
+  }
 }

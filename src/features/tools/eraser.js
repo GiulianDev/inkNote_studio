@@ -11,6 +11,7 @@
 import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH } from '../../core/utils.js';
 import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
+import { getRawStrokeBBox, invalidateStrokeBBox } from '../render/stroke-geometry.js';
 import { redrawPageCanvas } from '../render/render.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import { getEraserRadius } from '../toolbar/toolbar-settings.js';
@@ -174,12 +175,9 @@ function performEraserBatch(pageData, points) {
   };
 
   const strokeBBoxOverlaps = (stroke) => {
-    let stMinX = Infinity, stMaxX = -Infinity, stMinY = Infinity, stMaxY = -Infinity;
-    for (const p of stroke.points) {
-      if (p.x < stMinX) stMinX = p.x; if (p.x > stMaxX) stMaxX = p.x;
-      if (p.y < stMinY) stMinY = p.y; if (p.y > stMaxY) stMaxY = p.y;
-    }
-    return !(stMaxX < batchMinX || stMinX > batchMaxX || stMaxY < batchMinY || stMinY > batchMaxY);
+    const raw = getRawStrokeBBox(stroke);
+    if (!raw) return false;
+    return !(raw.maxX < batchMinX || raw.minX > batchMaxX || raw.maxY < batchMinY || raw.minY > batchMaxY);
   };
 
   const modified = new Set();
@@ -295,7 +293,10 @@ function performEraserBatch(pageData, points) {
   }
 
   if (anyChanged) {
-    modified.forEach(invalidateStrokeBitmap);
+    modified.forEach(s => {
+      invalidateStrokeBitmap(s);
+      invalidateStrokeBBox(s);
+    });
     redrawPageCanvas(pageData);
     scheduleSave({ pageId: pageData.pageId });
   }

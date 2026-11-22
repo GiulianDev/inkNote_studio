@@ -24,8 +24,8 @@ import { refreshPageCounter, setDockDrawingHidden } from '../toolbar/toolbar.js'
 import { finalizePendingShape } from './shapes.js';
 import { resetScribbleState } from './scribble.js';
 import {
-  clearSelection, applyResizeSelection,
-  beginLasso, moveLasso, endLasso,
+  clearSelection, applyResizeSelection, endResizeSelection,
+  beginLasso, moveLasso, endLasso, flushLassoFrame,
   beginSelectionDrag, moveSelectionDrag, endSelectionDrag,
   resetSelectionDragState, updateCursorForSelection,
   hasLassoSelection, canStartLassoDragOnTouch
@@ -39,8 +39,6 @@ import {
   beginTextPointer, moveTextPointer, endTextPointer,
   commitActiveTextBox, canStartTextDragOnTouch, updateCursorForText
 } from './text.js';
-import { scheduleSave } from '../persistence/autosave.js';
-import { markPageDirty } from '../persistence/session.js';
 import { pagePool } from '../editor/page-pool.js';
 
 let _gestureUsedEraser = false;
@@ -301,21 +299,9 @@ export function handlePointerUp(e, pageData) {
 
   if (state.isResizingSelection) {
     const wasMoved = state.selectionMoved;
-    state.isResizingSelection = false;
-    state.resizeHandle = null; state.resizePivot = null;
-    state.resizeAnchor = null; state.resizeOffset = null;
-    state.resizeCurrentAngle = 0;
-    state.initialStrokesSnapshot = null;
-    state.initialTextBoxesSnapshot = null;
-    state.selectionMoved = false;
+    endResizeSelection(pageData, wasMoved);
     state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
-    pageData.canvas.style.cursor = 'crosshair';
-    if (wasMoved) {
-      if (pageData?.pageId) markPageDirty(pageData.pageId);
-      pushHistory();
-      scheduleSave();
-    }
-    resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
+    resetPointPool(); invalidateStrokeRect();
     return;
   }
 
@@ -334,6 +320,7 @@ export function handlePointerUp(e, pageData) {
   state.isDrawing = false; state.currentPointerId = null; state.currentPageForPointer = null;
 
   if (state.activeTool === 'lasso') {
+    flushLassoFrame(pageData);
     endLasso(pageData);
     resetSelectionDragState(); resetPointPool(); invalidateStrokeRect();
     return;
@@ -381,6 +368,7 @@ export function abortCurrentDrawing() {
   state._penEraserActive = false;
   _gestureUsedEraser = false;
   _lastGestureWasEraser = false;
+  flushLassoFrame(currPage);
   resetSelectionDragState();
   resetPointPool();
   invalidateStrokeRect();

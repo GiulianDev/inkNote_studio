@@ -126,7 +126,7 @@ class PageRendererPool {
     slot.overlayDpr = 0;
   }
 
-  _assignSlot(slot, pageIndex) {
+  _assignSlot(slot, pageIndex, opts = {}) {
     const page = state.pages[pageIndex];
     if (!page) return false;
     this._releaseSlot(slot);
@@ -142,7 +142,7 @@ class PageRendererPool {
     page.dpr = 0;
     page.overlayDpr = 0;
 
-    _resizeSlot(slot, page);
+    _resizeSlot(slot, page, null, opts);
     return true;
   }
 
@@ -157,26 +157,27 @@ class PageRendererPool {
       }
     }
 
+    const vpRect = _getViewportRect();
     for (let i = lo; i <= hi; i++) {
       const existing = this._slotFor(i);
       if (existing) {
         if (force) {
-          _resizeSlot(existing, state.pages[i]);
+          _resizeSlot(existing, state.pages[i], vpRect);
         }
         continue;
       }
       const slot = this._evictTarget();
-      if (slot) this._assignSlot(slot, i);
+      if (slot) this._assignSlot(slot, i, { vpRect });
     }
   }
 
-  forceAssign(pageIndex) {
+  forceAssign(pageIndex, opts = {}) {
     const page = state.pages[pageIndex];
     if (!page) return false;
     if (page.canvas) return true;
     const slot = this._evictTarget();
     if (!slot) return false;
-    return this._assignSlot(slot, pageIndex);
+    return this._assignSlot(slot, pageIndex, opts);
   }
 }
 
@@ -184,27 +185,32 @@ class PageRendererPool {
 // Utility locali
 // ------------------------------------------------------------
 
-function isPageVisible(page) {
+function _getViewportRect() {
   const vp = document.getElementById('viewport');
-  if (!vp || !page.wrapper) return true;
-  const vpRect = vp.getBoundingClientRect();
+  return vp ? vp.getBoundingClientRect() : null;
+}
+
+function isPageVisible(page, cachedVpRect = null) {
+  if (!page.wrapper) return true;
+  const vpRect = cachedVpRect || _getViewportRect();
+  if (!vpRect) return true;
   const pRect = page.wrapper.getBoundingClientRect();
   return !(pRect.right < vpRect.left || pRect.left > vpRect.right ||
            pRect.bottom < vpRect.top || pRect.top > vpRect.bottom);
 }
 
-function getTargetDpr(page) {
+function getTargetDpr(page, cachedVpRect = null) {
   const deviceDpr = window.devicePixelRatio || 1;
   const { viewport } = window.__inknoteViewport || {};
   const scale = (viewport && viewport.scale) || 1;
   const zoom = Math.max(1, scale);
   const extra = Math.min(zoom, MAX_ZOOM_DPR_BOOST);
   const highDpr = Math.min(deviceDpr * extra, MAX_RENDER_DPR);
-  return isPageVisible(page) ? highDpr : deviceDpr;
+  return isPageVisible(page, cachedVpRect) ? highDpr : deviceDpr;
 }
 
-function _resizeSlot(slot, page) {
-  const dpr = getTargetDpr(page);
+function _resizeSlot(slot, page, cachedVpRect = null, opts = {}) {
+  const dpr = getTargetDpr(page, cachedVpRect || opts.vpRect || null);
   const newW = Math.floor(PAGE_WIDTH * dpr);
   const newH = Math.floor(PAGE_HEIGHT * dpr);
   if (slot.canvas.width !== newW || slot.canvas.height !== newH) {
@@ -226,6 +232,7 @@ function _resizeSlot(slot, page) {
   page.overlayDpr = oDpr;
   page.ctx = slot.ctx;
   page.overlayCtx = slot.overlayCtx;
+  if (opts && opts.skipRedraw) return;
   redrawPageCanvas(page);
   if (page.index === state.activePageIndex && hasLassoSelection()) {
     redrawSelectionOverlay(page);

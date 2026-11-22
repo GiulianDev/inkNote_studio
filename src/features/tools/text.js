@@ -36,6 +36,14 @@ let _editorWrap = null;
 let _editorTextarea = null;
 let _editorActions = null;
 let _selectionMenuEl = null;
+let _cachedTextMenuW = 0;
+
+function _setCanvasCursor(pageData, cursor) {
+  if (!pageData || !pageData.canvas) return;
+  if (pageData._lastCursor === cursor) return;
+  pageData._lastCursor = cursor;
+  pageData.canvas.style.cursor = cursor;
+}
 
 // --- Stato drag / resize / doppio-tap ---
 let _interactionMode = null; // 'drag' | 'resize-w' | 'resize-e' | null
@@ -154,11 +162,11 @@ export function hitTestTextBoxHandle(pageData, tb, point) {
 export function updateCursorForText(e, pageData) {
   if (!pageData || !pageData.canvas) return;
   if (state.activeTool !== 'text') {
-    pageData.canvas.style.cursor = 'crosshair';
+    _setCanvasCursor(pageData, 'crosshair');
     return;
   }
   if (state.editingTextBoxId) {
-    pageData.canvas.style.cursor = 'text';
+    _setCanvasCursor(pageData, 'text');
     return;
   }
 
@@ -173,22 +181,22 @@ export function updateCursorForText(e, pageData) {
     if (sel) {
       const handle = hitTestTextBoxHandle(pageData, sel, point);
       if (handle === 'resize-w' || handle === 'resize-e') {
-        pageData.canvas.style.cursor = 'ew-resize';
+        _setCanvasCursor(pageData, 'ew-resize');
         return;
       }
       if (hitTestTextBox(pageData, point) === sel) {
-        pageData.canvas.style.cursor = 'move';
+        _setCanvasCursor(pageData, 'move');
         return;
       }
     }
   }
 
   if (hitTestTextBox(pageData, point)) {
-    pageData.canvas.style.cursor = 'move';
+    _setCanvasCursor(pageData, 'move');
     return;
   }
 
-  pageData.canvas.style.cursor = 'text';
+  _setCanvasCursor(pageData, 'text');
 }
 
 export function canStartTextDragOnTouch(e) {
@@ -253,6 +261,7 @@ function _showSelectionMenu() {
   }
   const el = _ensureSelectionMenu();
   el.classList.remove('hidden');
+  _cachedTextMenuW = el.offsetWidth || 180;
   updateTextSelectionMenuPosition();
 }
 
@@ -269,13 +278,16 @@ export function updateTextSelectionMenuPosition() {
   }
   const tb = found.textBox;
   const rect = getCanvasRect(found.pageData.canvas);
+  if (!rect || rect.width <= 0) return;
   const scaleRatio = rect.width / PAGE_WIDTH;
   const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
   const screenX = rect.left + (tb.x + w / 2) * scaleRatio;
   const screenY = rect.top + tb.y * scaleRatio - 48;
-  const menuW = _selectionMenuEl.offsetWidth || 180;
-  _selectionMenuEl.style.left = `${Math.max(12, Math.min(window.innerWidth - menuW - 12, screenX - menuW / 2))}px`;
-  _selectionMenuEl.style.top = `${Math.max(64, screenY)}px`;
+  const menuW = _cachedTextMenuW || _selectionMenuEl.offsetWidth || 180;
+  if (!_cachedTextMenuW && menuW) _cachedTextMenuW = menuW;
+  const x = Math.round(Math.max(12, Math.min(window.innerWidth - menuW - 12, screenX - menuW / 2)));
+  const y = Math.round(Math.max(64, screenY));
+  _selectionMenuEl.style.transform = `translate3d(${x}px, ${y}px, 0)`;
 }
 
 // ============================================================

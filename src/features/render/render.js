@@ -24,6 +24,10 @@
  */
 
 import { getStrokeBitmap, buildStrokeBitmap } from './stroke-cache.js';
+import {
+  setNonEnumerable, getRawStrokeBBox,
+  getSelectionBBoxFromItems, computeSegmentSteps
+} from './stroke-geometry.js';
 import { state, viewport } from '../../core/state.js';
 import {
   PAGE_WIDTH, PAGE_HEIGHT, hexToRgbA, getEffectiveColor, isPaperDark,
@@ -41,46 +45,26 @@ const BACKGROUND_DPR = 2;
 const _ptA = { x: 0, y: 0 };
 const _ptB = { x: 0, y: 0 };
 
+let _circleBuf = new Float32Array(6144); // 2048 * (x, y, r)
+function _ensureCircleBuf(neededFloats) {
+  if (neededFloats <= _circleBuf.length) return _circleBuf;
+  let nextLen = _circleBuf.length * 2;
+  while (nextLen < neededFloats) nextLen *= 2;
+  _circleBuf = new Float32Array(nextLen);
+  return _circleBuf;
+}
+
 // ============================================================
 // GEOMETRY (usata da render e lazo)
 // ============================================================
 
 export function getSelectionBoundingBox(includePad = true) {
-  const hasStrokes = state.selectedStrokes.length > 0;
-  const hasText = Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0;
-  if (!hasStrokes && !hasText) return null;
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  if (hasStrokes) {
-    state.selectedStrokes.forEach(stroke => {
-      stroke.points.forEach(p => {
-        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-      });
-    });
-  }
-  if (hasText) {
-    state.selectedTextBoxes.forEach(tb => {
-      if (!tb) return;
-      const w = Math.max(80, tb.width || 240);
-      const h = Math.max(24, tb.height || 32);
-      if (tb.x < minX) minX = tb.x;
-      if (tb.x + w > maxX) maxX = tb.x + w;
-      if (tb.y < minY) minY = tb.y;
-      if (tb.y + h > maxY) maxY = tb.y + h;
-    });
-  }
-  if (minX === Infinity) return null;
   const pad = includePad ? 12 / viewport.scale : 0;
-  return {
-    minX: minX - pad, maxX: maxX + pad,
-    minY: minY - pad, maxY: maxY + pad,
-    width: (maxX - minX) + pad * 2,
-    height: (maxY - minY) + pad * 2
-  };
+  return getSelectionBBoxFromItems(state.selectedStrokes, state.selectedTextBoxes, pad);
 }
 
-export function getVisualBoundingBox() {
-  const real = getSelectionBoundingBox(false);
+export function getVisualBoundingBox(realBBox = null) {
+  const real = realBBox || getSelectionBoundingBox(false);
   if (!real) return null;
   const minSize = 40 / viewport.scale;
   const cx = (real.minX + real.maxX) / 2;
@@ -190,7 +174,7 @@ function _ensureJitterCache(stroke) {
     for (let i = old.length; i < size; i++) {
       next[i] = _jitterAt(seed, i);
     }
-    stroke._jitterOffsets = next;
+    setNonEnumerable(stroke, '_jitterOffsets', next);
   }
   return stroke._jitterOffsets;
 }
@@ -198,26 +182,52 @@ function _ensureJitterCache(stroke) {
 /**
  * Ritorna array di {x, y} con jitter perpendicolare applicato per
  * highlighter. Per gli altri tool ritorna i punti originali.
- * Il jitter è deterministico per stroke (stesso stroke → stesso pattern).
+ * Il jitter è deterministico per stroke (stesso stroke → stesso pattern)
+ * e memorizzato in cache incrementale non-enumerabile `_hlPts`.
  */
 export function getDisplayPoints(stroke) {
   const pts = stroke.points;
   if (stroke.tool !== 'highlighter' || pts.length < 2) return pts;
   const n = pts.length;
+  const prevLen = stroke._hlPtsLen || 0;
+  let out = stroke._hlPts;
+  if (Array.isArray(out) && prevLen === n && out.length === n) {
+    return out;
+  }
+
   const jitter = _ensureJitterCache(stroke);
-  const out = new Array(n);
-  for (let i = 0; i < n; i++) {
+  let startIdx = 0;
+  if (Array.isArray(out) && prevLen >= 2 && n > prevLen && out.length === prevLen) {
+    // Ricalcola solo l'ultimo punto precedente (la sua tangente diventa centrale) e i nuovi
+    startIdx = prevLen - 1;
+    out.length = n;
+  } else {
+    out = new Array(n);
+    setNonEnumerable(stroke, '_hlPts', out);
+  }
+
+  for (let i = startIdx; i < n; i++) {
     const p = pts[i];
     let dx, dy;
     if (i === 0) { dx = pts[1].x - p.x; dy = pts[1].y - p.y; }
     else if (i === n - 1) { dx = p.x - pts[i - 1].x; dy = p.y - pts[i - 1].y; }
     else { dx = pts[i + 1].x - pts[i - 1].x; dy = pts[i + 1].y - pts[i - 1].y; }
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 0.001) { out[i] = { x: p.x, y: p.y }; continue; }
+    if (len < 0.001) {
+      if (out[i]) { out[i].x = p.x; out[i].y = p.y; }
+      else out[i] = { x: p.x, y: p.y };
+      continue;
+    }
     const nx = -dy / len, ny = dx / len;
     const mag = jitter[i] * HL_JITTER_MAG;
-    out[i] = { x: p.x + nx * mag, y: p.y + ny * mag };
+    if (out[i]) {
+      out[i].x = p.x + nx * mag;
+      out[i].y = p.y + ny * mag;
+    } else {
+      out[i] = { x: p.x + nx * mag, y: p.y + ny * mag };
+    }
   }
+  setNonEnumerable(stroke, '_hlPtsLen', n);
   return out;
 }
 
@@ -282,7 +292,7 @@ function getStrokeStyle(stroke, isDark) {
   const lineDash = _buildLineDash(stroke.style, sliderToBaseSize(stroke.size));
 
   const result = { key, strokeStyle, fillStyle, gco, lineDash };
-  stroke._styleCache = result;
+  setNonEnumerable(stroke, '_styleCache', result);
   return result;
 }
 
@@ -367,17 +377,11 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
 // ============================================================
 
 export function getStrokeBBoxCanvas(stroke, pad = 24) {
-  const pts = stroke && stroke.points;
-  if (!pts || pts.length === 0) return null;
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i];
-    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-  }
+  const raw = getRawStrokeBBox(stroke);
+  if (!raw) return null;
   return {
-    minX: minX - pad, maxX: maxX + pad,
-    minY: minY - pad, maxY: maxY + pad
+    minX: raw.minX - pad, maxX: raw.maxX + pad,
+    minY: raw.minY - pad, maxY: raw.maxY + pad
   };
 }
 
@@ -461,6 +465,37 @@ export function blitAndClearBBox(pageData, bbox, opts = {}) {
 // REDRAW PAGE
 // ============================================================
 
+function drawStrokeWithCache(ctx, stroke, drawDpr, inkDark, isTarget = false, buildDpr = drawDpr) {
+  if (!isTarget) {
+    let cached = getStrokeBitmap(stroke, drawDpr, inkDark, state.smoothing);
+    if (!cached) {
+      cached = buildStrokeBitmap(stroke, buildDpr, inkDark, state.smoothing);
+    }
+    if (cached) {
+      if (stroke.tool === 'highlighter') {
+        const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+        ctx.save();
+        ctx.globalCompositeOperation = inkDark ? 'screen' : 'multiply';
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(
+          cached.canvas,
+          cached.bbox.x, cached.bbox.y,
+          cached.bbox.w, cached.bbox.h
+        );
+        ctx.restore();
+      } else {
+        ctx.drawImage(
+          cached.canvas,
+          cached.bbox.x, cached.bbox.y,
+          cached.bbox.w, cached.bbox.h
+        );
+      }
+      return;
+    }
+  }
+  renderFullStroke(ctx, stroke, inkDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
+}
+
 export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode, opts = {}) {
   const ctx = pageData.ctx;
   const dpr = pageData.dpr || 1;
@@ -486,25 +521,16 @@ export function redrawPageCanvas(pageData, forceTargetDark = state.isDarkMode, o
   const selectedSet = (!isExport && state.selectedStrokes && state.selectedStrokes.length > 0)
     ? new Set(state.selectedStrokes) : null;
 
-  pageData.strokes.forEach(stroke => {
-    if (selectedSet && selectedSet.has(stroke)) return;
-    const isTarget = targetSet && targetSet.has(stroke);
-
-    if (stroke.tool === 'pencil' && !isTarget && (stroke.style || 'solid') === 'solid') {
-      let cached = getStrokeBitmap(stroke, dpr, inkDark);
-      if (!cached) cached = buildStrokeBitmap(stroke, dpr, inkDark);
-      if (cached) {
-        ctx.drawImage(
-          cached.canvas,
-          cached.bbox.x, cached.bbox.y,
-          cached.bbox.w, cached.bbox.h
-        );
-        return;
-      }
+  for (let i = 0; i < pageData.strokes.length; i++) {
+    const stroke = pageData.strokes[i];
+    if (selectedSet && selectedSet.has(stroke)) continue;
+    const isTarget = !!(targetSet && targetSet.has(stroke));
+    if (isExport) {
+      renderFullStroke(ctx, stroke, inkDark, null);
+    } else {
+      drawStrokeWithCache(ctx, stroke, dpr, inkDark, isTarget, dpr);
     }
-
-    renderFullStroke(ctx, stroke, inkDark, isTarget ? SCRIBBLE_TARGET_COLOR : null);
-  });
+  }
 
   if (!skipTextBoxes && Array.isArray(pageData.textBoxes) && pageData.textBoxes.length > 0) {
     const selectedTextSet = (!isExport && Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0)
@@ -564,7 +590,7 @@ export function drawDotOnly(pageData, stroke) {
 // RENDER FULL STROKE
 // ============================================================
 
-export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null) {
+export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = null, opts = null) {
   const pts = stroke.points;
   const n = pts.length;
   if (n < 1) return;
@@ -583,9 +609,10 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     const jittered = getDisplayPoints(stroke);
     const baseSize = sliderToBaseSize(stroke.size);
     const lineWidth = Math.max(1, baseSize * 4.0);
+    const opaqueHL = !!(opts && opts.opaqueHighlighter);
     ctx.save();
-    ctx.globalCompositeOperation = forceTargetDark ? 'screen' : 'multiply';
-    ctx.globalAlpha = opacity;
+    ctx.globalCompositeOperation = opaqueHL ? 'source-over' : (forceTargetDark ? 'screen' : 'multiply');
+    ctx.globalAlpha = opaqueHL ? 1.0 : opacity;
     ctx.strokeStyle = stroke.color;
     ctx.fillStyle = stroke.color;
     ctx.lineCap = 'round';
@@ -630,9 +657,6 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     ctx.strokeStyle = overrideColor; ctx.fillStyle = overrideColor;
   } else {
     setupStrokeStyle(ctx, stroke, forceTargetDark);
-    // Applica opacity utente. Pencil ha colore con alpha interna
-    // 0.55, quindi risultato = 0.55 × opacity. Pen/marker colore
-    // pieno, risultato = opacity.
     ctx.globalAlpha = opacity;
   }
 
@@ -647,6 +671,9 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
 
   const unified = overrideColor != null || canUnifyFill(stroke.tool);
   if (unified) {
+    let cIdx = 0;
+    let buf = _circleBuf;
+
     ctx.beginPath();
     for (let i = 1; i < n; i++) {
       const p0 = pts[i >= 2 ? i - 2 : 0];
@@ -655,49 +682,67 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
       const w1 = widths[i - 1], w2 = widths[i];
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-      const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
-      const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
+      const steps = computeSegmentSteps(segLen, smoothness);
+      if (cIdx + steps * 3 + 3 > buf.length) {
+        buf = _ensureCircleBuf(cIdx + steps * 3 + 3);
+      }
+
+      _ptA.x = p1.x;
+      _ptA.y = p1.y;
+      let wa = w1;
       for (let s = 0; s < steps; s++) {
-        const t0 = s / steps, t1 = (s + 1) / steps;
-        interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
+        const t1 = (s + 1) / steps;
+        const wb = w1 + (w2 - w1) * t1;
         interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
-        addTaperedSegmentPolygon(ctx, _ptA, _ptB, w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
+        addTaperedSegmentPolygon(ctx, _ptA, _ptB, wa, wb);
+        buf[cIdx++] = _ptA.x;
+        buf[cIdx++] = _ptA.y;
+        buf[cIdx++] = Math.max(wa, 0.5) * 0.5;
+        _ptA.x = _ptB.x;
+        _ptA.y = _ptB.y;
+        wa = wb;
       }
     }
     ctx.fill();
+
+    // Include last tip cap in single arc fill pass
+    if (cIdx + 3 > buf.length) buf = _ensureCircleBuf(cIdx + 3);
+    buf[cIdx++] = pts[n - 1].x;
+    buf[cIdx++] = pts[n - 1].y;
+    buf[cIdx++] = Math.max(widths[n - 1], 0.5) * 0.5;
+
     ctx.beginPath();
-    for (let i = 1; i < n; i++) {
-      const p0 = pts[i >= 2 ? i - 2 : 0];
-      const p1 = pts[i - 1];
-      const p2 = pts[i];
-      const p3 = pts[i + 1 < n ? i + 1 : n - 1];
-      const w1 = widths[i - 1], w2 = widths[i];
-      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-      const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
-      const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
-      for (let s = 0; s < steps; s++) {
-        const t0 = s / steps;
-        interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
-        addTaperedSegmentCircle(ctx, _ptA, w1 + (w2 - w1) * t0);
-      }
+    for (let k = 0; k < cIdx; k += 3) {
+      const cx = buf[k];
+      const cy = buf[k + 1];
+      const r = buf[k + 2];
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
     }
     ctx.fill();
-  } else {
-    for (let i = 1; i < n; i++) {
-      const p0 = pts[i >= 2 ? i - 2 : 0];
-      const p1 = pts[i - 1];
-      const p2 = pts[i];
-      const p3 = pts[i + 1 < n ? i + 1 : n - 1];
-      const w1 = widths[i - 1], w2 = widths[i];
-      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-      const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
-      const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
-      for (let s = 0; s < steps; s++) {
-        const t0 = s / steps, t1 = (s + 1) / steps;
-        interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
-        interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
-        drawTaperedSegment(ctx, _ptA, _ptB, w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
-      }
+    ctx.restore();
+    return;
+  }
+
+  for (let i = 1; i < n; i++) {
+    const p0 = pts[i >= 2 ? i - 2 : 0];
+    const p1 = pts[i - 1];
+    const p2 = pts[i];
+    const p3 = pts[i + 1 < n ? i + 1 : n - 1];
+    const w1 = widths[i - 1], w2 = widths[i];
+    const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
+    const steps = computeSegmentSteps(segLen, smoothness);
+    _ptA.x = p1.x;
+    _ptA.y = p1.y;
+    let wa = w1;
+    for (let s = 0; s < steps; s++) {
+      const t1 = (s + 1) / steps;
+      const wb = w1 + (w2 - w1) * t1;
+      interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
+      drawTaperedSegment(ctx, _ptA, _ptB, wa, wb);
+      _ptA.x = _ptB.x;
+      _ptA.y = _ptB.y;
+      wa = wb;
     }
   }
 
@@ -805,28 +850,8 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
   const unified = canUnifyFillIncremental(stroke.tool);
 
   if (unified) {
-    ctx.beginPath();
-    for (let i = firstSegEnd; i < n; i++) {
-      const p0 = pts[i >= 2 ? i - 2 : 0];
-      const p1 = pts[i - 1];
-      const p2 = pts[i];
-      const p3 = pts[i + 1 < n ? i + 1 : n - 1];
-      const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
-        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
-      const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
-        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
-      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-      const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
-      const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
-      for (let s = 0; s < steps; s++) {
-        const t0 = s / steps, t1 = (s + 1) / steps;
-        interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
-        interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
-        addTaperedSegmentPolygon(ctx, _ptA, _ptB,
-          w1 + (w2 - w1) * t0, w1 + (w2 - w1) * t1);
-      }
-    }
-    ctx.fill();
+    let cIdx = 0;
+    let buf = _circleBuf;
 
     ctx.beginPath();
     for (let i = firstSegEnd; i < n; i++) {
@@ -839,15 +864,40 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
         getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-      const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
-      const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
+      const steps = computeSegmentSteps(segLen, smoothness);
+      if (cIdx + steps * 3 > buf.length) {
+        buf = _ensureCircleBuf(cIdx + steps * 3);
+      }
+
+      _ptA.x = p1.x;
+      _ptA.y = p1.y;
+      let wa = w1;
       for (let s = 0; s < steps; s++) {
-        const t0 = s / steps;
-        interpolatePointInto(_ptA, p0, p1, p2, p3, t0, smoothness);
-        addTaperedSegmentCircle(ctx, _ptA, w1 + (w2 - w1) * t0);
+        const t1 = (s + 1) / steps;
+        const wb = w1 + (w2 - w1) * t1;
+        interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
+        addTaperedSegmentPolygon(ctx, _ptA, _ptB, wa, wb);
+        buf[cIdx++] = _ptA.x;
+        buf[cIdx++] = _ptA.y;
+        buf[cIdx++] = Math.max(wa, 0.5) * 0.5;
+        _ptA.x = _ptB.x;
+        _ptA.y = _ptB.y;
+        wa = wb;
       }
     }
     ctx.fill();
+
+    if (cIdx > 0) {
+      ctx.beginPath();
+      for (let k = 0; k < cIdx; k += 3) {
+        const cx = buf[k];
+        const cy = buf[k + 1];
+        const r = buf[k + 2];
+        ctx.moveTo(cx + r, cy);
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
 
     if (smoothness <= 0.01 && n >= 2) {
       const tipP1 = pts[n - 2], tipP2 = pts[n - 1];
@@ -1192,12 +1242,15 @@ export function drawLassoIncrementalOnOverlay(pageData) {
   octx.restore();
 }
 
-export function drawSelectionBBoxOnOverlay(pageData) {
+export function drawSelectionBBoxOnOverlay(pageData, overrideVisualBBox = null) {
   if (!pageData.overlayCtx) return;
-  const hasStrokes = state.selectedStrokes.length > 0;
-  const hasText = Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0;
-  if (!hasStrokes && !hasText) return;
-  const visualBBox = getVisualBoundingBox();
+  let visualBBox = overrideVisualBBox;
+  if (!visualBBox) {
+    const hasStrokes = state.selectedStrokes.length > 0;
+    const hasText = Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0;
+    if (!hasStrokes && !hasText) return;
+    visualBBox = getVisualBoundingBox();
+  }
   if (!visualBBox) return;
   const octx = pageData.overlayCtx;
   const dpr = pageData.overlayDpr || pageData.dpr || 1;
@@ -1216,7 +1269,7 @@ export function drawSelectionBBoxOnOverlay(pageData) {
   octx.restore();
 }
 
-export function redrawSelectionOverlay(pageData) {
+export function redrawSelectionOverlay(pageData, opts = null) {
   clearOverlay(pageData);
   const hasStrokes = state.selectedStrokes.length > 0;
   const hasText = Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length > 0;
@@ -1224,22 +1277,26 @@ export function redrawSelectionOverlay(pageData) {
   const octx = pageData.overlayCtx;
   if (octx) {
     const dpr = pageData.overlayDpr || pageData.dpr || 1;
+    const targetBuildDpr = Math.max(dpr, pageData.dpr || 1);
     const inkDark = isPaperDark(state.isDarkMode, state.paperColor);
     octx.save();
     octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (hasStrokes) {
-      state.selectedStrokes.forEach(stroke => {
-        renderFullStroke(octx, stroke, inkDark);
-      });
+      for (let i = 0; i < state.selectedStrokes.length; i++) {
+        drawStrokeWithCache(octx, state.selectedStrokes[i], dpr, inkDark, false, targetBuildDpr);
+      }
     }
     if (hasText) {
-      state.selectedTextBoxes.forEach(tb => {
+      for (let i = 0; i < state.selectedTextBoxes.length; i++) {
+        const tb = state.selectedTextBoxes[i];
         if (tb) drawTextBoxOnCanvas(octx, tb, inkDark);
-      });
+      }
     }
     octx.restore();
   }
-  drawSelectionBBoxOnOverlay(pageData);
+  if (!opts || !opts.skipBBox) {
+    drawSelectionBBoxOnOverlay(pageData);
+  }
 }
 
 function _renderDashedStroke(ctx, stroke, styleInfo, isDark, opacity) {
