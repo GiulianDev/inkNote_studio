@@ -40,6 +40,21 @@ function _dedupOrder(rawOrder) {
   return out;
 }
 
+function _requestPersistentStorage() {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.storage?.persist) return;
+    if (typeof navigator.storage.persisted === 'function') {
+      navigator.storage.persisted().then((already) => {
+        if (!already) return navigator.storage.persist();
+      }).catch(() => {});
+    } else {
+      navigator.storage.persist().catch(() => {});
+    }
+  } catch {
+    // ignore environments without StorageManager
+  }
+}
+
 export function initDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -221,7 +236,11 @@ export function initDB() {
       }
     };
 
-    request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    request.onsuccess = (e) => {
+      db = e.target.result;
+      _requestPersistentStorage();
+      resolve(db);
+    };
     request.onerror = (e) => reject(e.target.error);
   });
 }
@@ -256,20 +275,67 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
     notebook.formatVersion = CURRENT_NOTEBOOK_FORMAT;
 
     const pages = Array.isArray(notebook.pages) ? notebook.pages : [];
-    const order = [];
-    const seenIds = new Set();
-    const pageById = new Map();
+    const dirtyList = Array.isArray(dirtyPageIds) ? dirtyPageIds : [];
+    const needsOrderRebuild = !!(
+      opts.saveOrder ||
+      opts.orderChanged ||
+      opts.replaceAllPages ||
+      !Array.isArray(notebook.pageOrder) ||
+      notebook.pageOrder.length !== pages.length
+    );
 
-    for (const p of pages) {
-      if (!p) continue;
-      if (!p.pageId) p.pageId = generatePageId();
-      if (!seenIds.has(p.pageId)) {
-        seenIds.add(p.pageId);
-        order.push(p.pageId);
-        pageById.set(p.pageId, p);
+    let order;
+    let seenIds = null;
+    const dirtyPagesToPut = [];
+
+    if (!needsOrderRebuild && dirtyList.every(k => typeof k === 'string' && k)) {
+      order = notebook.pageOrder;
+      if (dirtyList.length === 1) {
+        const targetId = dirtyList[0];
+        const hintIdx = typeof notebook.lastPageIndex === 'number' ? notebook.lastPageIndex : -1;
+        const hinted = (hintIdx >= 0 && hintIdx < pages.length) ? pages[hintIdx] : null;
+        if (hinted && hinted.pageId === targetId) {
+          dirtyPagesToPut.push(hinted);
+        } else {
+          for (let i = 0; i < pages.length; i++) {
+            const p = pages[i];
+            if (p && p.pageId === targetId) {
+              dirtyPagesToPut.push(p);
+              break;
+            }
+          }
+        }
+      } else if (dirtyList.length > 1) {
+        const wanted = new Set(dirtyList);
+        for (let i = 0; i < pages.length && wanted.size > 0; i++) {
+          const p = pages[i];
+          if (p && p.pageId && wanted.has(p.pageId)) {
+            dirtyPagesToPut.push(p);
+            wanted.delete(p.pageId);
+          }
+        }
+      }
+    } else {
+      order = [];
+      seenIds = new Set();
+      const pageById = new Map();
+
+      for (const p of pages) {
+        if (!p) continue;
+        if (!p.pageId) p.pageId = generatePageId();
+        if (!seenIds.has(p.pageId)) {
+          seenIds.add(p.pageId);
+          order.push(p.pageId);
+          pageById.set(p.pageId, p);
+        }
+      }
+      notebook.pageOrder = order.slice();
+
+      for (const key of dirtyList) {
+        const page = typeof key === 'number' ? pages[key] : pageById.get(key);
+        if (page && page.pageId) dirtyPagesToPut.push(page);
       }
     }
-    notebook.pageOrder = order.slice();
 
     const meta = {
       id: notebook.id,
@@ -318,9 +384,7 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
         }
       }
 
-      for (const key of dirtyPageIds) {
-        const page = typeof key === 'number' ? pages[key] : pageById.get(key);
-        if (!page || !page.pageId) continue;
+      for (const page of dirtyPagesToPut) {
         pagesStore.put({
           notebookId: notebook.id,
           pageId: page.pageId,

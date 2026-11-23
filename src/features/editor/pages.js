@@ -30,6 +30,7 @@ import {
 } from '../viewport/transform.js';
 import { pagePool, setViewportRef } from './page-pool.js';
 import { unpackStrokes } from '../persistence/serialization.js';
+import { attachLazyStrokes } from '../persistence/lazy-strokes.js';
 
 setViewportRef(viewport);
 
@@ -43,8 +44,14 @@ let _programmaticScrollUntil = 0;
 // CREAZIONE PAGINA
 // ============================================================
 
-export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null, initialTextBoxes = []) {
-  const container = document.getElementById('canvasContainer');
+export function createNewPageDOM(
+  pageIndex,
+  initialStrokes = [],
+  pageId = null,
+  initialTextBoxes = [],
+  opts = {}
+) {
+  const container = opts.parent || document.getElementById('canvasContainer');
   const pid = (typeof pageId === 'string' && pageId) ? pageId : generatePageId();
 
   const pageWrapper = document.createElement('div');
@@ -54,7 +61,6 @@ export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null, 
 
   container.appendChild(pageWrapper);
 
-  const strokes = unpackStrokes(initialStrokes);
   const textBoxes = normalizeTextBoxes(initialTextBoxes);
 
   const pageData = {
@@ -65,11 +71,14 @@ export function createNewPageDOM(pageIndex, initialStrokes = [], pageId = null, 
     ctx: null,
     overlayCanvas: null,
     overlayCtx: null,
-    strokes,
     textBoxes,
     dpr: 0,
     overlayDpr: 0
   };
+
+  attachLazyStrokes(pageData, initialStrokes, unpackStrokes, {
+    alreadyUnpacked: !!opts.alreadyUnpacked
+  });
 
   state.pages.push(pageData);
   attachPointerListeners(pageData);

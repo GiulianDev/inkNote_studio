@@ -9,6 +9,7 @@ import {
   updateNotebookMetadataInDB, loadAllFoldersFromDB, saveFolderToDB, deleteLibraryItemsFromDB
 } from '../../services/db.js';
 import { openNotebook, closeNotebookIfOpen } from '../editor/editor.js';
+import { DEFAULT_TOOLBAR_SETTINGS } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
 import { exportNotebooks } from '../backup/backup-export.js';
 import { importNotebooks } from '../backup/backup-import.js';
@@ -1270,6 +1271,7 @@ async function _confirmCreateNotebook() {
     const folderId = document.getElementById('modalNbFolder')?.value || null;
     const firstPageId = generatePageId();
     const rand = Math.random().toString(36).slice(2, 7);
+    const now = new Date().toISOString();
     const newNb = {
       id: `nb_${Date.now()}_${rand}`,
       title,
@@ -1277,8 +1279,10 @@ async function _confirmCreateNotebook() {
       pattern,
       folderId,
       isFavorite: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
+      lastEditAt: now,
+      toolbarSettings: deepClone(DEFAULT_TOOLBAR_SETTINGS),
       pageOrder: [firstPageId],
       pages: [{ pageId: firstPageId, strokes: [], textBoxes: [] }],
       lastPageIndex: 0
