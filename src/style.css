@@ -1092,12 +1092,14 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 #libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(6) { animation-delay: 132ms; }
 #libraryHeader.has-mode-transition .lib-actions-layer > *:nth-child(7) { animation-delay: 148ms; }
 
-#authBtn.is-has-unread {
+#authBtn.is-has-unread,
+#editorAuthBtn.is-has-unread {
   border-color: #e11d48;
   box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.25);
 }
 
-body.dark #authBtn.is-has-unread {
+body.dark #authBtn.is-has-unread,
+body.dark #editorAuthBtn.is-has-unread {
   border-color: #fb7185;
   box-shadow: 0 0 0 2px rgba(251, 113, 133, 0.35);
 }

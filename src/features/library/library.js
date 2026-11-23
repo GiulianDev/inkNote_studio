@@ -39,6 +39,10 @@ import {
   pushFolderBackState,
   navigateBreadcrumbBackState
 } from '../../core/back-navigation.js';
+import {
+  initAppFullscreenSync,
+  toggleAppFullscreen
+} from '../../core/fullscreen.js';
 
 const COVER_COLOR_ACTIVE_CLASSES = ['ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'];
 
@@ -1332,6 +1336,14 @@ export function bindLibraryUI() {
     }
   });
   document.getElementById('openSettingsBtnLib')?.addEventListener('click', openSettingsModal);
+  initAppFullscreenSync();
+  document.getElementById('libraryFullscreenBtn')?.addEventListener('click', () => {
+    const next = toggleAppFullscreen();
+    showToast(
+      next ? 'Schermo intero attivo' : 'Schermo intero disattivato',
+      next ? '⛶' : '↩️'
+    );
+  });
   document.getElementById('confirmCreateNbBtn')?.addEventListener('click', _confirmCreateNotebook);
   document.getElementById('cancelNewNbBtn')?.addEventListener('click', closeNewNotebookModal);
 

@@ -10,6 +10,7 @@
 
 import { state } from '../../core/state.js';
 import { emit, on } from '../../core/utils.js';
+import { isAppFullscreen } from '../../core/fullscreen.js';
 
 export const HIGHLIGHTER_COLORS = ['#FFEB3B', '#7CFF7C', '#FF7CBE', '#7CD4FF', '#FFA97C'];
 export const HIGHLIGHTER_DEFAULT_COLOR = HIGHLIGHTER_COLORS[0];
@@ -32,6 +33,8 @@ export const DEFAULT_TOOLBAR_SETTINGS = {
   snapRectangles: true,
   snapTriangles: true,
   snapArrows: true,
+  snapMathSymbols: true,
+  snapGreekLetters: true,
   smoothing: 50,
   compactMode: false,
   recentColors: [],
@@ -90,12 +93,21 @@ function _syncRuntime() {
   state.lassoMode       = _current.lassoMode === 'rect' ? 'rect' : 'freehand';
   state.lassoSelectInk  = _current.lassoSelectInk !== false;
   state.lassoSelectText = _current.lassoSelectText !== false;
-  state.snapLines      = !!_current.snapLines;
-  state.snapCircles    = !!_current.snapCircles;
-  state.snapRectangles = !!_current.snapRectangles;
-  state.snapTriangles  = !!_current.snapTriangles;
-  state.snapArrows     = !!_current.snapArrows;
-  state.snapShapes     = !!(state.snapCircles || state.snapRectangles || state.snapTriangles || state.snapArrows);
+  state.snapLines        = !!_current.snapLines;
+  state.snapCircles      = !!_current.snapCircles;
+  state.snapRectangles   = !!_current.snapRectangles;
+  state.snapTriangles    = !!_current.snapTriangles;
+  state.snapArrows       = !!_current.snapArrows;
+  state.snapMathSymbols  = !!_current.snapMathSymbols;
+  state.snapGreekLetters = !!_current.snapGreekLetters;
+  state.snapShapes       = !!(
+    state.snapCircles ||
+    state.snapRectangles ||
+    state.snapTriangles ||
+    state.snapArrows ||
+    state.snapMathSymbols ||
+    state.snapGreekLetters
+  );
   state.autoShapeEnabled = state.snapLines || state.snapShapes;
   state.activeTool   = _activeTool;
   // Colori foglio (null = default del tema, gestito in render.js)
@@ -160,25 +172,38 @@ function _normalize(raw) {
   }
   merged.snapLines = merged.snapLines !== false;
 
-  // Migrazione soft: snapShapes → snapCircles / snapRectangles / snapTriangles / snapArrows
+  // Migrazione soft: snapShapes → toggle per categoria
   const hasPerShape = raw && (
     typeof raw.snapCircles === 'boolean' ||
     typeof raw.snapRectangles === 'boolean' ||
     typeof raw.snapTriangles === 'boolean' ||
-    typeof raw.snapArrows === 'boolean'
+    typeof raw.snapArrows === 'boolean' ||
+    typeof raw.snapMathSymbols === 'boolean' ||
+    typeof raw.snapGreekLetters === 'boolean'
   );
   if (!hasPerShape && raw && typeof raw.snapShapes === 'boolean') {
-    merged.snapCircles    = raw.snapShapes;
-    merged.snapRectangles = raw.snapShapes;
-    merged.snapTriangles  = raw.snapShapes;
-    merged.snapArrows     = raw.snapShapes;
+    merged.snapCircles      = raw.snapShapes;
+    merged.snapRectangles   = raw.snapShapes;
+    merged.snapTriangles    = raw.snapShapes;
+    merged.snapArrows       = raw.snapShapes;
+    merged.snapMathSymbols  = raw.snapShapes;
+    merged.snapGreekLetters = raw.snapShapes;
   } else {
-    merged.snapCircles    = merged.snapCircles    !== false;
-    merged.snapRectangles = merged.snapRectangles !== false;
-    merged.snapTriangles  = merged.snapTriangles  !== false;
-    merged.snapArrows     = merged.snapArrows     !== false;
+    merged.snapCircles      = merged.snapCircles      !== false;
+    merged.snapRectangles   = merged.snapRectangles   !== false;
+    merged.snapTriangles    = merged.snapTriangles    !== false;
+    merged.snapArrows       = merged.snapArrows       !== false;
+    merged.snapMathSymbols  = merged.snapMathSymbols  !== false;
+    merged.snapGreekLetters = merged.snapGreekLetters !== false;
   }
-  merged.snapShapes = !!(merged.snapCircles || merged.snapRectangles || merged.snapTriangles || merged.snapArrows);
+  merged.snapShapes = !!(
+    merged.snapCircles ||
+    merged.snapRectangles ||
+    merged.snapTriangles ||
+    merged.snapArrows ||
+    merged.snapMathSymbols ||
+    merged.snapGreekLetters
+  );
 
   merged.eraserSize      = Math.max(1, Math.min(5, merged.eraserSize || 3));
   merged.eraserMode      = merged.eraserMode === 'point' ? 'point' : 'stroke';
@@ -210,6 +235,8 @@ function _normalize(raw) {
 
 export function initToolbarSettings(notebookSettings = null) {
   _current = _normalize(notebookSettings);
+  // Lo stato schermo intero / compatto segue lo stato globale attivo dell'app
+  _current.compactMode = isAppFullscreen();
   _activeTool = 'pen';
   _syncRuntime();
   _applyCompactToDOM(!!_current.compactMode);
@@ -241,19 +268,21 @@ export function getEraserRadius() {
 export function getToolbarSettingsForSave() {
   if (!_current) initToolbarSettings(null);
   return {
-    tools:        JSON.parse(JSON.stringify(_current.tools)),
-    text:         { ..._current.text },
-    eraserSize:     _current.eraserSize,
-    eraserMode:     _current.eraserMode,
-    lassoMode:      _current.lassoMode,
-    lassoSelectInk: _current.lassoSelectInk,
-    lassoSelectText:_current.lassoSelectText,
-    snapLines:      _current.snapLines,
-    snapShapes:     _current.snapShapes,
-    snapCircles:    _current.snapCircles,
-    snapRectangles: _current.snapRectangles,
-    snapTriangles:  _current.snapTriangles,
-    snapArrows:     _current.snapArrows,
+    tools:            JSON.parse(JSON.stringify(_current.tools)),
+    text:             { ..._current.text },
+    eraserSize:       _current.eraserSize,
+    eraserMode:       _current.eraserMode,
+    lassoMode:        _current.lassoMode,
+    lassoSelectInk:   _current.lassoSelectInk,
+    lassoSelectText:  _current.lassoSelectText,
+    snapLines:        _current.snapLines,
+    snapShapes:       _current.snapShapes,
+    snapCircles:      _current.snapCircles,
+    snapRectangles:   _current.snapRectangles,
+    snapTriangles:    _current.snapTriangles,
+    snapArrows:       _current.snapArrows,
+    snapMathSymbols:  _current.snapMathSymbols,
+    snapGreekLetters: _current.snapGreekLetters,
     smoothing:    _current.smoothing,
     compactMode:  _current.compactMode,
     recentColors: _current.recentColors.slice(),

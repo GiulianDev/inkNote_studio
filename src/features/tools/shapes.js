@@ -32,6 +32,12 @@ import {
   buildImplicationArrowGeometry,
   analyzeSingleStrokeArrow
 } from './arrow-recognition.js';
+import {
+  recognizeMathSymbolSingleStroke,
+  matchSummationOrUpperSigma,
+  recognizeGreekSingleStroke,
+  recognizeGreekMultiStroke
+} from './math-greek-recognition.js';
 
 // ------------------------------------------------------------
 // Soglie rilevamento linea retta
@@ -552,29 +558,57 @@ function detectSingleStrokeArrow(stroke, pageData, extraStrokes) {
 }
 
 // ------------------------------------------------------------
-// detectAndSnapShape — cerchio / rettangolo / triangolo / frecce
+// detectAndSnapShape — cerchio / rettangolo / triangolo / frecce / matematica / greco
 // ------------------------------------------------------------
 export function detectAndSnapShape(stroke, pageData, extraStrokes = []) {
   const allowCircle   = state.snapCircles !== false;
   const allowRect     = state.snapRectangles !== false;
   const allowTriangle = state.snapTriangles !== false;
   const allowArrow    = state.snapArrows !== false;
-  if (!allowCircle && !allowRect && !allowTriangle && !allowArrow) return false;
+  const allowMath     = state.snapMathSymbols !== false;
+  const allowGreek    = state.snapGreekLetters !== false;
+  if (!allowCircle && !allowRect && !allowTriangle && !allowArrow && !allowMath && !allowGreek) {
+    return false;
+  }
 
   const pts = stroke.points;
-  if (pts.length < 5) return false;
+  if (pts.length < 4) return false;
 
   // Simbolo "di conseguenza" (=> / ⇒): 2 linee parallele + punta >
-  if (allowArrow && detectImplicationArrow(stroke, pageData)) {
+  if ((allowArrow || allowMath) && pts.length >= 5 && detectImplicationArrow(stroke, pageData)) {
     return true;
   }
 
   // Freccia 2 tratti: punta a V disegnata sull'estremità di una linea esistente
-  if (allowArrow && detectArrowTipOnLine(stroke, pageData)) {
+  if (allowArrow && pts.length >= 5 && detectArrowTipOnLine(stroke, pageData)) {
     return true;
   }
 
-  if (pts.length < 8) return false;
+  // Lettere greche multi-tratto (θ, φ, ψ, π, λ)
+  if (allowGreek && pageData && Array.isArray(pageData.strokes) && pageData.strokes.length > 0) {
+    const greekMulti = recognizeGreekMultiStroke(pts, pageData.strokes);
+    if (greekMulti) {
+      if (Array.isArray(greekMulti.updates) && greekMulti.updates.length > 0) {
+        for (const upd of greekMulti.updates) {
+          const targetStroke = pageData.strokes[upd.strokeIndex];
+          if (targetStroke && Array.isArray(upd.points)) {
+            targetStroke.points = upd.points;
+            _invalidateStrokeCaches(targetStroke);
+          }
+        }
+        if (pageData.canvas && pageData.ctx) {
+          redrawPageCanvas(pageData);
+        }
+      }
+      stroke.points = greekMulti.points;
+      _invalidateStrokeCaches(stroke);
+      showToast(greekMulti.label, greekMulti.icon);
+      triggerSnapAnimation(pageData);
+      return true;
+    }
+  }
+
+  if (pts.length < 6) return false;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, pathLen = 0;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
@@ -584,13 +618,13 @@ export function detectAndSnapShape(stroke, pageData, extraStrokes = []) {
   }
   const bboxW = maxX - minX, bboxH = maxY - minY;
   const bboxDiag = Math.hypot(bboxW, bboxH);
-  if (bboxDiag < 55) return false;
+  if (bboxDiag < 22) return false;
 
   const startPt = pts[0], endPt = pts[pts.length - 1];
   const closureDist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
 
-  // Forme chiuse: cerchio / rettangolo / triangolo
-  if (bboxDiag >= 90 && closureDist / Math.max(pathLen, 1) <= 0.14) {
+  // Forme chiuse grandi: cerchio / rettangolo / triangolo
+  if (pts.length >= 8 && bboxDiag >= 90 && closureDist / Math.max(pathLen, 1) <= 0.14) {
     const w = bboxW, h = bboxH;
     const aspect = h > 0 ? w / h : 1;
     const isSquareLike = aspect >= 0.75 && aspect <= 1.35;
@@ -659,8 +693,40 @@ export function detectAndSnapShape(stroke, pageData, extraStrokes = []) {
   }
 
   // Freccia 1 tratto continuo (asta + 2 alette alla fine)
-  if (allowArrow && detectSingleStrokeArrow(stroke, pageData, extraStrokes)) {
+  if (allowArrow && pts.length >= 10 && bboxDiag >= 55 && detectSingleStrokeArrow(stroke, pageData, extraStrokes)) {
     return true;
+  }
+
+  // Simboli matematici a 1 tratto: (), [], {}, ∑
+  if (allowMath) {
+    const mathMatch = recognizeMathSymbolSingleStroke(pts);
+    if (mathMatch) {
+      stroke.points = mathMatch.points;
+      _invalidateStrokeCaches(stroke);
+      showToast(`Simbolo: ${mathMatch.label}`, mathMatch.icon);
+      triggerSnapAnimation(pageData);
+      return true;
+    }
+  }
+
+  // Lettere greche a 1 tratto (inclusa Σ maiuscola se math disattivato)
+  if (allowGreek) {
+    const upperSigma = !allowMath ? matchSummationOrUpperSigma(pts) : null;
+    if (upperSigma) {
+      stroke.points = upperSigma.points;
+      _invalidateStrokeCaches(stroke);
+      showToast('Lettera greca: Σ', 'Σ');
+      triggerSnapAnimation(pageData);
+      return true;
+    }
+    const greekMatch = recognizeGreekSingleStroke(pts);
+    if (greekMatch) {
+      stroke.points = greekMatch.points;
+      _invalidateStrokeCaches(stroke);
+      showToast(greekMatch.label, greekMatch.icon);
+      triggerSnapAnimation(pageData);
+      return true;
+    }
   }
 
   return false;

@@ -125,7 +125,11 @@ export const state = {
   snapTriangles: true,
   /** @type {boolean} riconoscimento frecce (1 tratto e punta a V su linea) */
   snapArrows: true,
-  /** @type {boolean} riconoscimento forme geometriche (true se almeno una forma è attiva) */
+  /** @type {boolean} riconoscimento simboli matematici (parentesi, ∑, ⇒) */
+  snapMathSymbols: true,
+  /** @type {boolean} riconoscimento lettere greche */
+  snapGreekLetters: true,
+  /** @type {boolean} riconoscimento forme/simboli (true se almeno una categoria è attiva) */
   snapShapes: true,
   /**
    * @deprecated Usare snapLines / snapShapes.

@@ -48,6 +48,11 @@ import {
   createDockAutoHideController,
   DEFAULT_WRITING_INACTIVITY_MS
 } from './dock-autohide.js';
+import {
+  initAppFullscreenSync,
+  toggleAppFullscreen,
+  onAppFullscreenChange
+} from '../../core/fullscreen.js';
 
 let _mounted = false;
 let _hintShownThisSession = false;
@@ -807,15 +812,44 @@ export function toggleSnapArrows() {
   );
 }
 
+export function toggleSnapMathSymbols() {
+  const next = !getToolbarSettings().snapMathSymbols;
+  updateToolbarSettings({ snapMathSymbols: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Simboli matematici: riconoscimento attivo' : 'Simboli matematici: riconoscimento disattivato',
+    next ? '∑' : '🚫'
+  );
+}
+
+export function toggleSnapGreekLetters() {
+  const next = !getToolbarSettings().snapGreekLetters;
+  updateToolbarSettings({ snapGreekLetters: next });
+  applySnapTogglesToUI();
+  showToast(
+    next ? 'Lettere greche: riconoscimento attivo' : 'Lettere greche: riconoscimento disattivato',
+    next ? 'α' : '🚫'
+  );
+}
+
 export function toggleSnapShapes() {
   const s = getToolbarSettings();
-  const next = !(s.snapCircles || s.snapRectangles || s.snapTriangles || s.snapArrows);
+  const next = !(
+    s.snapCircles ||
+    s.snapRectangles ||
+    s.snapTriangles ||
+    s.snapArrows ||
+    s.snapMathSymbols ||
+    s.snapGreekLetters
+  );
   updateToolbarSettings({
     snapShapes: next,
     snapCircles: next,
     snapRectangles: next,
     snapTriangles: next,
-    snapArrows: next
+    snapArrows: next,
+    snapMathSymbols: next,
+    snapGreekLetters: next
   });
   applySnapTogglesToUI();
   showToast(
@@ -831,11 +865,15 @@ export function applySnapTogglesToUI() {
   const rectsEl = document.getElementById('snapRectanglesToggle');
   const trianglesEl = document.getElementById('snapTrianglesToggle');
   const arrowsEl = document.getElementById('snapArrowsToggle');
+  const mathEl = document.getElementById('snapMathSymbolsToggle');
+  const greekEl = document.getElementById('snapGreekLettersToggle');
   if (linesEl)     linesEl.checked     = s.snapLines !== false;
   if (circlesEl)   circlesEl.checked   = s.snapCircles !== false;
   if (rectsEl)     rectsEl.checked     = s.snapRectangles !== false;
   if (trianglesEl) trianglesEl.checked = s.snapTriangles !== false;
   if (arrowsEl)    arrowsEl.checked    = s.snapArrows !== false;
+  if (mathEl)      mathEl.checked      = s.snapMathSymbols !== false;
+  if (greekEl)     greekEl.checked     = s.snapGreekLetters !== false;
 }
 
 // ============================================================
@@ -1132,6 +1170,10 @@ function _setupDockButtons() {
     ?.addEventListener('change', toggleSnapTriangles);
   document.getElementById('snapArrowsToggle')
     ?.addEventListener('change', toggleSnapArrows);
+  document.getElementById('snapMathSymbolsToggle')
+    ?.addEventListener('change', toggleSnapMathSymbols);
+  document.getElementById('snapGreekLettersToggle')
+    ?.addEventListener('change', toggleSnapGreekLetters);
 
   document.getElementById('opacityBtn')
     ?.addEventListener('click', (e) => {
@@ -1456,15 +1498,10 @@ function _setupColorPopover() {
 // ============================================================
 
 export function toggleCompactMode() {
-  const next = !state.compactMode;
-  updateToolbarSettings({ compactMode: next });
-  try {
-    if (next && !document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else if (!next && document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-  } catch {}
+  const next = toggleAppFullscreen();
+  if (state.compactMode !== next) {
+    updateToolbarSettings({ compactMode: next });
+  }
   showToast(
     next ? 'Schermo intero attivo' : 'Modalità completa ripristinata',
     next ? '⛶' : '↩️'
@@ -1473,11 +1510,12 @@ export function toggleCompactMode() {
 }
 
 export function initCompactFullscreenSync() {
-  document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && state.compactMode) {
-      updateToolbarSettings({ compactMode: false });
-      setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+  initAppFullscreenSync();
+  onAppFullscreenChange((active) => {
+    if (state.compactMode !== active) {
+      updateToolbarSettings({ compactMode: active });
     }
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
   });
 }
 

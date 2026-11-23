@@ -169,32 +169,48 @@ function _renderMiniAvatar(user, sizePx = 36) {
 
 function _syncSharingBadgesUI() {
   const count = _incomingTransfers.length;
-  const authBadge = document.getElementById('authInboxBadge');
-  const authBtn = document.getElementById('authBtn');
-  const dropdownBadge = document.getElementById('authDropdownInboxBadge');
-
-  if (authBadge) {
-    authBadge.textContent = count > 99 ? '99+' : String(count);
-    authBadge.classList.toggle('hidden', count === 0);
-    authBadge.classList.toggle('flex', count > 0);
-  }
-  if (authBtn) {
-    authBtn.classList.toggle('is-has-unread', count > 0);
-    if (count > 0) {
-      authBtn.title = `Profilo (${count} quadern${count === 1 ? 'o' : 'i'} in attesa)`;
-    } else if (authBtn.title.includes('in attesa')) {
-      authBtn.title = 'Profilo';
+  const targets = [
+    {
+      badgeId: 'authInboxBadge',
+      btnId: 'authBtn',
+      dropdownBadgeId: 'authDropdownInboxBadge',
+      handleId: 'authDropdownHandle'
+    },
+    {
+      badgeId: 'editorAuthInboxBadge',
+      btnId: 'editorAuthBtn',
+      dropdownBadgeId: 'editorAuthDropdownInboxBadge',
+      handleId: 'editorAuthDropdownHandle'
     }
-  }
-  if (dropdownBadge) {
-    dropdownBadge.textContent = count > 99 ? '99+' : String(count);
-    dropdownBadge.classList.toggle('hidden', count === 0);
-  }
+  ];
 
-  const handleEl = document.getElementById('authDropdownHandle');
-  if (handleEl) {
-    handleEl.textContent = _profile?.handle ? `@${_profile.handle}` : '';
-    handleEl.classList.toggle('hidden', !_profile?.handle);
+  for (const t of targets) {
+    const badge = document.getElementById(t.badgeId);
+    const btn = document.getElementById(t.btnId);
+    const dropdownBadge = document.getElementById(t.dropdownBadgeId);
+    const handleEl = document.getElementById(t.handleId);
+
+    if (badge) {
+      badge.textContent = count > 99 ? '99+' : String(count);
+      badge.classList.toggle('hidden', count === 0);
+      badge.classList.toggle('flex', count > 0);
+    }
+    if (btn) {
+      btn.classList.toggle('is-has-unread', count > 0);
+      if (count > 0) {
+        btn.title = `Profilo (${count} quadern${count === 1 ? 'o' : 'i'} in attesa)`;
+      } else if (btn.title.includes('in attesa')) {
+        btn.title = 'Profilo';
+      }
+    }
+    if (dropdownBadge) {
+      dropdownBadge.textContent = count > 99 ? '99+' : String(count);
+      dropdownBadge.classList.toggle('hidden', count === 0);
+    }
+    if (handleEl) {
+      handleEl.textContent = _profile?.handle ? `@${_profile.handle}` : '';
+      handleEl.classList.toggle('hidden', !_profile?.handle);
+    }
   }
 }
 

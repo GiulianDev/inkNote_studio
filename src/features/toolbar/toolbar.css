@@ -525,12 +525,40 @@ body.handed-left header {
 }
 
 /* ============================================================
-   COMPACT MODE
+   COMPACT MODE (fullscreen nell'editor)
+   Mantiene accessibili: Torna alla libreria (icona), mainMenuBar,
+   Menu ⋯, Impostazioni, Esci fullscreen e Account utente.
    ============================================================ */
 
-body.compact-mode #headerLeft,
-body.compact-mode #headerRight > :not(#compactExitBtn) {
+body.compact-mode #headerLeft > .min-w-0,
+body.compact-mode #headerLeft > .h-4.w-px,
+body.compact-mode #backToLibraryBtn > span {
   display: none !important;
+}
+
+body.compact-mode #headerLeft {
+  gap: 0;
+}
+
+body.compact-mode #backToLibraryBtn {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+body.compact-mode #headerRight {
+  gap: 4px;
+}
+
+body.compact-mode #headerRight > * + * {
+  margin-left: 0;
+}
+
+body.compact-mode #headerRight .dock-icon-btn {
+  width: 34px;
+  height: 34px;
 }
 
 body.compact-mode #mainHeader {
@@ -540,20 +568,30 @@ body.compact-mode #mainHeader {
   left: 50%;
   transform: translateX(-50%);
   width: auto;
-  max-width: calc(100vw - 24px);
-  padding: 4px 6px;
-  background: rgba(255, 255, 255, 0.9);
+  max-width: calc(100vw - 16px);
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.92);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 18px;
-  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.10);
-  z-index: 100;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.12);
+  z-index: 42;
   gap: 4px;
 }
 
+body.compact-mode #mainMenuBar {
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+
+body.compact-mode #mainMenuBar::-webkit-scrollbar {
+  display: none;
+}
+
 body.compact-mode.dark #mainHeader {
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.92);
   border-color: rgba(255, 255, 255, 0.08);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
 }
@@ -599,7 +637,7 @@ body.compact-mode #pagePopover {
   }
   #backToLibraryBtn {
     padding: 0.4rem;
-    min-width: 36px;
+    min-width: 34px;
   }
   #backToLibraryBtn > span {
     display: none;
@@ -607,36 +645,63 @@ body.compact-mode #pagePopover {
 
   #headerRight {
     flex: 0 0 auto;
-    gap: 2px;
+    gap: 3px;
+  }
+  #headerRight > * + * {
+    margin-left: 0;
   }
   #headerRight .dock-icon-btn {
     width: 32px;
     height: 32px;
     font-size: 14px;
   }
-  #exportPdfBtn {
-    display: none;
-  }
 
   #mainMenuBar {
     gap: 0;
     padding: 0;
     margin: 0 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    min-width: 0;
+  }
+  #mainMenuBar::-webkit-scrollbar {
+    display: none;
   }
   .main-menu-btn {
     padding: 0.4rem 0.45rem;
+    flex-shrink: 0;
   }
 }
 
 @media (max-width: 480px) {
-  #openSettingsBtnHeader,
-  #themeToggleBtn {
-    display: none;
+  body.compact-mode #mainHeader {
+    max-width: calc(100vw - 10px);
+    padding: 4px 6px;
+    gap: 2px;
+  }
+
+  #headerRight {
+    gap: 2px;
+  }
+
+  #headerRight .dock-icon-btn,
+  body.compact-mode #headerRight .dock-icon-btn,
+  #backToLibraryBtn,
+  body.compact-mode #backToLibraryBtn {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    padding: 0;
+  }
+
+  #mainMenuBar {
+    margin: 0 2px;
+    justify-content: flex-start;
   }
 
   .main-menu-btn {
-    padding: 0.4rem 0.4rem;
-    font-size: 1rem;
+    padding: 0.3rem 0.32rem;
+    font-size: 0.95rem;
   }
 }
 
@@ -857,14 +922,6 @@ body.dark .main-menu-btn.will-hide {
 
 body[data-dock-size="small"] .ui-icon-dock { width: 18px; height: 18px; }
 body[data-dock-size="large"] .ui-icon-dock { width: 26px; height: 26px; }
-
-/* ---- Theme toggle: swap sun/moon via CSS (no JS) ---- */
-
-#themeToggleBtn .theme-icon-moon { display: block; }
-#themeToggleBtn .theme-icon-sun  { display: none; }
-
-body.dark #themeToggleBtn .theme-icon-moon { display: none; }
-body.dark #themeToggleBtn .theme-icon-sun  { display: block; }
 
 /* ---- Compact mode: mainbar compatta, icone leggermente più piccole ---- */
 
