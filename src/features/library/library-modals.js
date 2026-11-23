@@ -72,7 +72,7 @@ export function openFolderEditorModal({
               class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-900 dark:text-white">
           </div>
           <div>
-            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Colore Raccolta</label>
+            <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Colore Raccolta</span>
             <div id="folderColorSwatches" class="flex items-center flex-wrap gap-2.5 pt-1 pb-2">
               ${FOLDER_COLORS.map(c => {
                 const active = c.color.toLowerCase() === chosenColor.toLowerCase();

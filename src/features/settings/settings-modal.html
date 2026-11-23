@@ -17,7 +17,7 @@
       <div class="space-y-4 text-xs">
 
         <div>
-          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Visualizzazione</label>
+          <label for="settingTheme" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Visualizzazione</label>
           <select id="settingTheme"
                   class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
             <option value="auto">Automatico (segui sistema)</option>
@@ -27,7 +27,7 @@
         </div>
 
         <div>
-          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Stampa / PDF</label>
+          <label for="settingPrintTheme" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Stampa / PDF</label>
           <select id="settingPrintTheme"
                   class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
             <option value="light">Chiaro (risparmia inchiostro)</option>
@@ -36,7 +36,7 @@
         </div>
 
         <div>
-          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mano Dominante</label>
+          <label for="settingHandedness" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mano Dominante</label>
           <select id="settingHandedness"
                   class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
             <option value="right">Destro</option>
@@ -45,7 +45,7 @@
         </div>
 
         <div>
-          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Dimensione Dock</label>
+          <label for="settingDockSize" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Dimensione Dock</label>
           <select id="settingDockSize"
                   class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
             <option value="small">Piccolo</option>
@@ -75,7 +75,7 @@
         <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
           <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3">👆 Scrolling</h4>
           <div>
-            <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label for="scrollSensitivitySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
               <span>Sensibilità scroll</span>
               <span id="scrollSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
             </label>
@@ -92,7 +92,7 @@
           </div>
           <div class="space-y-3">
             <div>
-              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label for="pressureSensitivitySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 <span>Sensibilità pressione</span>
                 <span id="pressureSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
               </label>
@@ -101,7 +101,7 @@
               <p class="text-[10px] text-slate-500 mt-0.5">Guadagno forza penna (compensa Apple Pencil / tablet diversi)</p>
             </div>
             <div>
-              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label for="pressureLightSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 <span>Tratto leggero</span>
                 <span id="pressureLightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">10</span>
               </label>
@@ -110,7 +110,7 @@
               <p class="text-[10px] text-slate-500 mt-0.5">Spessore minimo a pressione minima</p>
             </div>
             <div>
-              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label for="pressureHeavySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 <span>Tratto pesante</span>
                 <span id="pressureHeavyValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">340</span>
               </label>
@@ -119,7 +119,7 @@
               <p class="text-[10px] text-slate-500 mt-0.5">Spessore massimo a pressione massima</p>
             </div>
             <div>
-              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label for="pressureCurveSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 <span>Curva pressione</span>
                 <span id="pressureCurveValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">60</span>
               </label>
@@ -128,7 +128,7 @@
               <p class="text-[10px] text-slate-500 mt-0.5">0 = morbida (spessore rapido) · 100 = progressiva (solo forte pressione)</p>
             </div>
             <div>
-              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label for="pressureSpeedWeightSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 <span>Influenza velocità</span>
                 <span id="pressureSpeedWeightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">20</span>
               </label>
@@ -151,7 +151,7 @@
               </svg>
             </div>
             <div>
-              <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui (applica solo ai nuovi tratti)</label>
+              <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui (applica solo ai nuovi tratti)</span>
               <canvas id="pressureTestCanvas"
                       class="w-full h-28 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                       style="touch-action:none;cursor:crosshair;"></canvas>
