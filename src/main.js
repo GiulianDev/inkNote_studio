@@ -56,6 +56,7 @@ import {
   hasActiveLibrarySearch, clearLibrarySearch
 } from './features/library/library.js';
 import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
+import { closeAllAuthDropdowns } from './features/library/library-auth.js';
 import { terminateWorker } from './features/backup/serialization-cloud.js';
 import { handleRedirectResult } from './services/firebase.js';
 import { showToast } from './core/utils.js';
@@ -181,19 +182,19 @@ function _dismissTopTransientUI() {
 
   const authDropdown = document.getElementById('authDropdown');
   if (authDropdown && !authDropdown.classList.contains('hidden')) {
-    authDropdown.classList.add('hidden');
+    closeAllAuthDropdowns();
     return 'auth-dropdown';
   }
 
   const editorAuthDropdown = document.getElementById('editorAuthDropdown');
   if (editorAuthDropdown && !editorAuthDropdown.classList.contains('hidden')) {
-    editorAuthDropdown.classList.add('hidden');
+    closeAllAuthDropdowns();
     return 'editor-auth-dropdown';
   }
 
   if (isEditorActive()) {
     const toolbarMenu = document.getElementById('toolbarMenuPanel');
-    if (toolbarMenu && toolbarMenu.classList.contains('open')) {
+    if (toolbarMenu && !toolbarMenu.classList.contains('hidden')) {
       closeToolbarMenu();
       return 'toolbar-menu';
     }

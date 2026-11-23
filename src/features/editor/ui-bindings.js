@@ -20,7 +20,7 @@ import {
   setMainMenu, setTool, selectColor, updateStrokeWidth, updateSmoothing,
   toggleTheme, toggleCompactMode, initCompactFullscreenSync,
   applySnapTogglesToUI, applyEraserLevelToUI,
-  updateOpacity
+  updateOpacity, closeToolbarMenu, closeAllEditorMenus
 } from '../toolbar/toolbar.js';
 import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
@@ -58,6 +58,7 @@ async function _flushCurrentNotebookForAction() {
 }
 
 function _openEditorSettings() {
+  closeAllEditorMenus();
   if (state.pendingShape) finalizePendingShape();
   if (state.editingTextBoxId || state.selectedTextBoxId) {
     commitActiveTextBox({ deselect: true });
@@ -66,8 +67,7 @@ function _openEditorSettings() {
 }
 
 async function _handleExportCurrentNotebook() {
-  closeOverflowMenu();
-  closeAllAuthDropdowns();
+  closeAllEditorMenus();
   let nb;
   try {
     nb = await _flushCurrentNotebookForAction();
@@ -98,8 +98,7 @@ async function _handleExportCurrentNotebook() {
 }
 
 async function _handleSendCurrentNotebook() {
-  closeOverflowMenu();
-  closeAllAuthDropdowns();
+  closeAllEditorMenus();
   let nb;
   try {
     nb = await _flushCurrentNotebookForAction();
@@ -151,19 +150,19 @@ export function bindEditorUI() {
 
   // --- Menu ⋯: voci ---
   document.getElementById('addPageBtn')
-    ?.addEventListener('click', () => { addNewPage(); closeOverflowMenu(); });
+    ?.addEventListener('click', () => { addNewPage(); closeToolbarMenu(); });
   document.getElementById('clearPageBtn')
-    ?.addEventListener('click', () => { clearCurrentPage(); closeOverflowMenu(); });
+    ?.addEventListener('click', () => { clearCurrentPage(); closeToolbarMenu(); });
   document.getElementById('exportPdfFromMenu')
-    ?.addEventListener('click', () => { closeOverflowMenu(); exportToPDF(); });
+    ?.addEventListener('click', () => { closeToolbarMenu(); exportToPDF(); });
   document.getElementById('exportNotebookFromMenu')
     ?.addEventListener('click', _handleExportCurrentNotebook);
   document.getElementById('sendNotebookFromMenu')
     ?.addEventListener('click', _handleSendCurrentNotebook);
   document.getElementById('themeToggleFromMenu')
-    ?.addEventListener('click', () => { toggleTheme(); closeOverflowMenu(); });
+    ?.addEventListener('click', () => { toggleTheme(); closeToolbarMenu(); });
   document.getElementById('openSettingsFromMenu')
-    ?.addEventListener('click', () => { closeOverflowMenu(); _openEditorSettings(); });
+    ?.addEventListener('click', () => { closeToolbarMenu(); _openEditorSettings(); });
 
   // --- Menu ⋯: Scrittura con il dito (globale) ---
   // Semantica INVERTITA rispetto al vecchio "palm rejection":
@@ -218,12 +217,6 @@ export function bindEditorUI() {
   applySnapTogglesToUI();
   applyEraserLevelToUI();
   initUndoRedoDrag();
-}
-
-function closeOverflowMenu() {
-  // Chiude il menu ⋯ (rimuove .open da panel + backdrop)
-  document.getElementById('toolbarMenuPanel')?.classList.remove('open');
-  document.getElementById('toolbarMenuBackdrop')?.classList.remove('open');
 }
 
 function applyFingerWritingToUI() {

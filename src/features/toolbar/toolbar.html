@@ -87,9 +87,9 @@
 
     <!-- RIGHT: azioni -->
   <div id="headerRight" class="relative z-10 flex items-center space-x-1 shrink-0">
-    <button id="toolbarMenuBtn"
+    <button id="toolbarMenuBtn" type="button"
       class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95"
-      title="Menu e azioni">
+      title="Menu e azioni" aria-label="Menu e azioni">
       <svg class="ui-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
       </svg>
@@ -124,40 +124,6 @@
         </span>
       </button>
       <span id="editorAuthInboxBadge" class="hidden absolute -top-1 -right-1 min-w-[1.05rem] h-[1.05rem] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none items-center justify-center ring-2 ring-white dark:ring-slate-900 pointer-events-none" aria-hidden="true">0</span>
-      <div id="editorAuthDropdown"
-        class="hidden absolute right-0 top-full mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-          <div class="flex items-center gap-3">
-            <div id="editorAuthDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-indigo-500 text-white font-bold flex-shrink-0"></div>
-            <div class="min-w-0">
-              <div id="editorAuthDropdownName" class="text-sm font-semibold text-slate-900 dark:text-white truncate"></div>
-              <div id="editorAuthDropdownEmail" class="text-[11px] text-slate-500 dark:text-slate-400 truncate"></div>
-              <div id="editorAuthDropdownHandle" class="hidden text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 truncate mt-0.5"></div>
-            </div>
-          </div>
-        </div>
-        <button id="editorAuthDropdownSendBtn" type="button"
-          class="w-full text-left px-4 py-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition flex items-center gap-2 cursor-pointer">
-          <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
-            <path d="m21.854 2.147-10.94 10.939"/>
-          </svg>
-          <span>Invia questo quaderno</span>
-        </button>
-        <button id="editorAuthDropdownSharingBtn" type="button"
-          class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-between cursor-pointer">
-          <span>Ricevuti e Amici</span>
-          <span id="editorAuthDropdownInboxBadge" class="hidden px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none">0</span>
-        </button>
-        <button id="editorAuthDropdownCopyInviteBtn" type="button"
-          class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
-          Copia link invito amici
-        </button>
-        <button id="editorAuthLogoutBtn" type="button"
-          class="w-full text-left px-4 py-2.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition border-t border-slate-100 dark:border-slate-800 cursor-pointer">
-          Esci
-        </button>
-      </div>
     </div>
   </div>
 </header>
@@ -561,18 +527,30 @@
 </div>
 
 <!-- ============================================================
-     MENU ⋯ (azioni rare) — pannello con sezioni
+     MENU ⋯ (azioni rare) — usa componente globale <ink-menu> / .ui-menu
      ============================================================ -->
-<div id="toolbarMenuBackdrop" class="hidden fixed inset-0 bg-slate-900/20 dark:bg-slate-950/40 backdrop-blur-[1px] z-[45]"></div>
-<div id="toolbarMenuPanel"
-     class="hidden fixed bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2 z-[46] flex flex-col gap-1 min-w-[240px]">
-
-  <div class="menu-section">
-    <div class="menu-section-title">Questo quaderno</div>
-    <button id="addPageBtn" class="menu-item">➕ Nuova pagina</button>
-    <button id="clearPageBtn" class="menu-item">🧹 Pulisci pagina</button>
-    <button id="exportPdfFromMenu" class="menu-item">
-      <svg class="ui-icon-sm shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+<ink-menu id="toolbarMenuPanel" class="ui-menu hidden">
+  <div class="ui-menu-section">
+    <div class="ui-menu-section-title">Questo quaderno</div>
+    <button id="addPageBtn" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+        <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+        <path d="M9 15h6"/>
+        <path d="M12 12v6"/>
+      </svg>
+      <span>Nuova pagina</span>
+    </button>
+    <button id="clearPageBtn" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>
+        <path d="M22 21H7"/>
+        <path d="m5 11 9 9"/>
+      </svg>
+      <span>Pulisci pagina</span>
+    </button>
+    <button id="exportPdfFromMenu" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"/>
         <path d="M20 10V8l-6-6"/>
@@ -582,8 +560,8 @@
       </svg>
       <span>Esporta PDF</span>
     </button>
-    <button id="exportNotebookFromMenu" class="menu-item">
-      <svg class="ui-icon-sm shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <button id="exportNotebookFromMenu" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
         <polyline points="17 8 12 3 7 8"/>
@@ -591,8 +569,8 @@
       </svg>
       <span>Esporta quaderno (.inknote)</span>
     </button>
-    <button id="sendNotebookFromMenu" class="menu-item">
-      <svg class="ui-icon-sm shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <button id="sendNotebookFromMenu" type="button" class="ui-menu-item ui-menu-item--accent" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
         <path d="m21.854 2.147-10.94 10.939"/>
@@ -601,37 +579,100 @@
     </button>
   </div>
 
-  <div class="menu-section">
-    <div class="menu-section-title">Input (globale)</div>
+  <div class="ui-menu-section">
+    <div class="ui-menu-section-title">Input (globale)</div>
     <!--
       "Scrittura con il dito":
         OFF (default) → 1 dito fa pan, penna scrive, 2 dita pinch
         ON            → 1 dito scrive,  2 dita fanno pan+pinch
       L'id resta palmRejectionCheck per non toccare i binding esistenti.
     -->
-    <label class="menu-item menu-item-toggle"
+    <label class="ui-menu-item"
            title="Se attivo: 1 dito disegna, 2 dita muovono e zoomano">
-      <input type="checkbox" id="palmRejectionCheck" class="accent-indigo-600 w-4 h-4">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/>
+        <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/>
+        <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/>
+        <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+      </svg>
       <span>Scrittura con il dito</span>
+      <input type="checkbox" id="palmRejectionCheck" class="ui-menu-toggle-input">
     </label>
   </div>
 
-  <div class="menu-section">
-    <button id="themeToggleFromMenu" class="menu-item">
-      <svg class="ui-icon-sm shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  <div class="ui-menu-section">
+    <button id="themeToggleFromMenu" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
       </svg>
       <span>Tema chiaro / scuro</span>
     </button>
-    <button id="openSettingsFromMenu" class="menu-item">⚙️ Impostazioni complete…</button>
+    <button id="openSettingsFromMenu" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <span>Impostazioni complete…</span>
+    </button>
   </div>
-</div>
+</ink-menu>
 
 <!-- ============================================================
-     POPOVER COLORE + OPACITÀ (invariato)
+     MENU UTENTE EDITOR — usa componente globale <ink-menu> / .ui-menu
      ============================================================ -->
-<div id="colorPickerPopover" class="fixed hidden z-[70] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 w-64">
+<ink-menu id="editorAuthDropdown" class="ui-menu hidden">
+  <div class="ui-menu-header">
+    <div class="flex items-center gap-3">
+      <div id="editorAuthDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-indigo-500 text-white font-bold flex-shrink-0"></div>
+      <div class="min-w-0">
+        <div id="editorAuthDropdownName" class="text-sm font-semibold text-slate-900 dark:text-white truncate"></div>
+        <div id="editorAuthDropdownEmail" class="text-[11px] text-slate-500 dark:text-slate-400 truncate"></div>
+        <div id="editorAuthDropdownHandle" class="hidden text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 truncate mt-0.5"></div>
+      </div>
+    </div>
+  </div>
+  <div class="ui-menu-section">
+    <button id="editorAuthDropdownSendBtn" type="button" class="ui-menu-item ui-menu-item--accent" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
+        <path d="m21.854 2.147-10.94 10.939"/>
+      </svg>
+      <span>Invia questo quaderno</span>
+    </button>
+    <button id="editorAuthDropdownSharingBtn" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+      </svg>
+      <span>Ricevuti e Amici</span>
+      <span id="editorAuthDropdownInboxBadge" class="hidden ml-auto px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none">0</span>
+    </button>
+    <button id="editorAuthDropdownCopyInviteBtn" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      <span>Copia link invito amici</span>
+    </button>
+  </div>
+  <div class="ui-menu-section">
+    <button id="editorAuthLogoutBtn" type="button" class="ui-menu-item ui-menu-item--danger" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <polyline points="16 17 21 12 16 7"/>
+        <line x1="21" x2="9" y1="12" y2="12"/>
+      </svg>
+      <span>Esci</span>
+    </button>
+  </div>
+</ink-menu>
+
+<!-- ============================================================
+     POPOVER COLORE + OPACITÀ (superficie allineata a .ui-popover-surface)
+     ============================================================ -->
+<div id="colorPickerPopover" class="fixed hidden z-[55] ui-popover-surface p-3 w-64">
   <div class="flex items-center justify-between mb-2">
     <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">Colore & Opacità</span>
     <button id="closeColorPickerPopoverBtn" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none w-6 h-6 flex items-center justify-center">×</button>

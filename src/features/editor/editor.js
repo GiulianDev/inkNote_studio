@@ -20,7 +20,8 @@ import { pagePool } from './page-pool.js';
 import { clearStrokeCache } from '../render/stroke-cache.js';
 import {
   refreshPageCounter, setDockDrawingHidden,
-  applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI
+  applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI,
+  closeAllEditorMenus
 } from '../toolbar/toolbar.js';
 import { resetHistory } from '../history/history.js';
 import {
@@ -328,6 +329,7 @@ export async function returnToLibrary({ fromPopstate = false } = {}) {
     _openToken++;
     _isOpeningNotebook = false;
     _closeOpenDialog();
+    closeAllEditorMenus();
     cancelPendingPageTimers();
 
     if (state.pendingShape) finalizePendingShape();
@@ -381,6 +383,7 @@ export function closeNotebookIfOpen(id) {
     _openToken++;
     _isOpeningNotebook = false;
     _closeOpenDialog();
+    closeAllEditorMenus();
     cancelPendingPageTimers();
     abortCurrentDrawing();
     cancelPendingSave();

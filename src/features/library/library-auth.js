@@ -11,6 +11,11 @@ import {
   copyMyInviteLink,
   handleGoogleAuthError
 } from '../sharing/sharing-ui.js';
+import {
+  createFloatingMenu,
+  closeAllFloatingMenus,
+  closeFloatingMenuById
+} from '../../components/floating-menu.js';
 
 const AVATAR_PALETTE = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
@@ -78,6 +83,9 @@ function _syncTargetAuthDOM({ btnId, contentId, dropdownId, avatarId, nameId, em
   }
 }
 
+let _authMenuCtrl = null;
+let _editorAuthMenuCtrl = null;
+
 function _updateAuthUI() {
   _syncTargetAuthDOM({
     btnId: 'authBtn',
@@ -98,17 +106,16 @@ function _updateAuthUI() {
 }
 
 export function closeAllAuthDropdowns() {
-  document.getElementById('authDropdown')?.classList.add('hidden');
-  document.getElementById('editorAuthDropdown')?.classList.add('hidden');
+  closeFloatingMenuById('authDropdown');
+  closeFloatingMenuById('editorAuthDropdown');
 }
 
 async function _handleAuthClick(dropdownId = 'authDropdown') {
   if (authState.loading) return;
 
   if (authState.user) {
-    const otherId = dropdownId === 'authDropdown' ? 'editorAuthDropdown' : 'authDropdown';
-    document.getElementById(otherId)?.classList.add('hidden');
-    document.getElementById(dropdownId)?.classList.toggle('hidden');
+    const ctrl = dropdownId === 'editorAuthDropdown' ? _editorAuthMenuCtrl : _authMenuCtrl;
+    ctrl?.toggle();
     return;
   }
 
@@ -144,37 +151,54 @@ export function bindLibraryAuth() {
     void initSharingSession(user);
   });
 
-  document.addEventListener('click', (e) => {
-    for (const [containerId, dropdownId] of [
-      ['authContainer', 'authDropdown'],
-      ['editorAuthContainer', 'editorAuthDropdown']
-    ]) {
-      const container = document.getElementById(containerId);
-      const dropdown = document.getElementById(dropdownId);
-      if (container && dropdown && !dropdown.classList.contains('hidden')) {
-        if (!container.contains(e.target)) dropdown.classList.add('hidden');
-      }
-    }
-  });
+  const authPanel = document.getElementById('authDropdown');
+  const authBtn = document.getElementById('authBtn');
+  if (authPanel && authBtn) {
+    _authMenuCtrl = createFloatingMenu({
+      id: 'authDropdown',
+      panel: authPanel,
+      trigger: authBtn,
+      align: 'end',
+      gap: 8
+    });
+  }
 
-  document.getElementById('authBtn')?.addEventListener('click', () => _handleAuthClick('authDropdown'));
+  const editorAuthPanel = document.getElementById('editorAuthDropdown');
+  const editorAuthBtn = document.getElementById('editorAuthBtn');
+  if (editorAuthPanel && editorAuthBtn) {
+    _editorAuthMenuCtrl = createFloatingMenu({
+      id: 'editorAuthDropdown',
+      panel: editorAuthPanel,
+      trigger: editorAuthBtn,
+      align: 'end',
+      gap: 8
+    });
+  }
+
+  document.getElementById('authBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void _handleAuthClick('authDropdown');
+  });
   document.getElementById('authDropdownSharingBtn')?.addEventListener('click', () => {
-    closeAllAuthDropdowns();
+    closeAllFloatingMenus();
     openSharingModal({ initialTab: 'inbox' });
   });
   document.getElementById('authDropdownCopyInviteBtn')?.addEventListener('click', () => {
-    closeAllAuthDropdowns();
+    closeAllFloatingMenus();
     void copyMyInviteLink();
   });
   document.getElementById('authLogoutBtn')?.addEventListener('click', _handleLogout);
 
-  document.getElementById('editorAuthBtn')?.addEventListener('click', () => _handleAuthClick('editorAuthDropdown'));
+  document.getElementById('editorAuthBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void _handleAuthClick('editorAuthDropdown');
+  });
   document.getElementById('editorAuthDropdownSharingBtn')?.addEventListener('click', () => {
-    closeAllAuthDropdowns();
+    closeAllFloatingMenus();
     openSharingModal({ initialTab: 'inbox' });
   });
   document.getElementById('editorAuthDropdownCopyInviteBtn')?.addEventListener('click', () => {
-    closeAllAuthDropdowns();
+    closeAllFloatingMenus();
     void copyMyInviteLink();
   });
   document.getElementById('editorAuthLogoutBtn')?.addEventListener('click', _handleLogout);

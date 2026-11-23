@@ -28,6 +28,7 @@ import {
   extractEventTilt,
   computeTiltNorm
 } from '../tools/ink-calibration.js';
+import { closeAllEditorMenus } from '../toolbar/toolbar.js';
 
 import settingsHtml from './settings-modal.html?raw';
 
@@ -47,6 +48,7 @@ export function mountSettingsModal() {
 }
 
 export function openSettingsModal() {
+  closeAllEditorMenus();
   mountSettingsModal();
 
   if (!_isOpen) {

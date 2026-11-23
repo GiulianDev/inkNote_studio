@@ -355,9 +355,9 @@ body.dark .eraser-level-btn.active {
   max-width: calc(100vw - 16px);
 
   background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 16px;
-  box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.18);
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.16), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
   padding: 12px;
   animation: dockFadeIn .14s ease-out;
   transition: opacity .12s ease;
@@ -368,8 +368,9 @@ body.dark .eraser-level-btn.active {
 }
 
 body.dark #pagePopover {
-  background: #1e293b;
-  border-color: rgba(255, 255, 255, 0.08);
+  background: #0f172a;
+  border-color: #1e293b;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65);
 }
 
 .page-popover-title {
@@ -444,78 +445,7 @@ body.dark .page-pattern-btn.active {
   border-color: #4338ca;
 }
 
-/* ============================================================
-   MENU ⋯ (pannello)
-   ============================================================ */
-
-#toolbarMenuBackdrop.open {
-  display: block !important;
-}
-
-#toolbarMenuPanel.open {
-  display: flex !important;
-}
-
-.menu-section {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-body.dark .menu-section {
-  border-bottom-color: #334155;
-}
-
-.menu-section:last-child {
-  border-bottom: none;
-}
-
-.menu-section-title {
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #64748b;
-  padding: 4px 8px;
-}
-
-body.dark .menu-section-title {
-  color: #94a3b8;
-}
-
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: #334155;
-  background: transparent;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color .12s;
-}
-
-body.dark .menu-item {
-  color: #e2e8f0;
-}
-
-.menu-item:hover {
-  background-color: #f1f5f9;
-}
-
-body.dark .menu-item:hover {
-  background-color: #334155;
-}
-
-.menu-item-toggle {
-  cursor: pointer;
-}
+/* Stili Menu ⋯ centralizzati in src/style.css (.ui-menu / <ink-menu>) */
 
 /* ============================================================
    HANDEDNESS
@@ -899,22 +829,7 @@ body.dark .main-menu-btn.will-hide {
   border-radius: 12px;
 }
 
-/* ============================================================
-   MENU ⋯ — sezione "Modalità nascoste"
-   ============================================================ */
-
-.menu-hidden-btn {
-  /* Stesso stile di .menu-item, ma con icona a sinistra più compatta */
-}
-
-.menu-hidden-btn > span:first-child {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  font-size: 0.95rem;
-  flex-shrink: 0;
-}
+/* Stili voci "Modalità nascoste" gestiti da .ui-menu-item */
 
 /* ============================================================
    SVG ICONS (Lucide) — dimensioni e comportamento
@@ -961,7 +876,7 @@ body.compact-mode .ui-icon { width: 16px; height: 16px; }
    PRINT
    ============================================================ */
 @media print {
-  header, .context-dock, #pagePopover, #toolbarMenuPanel, #toolbarMenuBackdrop {
+  header, .context-dock, #pagePopover, .ui-menu, ink-menu, .ui-menu-backdrop, #colorPickerPopover {
     display: none !important;
   }
 }

@@ -177,7 +177,8 @@ body.compact-mode #viewport {
   #toastNotification, #zoomBadge,
   #selectionMenu, #textSelectionMenu, .text-box-editor-wrap,
   #pullPageIndicator, #libraryView,
-  #newNotebookModal, #settingsModal, #undoRedoContainer {
+  #newNotebookModal, #settingsModal, #undoRedoContainer,
+  .ui-menu, ink-menu, .ui-menu-backdrop, #colorPickerPopover, #pagePopover {
     display: none !important;
   }
 
@@ -322,6 +323,14 @@ body.printing-pdf #textSelectionMenu,
 body.printing-pdf .text-box-editor-wrap,
 body.printing-pdf #pullPageIndicator,
 body.printing-pdf #toolbarMount,
+body.printing-pdf .ui-menu,
+body.printing-pdf ink-menu,
+body.printing-pdf .ui-menu-backdrop,
+body.printing-pdf #toolbarMenuPanel,
+body.printing-pdf #editorAuthDropdown,
+body.printing-pdf #authDropdown,
+body.printing-pdf #colorPickerPopover,
+body.printing-pdf #pagePopover,
 body.printing-pdf #newNotebookModal {
   display: none !important;
 }
@@ -369,6 +378,248 @@ body.dark #undoRedoContainer.undo-redo-dragging {
   /* Il contenuto del modal è un layer stabile: il browser
      non deve ricalcolare il compositing dei canvas sotto. */
   transform: translateZ(0);
+}
+
+/* ============================================================
+   COMPONENTE MENU GLOBALE (.ui-menu / <ink-menu>)
+   Stili unificati per tutti i dropdown/menu (Libreria + Editor)
+   e superficie condivisa per popover (.ui-popover-surface).
+   ============================================================ */
+@layer components {
+  .ui-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(15, 23, 42, 0.2);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    touch-action: none;
+  }
+
+  body.dark .ui-menu-backdrop {
+    background: rgba(2, 6, 23, 0.45);
+  }
+
+  .ui-menu-backdrop.hidden {
+    display: none !important;
+  }
+
+  .ui-popover-surface,
+  .ui-menu,
+  ink-menu {
+    background: #ffffff;
+    color: #0f172a;
+    border: 1px solid #e2e8f0;
+    border-radius: 1rem;
+    box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.16), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
+  }
+
+  body.dark .ui-popover-surface,
+  body.dark .ui-menu,
+  body.dark ink-menu {
+    background: #0f172a;
+    color: #f8fafc;
+    border-color: #1e293b;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65);
+  }
+
+  @keyframes uiMenuEnter {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .ui-menu,
+  ink-menu {
+    position: fixed;
+    z-index: 81;
+    width: 16rem;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    transform-origin: top right;
+  }
+
+  .ui-menu:not(.hidden),
+  ink-menu:not(.hidden) {
+    animation: uiMenuEnter 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .ui-menu.hidden,
+  ink-menu.hidden {
+    display: none !important;
+  }
+
+  .ui-menu-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  body.dark .ui-menu-header {
+    border-bottom-color: #1e293b;
+  }
+
+  .ui-menu-section {
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem 0;
+  }
+
+  .ui-menu-section + .ui-menu-section {
+    border-top: 1px solid #f1f5f9;
+  }
+
+  body.dark .ui-menu-section + .ui-menu-section {
+    border-top-color: #1e293b;
+  }
+
+  .ui-menu-section-title {
+    padding: 0.375rem 1rem 0.25rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+
+  body.dark .ui-menu-section-title {
+    color: #94a3b8;
+  }
+
+  .ui-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    min-height: 2.375rem;
+    padding: 0.5625rem 1rem;
+    border: none;
+    background: transparent;
+    color: #334155;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    font-weight: 500;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+
+  body.dark .ui-menu-item {
+    color: #e2e8f0;
+  }
+
+  .ui-menu-item:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+  }
+
+  body.dark .ui-menu-item:hover {
+    background-color: #1e293b;
+    color: #ffffff;
+  }
+
+  .ui-menu-item:focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: -2px;
+  }
+
+  .ui-menu-item:active {
+    background-color: #e2e8f0;
+  }
+
+  body.dark .ui-menu-item:active {
+    background-color: #334155;
+  }
+
+  .ui-menu-item--accent {
+    color: #4f46e5;
+    font-weight: 600;
+  }
+
+  body.dark .ui-menu-item--accent {
+    color: #818cf8;
+  }
+
+  .ui-menu-item--accent:hover {
+    background-color: #eef2ff;
+    color: #4338ca;
+  }
+
+  body.dark .ui-menu-item--accent:hover {
+    background-color: rgba(30, 27, 75, 0.45);
+    color: #a5b4fc;
+  }
+
+  .ui-menu-item--danger {
+    color: #e11d48;
+  }
+
+  body.dark .ui-menu-item--danger {
+    color: #fb7185;
+  }
+
+  .ui-menu-item--danger:hover {
+    background-color: #fff1f2;
+    color: #be123c;
+  }
+
+  body.dark .ui-menu-item--danger:hover {
+    background-color: rgba(76, 5, 25, 0.45);
+    color: #fda4af;
+  }
+
+  .ui-menu-item--muted {
+    color: #64748b;
+  }
+
+  body.dark .ui-menu-item--muted {
+    color: #94a3b8;
+  }
+
+  .ui-menu-item--divider {
+    border-top: 1px solid #f1f5f9;
+  }
+
+  body.dark .ui-menu-item--divider {
+    border-top-color: #1e293b;
+  }
+
+  .ui-menu-icon {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    opacity: 0.85;
+  }
+
+  .ui-menu-toggle-input {
+    margin-left: auto;
+    width: 1rem;
+    height: 1rem;
+    accent-color: #4f46e5;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .dark .ui-menu-toggle-input,
+  body.dark .ui-menu-toggle-input {
+    color-scheme: dark;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ui-menu:not(.hidden),
+    ink-menu:not(.hidden) {
+      animation: none !important;
+    }
+  }
 }
 
 /* ============================================================

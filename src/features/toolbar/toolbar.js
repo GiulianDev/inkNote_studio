@@ -53,6 +53,11 @@ import {
   toggleAppFullscreen,
   onAppFullscreenChange
 } from '../../core/fullscreen.js';
+import {
+  createFloatingMenu,
+  closeAllFloatingMenus,
+  registerExternalMenuCloser
+} from '../../components/floating-menu.js';
 
 let _mounted = false;
 let _hintShownThisSession = false;
@@ -86,12 +91,30 @@ const MENU_TO_DEFAULT_TOOL = {
 };
 
 const MENU_META = {
-  writing:   { icon: '🖊️', label: 'Scrittura' },
-  text:      { icon: '🔤', label: 'Testo' },
-  selection: { icon: '✂️', label: 'Selezione' },
-  shapes:    { icon: '◻️', label: 'Forme' },
-  eraser:    { icon: '🧹', label: 'Gomma' },
-  page:      { icon: '📄', label: 'Foglio' }
+  writing: {
+    label: 'Scrittura',
+    svg: '<svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>'
+  },
+  text: {
+    label: 'Testo',
+    svg: '<svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/></svg>'
+  },
+  selection: {
+    label: 'Selezione',
+    svg: '<svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 22a5 5 0 0 1-2-4"/><path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1"/><path d="M5 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>'
+  },
+  shapes: {
+    label: 'Forme',
+    svg: '<svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>'
+  },
+  eraser: {
+    label: 'Gomma',
+    svg: '<svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>'
+  },
+  page: {
+    label: 'Foglio',
+    svg: '<svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>'
+  }
 };
 
 // ============================================================
@@ -110,6 +133,8 @@ export function mountToolbar() {
   _setupColorPopover();
   _setupMenuOverflow();
   _setupPagePopover();
+  registerExternalMenuCloser('colorPopover', hideColorPickerPopover);
+  registerExternalMenuCloser('pagePopover', hidePagePopover);
   _setupDockButtons();
   _setupMainMenuDrag();
   _setupWritingToolsDrag();
@@ -121,7 +146,7 @@ export function mountToolbar() {
   onSettingsChanged(({ changed }) => {
     if (changed.includes('mainMenuOrder') || changed.includes('mainMenuHidden')) {
       applyMainMenuOrderToUI();
-      if (_toolbarMenuOpen) _renderOverflowMenu();
+      if (_toolbarMenuCtrl?.isOpen()) _renderOverflowMenu();
     }
     if (changed.includes('writingToolsOrder')) {
       applyWritingToolsOrderToUI();
@@ -1155,6 +1180,7 @@ function _redrawAllPagesThrottled() {
 export function showPagePopover() {
   const popover = document.getElementById('pagePopover');
   if (!popover) return;
+  closeAllEditorMenus({ keep: 'pagePopover' });
   _setActivePatternButton(state.bgPattern);
   applyPageColorsToUI();
   popover.classList.remove('hidden');
@@ -1176,62 +1202,33 @@ export function applyBgPatternToUI() {
 }
 
 // ============================================================
-// MENU ⋯ (overflow) — con sezione "Modalità nascoste"
+// MENU ⋯ (overflow) — delegato al componente globale <ink-menu>
 // ============================================================
 
-let _toolbarMenuOpen = false;
+let _toolbarMenuCtrl = null;
 
 function _setupMenuOverflow() {
   const btn = document.getElementById('toolbarMenuBtn');
-  const backdrop = document.getElementById('toolbarMenuBackdrop');
-  if (!btn || !backdrop) return;
-
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    _toggleToolbarMenu();
-  });
-
-  backdrop.addEventListener('click', _closeToolbarMenu);
-
-  document.addEventListener('pointerdown', (e) => {
-    if (!_toolbarMenuOpen) return;
-    const panel = document.getElementById('toolbarMenuPanel');
-    const button = document.getElementById('toolbarMenuBtn');
-    if (!panel || !button) return;
-    if (panel.contains(e.target) || button.contains(e.target)) return;
-    _closeToolbarMenu();
-  });
-}
-
-function _toggleToolbarMenu() {
-  if (_toolbarMenuOpen) _closeToolbarMenu();
-  else _openToolbarMenu();
-}
-
-function _openToolbarMenu() {
   const panel = document.getElementById('toolbarMenuPanel');
-  const backdrop = document.getElementById('toolbarMenuBackdrop');
-  if (!panel || !backdrop) return;
+  if (!btn || !panel) return;
 
-  _renderOverflowMenu();
-  panel.classList.add('open');
-  backdrop.classList.add('open');
-  _positionMenuPanel();
-  _toolbarMenuOpen = true;
+  _toolbarMenuCtrl = createFloatingMenu({
+    id: 'toolbarMenu',
+    panel,
+    trigger: btn,
+    align: 'end',
+    gap: 6,
+    bindTriggerClick: true,
+    onOpen: _renderOverflowMenu
+  });
+}
+
+export function closeAllEditorMenus({ keep = null } = {}) {
+  closeAllFloatingMenus({ exceptId: keep });
 }
 
 export function closeToolbarMenu() {
-  _closeToolbarMenu();
-}
-
-function _closeToolbarMenu() {
-  const panel = document.getElementById('toolbarMenuPanel');
-  const backdrop = document.getElementById('toolbarMenuBackdrop');
-  if (!panel || !backdrop) return;
-
-  panel.classList.remove('open');
-  backdrop.classList.remove('open');
-  _toolbarMenuOpen = false;
+  _toolbarMenuCtrl?.close();
 }
 
 function _renderOverflowMenu() {
@@ -1247,26 +1244,29 @@ function _renderOverflowMenu() {
 
   const section = document.createElement('div');
   section.id = 'hiddenMenusSection';
-  section.className = 'menu-section';
-  section.innerHTML = `<div class="menu-section-title">Modalità nascoste</div>`;
+  section.className = 'ui-menu-section';
+  section.innerHTML = '<div class="ui-menu-section-title">Modalità nascoste</div>';
 
   const hiddenOrdered = order.filter(m => hidden.includes(m));
   hiddenOrdered.forEach(menu => {
     const meta = MENU_META[menu];
     if (!meta) return;
     const btn = document.createElement('button');
-    btn.className = 'menu-item menu-hidden-btn';
+    btn.type = 'button';
+    btn.className = 'ui-menu-item';
+    btn.setAttribute('role', 'menuitem');
     btn.dataset.menu = menu;
-    btn.innerHTML = `<span>${meta.icon}</span><span>Mostra ${meta.label}</span>`;
+    btn.innerHTML = `${meta.svg}<span>Mostra ${meta.label}</span>`;
     btn.addEventListener('click', () => {
       _tryShowMenu(menu);
       _renderOverflowMenu();
-      if (getSettings().mainMenuHidden.length === 0) _closeToolbarMenu();
+      _toolbarMenuCtrl?.reposition();
+      if (getSettings().mainMenuHidden.length === 0) closeToolbarMenu();
     });
     section.appendChild(btn);
   });
 
-  const lastSection = panel.querySelector('.menu-section:last-of-type');
+  const lastSection = panel.querySelector('.ui-menu-section:last-of-type');
   if (lastSection) panel.insertBefore(section, lastSection);
   else panel.appendChild(section);
 }
@@ -1278,33 +1278,6 @@ function _tryShowMenu(menu) {
   hidden.delete(menu);
   updateSettings({ mainMenuHidden: [...hidden] }, { persist: true });
   showToast(`${MENU_META[menu].label} di nuovo visibile`, '👁️');
-}
-
-function _positionMenuPanel() {
-  const btn = document.getElementById('toolbarMenuBtn');
-  const panel = document.getElementById('toolbarMenuPanel');
-  if (!btn || !panel) return;
-
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const margin = 8;
-
-  const r = btn.getBoundingClientRect();
-  const pw = panel.offsetWidth || 260;
-  const ph = panel.offsetHeight || 260;
-
-  let left = r.right - pw;
-  left = Math.max(margin, Math.min(vw - pw - margin, left));
-
-  let top = r.bottom + 6;
-  if (top + ph > vh - margin) {
-    const above = r.top - ph - 6;
-    if (above >= margin) top = above;
-    else top = Math.max(margin, Math.min(vh - ph - margin, top));
-  }
-
-  panel.style.left = `${left}px`;
-  panel.style.top  = `${top}px`;
 }
 
 // ============================================================
@@ -1597,6 +1570,7 @@ export function showColorPickerPopover(triggerEl = null) {
   const trigger = triggerEl || document.getElementById('customColorPicker');
   if (!popover || !trigger) return;
 
+  closeAllEditorMenus({ keep: 'colorPopover' });
   _populatePopoverForActiveTool();
 
   popover.classList.remove('hidden');
