@@ -24,6 +24,10 @@ import {
   getDocFromServer
 } from 'firebase/firestore';
 import appletConfig from '../../firebase-applet-config.json';
+import {
+  hasOAuthScope,
+  resolveEffectiveFirestoreDatabaseId
+} from '../features/sharing/sharing-helpers.js';
 
 const envFirebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -59,6 +63,7 @@ let app = null;
 export let auth = null;
 export let db = null;
 let googleProvider = null;
+let effectiveDatabaseId = '';
 
 const SCOPES = ['https://www.googleapis.com/auth/contacts.readonly'];
 const CONTACTS_REDIRECT_KEY = 'inknote_pending_contacts_redirect';
@@ -72,13 +77,27 @@ async function _testFirestoreConnection() {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration (Firestore client is offline).');
+      console.error(
+        `Please check your Firebase configuration (Firestore client is offline for project="${activeConfig?.projectId || ''}", database="${effectiveDatabaseId || '(default)'}").`
+      );
     }
   }
 }
 
 if (activeConfig) {
   try {
+    const dbResolution = resolveEffectiveFirestoreDatabaseId({
+      projectId: activeConfig.projectId,
+      firestoreDatabaseId: activeConfig.firestoreDatabaseId,
+      fromEnv: hasEnvConfig
+    });
+    effectiveDatabaseId = dbResolution.databaseId;
+    if (dbResolution.fallbackReason === 'ai_studio_db_on_external_project') {
+      console.warn(
+        `[firebase] VITE_FIREBASE_DATABASE_ID ("${dbResolution.ignoredDatabaseId}") appartiene a un database AI Studio e non esiste su "${activeConfig.projectId}". Uso il database "(default)". Rimuovi o svuota VITE_FIREBASE_DATABASE_ID.`
+      );
+    }
+
     app = initializeApp({
       apiKey: activeConfig.apiKey,
       authDomain: activeConfig.authDomain,
@@ -88,8 +107,8 @@ if (activeConfig) {
       appId: activeConfig.appId
     });
     auth = getAuth(app);
-    db = activeConfig.firestoreDatabaseId
-      ? getFirestore(app, activeConfig.firestoreDatabaseId)
+    db = effectiveDatabaseId
+      ? getFirestore(app, effectiveDatabaseId)
       : getFirestore(app);
     googleProvider = new GoogleAuthProvider();
     googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -119,6 +138,10 @@ export function isFirestoreReady() {
 
 export function getActiveFirebaseProjectId() {
   return activeConfig?.projectId || '';
+}
+
+export function getActiveFirebaseDatabaseId() {
+  return effectiveDatabaseId || '(default)';
 }
 
 export function handleFirestoreError(error, operationType, path) {
@@ -210,6 +233,24 @@ export function clearCachedContactsAccessToken() {
   _pendingContactsAccessToken = null;
 }
 
+async function _assertContactsTokenHasScope(accessToken) {
+  try {
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`);
+    if (!res.ok) return;
+    const info = await res.json().catch(() => null);
+    if (info && typeof info.scope === 'string' && !hasOAuthScope(info.scope, SCOPES[0])) {
+      console.warn('[auth] Token Google privo dello scope contacts.readonly. Scopes ricevuti:', info.scope, 'aud:', info.aud);
+      throw new Error(
+        'Permesso Contatti Google non selezionato: nella finestra di Google assicurati di spuntare la casella "Visualizza e scarica i tuoi contatti" prima di continuare.'
+      );
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Permesso Contatti Google non selezionato')) {
+      throw err;
+    }
+  }
+}
+
 export async function requestGoogleContactsAccessToken({ forceRefresh = false } = {}) {
   if (!auth?.currentUser) {
     throw new Error('Devi accedere prima con Google');
@@ -226,17 +267,21 @@ export async function requestGoogleContactsAccessToken({ forceRefresh = false } 
   if (!forceRefresh && _pendingContactsAccessToken) {
     const token = _pendingContactsAccessToken;
     _pendingContactsAccessToken = null;
+    await _assertContactsTokenHasScope(token);
     _cachedContactsToken = { uid, token, expiresAt: Date.now() + CONTACTS_TOKEN_TTL_MS };
     return token;
   }
 
   const contactsProvider = new GoogleAuthProvider();
   SCOPES.forEach((scope) => contactsProvider.addScope(scope));
-  contactsProvider.setCustomParameters({
+  const customParams = {
     prompt: 'consent',
-    include_granted_scopes: 'true',
-    login_hint: auth.currentUser.email || ''
-  });
+    include_granted_scopes: 'true'
+  };
+  if (auth.currentUser.email) {
+    customParams.login_hint = auth.currentUser.email;
+  }
+  contactsProvider.setCustomParameters(customParams);
 
   try {
     const result = await reauthenticateWithPopup(auth.currentUser, contactsProvider);
@@ -244,6 +289,7 @@ export async function requestGoogleContactsAccessToken({ forceRefresh = false } 
     if (!cred?.accessToken) {
       throw new Error('Permesso contatti non ricevuto');
     }
+    await _assertContactsTokenHasScope(cred.accessToken);
     _cachedContactsToken = {
       uid,
       token: cred.accessToken,

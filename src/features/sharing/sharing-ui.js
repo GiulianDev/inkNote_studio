@@ -15,7 +15,8 @@ import {
   isGoogleLinkedUser,
   signInWithGoogle,
   consumePendingContactsAccessToken,
-  getActiveFirebaseProjectId
+  getActiveFirebaseProjectId,
+  getActiveFirebaseDatabaseId
 } from '../../services/firebase.js';
 import {
   ensureUserProfile,
@@ -38,7 +39,8 @@ import {
   parseInviteHandleFromUrl,
   MAX_OUTGOING_TRANSFERS,
   checkOutgoingTransferQuota,
-  formatAuthErrorMessage
+  formatAuthErrorMessage,
+  formatFirestoreErrorMessage
 } from './sharing-helpers.js';
 
 const NOTIF_PREF_KEY = 'inknote_browser_notifications';
@@ -51,6 +53,7 @@ let _outgoingTransfers = [];
 let _unsubFriends = null;
 let _unsubInbox = null;
 let _sessionUid = null;
+let _sessionSyncError = '';
 let _activeModalState = null;
 
 // ============================================================
@@ -64,22 +67,11 @@ function _isBrowserNotifSupported() {
 function _formatSharingError(err, fallback = 'Operazione non riuscita') {
   const authFormatted = formatAuthErrorMessage(err);
   if (authFormatted) return authFormatted;
-  const raw = typeof err?.message === 'string' ? err.message.trim() : '';
-  let text = raw;
-  if (raw.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed?.error === 'string') text = parsed.error;
-    } catch {}
-  }
-  const lower = text.toLowerCase();
-  if (lower.includes('missing or insufficient permissions') || lower.includes('permission_denied') || lower.includes('permission denied')) {
-    return 'Permessi Firestore mancanti: pubblica firestore.rules su questo progetto Firebase.';
-  }
-  if (lower.includes('not_found') || lower.includes('database') && lower.includes('not found')) {
-    return 'Database Firestore non trovato o non ancora inizializzato su questo progetto.';
-  }
-  return text || fallback;
+  return formatFirestoreErrorMessage(err, {
+    projectId: getActiveFirebaseProjectId(),
+    databaseId: getActiveFirebaseDatabaseId(),
+    fallback
+  });
 }
 
 function _areBrowserNotifsActive() {
@@ -334,6 +326,7 @@ export async function initSharingSession(user) {
 
   _teardownSharingListeners();
   _sessionUid = nextUid;
+  _sessionSyncError = '';
   _profile = null;
   _friends = [];
   _incomingTransfers = [];
@@ -354,6 +347,7 @@ export async function initSharingSession(user) {
     _syncSharingBadgesUI();
   } catch (err) {
     console.error('[sharing] ensureUserProfile failed:', err);
+    _sessionSyncError = _formatSharingError(err, 'Connessione a Firestore non riuscita');
   }
 
   _unsubFriends = subscribeFriends(user.uid, (friendsList) => {
@@ -1036,6 +1030,11 @@ export async function openSharingModal({
         </div>
 
         ${signedIn ? renderProfileStrip() : ''}
+        ${signedIn && _sessionSyncError ? `
+          <div class="mx-5 mt-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 text-[11px] font-medium text-rose-700 dark:text-rose-300">
+            ${escapeHtml(_sessionSyncError)}
+          </div>
+        ` : ''}
         ${signedIn ? renderTabsBar() : ''}
 
         <div class="p-5 overflow-y-auto flex-1 custom-scrollbar" style="touch-action: pan-y;">

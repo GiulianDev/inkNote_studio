@@ -311,6 +311,14 @@ export function parseInviteHandleFromUrl(searchStr) {
   }
 }
 
+export function hasOAuthScope(scopeString, requiredScope) {
+  if (typeof scopeString !== 'string' || typeof requiredScope !== 'string') return false;
+  const required = requiredScope.trim();
+  if (!required) return false;
+  const granted = scopeString.trim().split(/\s+/).filter(Boolean);
+  return granted.includes(required);
+}
+
 export function classifyPeopleApiError(status, payload, projectId = '') {
   const errObj = payload && typeof payload === 'object' ? (payload.error || payload) : null;
   const rawMessage = typeof errObj?.message === 'string' ? errObj.message.trim() : '';
@@ -318,22 +326,25 @@ export function classifyPeopleApiError(status, payload, projectId = '') {
 
   const details = Array.isArray(errObj?.details) ? errObj.details : [];
   const errors = Array.isArray(errObj?.errors) ? errObj.errors : [];
-  const reasons = new Set([
+  const reasonsList = [
     ...details.map(d => d?.reason).filter(Boolean),
     ...errors.map(e => e?.reason).filter(Boolean)
-  ]);
+  ];
+  const reasons = new Set(reasonsList);
+  const primaryReason = reasonsList[0] || errObj?.status || '';
+  const diagTag = primaryReason ? `[HTTP ${status} · ${primaryReason}]` : `[HTTP ${status}]`;
 
   if (
     reasons.has('SERVICE_DISABLED') ||
     reasons.has('accessNotConfigured') ||
     lower.includes('has not been used in project') ||
-    lower.includes('people api') && lower.includes('disabled')
+    (lower.includes('people api') && lower.includes('disabled'))
   ) {
     const projSuffix = projectId ? ` (${projectId})` : '';
     return {
       kind: 'api_disabled',
       retryableWithRefresh: false,
-      message: `Google People API non abilitata sul progetto${projSuffix}.`
+      message: `Google People API non abilitata sul progetto${projSuffix} ${diagTag}.`
     };
   }
 
@@ -348,7 +359,7 @@ export function classifyPeopleApiError(status, payload, projectId = '') {
     return {
       kind: 'scope_missing',
       retryableWithRefresh: true,
-      message: 'Permesso di lettura dei Contatti Google non concesso: spunta la casella dei contatti nella finestra di Google e riprova.'
+      message: `Permesso di lettura dei Contatti Google non concesso: spunta la casella dei contatti nella finestra di Google e riprova ${diagTag}.`
     };
   }
 
@@ -356,7 +367,7 @@ export function classifyPeopleApiError(status, payload, projectId = '') {
     return {
       kind: 'unauthenticated',
       retryableWithRefresh: true,
-      message: 'Sessione Contatti Google scaduta o non autorizzata: riprova.'
+      message: `Sessione Contatti Google scaduta o non autorizzata: riprova ${diagTag}.`
     };
   }
 
@@ -365,8 +376,8 @@ export function classifyPeopleApiError(status, payload, projectId = '') {
       kind: 'forbidden',
       retryableWithRefresh: true,
       message: rawMessage
-        ? `Accesso ai Contatti Google negato: ${rawMessage}`
-        : 'Accesso ai Contatti Google non autorizzato.'
+        ? `Accesso ai Contatti Google negato: ${rawMessage} ${diagTag}`
+        : `Accesso ai Contatti Google non autorizzato ${diagTag}.`
     };
   }
 
@@ -395,4 +406,73 @@ export function formatAuthErrorMessage(err) {
   }
   return '';
 }
+
+const AI_STUDIO_NAMED_DB_REGEX = /^ai-studio-.*-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function resolveEffectiveFirestoreDatabaseId({
+  projectId = '',
+  firestoreDatabaseId = '',
+  fromEnv = false
+} = {}) {
+  const rawProjectId = typeof projectId === 'string' ? projectId.trim() : '';
+  const rawDbId = typeof firestoreDatabaseId === 'string' ? firestoreDatabaseId.trim() : '';
+
+  if (!rawDbId || rawDbId === '(default)') {
+    return { databaseId: '', fallbackReason: '', ignoredDatabaseId: '' };
+  }
+
+  if (
+    fromEnv &&
+    rawProjectId &&
+    !rawProjectId.startsWith('gen-lang-client-') &&
+    AI_STUDIO_NAMED_DB_REGEX.test(rawDbId)
+  ) {
+    return {
+      databaseId: '',
+      fallbackReason: 'ai_studio_db_on_external_project',
+      ignoredDatabaseId: rawDbId
+    };
+  }
+
+  return { databaseId: rawDbId, fallbackReason: '', ignoredDatabaseId: '' };
+}
+
+export function formatFirestoreErrorMessage(
+  err,
+  { projectId = '', databaseId = '', fallback = 'Operazione non riuscita' } = {}
+) {
+  const raw = typeof err?.message === 'string' ? err.message.trim() : '';
+  let text = raw;
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.error === 'string') text = parsed.error.trim();
+    } catch {
+      // ignore malformed JSON
+    }
+  }
+
+  const lower = text.toLowerCase();
+  const dbLabel = databaseId || '(default)';
+  const ctxSuffix = projectId ? ` (${projectId} · db: ${dbLabel})` : '';
+
+  if (
+    lower.includes('missing or insufficient permissions') ||
+    lower.includes('permission_denied') ||
+    lower.includes('permission denied')
+  ) {
+    return `Permessi Firestore mancanti${ctxSuffix}: pubblica firestore.rules su questo progetto Firebase.`;
+  }
+
+  if (lower.includes('client is offline') || lower.includes('unavailable')) {
+    return `Impossibile raggiungere Firestore${ctxSuffix}: verifica la connessione internet oppure controlla che il database esista su Firebase (es. VITE_FIREBASE_DATABASE_ID).`;
+  }
+
+  if (lower.includes('not_found') || (lower.includes('database') && lower.includes('not found'))) {
+    return `Database Firestore non trovato${ctxSuffix}: verifica che Firestore sia stato creato sul progetto.`;
+  }
+
+  return text || fallback;
+}
+
 

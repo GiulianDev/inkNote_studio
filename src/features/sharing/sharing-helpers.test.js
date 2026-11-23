@@ -22,7 +22,10 @@ import {
   buildUniqueReceivedTitle,
   parseInviteHandleFromUrl,
   classifyPeopleApiError,
-  formatAuthErrorMessage
+  formatAuthErrorMessage,
+  hasOAuthScope,
+  resolveEffectiveFirestoreDatabaseId,
+  formatFirestoreErrorMessage
 } from './sharing-helpers.js';
 
 test('normalizeEmail & isValidEmailFormat normalize and validate emails cleanly', () => {
@@ -231,4 +234,92 @@ test('formatAuthErrorMessage converts Firebase Auth popup/account codes cleanly'
   assert.match(formatAuthErrorMessage({ code: 'auth/popup-blocked' }), /Popup bloccato/);
   assert.equal(formatAuthErrorMessage(new Error('Generic error')), '');
 });
+
+test('hasOAuthScope matches exact space-delimited OAuth scopes', () => {
+  const scope = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/contacts.readonly';
+  assert.equal(hasOAuthScope(scope, 'https://www.googleapis.com/auth/contacts.readonly'), true);
+  assert.equal(hasOAuthScope('openid email profile', 'https://www.googleapis.com/auth/contacts.readonly'), false);
+  assert.equal(hasOAuthScope('https://www.googleapis.com/auth/contacts.other.readonly', 'https://www.googleapis.com/auth/contacts.readonly'), false);
+});
+
+test('resolveEffectiveFirestoreDatabaseId ignores stale AI Studio database IDs on external Firebase projects', () => {
+  assert.deepEqual(
+    resolveEffectiveFirestoreDatabaseId({
+      projectId: 'inknote-studio',
+      firestoreDatabaseId: 'ai-studio-inknotestudio-b9100514-7e7b-4f5a-85a2-cdcee0ecdf9d',
+      fromEnv: true
+    }),
+    {
+      databaseId: '',
+      fallbackReason: 'ai_studio_db_on_external_project',
+      ignoredDatabaseId: 'ai-studio-inknotestudio-b9100514-7e7b-4f5a-85a2-cdcee0ecdf9d'
+    }
+  );
+
+  assert.deepEqual(
+    resolveEffectiveFirestoreDatabaseId({
+      projectId: 'gen-lang-client-0718684743',
+      firestoreDatabaseId: 'ai-studio-inknotestudio-83f34a4f-65ab-497b-8e16-0549a5f4cf3b',
+      fromEnv: false
+    }),
+    {
+      databaseId: 'ai-studio-inknotestudio-83f34a4f-65ab-497b-8e16-0549a5f4cf3b',
+      fallbackReason: '',
+      ignoredDatabaseId: ''
+    }
+  );
+
+  assert.deepEqual(
+    resolveEffectiveFirestoreDatabaseId({
+      projectId: 'inknote-studio',
+      firestoreDatabaseId: 'custom-prod-db',
+      fromEnv: true
+    }),
+    {
+      databaseId: 'custom-prod-db',
+      fallbackReason: '',
+      ignoredDatabaseId: ''
+    }
+  );
+
+  assert.deepEqual(
+    resolveEffectiveFirestoreDatabaseId({
+      projectId: 'inknote-studio',
+      firestoreDatabaseId: '(default)',
+      fromEnv: true
+    }),
+    {
+      databaseId: '',
+      fallbackReason: '',
+      ignoredDatabaseId: ''
+    }
+  );
+});
+
+test('formatFirestoreErrorMessage parses JSON FirestoreErrorInfo and explains offline/permission/not-found errors', () => {
+  const offlineJsonErr = new Error(JSON.stringify({
+    error: 'Failed to get document because the client is offline.',
+    operationType: 'get',
+    path: 'users/u1'
+  }));
+  const offlineMsg = formatFirestoreErrorMessage(offlineJsonErr, {
+    projectId: 'inknote-studio',
+    databaseId: '(default)'
+  });
+  assert.match(offlineMsg, /Impossibile raggiungere Firestore.*inknote-studio.*\(default\)/);
+  assert.match(offlineMsg, /VITE_FIREBASE_DATABASE_ID/);
+
+  const permErr = new Error('Missing or insufficient permissions.');
+  assert.match(
+    formatFirestoreErrorMessage(permErr, { projectId: 'inknote-studio', databaseId: '(default)' }),
+    /Permessi Firestore mancanti.*inknote-studio/
+  );
+
+  const notFoundErr = new Error('Database not_found on project');
+  assert.match(
+    formatFirestoreErrorMessage(notFoundErr, { projectId: 'inknote-studio', databaseId: 'bad-db' }),
+    /Database Firestore non trovato.*bad-db/
+  );
+});
+
 
