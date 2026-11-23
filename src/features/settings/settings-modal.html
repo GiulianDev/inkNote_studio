@@ -86,8 +86,20 @@
         </div>
 
         <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
-          <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3">✒️ Inchiostro</h4>
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="text-sm font-bold text-slate-900 dark:text-white">✒️ Inchiostro</h4>
+            <span id="inkPlatformBadge" class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"></span>
+          </div>
           <div class="space-y-3">
+            <div>
+              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <span>Sensibilità pressione</span>
+                <span id="pressureSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
+              </label>
+              <input type="range" id="pressureSensitivitySlider" min="0" max="100" value="50"
+                     class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+              <p class="text-[10px] text-slate-500 mt-0.5">Guadagno forza penna (compensa Apple Pencil / tablet diversi)</p>
+            </div>
             <div>
               <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 <span>Tratto leggero</span>
@@ -108,19 +120,42 @@
             </div>
             <div>
               <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                <span>Curva</span>
+                <span>Curva pressione</span>
                 <span id="pressureCurveValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">60</span>
               </label>
               <input type="range" id="pressureCurveSlider" min="0" max="100" value="60"
                      class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-              <p class="text-[10px] text-slate-500 mt-0.5">0 = lineare · 100 = crescita solo agli alti</p>
+              <p class="text-[10px] text-slate-500 mt-0.5">0 = morbida (spessore rapido) · 100 = progressiva (solo forte pressione)</p>
             </div>
             <div>
-              <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui</label>
+              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <span>Influenza velocità</span>
+                <span id="pressureSpeedWeightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">20</span>
+              </label>
+              <input type="range" id="pressureSpeedWeightSlider" min="0" max="100" value="20"
+                     class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+              <p class="text-[10px] text-slate-500 mt-0.5">0 = spessore solo pressione · 100 = stile stilografica (assottiglia in velocità)</p>
+            </div>
+            <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-2">
+              <div class="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1">
+                <span>Risposta spessore / pressione</span>
+                <span>Pressione →</span>
+              </div>
+              <svg id="pressureCurveSvg" viewBox="0 0 220 90" class="w-full h-20 block pointer-events-none select-none" aria-hidden="true">
+                <line x1="12" y1="78" x2="208" y2="78" stroke="currentColor" class="text-slate-300 dark:text-slate-700" stroke-width="1" />
+                <line x1="12" y1="45" x2="208" y2="45" stroke="currentColor" class="text-slate-200 dark:text-slate-700/60" stroke-width="1" stroke-dasharray="3 3" />
+                <line x1="12" y1="12" x2="208" y2="12" stroke="currentColor" class="text-slate-200 dark:text-slate-700/60" stroke-width="1" stroke-dasharray="3 3" />
+                <line x1="12" y1="78" x2="208" y2="12" stroke="currentColor" class="text-slate-300 dark:text-slate-600" stroke-width="1" stroke-dasharray="4 4" />
+                <path id="pressureCurveArea" d="" fill="rgba(99, 102, 241, 0.16)" />
+                <path id="pressureCurvePath" d="" fill="none" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui (applica solo ai nuovi tratti)</label>
               <canvas id="pressureTestCanvas"
                       class="w-full h-28 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                       style="touch-action:none;cursor:crosshair;"></canvas>
-              <p class="text-[10px] text-slate-500 mt-1">Disegna con la penna per vedere l'effetto.</p>
+              <p class="text-[10px] text-slate-500 mt-1">Disegna con la penna per calibrare. I tratti già scritti sul quaderno restano invariati.</p>
             </div>
             <div class="flex items-center justify-between pb-3">
               <button id="resetPressureBtn"

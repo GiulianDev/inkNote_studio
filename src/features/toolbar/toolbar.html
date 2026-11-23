@@ -170,22 +170,22 @@
 <!-- DOCK SCRITTURA -->
 <div id="dockWriting" class="context-dock hidden" data-menu="writing">
   <div class="context-dock-row">
-    <!-- Tool writing -->
-    <div class="context-dock-group">
-      <button id="btnTool-pen" class="dock-tool-btn tool-btn" title="Stilografica">
+    <!-- Tool writing (ordine default: Penna → Matita → Stilografica → Evidenziatore) -->
+    <div id="writingToolsGroup" class="context-dock-group">
+      <button id="btnTool-marker" class="dock-tool-btn tool-btn" data-tool="marker" title="Penna">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
         </svg>
       </button>
-      <button id="btnTool-pencil" class="dock-tool-btn tool-btn" title="Matita">
+      <button id="btnTool-pencil" class="dock-tool-btn tool-btn" data-tool="pencil" title="Matita">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
           <path d="m15 5 4 4"/>
         </svg>
       </button>
-      <button id="btnTool-marker" class="dock-tool-btn tool-btn" title="Pennarello">
+      <button id="btnTool-pen" class="dock-tool-btn tool-btn" data-tool="pen" title="Stilografica">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m12 19 7-7 3 3-7 7-3-3z"/>
@@ -194,7 +194,7 @@
           <circle cx="11" cy="11" r="2"/>
         </svg>
       </button>
-      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn" title="Evidenziatore">
+      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn" data-tool="highlighter" title="Evidenziatore">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m9 11-6 6v3h9l3-3"/>
@@ -458,37 +458,37 @@
 <!-- DOCK FORME -->
 <div id="dockShapes" class="context-dock hidden" data-menu="shapes">
   <div class="context-dock-row">
-    <label class="context-dock-toggle" title="Riconosce e raddrizza le linee">
+    <label class="context-dock-toggle" title="Tieni premuto per linea con snap orizzontale/verticale · Raddrizza al rilascio solo se molto dritta">
       <input type="checkbox" id="snapLinesToggle" checked class="accent-indigo-600 w-4 h-4">
       <span>Linee</span>
     </label>
     <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce i cerchi">
+    <label class="context-dock-toggle" title="Riconosce cerchi ed ellissi tenendo premuto">
       <input type="checkbox" id="snapCirclesToggle" checked class="accent-indigo-600 w-4 h-4">
       <span>Cerchi</span>
     </label>
     <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce i rettangoli">
+    <label class="context-dock-toggle" title="Riconosce i rettangoli tenendo premuto">
       <input type="checkbox" id="snapRectanglesToggle" checked class="accent-indigo-600 w-4 h-4">
       <span>Rettangoli</span>
     </label>
     <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce i triangoli">
+    <label class="context-dock-toggle" title="Riconosce i triangoli tenendo premuto">
       <input type="checkbox" id="snapTrianglesToggle" checked class="accent-indigo-600 w-4 h-4">
       <span>Triangoli</span>
     </label>
     <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce le frecce (a 1 tratto o con punta a V su una linea)">
+    <label class="context-dock-toggle" title="Riconosce le frecce al rilascio (1 tratto o punta a V su linea)">
       <input type="checkbox" id="snapArrowsToggle" checked class="accent-indigo-600 w-4 h-4">
       <span>Frecce</span>
     </label>
     <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce simboli matematici: ( ), [ ], { }, ∑, ⇒">
+    <label class="context-dock-toggle" title="Riconosce simboli matematici al rilascio: ( ), [ ], { }, ∑, ⇒">
       <input type="checkbox" id="snapMathSymbolsToggle" checked class="accent-indigo-600 w-4 h-4">
       <span>Simboli mat.</span>
     </label>
     <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce le lettere greche (α, β, γ, θ, λ, μ, π, σ, φ, ψ, ω, Δ, Σ, Ω…)">
+    <label class="context-dock-toggle" title="Riconosce le lettere greche al rilascio (α, β, γ, θ, λ, μ, π, σ, φ, ψ, ω, Δ, Σ, Ω…)">
       <input type="checkbox" id="snapGreekLettersToggle" checked class="accent-indigo-600 w-4 h-4">
       <span>Lettere greche</span>
     </label>

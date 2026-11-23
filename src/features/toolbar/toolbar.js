@@ -26,7 +26,7 @@ import toolbarHtml from './toolbar.html?raw';
 import { state } from '../../core/state.js';
 import { showToast, hexToRgbA, on } from '../../core/utils.js';
 import {
-  updateSettings, getSettings, onSettingsChanged, MAIN_MENU_IDS
+  updateSettings, getSettings, onSettingsChanged, MAIN_MENU_IDS, WRITING_TOOL_IDS
 } from '../../core/app-settings.js';
 import {
   getToolbarSettings, getActiveTool, getActiveToolConfig,
@@ -112,14 +112,19 @@ export function mountToolbar() {
   _setupPagePopover();
   _setupDockButtons();
   _setupMainMenuDrag();
+  _setupWritingToolsDrag();
   _setMainMenu('writing', { silent: true });
   applyMainMenuOrderToUI();
+  applyWritingToolsOrderToUI();
   _dockAutoHide.setEnabled(!!getSettings().autoHideDock);
 
   onSettingsChanged(({ changed }) => {
     if (changed.includes('mainMenuOrder') || changed.includes('mainMenuHidden')) {
       applyMainMenuOrderToUI();
       if (_toolbarMenuOpen) _renderOverflowMenu();
+    }
+    if (changed.includes('writingToolsOrder')) {
+      applyWritingToolsOrderToUI();
     }
     if (changed.includes('theme') || changed.includes('theme.effective')) {
       applyPageColorsToUI();
@@ -189,6 +194,18 @@ export function applyMainMenuOrderToUI() {
     const shouldShow = !hidden.has(menu) || menu === _mainMenu;
     btn.style.display = shouldShow ? '' : 'none';
     mainBar.appendChild(btn);
+  });
+}
+
+export function applyWritingToolsOrderToUI() {
+  const group = document.getElementById('writingToolsGroup');
+  if (!group) return;
+
+  const s = getSettings();
+  const order = s.writingToolsOrder || WRITING_TOOL_IDS;
+  order.forEach(tool => {
+    const btn = document.getElementById(`btnTool-${tool}`);
+    if (btn) group.appendChild(btn);
   });
 }
 
@@ -372,6 +389,155 @@ function _commitMenuOrder() {
   const current = getSettings().mainMenuOrder || [];
   if (newOrder.join('|') === current.join('|')) return;
   updateSettings({ mainMenuOrder: newOrder }, { persist: true });
+}
+
+// --- Drag & drop ordine strumenti scrittura (#writingToolsGroup) ---
+
+let _toolHintShownThisSession = false;
+const _toolDrag = {
+  btn: null,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  pressTimer: null,
+  isDragging: false,
+  skipNextClick: false
+};
+
+function _setupWritingToolsDrag() {
+  const group = document.getElementById('writingToolsGroup');
+  if (!group) return;
+
+  group.addEventListener('click', (e) => {
+    if (_toolDrag.skipNextClick) {
+      e.stopPropagation();
+      e.preventDefault();
+      _toolDrag.skipNextClick = false;
+    }
+  }, true);
+
+  group.addEventListener('pointerdown', _onWritingToolPointerDown);
+}
+
+function _onWritingToolPointerDown(e) {
+  const btn = e.target.closest('.dock-tool-btn');
+  if (!btn || !btn.dataset.tool) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  _cancelToolDragPress();
+  _detachToolDragListeners();
+
+  _toolDrag.btn = btn;
+  _toolDrag.pointerId = e.pointerId;
+  _toolDrag.startX = e.clientX;
+  _toolDrag.startY = e.clientY;
+  _toolDrag.isDragging = false;
+  _toolDrag.skipNextClick = false;
+
+  document.addEventListener('pointermove', _onWritingToolPointerMove);
+  document.addEventListener('pointerup', _onWritingToolPointerUp);
+  document.addEventListener('pointercancel', _onWritingToolPointerUp);
+
+  _toolDrag.pressTimer = setTimeout(() => {
+    _toolDrag.pressTimer = null;
+    _enterToolDragMode(btn);
+  }, DRAG_LONG_PRESS_MS);
+}
+
+function _cancelToolDragPress() {
+  if (_toolDrag.pressTimer) {
+    clearTimeout(_toolDrag.pressTimer);
+    _toolDrag.pressTimer = null;
+  }
+}
+
+function _enterToolDragMode(btn) {
+  _toolDrag.isDragging = true;
+  _toolDrag.skipNextClick = true;
+  btn.classList.add('dragging');
+  document.body.classList.add('tool-dragging');
+  if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
+
+  if (!_toolHintShownThisSession) {
+    _toolHintShownThisSession = true;
+    showToast('Trascina orizzontalmente per riordinare gli strumenti', '↔️');
+  }
+}
+
+function _onWritingToolPointerMove(e) {
+  if (!_toolDrag.btn || e.pointerId !== _toolDrag.pointerId) return;
+
+  if (!_toolDrag.isDragging) {
+    const dx = e.clientX - _toolDrag.startX;
+    const dy = e.clientY - _toolDrag.startY;
+    if (Math.hypot(dx, dy) > DRAG_MOVE_CANCEL_PX) {
+      _cancelToolDragPress();
+      _detachToolDragListeners();
+      _toolDrag.btn = null;
+      _toolDrag.pointerId = null;
+    }
+    return;
+  }
+
+  e.preventDefault();
+  _updateWritingToolDragPosition(e.clientX);
+}
+
+function _updateWritingToolDragPosition(clientX) {
+  const btn = _toolDrag.btn;
+  const group = document.getElementById('writingToolsGroup');
+  if (!btn || !group) return;
+
+  const siblings = [...group.querySelectorAll('.dock-tool-btn')].filter(b => b !== btn);
+  const next = siblings.find(el => {
+    const r = el.getBoundingClientRect();
+    return clientX < r.left + r.width / 2;
+  });
+
+  if (next) {
+    group.insertBefore(btn, next);
+  } else if (siblings.length > 0) {
+    const last = siblings[siblings.length - 1];
+    group.insertBefore(btn, last.nextSibling);
+  }
+}
+
+function _onWritingToolPointerUp(e) {
+  if (!_toolDrag.btn || e.pointerId !== _toolDrag.pointerId) return;
+
+  const btn = _toolDrag.btn;
+  const wasDragging = _toolDrag.isDragging;
+
+  _cancelToolDragPress();
+  _detachToolDragListeners();
+
+  if (wasDragging) {
+    btn.classList.remove('dragging');
+    document.body.classList.remove('tool-dragging');
+    _commitWritingToolsOrder();
+    setTimeout(() => { _toolDrag.skipNextClick = false; }, 60);
+  }
+
+  _toolDrag.btn = null;
+  _toolDrag.pointerId = null;
+  _toolDrag.isDragging = false;
+}
+
+function _detachToolDragListeners() {
+  document.removeEventListener('pointermove', _onWritingToolPointerMove);
+  document.removeEventListener('pointerup', _onWritingToolPointerUp);
+  document.removeEventListener('pointercancel', _onWritingToolPointerUp);
+}
+
+function _commitWritingToolsOrder() {
+  const group = document.getElementById('writingToolsGroup');
+  if (!group) return;
+  const newOrder = [...group.querySelectorAll('.dock-tool-btn')]
+    .map(b => b.dataset.tool)
+    .filter(t => t);
+  const current = getSettings().writingToolsOrder || [];
+  if (newOrder.join('|') === current.join('|')) return;
+  updateSettings({ writingToolsOrder: newOrder }, { persist: true });
 }
 
 function _tryHideMenu(menu) {

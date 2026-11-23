@@ -276,3 +276,41 @@ test('compressPageData omits rx/ry metadata for standard [0..1200] strokes on mi
   assert.deepEqual(meta1.ry, [50, 1260]);
 });
 
+test('compressPageData and decompressPageData roundtrip optional inkParams snapshot', async () => {
+  const customInk = { lightMul: 0.18, heavyMul: 3.9, curve: 1.4, speedWeight: 0.12 };
+  const sWithInk = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#0f172a',
+    size: 4,
+    opacity: 1,
+    style: 'solid',
+    inkParams: customInk,
+    points: [
+      { x: 10, y: 20, pressure: 0.4, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+      { x: 80, y: 90, pressure: 0.7, tiltX: 0, tiltY: 0, speed: 2, pointerType: 'pen' }
+    ]
+  }));
+  const sWithoutInk = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#0f172a',
+    size: 4,
+    opacity: 1,
+    style: 'solid',
+    points: [
+      { x: 30, y: 40, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+      { x: 60, y: 70, pressure: 0.6, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' }
+    ]
+  }));
+
+  const compressed = await compressPageData([sWithInk, sWithoutInk]);
+  const restored = await decompressPageData(compressed.buffer);
+  assert.equal(restored.length, 2);
+  assert.ok(restored[0].inkParams);
+  assert.ok(Math.abs(restored[0].inkParams.lightMul - customInk.lightMul) < 1e-4);
+  assert.ok(Math.abs(restored[0].inkParams.heavyMul - customInk.heavyMul) < 1e-4);
+  assert.ok(Math.abs(restored[0].inkParams.curve - customInk.curve) < 1e-4);
+  assert.ok(Math.abs(restored[0].inkParams.speedWeight - customInk.speedWeight) < 1e-4);
+  assert.equal(restored[1].inkParams, undefined);
+});
+
+

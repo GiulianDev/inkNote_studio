@@ -6,37 +6,24 @@
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
 import { drawIncrementalBatch, drawScribbleSegment } from '../render/render.js';
 import { state, viewport } from '../../core/state.js';
+import { getPressureParams } from '../../core/app-settings.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../core/utils.js';
 import { checkForScribble } from './scribble.js';
-import { trySnapToLineDuringDraw } from './shapes.js';
+import { trySnapLineDuringDraw, trySnapGeometricShapeDuringDraw } from './shapes.js';
+import {
+  detectInkPlatform,
+  normalizePenPressure,
+  createStrokeStabilizer,
+  getHoldMoveTolerancePx
+} from './ink-calibration.js';
 
 const MAX_BATCH_POINTS = 16;
 const MAX_POOL_SIZE = 2000;
 
-// Hold-to-snap stile GoodNotes (penna / matita / pennarello)
-const HOLD_SNAP_DELAY_MS = 260;
-const HOLD_MOVE_TOLERANCE_PX = 8;
+// Hold-to-snap stile GoodNotes SOLO per forme geometriche (cerchi, ellissi, rettangoli, triangoli)
+const HOLD_SNAP_DELAY_MS = 320;
 
-// Rilevamento piattaforma eseguito UNA volta al caricamento (zero overhead sul hot path)
-const _platform = (() => {
-  if (typeof navigator === 'undefined') return 'desktop';
-  const ua = navigator.userAgent || '';
-  if (/iPad|iPhone|iPod/.test(ua) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
-    return 'ios';
-  }
-  if (/Android/i.test(ua)) return 'android';
-  return 'desktop';
-})();
-
-const _normalizePenPressure =
-  _platform === 'ios'
-    ? (raw) => Math.min(1, Math.max(0.14, Math.pow(raw, 0.55)))
-    : (raw) => raw;
-
-const _DEFAULT_PEN_DOWN_PRESSURE = _platform === 'ios' ? 0.25 : 0.5;
-const _PRESSURE_SMOOTH_NEW_W = _platform === 'ios' ? 0.45 : 0.6;
-const _PRESSURE_SMOOTH_OLD_W = 1 - _PRESSURE_SMOOTH_NEW_W;
+const _platform = detectInkPlatform();
 
 let _lastValidPenPressure = 0;
 
@@ -54,7 +41,18 @@ export function clearLineHoldTimer() {
   _holdPageData = null;
 }
 
-function _armLineHoldTimer(pageData, stroke, delayMs) {
+function _hasGeometricHoldShapesEnabled() {
+  if (!state.snapShapes) return false;
+  return state.snapCircles !== false ||
+         state.snapRectangles !== false ||
+         state.snapTriangles !== false;
+}
+
+function _hasHoldSnapEnabled() {
+  return state.snapLines !== false || _hasGeometricHoldShapesEnabled();
+}
+
+function _armShapeHoldTimer(pageData, stroke, delayMs) {
   clearLineHoldTimer();
   _holdPageData = pageData;
   _holdSnapTimer = setTimeout(() => {
@@ -63,10 +61,14 @@ function _armLineHoldTimer(pageData, stroke, delayMs) {
     _holdPageData = null;
     if (!targetPage || !state.isDrawing || state.pendingShape || state.scribbleMode) return;
     if (state.currentStroke !== stroke) return;
-    if (!state.snapLines || !SHAPE_CAPABLE_TOOLS.includes(state.activeTool)) return;
+    if (!_hasHoldSnapEnabled() || !SHAPE_CAPABLE_TOOLS.includes(state.activeTool)) return;
     const pts = stroke.points;
     if (!pts || pts.length < 4) return;
-    if (trySnapToLineDuringDraw(targetPage, pts[pts.length - 1])) {
+    if (state.snapLines !== false && trySnapLineDuringDraw(targetPage, stroke)) {
+      if (navigator.vibrate) { try { navigator.vibrate(10); } catch {} }
+      return;
+    }
+    if (_hasGeometricHoldShapesEnabled() && pts.length >= 8 && trySnapGeometricShapeDuringDraw(targetPage, stroke)) {
       if (navigator.vibrate) { try { navigator.vibrate(10); } catch {} }
     }
   }, delayMs);
@@ -146,16 +148,15 @@ export function getCanvasCoords(e, canvas) {
   p.y = (e.clientY - rect.top) * rect.scaleY;
 
   if (e.pointerType === 'pen') {
-    if (e.pressure > 0) {
-      const norm = _normalizePenPressure(e.pressure);
-      _lastValidPenPressure = norm;
-      p.pressure = norm;
-    } else if (state.isDrawing && _lastValidPenPressure > 0) {
-      p.pressure = _lastValidPenPressure;
-    } else {
-      p.pressure = _DEFAULT_PEN_DOWN_PRESSURE;
-      _lastValidPenPressure = p.pressure;
-    }
+    const sens = getPressureParams().sensitivity;
+    const norm = normalizePenPressure(e.pressure, {
+      platform: _platform,
+      sensitivity: sens,
+      isDrawing: state.isDrawing,
+      lastValidPressure: _lastValidPenPressure
+    });
+    _lastValidPenPressure = norm;
+    p.pressure = norm;
   } else {
     p.pressure = 0.5;
   }
@@ -166,31 +167,6 @@ export function getCanvasCoords(e, canvas) {
   p.pointerType = e.pointerType;
   p.timeStamp = e.timeStamp || 0;
   return p;
-}
-
-// ------------------------------------------------------------
-// Smoothing
-// ------------------------------------------------------------
-function smoothPressure(points, newPressure) {
-  const n = points.length;
-  if (n === 0) return newPressure;
-  const count = Math.min(3, n), wOld = _PRESSURE_SMOOTH_OLD_W / count;
-  let acc = newPressure * _PRESSURE_SMOOTH_NEW_W;
-  for (let i = n - count; i < n; i++) acc += (points[i].pressure || 0.5) * wOld;
-  return Math.max(0.05, Math.min(1, acc));
-}
-
-function smoothRawPoint(rawPoint, prevSmoothed) {
-  const smoothness = Math.max(0, Math.min(1, state.smoothing));
-  if (!prevSmoothed || smoothness <= 0.01) return rawPoint;
-  const dx = rawPoint.x - prevSmoothed.x;
-  const dy = rawPoint.y - prevSmoothed.y;
-  const speed = fastHypot(dx, dy);
-  const minAlpha = 0.85 - smoothness * 0.55;
-  const alpha = Math.min(1.0, minAlpha + speed * 0.05);
-  rawPoint.x = prevSmoothed.x + dx * alpha;
-  rawPoint.y = prevSmoothed.y + dy * alpha;
-  return rawPoint;
 }
 
 // ------------------------------------------------------------
@@ -217,31 +193,24 @@ function _processPointerPoint(rawPoint, pageData) {
   if (state.pendingShape) return;
   if (!state.currentStroke || !state.isDrawing) return;
   const stroke = state.currentStroke;
-  const prevSmoothed = stroke.points[stroke.points.length - 1];
-  const smoothedPos = smoothRawPoint(rawPoint, prevSmoothed);
-  let smoothedPressure = rawPoint.pressure;
-  if (rawPoint.pointerType === 'pen' && stroke.points.length > 0) {
-    smoothedPressure = smoothPressure(stroke.points, rawPoint.pressure);
+
+  if (!stroke._stabilizer) {
+    const firstPt = stroke.points[0] || rawPoint;
+    stroke._stabilizer = createStrokeStabilizer(firstPt);
   }
-  const minDist = state.smoothing <= 0.01 ? 0.01 : 0.4;
+
+  const filt = stroke._stabilizer.filterPoint(rawPoint, {
+    smoothing: state.smoothing,
+    scale: viewport.scale
+  });
+  if (!filt.accepted) return;
+
+  const prevSmoothed = stroke.points[stroke.points.length - 1];
   let speedPx = 0;
   if (prevSmoothed) {
-    const dx = smoothedPos.x - prevSmoothed.x;
-    const dy = smoothedPos.y - prevSmoothed.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < minDist) return;
-
-    const rawTs = rawPoint.timeStamp || 0;
-    const lastTs = stroke._lastPointTs || 0;
-    let instantSpeed = dist;
-    if (rawTs > 0 && lastTs > 0) {
-      const rawDt = rawTs - lastTs;
-      if (rawDt >= 2 && rawDt <= 64) {
-        instantSpeed = (dist / rawDt) * 16.67;
-      } else if (rawDt >= 0 && rawDt < 2) {
-        instantSpeed = (dist / 4) * 16.67;
-      }
-    }
+    const dist = filt.distFromAccepted;
+    const rawDt = filt.dtMs || 8.33;
+    const instantSpeed = (dist / Math.max(2, rawDt)) * 16.67;
     const ema = stroke._emaSpeed !== undefined
       ? stroke._emaSpeed * 0.65 + instantSpeed * 0.35
       : instantSpeed;
@@ -251,8 +220,13 @@ function _processPointerPoint(rawPoint, pageData) {
   if (rawPoint.timeStamp > 0) stroke._lastPointTs = rawPoint.timeStamp;
 
   const smoothedPoint = {
-    x: smoothedPos.x, y: smoothedPos.y, pressure: smoothedPressure,
-    tiltX: rawPoint.tiltX, tiltY: rawPoint.tiltY, speed: speedPx, pointerType: rawPoint.pointerType
+    x: filt.x,
+    y: filt.y,
+    pressure: rawPoint.pointerType === 'pen' ? filt.pressure : rawPoint.pressure,
+    tiltX: rawPoint.tiltX,
+    tiltY: rawPoint.tiltY,
+    speed: speedPx,
+    pointerType: rawPoint.pointerType
   };
   stroke.points.push(smoothedPoint);
   if (stroke._pathLen === undefined) stroke._pathLen = 0;
@@ -261,7 +235,8 @@ function _processPointerPoint(rawPoint, pageData) {
     stroke._pathLen += fastHypot(smoothedPoint.x - prev.x, smoothedPoint.y - prev.y);
   }
 
-  // Aggiorna ancora "hold" solo se la punta si sposta oltre la tolleranza tremolio
+  // Aggiorna ancora "hold" solo se la punta filtrata si sposta oltre la tolleranza zoom-aware
+  const holdTol = getHoldMoveTolerancePx(viewport.scale);
   if (stroke._holdAnchorX === undefined) {
     stroke._holdAnchorX = smoothedPoint.x;
     stroke._holdAnchorY = smoothedPoint.y;
@@ -269,7 +244,7 @@ function _processPointerPoint(rawPoint, pageData) {
   } else {
     const hdx = smoothedPoint.x - stroke._holdAnchorX;
     const hdy = smoothedPoint.y - stroke._holdAnchorY;
-    if (fastHypot(hdx, hdy) > HOLD_MOVE_TOLERANCE_PX) {
+    if (fastHypot(hdx, hdy) > holdTol) {
       stroke._holdAnchorX = smoothedPoint.x;
       stroke._holdAnchorY = smoothedPoint.y;
       stroke._lastMoveTime = performance.now();
@@ -300,15 +275,18 @@ function _runPostBatchChecks(pageData) {
     return;
   }
 
-  // Snap live SOLO dopo breve pausa con punta ferma (hold-to-snap)
-  if (state.snapLines &&
+  // Snap live dopo breve pausa con punta ferma:
+  //   - linee dritte (4+ punti) con maniglie e snap H/V
+  //   - forme geometriche (8+ punti): cerchi, ellissi, rettangoli, triangoli
+  const minHoldPts = (state.snapLines !== false) ? 4 : 8;
+  if (_hasHoldSnapEnabled() &&
       SHAPE_CAPABLE_TOOLS.includes(state.activeTool) &&
-      pts.length >= 4) {
+      pts.length >= minHoldPts) {
     if (_holdSnapTimer === null || _holdPageData !== pageData) {
       const stroke = state.currentStroke;
       const elapsed = performance.now() - (stroke._lastMoveTime || stroke.startTime || performance.now());
       const remaining = Math.max(16, HOLD_SNAP_DELAY_MS - elapsed);
-      _armLineHoldTimer(pageData, stroke, remaining);
+      _armShapeHoldTimer(pageData, stroke, remaining);
     }
   } else {
     clearLineHoldTimer();

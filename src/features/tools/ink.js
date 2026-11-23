@@ -4,7 +4,8 @@
  * TOOL INK — pen / pencil / marker / highlighter unificati.
  */
 
-import { state } from '../../core/state.js';
+import { state, viewport } from '../../core/state.js';
+import { getPressureParams } from '../../core/app-settings.js';
 import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
@@ -13,8 +14,13 @@ import {
 } from '../render/render.js';
 import {
   finalizePendingShape, applyAngleSnap,
-  trySnapToLine, detectAndSnapShape, trySnapHighlighter
+  detectReleaseShapeOrSymbol, trySnapHighlighter,
+  scaleShapePointsFromCenter
 } from './shapes.js';
+import {
+  cloneInkParams,
+  createStrokeStabilizer
+} from './ink-calibration.js';
 import { finalizeScribble } from './scribble.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
@@ -23,21 +29,26 @@ import {
   isPredictionSupported, drawPredictions, clearLineHoldTimer
 } from './tool-shared.js';
 
-const LINE_HOLD_RELEASE_MIN_MS = 180;
-
 export function beginInkStroke(point) {
   clearLineHoldTimer();
   const now = performance.now();
+  const initialPt = {
+    x: point.x, y: point.y, pressure: point.pressure,
+    tiltX: point.tiltX, tiltY: point.tiltY, speed: 0, pointerType: point.pointerType,
+    timeStamp: point.timeStamp || 0
+  };
   state.currentStroke = {
     tool: state.activeTool,
     color: state.currentColor,
     size: state.strokeWidth,
     opacity: state.currentOpacity != null ? state.currentOpacity : 1.0,
     style: state.currentStyle || 'solid',
+    inkParams: cloneInkParams(getPressureParams()),
     startTime: now,
     _lastMoveTime: now,
     _holdAnchorX: point.x,
     _holdAnchorY: point.y,
+    _stabilizer: createStrokeStabilizer(initialPt),
     _drawnIdx: 0,
     _lastSnapCheck: 0,
     points: [{
@@ -51,19 +62,34 @@ export function moveInkStroke(pageData, e) {
   if (state.pendingShape) {
     const rawPoint = getCanvasCoords(e, pageData.canvas);
     const ps = state.pendingShape;
-    if (ps.activeHandle === 'end') {
-      const snapRes = applyAngleSnap(ps.start, rawPoint, ps._snapAxis, ps._snapRejected);
-      ps.end = { x: snapRes.x, y: snapRes.y, pressure: 0.5 };
-      ps._snapAxis = snapRes.axis;
-      ps._snapRejected = snapRes.rejected;
-    } else {
-      const snapRes = applyAngleSnap(ps.end, rawPoint, ps._snapAxis, ps._snapRejected);
-      ps.start = { x: snapRes.x, y: snapRes.y, pressure: 0.5 };
-      ps._snapAxis = snapRes.axis;
-      ps._snapRejected = snapRes.rejected;
+    if (Array.isArray(ps.basePoints) && ps.center && ps.holdAnchor) {
+      const dragDeadzone = 10 / Math.max(0.25, viewport.scale);
+      const dragDist = Math.hypot(rawPoint.x - ps.holdAnchor.x, rawPoint.y - ps.holdAnchor.y);
+      if (dragDist >= dragDeadzone) {
+        const baseR = Math.max(12, Math.hypot(ps.holdAnchor.x - ps.center.x, ps.holdAnchor.y - ps.center.y));
+        const currR = Math.hypot(rawPoint.x - ps.center.x, rawPoint.y - ps.center.y);
+        const factor = Math.max(0.25, Math.min(4.0, currR / baseR));
+        ps.points = scaleShapePointsFromCenter(ps.basePoints, ps.center, factor);
+        clearOverlay(pageData);
+        renderPendingShapeOnOverlay(pageData);
+      }
+      return;
     }
-    clearOverlay(pageData);
-    renderPendingShapeOnOverlay(pageData);
+    if (ps.start && ps.end) {
+      if (ps.activeHandle === 'end') {
+        const snapRes = applyAngleSnap(ps.start, rawPoint, ps._snapAxis, ps._snapRejected);
+        ps.end = { x: snapRes.x, y: snapRes.y, pressure: 0.5 };
+        ps._snapAxis = snapRes.axis;
+        ps._snapRejected = snapRes.rejected;
+      } else {
+        const snapRes = applyAngleSnap(ps.end, rawPoint, ps._snapAxis, ps._snapRejected);
+        ps.start = { x: snapRes.x, y: snapRes.y, pressure: 0.5 };
+        ps._snapAxis = snapRes.axis;
+        ps._snapRejected = snapRes.rejected;
+      }
+      clearOverlay(pageData);
+      renderPendingShapeOnOverlay(pageData);
+    }
     return;
   }
 
@@ -112,8 +138,8 @@ export function endInkStroke(pageData) {
   const pts = stroke.points;
 
   const isHL = stroke.tool === 'highlighter';
-  const pad = isHL
-    ? Math.max(24, (stroke.size * 2) + 8)
+  const pad = (isHL || stroke.tool === 'pencil')
+    ? Math.max(28, Math.ceil((stroke.size * 2) + 12))
     : 24;
   const origBBox = getStrokeBBoxCanvas(stroke, pad);
 
@@ -121,17 +147,12 @@ export function endInkStroke(pageData) {
   let snapped = false;
   if (pts.length > 2) {
     if (state.activeTool === 'highlighter') {
-      // Highlighter: invariato (solo snapShapes).
       if (state.snapShapes && trySnapHighlighter(stroke)) {
         showToast('Evidenziatore raddrizzato', '🖍️');
         snapped = true;
       }
     } else if (SHAPE_CAPABLE_TOOLS.includes(state.activeTool)) {
-      const heldMs = performance.now() - (stroke._lastMoveTime || stroke.startTime || 0);
-      if (state.snapLines && heldMs >= LINE_HOLD_RELEASE_MIN_MS && trySnapToLine(stroke)) {
-        showToast('Linea agganciata', '📏');
-        snapped = true;
-      } else if (state.snapShapes && detectAndSnapShape(stroke, pageData, extraStrokes)) {
+      if (detectReleaseShapeOrSymbol(stroke, pageData, extraStrokes)) {
         snapped = true;
       }
     }
@@ -158,8 +179,8 @@ function _renderFinalStroke(pageData, stroke, snapped, extraClearBBox = null) {
   }
 
   const isHL = stroke.tool === 'highlighter';
-  const pad = isHL
-    ? Math.max(24, (stroke.size * 2) + 8)
+  const pad = (isHL || stroke.tool === 'pencil')
+    ? Math.max(28, Math.ceil((stroke.size * 2) + 12))
     : 24;
 
   if (snapped || stroke.points.length === 1 || stroke.tool === 'pencil') {

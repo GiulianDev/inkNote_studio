@@ -19,20 +19,30 @@
 
 import { state } from './state.js';
 import { emit, on } from './utils.js';
+import {
+  DEFAULT_PRESSURE_SENSITIVITY,
+  DEFAULT_PRESSURE_SPEED_WEIGHT,
+  derivePressureParams
+} from '../features/tools/ink-calibration.js';
 
 const STORAGE_KEY = 'inknote_settings';
 
 /** Menu validi per la mainbar (allineato a toolbar.js). */
 export const MAIN_MENU_IDS = ['writing', 'text', 'selection', 'shapes', 'eraser', 'page'];
 
+/** Strumenti di scrittura ordinabili nel dock (ordine default: Penna -> Matita -> Stilografica -> Evidenziatore). */
+export const WRITING_TOOL_IDS = ['marker', 'pencil', 'pen', 'highlighter'];
+
 export const DEFAULT_SETTINGS = {
   theme: 'auto',
   printTheme: 'light',
   handedness: 'right',
   dockSize: 'medium',
+  pressureSensitivity: DEFAULT_PRESSURE_SENSITIVITY,
   pressureLight: 10,
   pressureHeavy: 340,
   pressureCurve: 60,
+  pressureSpeedWeight: DEFAULT_PRESSURE_SPEED_WEIGHT,
   scrollSensitivity: 50,
   palmRejection: true,
   autoHideDock: false,
@@ -45,9 +55,10 @@ export const DEFAULT_SETTINGS = {
     position: 'left'
   },
 
-  // Personalizzazione mainbar (gestita da toolbar.js, non da UI)
-  mainMenuOrder:  ['writing', 'text', 'selection', 'shapes', 'eraser', 'page'],
-  mainMenuHidden: [],  // max 3 (min 3 visibili)
+  // Personalizzazione mainbar e ordine strumenti scrittura (gestite da toolbar.js)
+  mainMenuOrder:     ['writing', 'text', 'selection', 'shapes', 'eraser', 'page'],
+  mainMenuHidden:    [],  // max 3 (min 3 visibili)
+  writingToolsOrder: ['marker', 'pencil', 'pen', 'highlighter'],
 
   // Preferenze libreria (ordinamento, filtro preferiti, vista & testo sotto cover)
   librarySortBy: 'updatedAt', // 'updatedAt' | 'createdAt' | 'title' | 'pageCount'
@@ -80,6 +91,20 @@ function _normalizeSettings(raw) {
   }
   out.mainMenuOrder = order;
 
+  // writingToolsOrder: array con i 4 strumenti scrittura, senza duplicati/invalidi
+  const seenTools = new Set();
+  const toolOrder = [];
+  for (const t of (Array.isArray(out.writingToolsOrder) ? out.writingToolsOrder : [])) {
+    if (WRITING_TOOL_IDS.includes(t) && !seenTools.has(t)) {
+      toolOrder.push(t);
+      seenTools.add(t);
+    }
+  }
+  for (const t of WRITING_TOOL_IDS) {
+    if (!seenTools.has(t)) toolOrder.push(t);
+  }
+  out.writingToolsOrder = toolOrder;
+
   // mainMenuHidden: array di nomi validi, min 3 visibili
   const maxHidden = Math.max(0, MAIN_MENU_IDS.length - 3);
   const hiddenSet = new Set();
@@ -108,6 +133,15 @@ function _normalizeSettings(raw) {
   out.libraryOnlyFavorites = !!out.libraryOnlyFavorites;
   out.libraryViewMode = out.libraryViewMode === 'list' ? 'list' : 'grid';
   out.libraryShowTextBelow = !!out.libraryShowTextBelow;
+
+  const clampNum = (v, min, max, fallback) =>
+    (typeof v === 'number' && Number.isFinite(v)) ? Math.max(min, Math.min(max, v)) : fallback;
+
+  out.pressureSensitivity = clampNum(out.pressureSensitivity, 0, 100, DEFAULT_SETTINGS.pressureSensitivity);
+  out.pressureLight       = clampNum(out.pressureLight,       0, 100, DEFAULT_SETTINGS.pressureLight);
+  out.pressureHeavy       = clampNum(out.pressureHeavy,       100, 500, DEFAULT_SETTINGS.pressureHeavy);
+  out.pressureCurve       = clampNum(out.pressureCurve,       0, 100, DEFAULT_SETTINGS.pressureCurve);
+  out.pressureSpeedWeight = clampNum(out.pressureSpeedWeight, 0, 100, DEFAULT_SETTINGS.pressureSpeedWeight);
 
   return out;
 }
@@ -240,14 +274,10 @@ let _pressureCacheKey = '';
 
 export function getPressureParams() {
   const s = _current || getSettings();
-  const key = `${s.pressureLight}|${s.pressureHeavy}|${s.pressureCurve}`;
+  const key = `${s.pressureSensitivity}|${s.pressureLight}|${s.pressureHeavy}|${s.pressureCurve}|${s.pressureSpeedWeight}`;
   if (_pressureCacheKey === key) return _pressureCache;
 
-  _pressureCache = {
-    lightMul: (s.pressureLight / 100) * 0.5,
-    heavyMul: s.pressureHeavy / 100,
-    curve:    0.5 + (s.pressureCurve / 100) * 2.5
-  };
+  _pressureCache = derivePressureParams(s);
   _pressureCacheKey = key;
   return _pressureCache;
 }

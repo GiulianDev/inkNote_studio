@@ -828,14 +828,40 @@ body.dark .page-colors-reset:hover {
    DRAG & DROP MAINBAR (long-press)
    ============================================================ */
 
-body.menu-dragging {
+body.menu-dragging,
+body.tool-dragging {
   cursor: grabbing;
   user-select: none;
   -webkit-user-select: none;
 }
 
-body.menu-dragging .main-menu-btn {
+body.menu-dragging .main-menu-btn,
+body.tool-dragging .dock-tool-btn {
   cursor: grabbing;
+}
+
+#writingToolsGroup .dock-tool-btn {
+  touch-action: none;
+}
+
+.dock-tool-btn > * {
+  pointer-events: none;
+}
+
+.dock-tool-btn.dragging {
+  opacity: 0.45;
+  background-color: #e0e7ff !important;
+  outline: 2px solid #6366f1;
+  transform: scale(0.95);
+  cursor: grabbing;
+  z-index: 60;
+  position: relative;
+  transition: transform .12s ease, opacity .12s ease;
+}
+
+body.dark .dock-tool-btn.dragging {
+  background-color: #312e81 !important;
+  outline-color: #818cf8;
 }
 
 .main-menu-btn.dragging {

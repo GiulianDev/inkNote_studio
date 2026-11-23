@@ -31,10 +31,14 @@ import {
 } from './stroke-geometry.js';
 import { state, viewport } from '../../core/state.js';
 import {
-  PAGE_WIDTH, PAGE_HEIGHT, hexToRgbA, getEffectiveColor, isPaperDark,
+  PAGE_WIDTH, PAGE_HEIGHT, hexToRgbA, parseHexRgb, getEffectiveColor, isPaperDark,
   roundRect, sliderToBaseSize, fastHypot
 } from '../../core/utils.js';
 import { getPressureParams } from '../../core/app-settings.js';
+import {
+  computeInkStrokeWidth,
+  LEGACY_PRESSURE_PARAMS
+} from '../tools/ink-calibration.js';
 
 const SCRIBBLE_ERASE_COLOR  = 'rgba(220, 38, 38, 0.6)';
 const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';
@@ -141,10 +145,7 @@ function getSpeedNorm(pt) {
   if (!pt || !pt.speed) return 0;
   return Math.min(1, pt.speed / 8);
 }
-function getTaper(idx, tool) {
-  if (tool !== 'pen' && tool !== 'pencil') return 1.0;
-  if (idx === 0) return 1.4;
-  if (idx === 1) return 1.15;
+function getTaper() {
   return 1.0;
 }
 
@@ -244,25 +245,26 @@ function _computeHighlighterWidth(baseSize, pressure, speedNorm) {
 // COMPUTE STROKE WIDTH
 // ============================================================
 
-export function computeStrokeWidth(tool, rawSize, pressure, tiltNorm = 0, speedNorm = 0, taper = 1.0, precomputedBaseSize = null) {
-  const p = Math.max(0, Math.min(1, pressure == null ? 0.5 : pressure));
+export function computeStrokeWidth(
+  tool,
+  rawSize,
+  pressure,
+  tiltNorm = 0,
+  speedNorm = 0,
+  taper = 1.0,
+  precomputedBaseSize = null,
+  inkParams = null
+) {
   const baseSize = precomputedBaseSize !== null ? precomputedBaseSize : sliderToBaseSize(rawSize);
-  let w = baseSize;
-  if (tool === 'pen' || tool === 'pencil') {
-    const params = getPressureParams();
-    const range = params.heavyMul - params.lightMul;
-    w = baseSize * (params.lightMul + Math.pow(p, params.curve) * range);
-    if (tool === 'pen') { w *= (1 + tiltNorm * 0.15); w *= (1 - speedNorm * 0.25); }
-    else                { w *= (1 + tiltNorm * 1.5);  w *= (1 - speedNorm * 0.4); }
-  } else if (tool === 'marker') {
-    w = baseSize * (1.2 + p * 1.0);
-    w *= (1 + tiltNorm * 0.50);
-    w *= (1 - speedNorm * 0.15);
-  } else if (tool === 'highlighter') {
-    w = _computeHighlighterWidth(baseSize, pressure, speedNorm);
-  }
-  w *= taper;
-  return w;
+  return computeInkStrokeWidth(
+    tool,
+    baseSize,
+    pressure,
+    tiltNorm,
+    speedNorm,
+    taper,
+    inkParams || getPressureParams()
+  );
 }
 
 // ============================================================
@@ -371,6 +373,311 @@ function drawTaperedSegment(ctx, p0, p1, w0, w1) {
   ctx.closePath();
   ctx.fill();
   ctx.beginPath(); ctx.arc(p0.x, p0.y, hw0, 0, Math.PI * 2); ctx.fill();
+}
+
+// ============================================================
+// GRAPHITE / PASTEL GRAIN ENGINE (Matita)
+// ============================================================
+
+const _graphiteTileCache = new Map();
+
+function _getGraphiteTileCanvas(hexColor) {
+  const key = (hexColor || '#000000').toLowerCase();
+  if (_graphiteTileCache.has(key)) return _graphiteTileCache.get(key);
+  if (typeof document === 'undefined') return null;
+
+  const size = 96;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const gctx = canvas.getContext('2d');
+  if (!gctx) return null;
+
+  const rgb = parseHexRgb(key) || { r: 15, g: 23, b: 42 };
+  const img = gctx.createImageData(size, size);
+  const data = img.data;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Hash deterministico multi-frequenza (grana fine + trama carta + fibra leggera)
+      let h1 = (((x * 374761393) + (y * 668265263)) ^ 0x5bf03635) >>> 0;
+      h1 = ((h1 ^ (h1 >> 13)) * 1274126177) >>> 0;
+      const fine = ((h1 >>> 24) & 255) / 255;
+
+      const cx = x >> 1;
+      const cy = y >> 1;
+      let h2 = (((cx * 1597334677) + (cy * 3812015801)) ^ 0x9e3779b9) >>> 0;
+      h2 = ((h2 ^ (h2 >> 15)) * 2246822519) >>> 0;
+      const coarse = ((h2 >>> 24) & 255) / 255;
+
+      // Trama incrociata leggera della carta (evita buchi binari su tratti sottili)
+      const tooth = 0.5 + 0.25 * Math.sin(x * 0.65 + y * 0.35) + 0.25 * Math.cos(x * 0.38 - y * 0.72);
+      const grain = fine * 0.48 + coarse * 0.30 + tooth * 0.22;
+
+      // Valli porose morbide (alpha >= 0.26) + picchi di grafite granulosa (fino a 0.96)
+      // Mantiene continuità anche nei tratti sottili a matita verticale
+      const shaped = Math.pow(grain, 1.35);
+      const alpha = Math.round((0.26 + shaped * 0.70) * 255);
+
+      const idx = (y * size + x) * 4;
+      data[idx] = rgb.r;
+      data[idx + 1] = rgb.g;
+      data[idx + 2] = rgb.b;
+      data[idx + 3] = alpha;
+    }
+  }
+  gctx.putImageData(img, 0, 0);
+
+  if (_graphiteTileCache.size >= 24) {
+    const oldest = _graphiteTileCache.keys().next().value;
+    _graphiteTileCache.delete(oldest);
+  }
+  _graphiteTileCache.set(key, canvas);
+  return canvas;
+}
+
+function _graphitePatternFor(ctx, resolvedColor) {
+  const tile = _getGraphiteTileCanvas(resolvedColor);
+  if (!tile) return null;
+  try { return ctx.createPattern(tile, 'repeat'); } catch { return null; }
+}
+
+function _traceSinglePassRibbon(ctx, spine) {
+  const m = spine.length;
+  if (m === 0) return;
+  if (m === 1) {
+    const s = spine[0];
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, Math.max(s.w, 0.8) * 0.5, 0, Math.PI * 2);
+    return;
+  }
+
+  const leftX = new Float32Array(m);
+  const leftY = new Float32Array(m);
+  const rightX = new Float32Array(m);
+  const rightY = new Float32Array(m);
+
+  let lastNx = 0, lastNy = 1;
+  for (let i = 0; i < m; i++) {
+    const prev = spine[i > 0 ? i - 1 : 0];
+    const next = spine[i < m - 1 ? i + 1 : m - 1];
+    const tx = next.x - prev.x;
+    const ty = next.y - prev.y;
+    const tLen = fastHypot(tx, ty);
+    let nx = lastNx, ny = lastNy;
+    if (tLen > 0.01) {
+      nx = -ty / tLen;
+      ny = tx / tLen;
+      lastNx = nx;
+      lastNy = ny;
+    }
+    const hw = Math.max(spine[i].w, 0.8) * 0.5;
+    leftX[i] = spine[i].x + nx * hw;
+    leftY[i] = spine[i].y + ny * hw;
+    rightX[i] = spine[i].x - nx * hw;
+    rightY[i] = spine[i].y - ny * hw;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(leftX[0], leftY[0]);
+  for (let i = 1; i < m; i++) {
+    ctx.lineTo(leftX[i], leftY[i]);
+  }
+  const tail = spine[m - 1];
+  const tailPrev = spine[m - 2];
+  const endAng = Math.atan2(tail.y - tailPrev.y, tail.x - tailPrev.x);
+  ctx.arc(tail.x, tail.y, Math.max(tail.w, 0.8) * 0.5, endAng + Math.PI * 0.5, endAng - Math.PI * 0.5, true);
+  for (let i = m - 1; i >= 0; i--) {
+    ctx.lineTo(rightX[i], rightY[i]);
+  }
+  const head = spine[0];
+  const headNext = spine[1];
+  const startAng = Math.atan2(headNext.y - head.y, headNext.x - head.x);
+  ctx.arc(head.x, head.y, Math.max(head.w, 0.8) * 0.5, startAng - Math.PI * 0.5, startAng + Math.PI * 0.5, true);
+  ctx.closePath();
+}
+
+function _drawPencilFlakesFromSpine(ctx, spine, resolvedColor, opacity, baseSeed, stepStartIdx = 0) {
+  const m = spine.length;
+  if (m === 0) return;
+
+  // 3 bande alpha morbide per effetto polvere/grafite che si sfalda senza puntinature scure
+  const bandCoords = [[], [], []];
+  let accumDist = 0;
+  let lastAnchorIdx = 0;
+  let burstIdx = stepStartIdx;
+
+  for (let i = 0; i < m; i++) {
+    const s = spine[i];
+    if (i > 0) {
+      accumDist += fastHypot(s.x - spine[i - 1].x, s.y - spine[i - 1].y);
+      if (accumDist < 2.0 && i < m - 1) continue;
+    }
+
+    const anchor = spine[lastAnchorIdx];
+    const spanLen = Math.max(2.0, fastHypot(s.x - anchor.x, s.y - anchor.y));
+    const midX = i > 0 ? (anchor.x + s.x) * 0.5 : s.x;
+    const midY = i > 0 ? (anchor.y + s.y) * 0.5 : s.y;
+    lastAnchorIdx = i;
+    accumDist = 0;
+
+    const prev = spine[i > 0 ? i - 1 : 0];
+    const next = spine[i < m - 1 ? i + 1 : m - 1];
+    const tx = next.x - prev.x;
+    const ty = next.y - prev.y;
+    const tLen = fastHypot(tx, ty) || 1;
+    const ux = tx / tLen;
+    const uy = ty / tLen;
+    const nx = -uy;
+    const ny = ux;
+
+    const hw = Math.max(s.w, 1.0) * 0.5;
+    const p = s.p != null ? s.p : 0.5;
+    const t = s.t != null ? s.t : 0;
+
+    let rng = (baseSeed ^ ((burstIdx++) * 2654435761)) >>> 0;
+    const nextRand = () => {
+      rng = (rng * 1664525 + 1013904223) >>> 0;
+      return rng / 0xFFFFFFFF;
+    };
+
+    // Grani interni distribuiti lungo l'intero segmento (zero "grappoli" periodici)
+    const innerCount = Math.max(2, Math.round((spanLen / 2.2) * (1.2 + p * 1.8 + t * 2.2)));
+    for (let k = 0; k < innerCount; k++) {
+      const alongOff = (nextRand() - 0.5) * spanLen * 1.1;
+      const perpOff = (nextRand() - 0.5) * 1.9 * hw;
+      const gx = midX + ux * alongOff + nx * perpOff;
+      const gy = midY + uy * alongOff + ny * perpOff;
+      const gW = 0.55 + nextRand() * (0.65 + Math.min(0.85, hw * 0.14));
+      const gH = gW * (0.65 + nextRand() * 0.55);
+      const band = p > 0.65 ? (nextRand() > 0.45 ? 2 : 1) : (p > 0.30 ? (nextRand() > 0.5 ? 1 : 0) : 0);
+      bandCoords[band].push(gx - gW * 0.5, gy - gH * 0.5, gW, gH);
+    }
+
+    // Scaglie esterne ("effetto pastello/grafite che si sfalda sul foglio", accentuate dall'inclinazione)
+    const outerCount = Math.max(1, Math.round((spanLen / 2.4) * (0.6 + p * 0.9 + t * 3.4)));
+    for (let k = 0; k < outerCount; k++) {
+      const side = nextRand() > 0.5 ? 1 : -1;
+      const spread = 0.80 + nextRand() * (0.45 + t * 0.82);
+      const alongOff = (nextRand() - 0.5) * spanLen * 1.15;
+      const gx = midX + ux * alongOff + nx * (side * hw * spread);
+      const gy = midY + uy * alongOff + ny * (side * hw * spread);
+      const fW = 0.45 + nextRand() * (0.75 + t * 0.45);
+      const fH = fW * (0.65 + nextRand() * 0.6);
+      const band = nextRand() > 0.72 ? 1 : 0;
+      bandCoords[band].push(gx - fW * 0.5, gy - fH * 0.5, fW, fH);
+    }
+  }
+
+  const bandAlphas = [0.13, 0.26, 0.42];
+  ctx.fillStyle = resolvedColor;
+  for (let b = 0; b < 3; b++) {
+    const arr = bandCoords[b];
+    if (arr.length === 0) continue;
+    ctx.globalAlpha = opacity * bandAlphas[b];
+    ctx.beginPath();
+    for (let j = 0; j < arr.length; j += 4) {
+      ctx.rect(arr[j], arr[j + 1], arr[j + 2], arr[j + 3]);
+    }
+    ctx.fill();
+  }
+}
+
+function _renderPencilDot(ctx, pt, w, resolvedColor, opacity, seed) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  const pattern = _graphitePatternFor(ctx, resolvedColor);
+  const p = pt.pressure != null ? pt.pressure : 0.5;
+  const r = Math.max(w * 0.5, 0.75);
+  ctx.fillStyle = pattern || resolvedColor;
+  ctx.globalAlpha = opacity * (pattern ? (0.58 + p * 0.25) : 0.48);
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tilt = getTiltNorm(pt);
+  _drawPencilFlakesFromSpine(ctx, [{ x: pt.x, y: pt.y, w, p, t: tilt }], resolvedColor, opacity, seed, 0);
+  ctx.restore();
+}
+
+function _buildPencilSpine(pts, widths, fromIdx, toIdx, smoothness) {
+  const spine = [];
+  for (let i = Math.max(1, fromIdx); i <= toIdx; i++) {
+    const p0 = pts[i >= 2 ? i - 2 : 0];
+    const p1 = pts[i - 1];
+    const p2 = pts[i];
+    const p3 = pts[i + 1 < pts.length ? i + 1 : pts.length - 1];
+    const w1 = widths[i - 1], w2 = widths[i];
+    const pr1 = p1.pressure != null ? p1.pressure : 0.5;
+    const pr2 = p2.pressure != null ? p2.pressure : 0.5;
+    const t1Norm = getTiltNorm(p1), t2Norm = getTiltNorm(p2);
+    const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
+    const steps = computeSegmentSteps(segLen, smoothness);
+    if (spine.length === 0) {
+      spine.push({ x: p1.x, y: p1.y, w: w1, p: pr1, t: t1Norm });
+    }
+    for (let s = 0; s < steps; s++) {
+      const f = (s + 1) / steps;
+      interpolatePointInto(_ptB, p0, p1, p2, p3, f, smoothness);
+      spine.push({
+        x: _ptB.x,
+        y: _ptB.y,
+        w: w1 + (w2 - w1) * f,
+        p: pr1 + (pr2 - pr1) * f,
+        t: t1Norm + (t2Norm - t1Norm) * f
+      });
+    }
+  }
+  return spine;
+}
+
+function _renderPencilGraphiteStroke(ctx, stroke, pts, widths, smoothness, resolvedColor, opacity) {
+  const spine = _buildPencilSpine(pts, widths, 1, pts.length - 1, smoothness);
+  if (spine.length === 0) return;
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  const pattern = _graphitePatternFor(ctx, resolvedColor);
+  let sumP = 0;
+  for (let i = 0; i < spine.length; i++) sumP += spine[i].p;
+  const avgP = sumP / spine.length;
+
+  // 1. Corpo poroso con pattern carta/grafite (single-pass per zero accumulo alpha sulle curve)
+  _traceSinglePassRibbon(ctx, spine);
+  ctx.fillStyle = pattern || resolvedColor;
+  ctx.globalAlpha = opacity * (pattern ? (0.48 + avgP * 0.28) : 0.42);
+  ctx.fill();
+
+  // 2. Scaglie di grafite / effetto pastello sui bordi e nel tratto
+  _drawPencilFlakesFromSpine(ctx, spine, resolvedColor, opacity, _strokeSeed(stroke), 0);
+  ctx.restore();
+}
+
+export function renderPencilPreviewStroke(ctx, pts, widths, resolvedColor, opacity = 1.0) {
+  if (!pts || pts.length === 0) return;
+  if (pts.length === 1) {
+    _renderPencilDot(ctx, pts[0], widths[0], resolvedColor, opacity, 0x5F3759DF);
+    return;
+  }
+  const spine = pts.map((pt, idx) => ({
+    x: pt.x,
+    y: pt.y,
+    w: widths[idx] != null ? widths[idx] : 3,
+    p: pt.pressure != null ? pt.pressure : 0.5,
+    t: getTiltNorm(pt)
+  }));
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  const pattern = _graphitePatternFor(ctx, resolvedColor);
+  let sumP = 0;
+  for (let i = 0; i < spine.length; i++) sumP += spine[i].p;
+  const avgP = sumP / spine.length;
+  _traceSinglePassRibbon(ctx, spine);
+  ctx.fillStyle = pattern || resolvedColor;
+  ctx.globalAlpha = opacity * (pattern ? (0.48 + avgP * 0.28) : 0.42);
+  ctx.fill();
+  _drawPencilFlakesFromSpine(ctx, spine, resolvedColor, opacity, 0x5F3759DF, 0);
+  ctx.restore();
 }
 
 // ============================================================
@@ -611,14 +918,17 @@ export function drawDotOnly(pageData, stroke) {
     const baseSize = sliderToBaseSize(stroke.size);
     const w = baseSize * 4.0;
     ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2); ctx.fill();
+  } else if (stroke.tool === 'pencil') {
+    const baseSize = sliderToBaseSize(stroke.size);
+    const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
+    const w = computeStrokeWidth('pencil', stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize, inkParams);
+    _renderPencilDot(ctx, pt, w, getEffectiveColor(stroke.color, inkDark), opacity, _strokeSeed(stroke));
   } else {
-    // Pencil: colore ha già alpha interna 0.55 in getStrokeStyle.
-    // Pen/marker: colore pieno.
-    // In entrambi i casi applichiamo opacity utente via globalAlpha.
     setupStrokeStyle(ctx, stroke, inkDark);
     ctx.globalAlpha = opacity;
     const baseSize = sliderToBaseSize(stroke.size);
-    const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
+    const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
+    const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize, inkParams);
     ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
@@ -671,6 +981,14 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   }
 
   if (n === 1) {
+    const baseSize = sliderToBaseSize(stroke.size);
+    const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
+    const pt = pts[0];
+    const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize, inkParams);
+    if (stroke.tool === 'pencil' && !overrideColor) {
+      _renderPencilDot(ctx, pt, w, getEffectiveColor(stroke.color, forceTargetDark), opacity, _strokeSeed(stroke));
+      return;
+    }
     ctx.save();
     if (overrideColor) {
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -680,11 +998,23 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
       setupStrokeStyle(ctx, stroke, forceTargetDark);
       ctx.globalAlpha = opacity;
     }
-    const baseSize = sliderToBaseSize(stroke.size);
-    const pt = pts[0];
-    const w = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure, getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
     ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(w / 2, 0.6), 0, Math.PI * 2); ctx.fill();
     ctx.restore();
+    return;
+  }
+
+  const smoothness = state.smoothing;
+  const baseSize = sliderToBaseSize(stroke.size);
+  const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
+  const widths = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const pt = pts[i];
+    widths[i] = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
+      getTiltNorm(pt), getSpeedNorm(pt), getTaper(i, stroke.tool), baseSize, inkParams);
+  }
+
+  if (stroke.tool === 'pencil' && !overrideColor) {
+    _renderPencilGraphiteStroke(ctx, stroke, pts, widths, smoothness, getEffectiveColor(stroke.color, forceTargetDark), opacity);
     return;
   }
 
@@ -696,15 +1026,6 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   } else {
     setupStrokeStyle(ctx, stroke, forceTargetDark);
     ctx.globalAlpha = opacity;
-  }
-
-  const smoothness = state.smoothing;
-  const baseSize = sliderToBaseSize(stroke.size);
-  const widths = new Array(n);
-  for (let i = 0; i < n; i++) {
-    const pt = pts[i];
-    widths[i] = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
-      getTiltNorm(pt), getSpeedNorm(pt), getTaper(i, stroke.tool), baseSize);
   }
 
   const unified = overrideColor != null || canUnifyFill(stroke.tool);
@@ -821,11 +1142,12 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
   // Il pattern continua esattamente da dove era rimasto.
   if (styleInfo.lineDash && stroke.tool !== 'highlighter') {
     const baseSize = sliderToBaseSize(stroke.size);
+    const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
     let sumW = 0;
     for (let i = 0; i < n; i++) {
       const pt = pts[i];
       sumW += computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
-        getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
+        getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize, inkParams);
     }
     const avgW = Math.max(0.6, sumW / n);
 
@@ -881,10 +1203,34 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
     return;
   }
 
-  setupStrokeStyle(ctx, stroke, inkDark);
-
   const smoothness = state.smoothing;
   const baseSize = sliderToBaseSize(stroke.size);
+  const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
+
+  if (stroke.tool === 'pencil') {
+    const startIdx = Math.max(0, firstSegEnd - 1);
+    const batchWidths = new Array(n);
+    for (let i = startIdx; i < n; i++) {
+      const pt = pts[i];
+      batchWidths[i] = computeStrokeWidth('pencil', stroke.size, pt.pressure,
+        getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize, inkParams);
+    }
+    const spine = _buildPencilSpine(pts, batchWidths, firstSegEnd, n - 1, smoothness);
+    if (spine.length > 0) {
+      const resolved = getEffectiveColor(stroke.color, inkDark);
+      const pattern = _graphitePatternFor(ctx, resolved);
+      ctx.globalCompositeOperation = 'source-over';
+      _traceSinglePassRibbon(ctx, spine);
+      ctx.fillStyle = pattern || resolved;
+      ctx.globalAlpha = pattern ? 0.56 : 0.42;
+      ctx.fill();
+      _drawPencilFlakesFromSpine(ctx, spine, resolved, 1.0, _strokeSeed(stroke), firstSegEnd * 4);
+    }
+    ctx.restore();
+    return;
+  }
+
+  setupStrokeStyle(ctx, stroke, inkDark);
   const unified = canUnifyFillIncremental(stroke.tool);
 
   if (unified) {
@@ -898,9 +1244,9 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
       const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
-        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
+        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize, inkParams);
       const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
-        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
+        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize, inkParams);
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const steps = computeSegmentSteps(segLen, smoothness);
       if (cIdx + steps * 3 > buf.length) {
@@ -940,9 +1286,9 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
     if (smoothness <= 0.01 && n >= 2) {
       const tipP1 = pts[n - 2], tipP2 = pts[n - 1];
       const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure,
-        getTiltNorm(tipP1), getSpeedNorm(tipP1), 1.0, baseSize);
+        getTiltNorm(tipP1), getSpeedNorm(tipP1), 1.0, baseSize, inkParams);
       const tipW2 = computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure,
-        getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize);
+        getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize, inkParams);
       ctx.beginPath();
       addTaperedSegmentPolygon(ctx, tipP1, tipP2, tipW1, tipW2);
       ctx.fill();
@@ -957,9 +1303,9 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
       const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
-        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize);
+        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize, inkParams);
       const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
-        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize);
+        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize, inkParams);
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
       const steps = Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
@@ -1021,7 +1367,51 @@ export function drawPendingShape(ctx, forceTargetDark) {
   const ps = state.pendingShape;
   if (!ps) return;
 
+  if (Array.isArray(ps.points) && ps.points.length >= 2) {
+    renderFullStroke(ctx, {
+      tool: ps.tool,
+      color: ps.color,
+      size: ps.size,
+      opacity: ps.opacity != null ? ps.opacity : 1.0,
+      style: ps.style || 'solid',
+      inkParams: ps.inkParams,
+      points: ps.points
+    }, forceTargetDark);
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < ps.points.length; i++) {
+      const p = ps.points[i];
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const w = Math.round(maxX - minX);
+    const h = Math.round(maxY - minY);
+    const midX = (minX + maxX) / 2;
+    const label = `${(ps.label || 'Forma').replace(/^Forma:\s*/, '')} · ${w}×${h}px`;
+
+    ctx.save();
+    ctx.font = '600 12px Inter, sans-serif';
+    const textW = ctx.measureText(label).width;
+    const badgeW = textW + 16;
+    const badgeH = 22;
+    const bx = midX - badgeW / 2;
+    const by = Math.max(8, minY - 30);
+    ctx.fillStyle = 'rgba(79, 70, 229, 0.94)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, bx, by, badgeW, badgeH, 11);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, midX, by + badgeH / 2 + 0.5);
+    ctx.restore();
+    return;
+  }
+
   const startPt = ps.start, endPt = ps.end;
+  if (!startPt || !endPt) return;
   const effectiveColor = getEffectiveColor(ps.color, forceTargetDark);
 
   // Opacità visiva della linea di preview:
@@ -1030,7 +1420,7 @@ export function drawPendingShape(ctx, forceTargetDark) {
   //   - highlighter non entra mai in pendingShape (usa trySnapHighlighter
   //     che modifica in-place), quindi non serve gestirlo qui.
   const userOpacity = ps.opacity != null ? ps.opacity : 1.0;
-  const pencilFactor = ps.tool === 'pencil' ? 0.55 : 1.0;
+  const pencilFactor = ps.tool === 'pencil' ? 0.65 : 1.0;
   const lineOpacity = userOpacity * pencilFactor;
 
   ctx.save();
@@ -1038,7 +1428,7 @@ export function drawPendingShape(ctx, forceTargetDark) {
   ctx.lineJoin = 'round';
   ctx.globalCompositeOperation = 'source-over';
   ctx.strokeStyle = effectiveColor;
-  ctx.lineWidth = computeStrokeWidth(ps.tool, ps.size, 0.5);
+  ctx.lineWidth = computeStrokeWidth(ps.tool, ps.size, 0.5, 0, 0, 1.0, null, ps.inkParams);
   ctx.globalAlpha = lineOpacity;
 
   // Mostra il pattern anche durante lo snap (prima era solo solido)
@@ -1343,6 +1733,7 @@ function _renderDashedStroke(ctx, stroke, styleInfo, isDark, opacity) {
   if (n < 2) return;
 
   const baseSize = sliderToBaseSize(stroke.size);
+  const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
 
   // Larghezza: media dei width per-punto (la taper si perde, ma il
   // pattern resta leggibile). Un minimo di 0.6 evita linee invisibili.
@@ -1350,7 +1741,7 @@ function _renderDashedStroke(ctx, stroke, styleInfo, isDark, opacity) {
   for (let i = 0; i < n; i++) {
     const pt = pts[i];
     sumW += computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
-      getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize);
+      getTiltNorm(pt), getSpeedNorm(pt), 1.0, baseSize, inkParams);
   }
   const avgW = Math.max(0.6, sumW / n);
 

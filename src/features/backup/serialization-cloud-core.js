@@ -57,7 +57,7 @@ export function prepareCloudStrokePayload(raw) {
   const maxByBuf = Math.floor(copy.length / PACKED_STRIDE);
   const safeCount = Math.max(0, Math.min(s.count != null ? s.count : maxByBuf, maxByBuf));
 
-  return {
+  const out = {
     tool: s.tool,
     color: s.color,
     size: s.size,
@@ -66,6 +66,10 @@ export function prepareCloudStrokePayload(raw) {
     packedBuffer: copy.buffer,
     count: safeCount
   };
+  if (s.inkParams && typeof s.inkParams === 'object') {
+    out.inkParams = s.inkParams;
+  }
+  return out;
 }
 
 function _makeAxisBounds(minVal, maxVal) {
@@ -265,6 +269,9 @@ export async function compressPageBundle(strokes, textBoxes = []) {
       opacity: s.opacity != null ? s.opacity : 1.0,
       style: s.style || 'solid'
     };
+    if (s.inkParams && typeof s.inkParams === 'object') {
+      metaObj.inkParams = s.inkParams;
+    }
     if (bounds.rx) metaObj.rx = bounds.rx;
     if (bounds.ry) metaObj.ry = bounds.ry;
     const metaBytes = encoder.encode(JSON.stringify(metaObj));
@@ -341,7 +348,7 @@ export async function decompressPageBundle(compressedBuf) {
     const yBounds = _parseAxisBounds(meta.ry);
     const packed = dequantizeStroke(pointBytes, pointCount, xBounds, yBounds);
 
-    strokes.push({
+    const strokeEntry = {
       tool: meta.tool,
       color: meta.color,
       size: meta.size,
@@ -349,7 +356,11 @@ export async function decompressPageBundle(compressedBuf) {
       style: meta.style || 'solid',
       packed: packed,
       count: pointCount
-    });
+    };
+    if (meta.inkParams && typeof meta.inkParams === 'object') {
+      strokeEntry.inkParams = meta.inkParams;
+    }
+    strokes.push(strokeEntry);
   }
 
   let textBoxes = [];

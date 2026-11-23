@@ -14,12 +14,18 @@
 // ============================================================
 
 import { state } from '../../core/state.js';
-import { showToast } from '../../core/utils.js';
+import { showToast, getEffectiveColor } from '../../core/utils.js';
 import {
   DEFAULT_SETTINGS, getSettings, updateSettings,
-  onSettingsChanged
+  onSettingsChanged, getPressureParams
 } from '../../core/app-settings.js';
-import { computeStrokeWidth } from '../render/render.js';
+import { computeStrokeWidth, renderPencilPreviewStroke } from '../render/render.js';
+import {
+  detectInkPlatform,
+  normalizePenPressure,
+  createStrokeStabilizer,
+  samplePressureCurve
+} from '../tools/ink-calibration.js';
 
 import settingsHtml from './settings-modal.html?raw';
 
@@ -56,11 +62,24 @@ export function openSettingsModal() {
   if (autoHideEl) autoHideEl.checked = !!s.autoHideDock;
   const libTextEl = document.getElementById('settingLibraryShowTextBelow');
   if (libTextEl) libTextEl.checked = !!s.libraryShowTextBelow;
-  _setValue('pressureLightSlider',     s.pressureLight);
-  _setValue('pressureHeavySlider',     s.pressureHeavy);
-  _setValue('pressureCurveSlider',     s.pressureCurve);
-  _setValue('scrollSensitivitySlider', s.scrollSensitivity);
+
+  _setValue('pressureSensitivitySlider', s.pressureSensitivity);
+  _setValue('pressureLightSlider',       s.pressureLight);
+  _setValue('pressureHeavySlider',       s.pressureHeavy);
+  _setValue('pressureCurveSlider',       s.pressureCurve);
+  _setValue('pressureSpeedWeightSlider', s.pressureSpeedWeight);
+  _setValue('scrollSensitivitySlider',   s.scrollSensitivity);
+
+  const platformBadge = document.getElementById('inkPlatformBadge');
+  if (platformBadge) {
+    const plat = _pressureTestState.platform;
+    platformBadge.textContent = plat === 'ios'
+      ? 'Profilo iPad / Apple Pencil'
+      : (plat === 'android' ? 'Profilo Android' : 'Profilo Desktop / Surface');
+  }
+
   _refreshLabels();
+  _renderPressureCurveSvg();
   _redrawPressureTest();
 
   const modal = document.getElementById('settingsModal');
@@ -69,7 +88,10 @@ export function openSettingsModal() {
   modal.classList.add('flex');
   const body = modal.querySelector('.overflow-y-auto');
   if (body) body.scrollTop = 0;
-  requestAnimationFrame(() => _redrawPressureTest());
+  requestAnimationFrame(() => {
+    _renderPressureCurveSvg();
+    _redrawPressureTest();
+  });
 }
 
 export function closeSettingsModal({ cancel = true } = {}) {
@@ -87,15 +109,33 @@ export function closeSettingsModal({ cancel = true } = {}) {
 }
 
 export function confirmSettings() {
-  const printTheme   = _getValue('settingPrintTheme') ?? getSettings().printTheme;
-  const handedness   = _getValue('settingHandedness') ?? getSettings().handedness;
-  const dockSize     = _getValue('settingDockSize')   ?? getSettings().dockSize;
+  const s = getSettings();
+  const printTheme   = _getValue('settingPrintTheme') ?? s.printTheme;
+  const handedness   = _getValue('settingHandedness') ?? s.handedness;
+  const dockSize     = _getValue('settingDockSize')   ?? s.dockSize;
   const autoHideEl   = document.getElementById('settingAutoHideDock');
-  const autoHideDock = autoHideEl ? !!autoHideEl.checked : !!getSettings().autoHideDock;
+  const autoHideDock = autoHideEl ? !!autoHideEl.checked : !!s.autoHideDock;
   const libTextEl    = document.getElementById('settingLibraryShowTextBelow');
-  const libraryShowTextBelow = libTextEl ? !!libTextEl.checked : !!getSettings().libraryShowTextBelow;
+  const libraryShowTextBelow = libTextEl ? !!libTextEl.checked : !!s.libraryShowTextBelow;
 
-  updateSettings({ printTheme, handedness, dockSize, autoHideDock, libraryShowTextBelow }, { persist: true });
+  const pressureSensitivity = _getIntValue('pressureSensitivitySlider', s.pressureSensitivity);
+  const pressureLight       = _getIntValue('pressureLightSlider', s.pressureLight);
+  const pressureHeavy       = _getIntValue('pressureHeavySlider', s.pressureHeavy);
+  const pressureCurve       = _getIntValue('pressureCurveSlider', s.pressureCurve);
+  const pressureSpeedWeight = _getIntValue('pressureSpeedWeightSlider', s.pressureSpeedWeight);
+
+  updateSettings({
+    printTheme,
+    handedness,
+    dockSize,
+    autoHideDock,
+    libraryShowTextBelow,
+    pressureSensitivity,
+    pressureLight,
+    pressureHeavy,
+    pressureCurve,
+    pressureSpeedWeight
+  }, { persist: true });
 
   _draftSnapshot = null;
   _isOpen = false;
@@ -108,14 +148,44 @@ export function confirmSettings() {
 // ------------------------------------------------------------
 function _setValue(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
 function _getValue(id)    { const el = document.getElementById(id); return el ? el.value : null; }
+function _getIntValue(id, fallback) {
+  const raw = _getValue(id);
+  const n = raw != null ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) ? n : fallback;
+}
 function _setText(id, v)  { const el = document.getElementById(id); if (el) el.innerText = v; }
 
 function _refreshLabels() {
   const s = getSettings();
-  _setText('pressureLightValue',     s.pressureLight);
-  _setText('pressureHeavyValue',     s.pressureHeavy);
-  _setText('pressureCurveValue',     s.pressureCurve);
-  _setText('scrollSensitivityValue', s.scrollSensitivity);
+  _setText('pressureSensitivityValue', s.pressureSensitivity);
+  _setText('pressureLightValue',       s.pressureLight);
+  _setText('pressureHeavyValue',       s.pressureHeavy);
+  _setText('pressureCurveValue',       s.pressureCurve);
+  _setText('pressureSpeedWeightValue', s.pressureSpeedWeight);
+  _setText('scrollSensitivityValue',   s.scrollSensitivity);
+}
+
+function _renderPressureCurveSvg() {
+  const pathEl = document.getElementById('pressureCurvePath');
+  const areaEl = document.getElementById('pressureCurveArea');
+  if (!pathEl || !areaEl) return;
+
+  const params = getPressureParams();
+  const pts = samplePressureCurve(params, 28);
+  const left = 12, right = 208, bottom = 78, top = 12;
+  const w = right - left;
+  const h = bottom - top;
+
+  const coords = pts.map(p => ({
+    x: +(left + p.x * w).toFixed(1),
+    y: +(bottom - p.y * h).toFixed(1)
+  }));
+  if (!coords.length) return;
+
+  const dLine = coords.map((c, idx) => `${idx === 0 ? 'M' : 'L'} ${c.x} ${c.y}`).join(' ');
+  const dArea = `${dLine} L ${coords[coords.length - 1].x} ${bottom} L ${coords[0].x} ${bottom} Z`;
+  pathEl.setAttribute('d', dLine);
+  areaEl.setAttribute('d', dArea);
 }
 
 // ------------------------------------------------------------
@@ -153,20 +223,30 @@ function _bindAll() {
       updateSettings({ libraryShowTextBelow: !!e.target.checked }, { persist: false });
     });
 
-  ['pressureLightSlider', 'pressureHeavySlider', 'pressureCurveSlider'].forEach(id => {
+  [
+    'pressureSensitivitySlider',
+    'pressureLightSlider',
+    'pressureHeavySlider',
+    'pressureCurveSlider',
+    'pressureSpeedWeightSlider'
+  ].forEach(id => {
     document.getElementById(id)?.addEventListener('input', () => {
+      const s = getSettings();
       updateSettings({
-        pressureLight: parseInt(_getValue('pressureLightSlider')),
-        pressureHeavy: parseInt(_getValue('pressureHeavySlider')),
-        pressureCurve: parseInt(_getValue('pressureCurveSlider'))
+        pressureSensitivity: _getIntValue('pressureSensitivitySlider', s.pressureSensitivity),
+        pressureLight:       _getIntValue('pressureLightSlider', s.pressureLight),
+        pressureHeavy:       _getIntValue('pressureHeavySlider', s.pressureHeavy),
+        pressureCurve:       _getIntValue('pressureCurveSlider', s.pressureCurve),
+        pressureSpeedWeight: _getIntValue('pressureSpeedWeightSlider', s.pressureSpeedWeight)
       }, { persist: false });
       _refreshLabels();
+      _renderPressureCurveSvg();
       _redrawPressureTest();
     });
   });
 
   document.getElementById('scrollSensitivitySlider')?.addEventListener('input', (e) => {
-    updateSettings({ scrollSensitivity: parseInt(e.target.value) }, { persist: false });
+    updateSettings({ scrollSensitivity: parseInt(e.target.value, 10) }, { persist: false });
     _setText('scrollSensitivityValue', e.target.value);
   });
 
@@ -211,41 +291,95 @@ function _bindAll() {
 // ------------------------------------------------------------
 // PRESSURE TEST CANVAS
 // ------------------------------------------------------------
-const _pressureTestState = { strokes: [], current: null };
+const _pressureTestState = {
+  platform: detectInkPlatform(),
+  strokes: [],
+  current: null
+};
 
 function _onPressureTestDown(e) {
   const canvas = document.getElementById('pressureTestCanvas');
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
-  const tool = (state.activeTool === 'pen' || state.activeTool === 'pencil') ? state.activeTool : 'pen';
+  const tool = (state.activeTool === 'pen' || state.activeTool === 'pencil' || state.activeTool === 'marker')
+    ? state.activeTool
+    : 'pen';
+  const params = getPressureParams();
+  const rawPressure = e.pressure || 0;
+  const normP = normalizePenPressure(rawPressure, {
+    platform: _pressureTestState.platform,
+    sensitivity: params.sensitivity,
+    isDrawing: false,
+    lastValidPressure: 0
+  });
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const firstPt = {
+    x,
+    y,
+    rawPressure,
+    pressure: normP,
+    tiltX: e.tiltX || 0,
+    tiltY: e.tiltY || 0,
+    speed: 0,
+    timeStamp: e.timeStamp || performance.now()
+  };
   _pressureTestState.current = {
-    tool, size: state.strokeWidth, points: [{
-      x: e.clientX - rect.left, y: e.clientY - rect.top,
-      pressure: Math.max(0.1, e.pressure || 0.5),
-      tiltX: e.tiltX || 0, tiltY: e.tiltY || 0, speed: 0
-    }]
+    tool,
+    size: state.strokeWidth || 4,
+    _stabilizer: createStrokeStabilizer(firstPt),
+    _lastRawValidPressure: rawPressure > 0 ? normP : 0,
+    points: [firstPt]
   };
   try { canvas.setPointerCapture(e.pointerId); } catch {}
   _redrawPressureTest();
 }
 
 function _onPressureTestMove(e) {
-  if (!_pressureTestState.current) return;
+  const cur = _pressureTestState.current;
+  if (!cur) return;
   const canvas = document.getElementById('pressureTestCanvas');
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
-  const last = _pressureTestState.current.points[_pressureTestState.current.points.length - 1];
-  _pressureTestState.current.points.push({
-    x: e.clientX - rect.left, y: e.clientY - rect.top,
-    pressure: Math.max(0.1, e.pressure || 0.5),
-    tiltX: e.tiltX || 0, tiltY: e.tiltY || 0,
-    speed: Math.hypot(e.clientX - rect.left - last.x, e.clientY - rect.top - last.y)
+  const params = getPressureParams();
+  const rawPressure = e.pressure || 0;
+  const normP = normalizePenPressure(rawPressure, {
+    platform: _pressureTestState.platform,
+    sensitivity: params.sensitivity,
+    isDrawing: true,
+    lastValidPressure: cur._lastRawValidPressure
+  });
+  if (rawPressure > 0) cur._lastRawValidPressure = normP;
+
+  const filtered = cur._stabilizer.filterPoint({
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top,
+    pressure: normP,
+    timeStamp: e.timeStamp || performance.now()
+  }, {
+    smoothing: state.smoothing,
+    scale: 1.0
+  });
+  if (!filtered.accepted) return;
+
+  const last = cur.points[cur.points.length - 1];
+  const dist = Math.hypot(filtered.x - last.x, filtered.y - last.y);
+  const speed = dist / Math.max(1, filtered.dtMs / 8.33);
+
+  cur.points.push({
+    x: filtered.x,
+    y: filtered.y,
+    rawPressure,
+    pressure: filtered.pressure,
+    tiltX: e.tiltX || 0,
+    tiltY: e.tiltY || 0,
+    speed
   });
   _redrawPressureTest();
 }
 
 function _onPressureTestUp(e) {
-  if (_pressureTestState.current && _pressureTestState.current.points.length > 1) {
+  if (_pressureTestState.current && _pressureTestState.current.points.length > 0) {
     _pressureTestState.strokes.push(_pressureTestState.current);
     if (_pressureTestState.strokes.length > 20) _pressureTestState.strokes.shift();
   }
@@ -255,11 +389,25 @@ function _onPressureTestUp(e) {
   _redrawPressureTest();
 }
 
+function _drawTaperedSegment(ctx, p0, p1, w0, w1) {
+  const dx = p1.x - p0.x, dy = p1.y - p0.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 0.01) return;
+  const nx = -dy / len, ny = dx / len;
+  const hw0 = Math.max(w0, 0.5) / 2, hw1 = Math.max(w1, 0.5) / 2;
+  ctx.moveTo(p0.x + nx * hw0, p0.y + ny * hw0);
+  ctx.lineTo(p1.x + nx * hw1, p1.y + ny * hw1);
+  ctx.lineTo(p1.x - nx * hw1, p1.y - ny * hw1);
+  ctx.lineTo(p0.x - nx * hw0, p0.y - ny * hw0);
+  ctx.closePath();
+}
+
 function _redrawPressureTest() {
   const canvas = document.getElementById('pressureTestCanvas');
   if (!canvas) return;
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
+  if (!cssW || !cssH) return;
   if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
     canvas.width  = Math.floor(cssW * dpr);
     canvas.height = Math.floor(cssH * dpr);
@@ -271,25 +419,59 @@ function _redrawPressureTest() {
   ctx.fillStyle = isDark ? '#1e293b' : '#ffffff';
   ctx.fillRect(0, 0, cssW, cssH);
 
+  const params = getPressureParams();
   const all = _pressureTestState.current
     ? [..._pressureTestState.strokes, _pressureTestState.current]
     : _pressureTestState.strokes;
 
   all.forEach(stroke => {
     const pts = stroke.points;
-    if (pts.length < 2) return;
-    ctx.save();
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.strokeStyle = isDark ? '#f8fafc' : '#0f172a';
-    for (let i = 1; i < pts.length; i++) {
-      const p1 = pts[i - 1], p2 = pts[i];
-      const tiltNorm  = Math.min(1, Math.hypot(p2.tiltX, p2.tiltY) / 30);
-      const speedNorm = Math.min(1, p2.speed / 8);
-      const w = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure, tiltNorm, speedNorm, 1.0);
-      ctx.lineWidth = Math.max(0.3, w);
-      ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+    if (!pts || pts.length === 0) return;
+
+    let lastValid = 0;
+    const widths = pts.map((pt, idx) => {
+      const pNorm = pt.rawPressure > 0
+        ? normalizePenPressure(pt.rawPressure, {
+            platform: _pressureTestState.platform,
+            sensitivity: params.sensitivity,
+            isDrawing: idx > 0,
+            lastValidPressure: lastValid
+          })
+        : pt.pressure;
+      if (pt.rawPressure > 0) lastValid = pNorm;
+      const tiltNorm  = Math.min(1, Math.hypot(pt.tiltX || 0, pt.tiltY || 0) / 30);
+      const speedNorm = Math.min(1, (pt.speed || 0) / 8);
+      return computeStrokeWidth(stroke.tool, stroke.size, pNorm, tiltNorm, speedNorm, 1.0, null, params);
+    });
+
+    const inkColor = getEffectiveColor('#000000', isDark);
+    if (stroke.tool === 'pencil') {
+      renderPencilPreviewStroke(ctx, pts, widths, inkColor, 1.0);
+    } else {
+      ctx.save();
+      ctx.fillStyle = inkColor;
+      if (pts.length === 1) {
+        ctx.beginPath();
+        const r = Math.max(0.5, widths[0]) / 2;
+        ctx.arc(pts[0].x, pts[0].y, r, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        for (let i = 1; i < pts.length; i++) {
+          _drawTaperedSegment(ctx, pts[i - 1], pts[i], widths[i - 1], widths[i]);
+        }
+        ctx.fill();
+
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const r = Math.max(0.5, widths[i]) / 2;
+          ctx.moveTo(pts[i].x + r, pts[i].y);
+          ctx.arc(pts[i].x, pts[i].y, r, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+      ctx.restore();
     }
-    ctx.restore();
   });
 
   if (all.length === 0) {
@@ -302,14 +484,19 @@ function _redrawPressureTest() {
 
 function _resetPressureDefaults() {
   updateSettings({
-    pressureLight: DEFAULT_SETTINGS.pressureLight,
-    pressureHeavy: DEFAULT_SETTINGS.pressureHeavy,
-    pressureCurve: DEFAULT_SETTINGS.pressureCurve
+    pressureSensitivity: DEFAULT_SETTINGS.pressureSensitivity,
+    pressureLight:       DEFAULT_SETTINGS.pressureLight,
+    pressureHeavy:       DEFAULT_SETTINGS.pressureHeavy,
+    pressureCurve:       DEFAULT_SETTINGS.pressureCurve,
+    pressureSpeedWeight: DEFAULT_SETTINGS.pressureSpeedWeight
   }, { persist: false });
-  _setValue('pressureLightSlider', DEFAULT_SETTINGS.pressureLight);
-  _setValue('pressureHeavySlider', DEFAULT_SETTINGS.pressureHeavy);
-  _setValue('pressureCurveSlider', DEFAULT_SETTINGS.pressureCurve);
+  _setValue('pressureSensitivitySlider', DEFAULT_SETTINGS.pressureSensitivity);
+  _setValue('pressureLightSlider',       DEFAULT_SETTINGS.pressureLight);
+  _setValue('pressureHeavySlider',       DEFAULT_SETTINGS.pressureHeavy);
+  _setValue('pressureCurveSlider',       DEFAULT_SETTINGS.pressureCurve);
+  _setValue('pressureSpeedWeightSlider', DEFAULT_SETTINGS.pressureSpeedWeight);
   _refreshLabels();
+  _renderPressureCurveSvg();
   _redrawPressureTest();
   showToast('Valori di pressione ripristinati', '↩️');
 }

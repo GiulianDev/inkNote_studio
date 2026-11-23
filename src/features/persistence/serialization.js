@@ -43,10 +43,33 @@ function _isLegacyBlack(c) {
   return !c || c === '#000000' || c === '#000' || c === 'black';
 }
 
+function _cloneInkParamsOptional(p) {
+  if (!p || typeof p !== 'object') return null;
+  if (!Number.isFinite(p.lightMul) || !Number.isFinite(p.heavyMul) || !Number.isFinite(p.curve)) {
+    return null;
+  }
+  return {
+    lightMul: p.lightMul,
+    heavyMul: p.heavyMul,
+    curve: p.curve,
+    speedWeight: Number.isFinite(p.speedWeight) ? p.speedWeight : 0.25
+  };
+}
+
+function _sameInkParams(a, b) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.lightMul === b.lightMul &&
+         a.heavyMul === b.heavyMul &&
+         a.curve === b.curve &&
+         a.speedWeight === b.speedWeight;
+}
+
 export function packStroke(s) {
   if (!s) return s;
+  const inkParams = _cloneInkParamsOptional(s.inkParams);
   if (!s.points && s.packed) {
-    return {
+    const out = {
       tool: s.tool,
       color: s.color,
       size: s.size,
@@ -55,6 +78,8 @@ export function packStroke(s) {
       packed: s.packed,
       count: s.count != null ? s.count : ((s.packed.length / PACKED_STRIDE) | 0)
     };
+    if (inkParams) out.inkParams = inkParams;
+    return out;
   }
   const pts = s.points;
   const n = pts ? pts.length : 0;
@@ -68,7 +93,8 @@ export function packStroke(s) {
       cached.color === s.color &&
       cached.size === s.size &&
       cached.opacity === opacity &&
-      cached.style === style) {
+      cached.style === style &&
+      _sameInkParams(cached.inkParams, inkParams)) {
     return cached;
   }
 
@@ -93,6 +119,7 @@ export function packStroke(s) {
     packed: buf,
     count: n
   };
+  if (inkParams) packed.inkParams = inkParams;
   setNonEnumerable(s, '_packedCache', packed);
   return packed;
 }
@@ -113,9 +140,12 @@ export function unpackStroke(s) {
   }
 
   const style = s.style || 'solid';
+  const inkParams = _cloneInkParamsOptional(s.inkParams);
 
   if (!s.packed) {
-    return { tool: s.tool, color, size: s.size, opacity, style, points: s.points };
+    const out = { tool: s.tool, color, size: s.size, opacity, style, points: s.points };
+    if (inkParams) out.inkParams = inkParams;
+    return out;
   }
 
   const buf = s.packed;
@@ -135,7 +165,8 @@ export function unpackStroke(s) {
   }
 
   const out = { tool: s.tool, color, size: s.size, opacity, style, points: pts };
-  setNonEnumerable(out, '_packedCache', {
+  if (inkParams) out.inkParams = inkParams;
+  const packedRef = {
     tool: s.tool,
     color,
     size: s.size,
@@ -143,7 +174,9 @@ export function unpackStroke(s) {
     style,
     packed: buf,
     count: n
-  });
+  };
+  if (inkParams) packedRef.inkParams = inkParams;
+  setNonEnumerable(out, '_packedCache', packedRef);
   return out;
 }
 
