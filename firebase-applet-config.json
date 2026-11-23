@@ -1,12 +1,12 @@
 {
-  "projectId": "keen-builder-2g33w",
-  "appId": "1:540038214537:web:c7306d9801378b33362758",
-  "apiKey": "AIzaSyDeHys8z4WobjfEPcYTxcViiH1pb8oqwVg",
-  "authDomain": "keen-builder-2g33w.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-inknotestudio-b9100514-7e7b-4f5a-85a2-cdcee0ecdf9d",
-  "storageBucket": "keen-builder-2g33w.firebasestorage.app",
-  "messagingSenderId": "540038214537",
+  "projectId": "gen-lang-client-0718684743",
+  "appId": "1:575765443579:web:ef7acf4274c11a5275515e",
+  "apiKey": "AIzaSyAWFKOwjenP6VVlZmlnmB3P0aNr1sxt-w0",
+  "authDomain": "gen-lang-client-0718684743.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-inknotestudio-83f34a4f-65ab-497b-8e16-0549a5f4cf3b",
+  "storageBucket": "gen-lang-client-0718684743.firebasestorage.app",
+  "messagingSenderId": "575765443579",
   "measurementId": "",
-  "oAuthClientId": "540038214537-82ej83ergvlt78sva4j2u5svlnb5iia9.apps.googleusercontent.com",
+  "oAuthClientId": "575765443579-n06fj7aulio98otos4lgatb4dref6gup.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

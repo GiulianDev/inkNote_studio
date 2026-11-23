@@ -20,7 +20,9 @@ import {
   checkOutgoingTransferQuota,
   extractGoogleContactCandidates,
   buildUniqueReceivedTitle,
-  parseInviteHandleFromUrl
+  parseInviteHandleFromUrl,
+  classifyPeopleApiError,
+  formatAuthErrorMessage
 } from './sharing-helpers.js';
 
 test('normalizeEmail & isValidEmailFormat normalize and validate emails cleanly', () => {
@@ -187,3 +189,46 @@ test('checkOutgoingTransferQuota enforces simultaneous outgoing transfer limit o
     limit: 10
   });
 });
+
+test('classifyPeopleApiError distinguishes disabled API, missing scope, 401 expiry, and other errors', () => {
+  const disabled = classifyPeopleApiError(403, {
+    error: {
+      code: 403,
+      message: 'People API has not been used in project 123 before or it is disabled.',
+      details: [{ reason: 'SERVICE_DISABLED' }]
+    }
+  }, 'my-proj');
+  assert.equal(disabled.kind, 'api_disabled');
+  assert.equal(disabled.retryableWithRefresh, false);
+  assert.match(disabled.message, /People API non abilitata.*my-proj/);
+
+  const scopeMissing = classifyPeopleApiError(403, {
+    error: {
+      code: 403,
+      message: 'Request had insufficient authentication scopes.',
+      details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }]
+    }
+  });
+  assert.equal(scopeMissing.kind, 'scope_missing');
+  assert.equal(scopeMissing.retryableWithRefresh, true);
+  assert.match(scopeMissing.message, /spunta la casella dei contatti/);
+
+  const unauth = classifyPeopleApiError(401, {
+    error: { code: 401, status: 'UNAUTHENTICATED', message: 'Invalid Credentials' }
+  });
+  assert.equal(unauth.kind, 'unauthenticated');
+  assert.equal(unauth.retryableWithRefresh, true);
+
+  const serverErr = classifyPeopleApiError(500, { error: { message: 'Backend down' } });
+  assert.equal(serverErr.kind, 'other');
+  assert.equal(serverErr.retryableWithRefresh, false);
+  assert.match(serverErr.message, /500.*Backend down/);
+});
+
+test('formatAuthErrorMessage converts Firebase Auth popup/account codes cleanly', () => {
+  assert.match(formatAuthErrorMessage({ code: 'auth/popup-closed-by-user' }), /annullata/);
+  assert.match(formatAuthErrorMessage({ code: 'auth/user-mismatch' }), /account Google diverso/);
+  assert.match(formatAuthErrorMessage({ code: 'auth/popup-blocked' }), /Popup bloccato/);
+  assert.equal(formatAuthErrorMessage(new Error('Generic error')), '');
+});
+

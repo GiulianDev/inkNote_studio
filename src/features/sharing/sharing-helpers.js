@@ -310,3 +310,89 @@ export function parseInviteHandleFromUrl(searchStr) {
     return '';
   }
 }
+
+export function classifyPeopleApiError(status, payload, projectId = '') {
+  const errObj = payload && typeof payload === 'object' ? (payload.error || payload) : null;
+  const rawMessage = typeof errObj?.message === 'string' ? errObj.message.trim() : '';
+  const lower = rawMessage.toLowerCase();
+
+  const details = Array.isArray(errObj?.details) ? errObj.details : [];
+  const errors = Array.isArray(errObj?.errors) ? errObj.errors : [];
+  const reasons = new Set([
+    ...details.map(d => d?.reason).filter(Boolean),
+    ...errors.map(e => e?.reason).filter(Boolean)
+  ]);
+
+  if (
+    reasons.has('SERVICE_DISABLED') ||
+    reasons.has('accessNotConfigured') ||
+    lower.includes('has not been used in project') ||
+    lower.includes('people api') && lower.includes('disabled')
+  ) {
+    const projSuffix = projectId ? ` (${projectId})` : '';
+    return {
+      kind: 'api_disabled',
+      retryableWithRefresh: false,
+      message: `Google People API non abilitata sul progetto${projSuffix}.`
+    };
+  }
+
+  if (
+    status === 403 && (
+      reasons.has('ACCESS_TOKEN_SCOPE_INSUFFICIENT') ||
+      reasons.has('insufficientPermissions') ||
+      lower.includes('insufficient authentication scopes') ||
+      lower.includes('insufficient permission')
+    )
+  ) {
+    return {
+      kind: 'scope_missing',
+      retryableWithRefresh: true,
+      message: 'Permesso di lettura dei Contatti Google non concesso: spunta la casella dei contatti nella finestra di Google e riprova.'
+    };
+  }
+
+  if (status === 401 || errObj?.status === 'UNAUTHENTICATED') {
+    return {
+      kind: 'unauthenticated',
+      retryableWithRefresh: true,
+      message: 'Sessione Contatti Google scaduta o non autorizzata: riprova.'
+    };
+  }
+
+  if (status === 403) {
+    return {
+      kind: 'forbidden',
+      retryableWithRefresh: true,
+      message: rawMessage
+        ? `Accesso ai Contatti Google negato: ${rawMessage}`
+        : 'Accesso ai Contatti Google non autorizzato.'
+    };
+  }
+
+  return {
+    kind: 'other',
+    retryableWithRefresh: false,
+    message: rawMessage
+      ? `Errore lettura Contatti Google (${status}): ${rawMessage}`
+      : `Errore lettura Contatti Google (${status})`
+  };
+}
+
+export function formatAuthErrorMessage(err) {
+  const code = typeof err?.code === 'string' ? err.code : '';
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+    return 'Autorizzazione Google annullata.';
+  }
+  if (code === 'auth/popup-blocked') {
+    return 'Popup bloccato dal browser: consenti i popup per questo sito e riprova.';
+  }
+  if (code === 'auth/user-mismatch') {
+    return 'Hai selezionato un account Google diverso da quello attivo. Usa lo stesso account e riprova.';
+  }
+  if (code === 'auth/unauthorized-domain') {
+    return 'Dominio non autorizzato in Firebase Authentication.';
+  }
+  return '';
+}
+

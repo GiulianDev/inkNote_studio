@@ -30,6 +30,8 @@ import {
   handleFirestoreError,
   isFirestoreReady,
   requestGoogleContactsAccessToken,
+  clearCachedContactsAccessToken,
+  getActiveFirebaseProjectId,
   isGoogleLinkedUser
 } from './firebase.js';
 import {
@@ -56,7 +58,8 @@ import {
   MAX_OUTGOING_TRANSFERS,
   checkOutgoingTransferQuota,
   extractGoogleContactCandidates,
-  buildUniqueReceivedTitle
+  buildUniqueReceivedTitle,
+  classifyPeopleApiError
 } from '../features/sharing/sharing-helpers.js';
 
 function _requireReady() {
@@ -346,13 +349,14 @@ export async function findFriendsFromGoogleContacts(onProgress) {
     throw new Error('Collegati con Google per cercare amici tra i tuoi Contatti');
   }
 
-  const accessToken = await requestGoogleContactsAccessToken();
+  let accessToken = await requestGoogleContactsAccessToken();
   if (!accessToken) {
     return { redirected: true, totalContactsWithEmail: 0, matches: [] };
   }
 
   const allConnections = [];
   let pageToken = '';
+  let retriedAuth = false;
   for (let page = 0; page < 4; page++) {
     const url = new URL('https://people.googleapis.com/v1/people/me/connections');
     url.searchParams.set('personFields', 'names,emailAddresses,photos');
@@ -363,10 +367,25 @@ export async function findFriendsFromGoogleContacts(onProgress) {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (!res.ok) {
-      if (res.status === 403 || res.status === 401) {
-        throw new Error('Accesso ai Contatti Google non autorizzato o People API non abilitata sul progetto');
+      const errorPayload = await res.json().catch(() => null);
+      console.warn('[sharing] People API error:', res.status, errorPayload);
+      const classified = classifyPeopleApiError(res.status, errorPayload, getActiveFirebaseProjectId());
+
+      if (classified.kind === 'unauthenticated' && !retriedAuth) {
+        retriedAuth = true;
+        clearCachedContactsAccessToken();
+        accessToken = await requestGoogleContactsAccessToken({ forceRefresh: true });
+        if (!accessToken) {
+          return { redirected: true, totalContactsWithEmail: 0, matches: [] };
+        }
+        page--;
+        continue;
       }
-      throw new Error(`Errore lettura Contatti Google (${res.status})`);
+
+      if (classified.retryableWithRefresh) {
+        clearCachedContactsAccessToken();
+      }
+      throw new Error(classified.message);
     }
     const payload = await res.json();
     if (Array.isArray(payload.connections)) {

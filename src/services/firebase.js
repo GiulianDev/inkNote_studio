@@ -60,9 +60,11 @@ export let auth = null;
 export let db = null;
 let googleProvider = null;
 
-const CONTACTS_SCOPE = 'https://www.googleapis.com/auth/contacts.readonly';
+const SCOPES = ['https://www.googleapis.com/auth/contacts.readonly'];
 const CONTACTS_REDIRECT_KEY = 'inknote_pending_contacts_redirect';
+const CONTACTS_TOKEN_TTL_MS = 50 * 60 * 1000;
 let _pendingContactsAccessToken = null;
+let _cachedContactsToken = null; // { uid, token, expiresAt } — solo in memoria (mai localStorage/sessionStorage)
 
 async function _testFirestoreConnection() {
   if (!db) return;
@@ -91,6 +93,12 @@ if (activeConfig) {
       : getFirestore(app);
     googleProvider = new GoogleAuthProvider();
     googleProvider.setCustomParameters({ prompt: 'select_account' });
+    onAuthStateChanged(auth, (user) => {
+      if (!user || (_cachedContactsToken && _cachedContactsToken.uid !== user.uid)) {
+        _cachedContactsToken = null;
+        _pendingContactsAccessToken = null;
+      }
+    });
     void _testFirestoreConnection();
   } catch (err) {
     console.warn('[firebase] Init failed, continuing in local-only mode:', err);
@@ -174,6 +182,11 @@ export async function handleRedirectResult() {
       const cred = GoogleAuthProvider.credentialFromResult(result);
       if (hadContactsRedirect && cred?.accessToken) {
         _pendingContactsAccessToken = cred.accessToken;
+        _cachedContactsToken = {
+          uid: result.user?.uid || '',
+          token: cred.accessToken,
+          expiresAt: Date.now() + CONTACTS_TOKEN_TTL_MS
+        };
       }
       return result.user || null;
     }
@@ -192,15 +205,33 @@ export function consumePendingContactsAccessToken() {
   return tok;
 }
 
-export async function requestGoogleContactsAccessToken() {
+export function clearCachedContactsAccessToken() {
+  _cachedContactsToken = null;
+  _pendingContactsAccessToken = null;
+}
+
+export async function requestGoogleContactsAccessToken({ forceRefresh = false } = {}) {
   if (!auth?.currentUser) {
     throw new Error('Devi accedere prima con Google');
   }
   if (!isGoogleLinkedUser(auth.currentUser)) {
     throw new Error('Questa funzione richiede un account collegato a Google');
   }
+
+  const uid = auth.currentUser.uid;
+  if (!forceRefresh && _cachedContactsToken && _cachedContactsToken.uid === uid && Date.now() < _cachedContactsToken.expiresAt) {
+    return _cachedContactsToken.token;
+  }
+
+  if (!forceRefresh && _pendingContactsAccessToken) {
+    const token = _pendingContactsAccessToken;
+    _pendingContactsAccessToken = null;
+    _cachedContactsToken = { uid, token, expiresAt: Date.now() + CONTACTS_TOKEN_TTL_MS };
+    return token;
+  }
+
   const contactsProvider = new GoogleAuthProvider();
-  contactsProvider.addScope(CONTACTS_SCOPE);
+  SCOPES.forEach((scope) => contactsProvider.addScope(scope));
   contactsProvider.setCustomParameters({
     prompt: 'consent',
     include_granted_scopes: 'true',
@@ -213,6 +244,11 @@ export async function requestGoogleContactsAccessToken() {
     if (!cred?.accessToken) {
       throw new Error('Permesso contatti non ricevuto');
     }
+    _cachedContactsToken = {
+      uid,
+      token: cred.accessToken,
+      expiresAt: Date.now() + CONTACTS_TOKEN_TTL_MS
+    };
     return cred.accessToken;
   } catch (err) {
     if (_isMobile() && (err?.code === 'auth/popup-blocked' || err?.code === 'auth/operation-not-supported-in-this-environment')) {
@@ -220,13 +256,22 @@ export async function requestGoogleContactsAccessToken() {
       await reauthenticateWithRedirect(auth.currentUser, contactsProvider);
       return null;
     }
+    if (err?.code === 'auth/user-mismatch') {
+      const mismatchErr = new Error(
+        auth.currentUser.email
+          ? `Seleziona lo stesso account Google (${auth.currentUser.email}) nella finestra di autorizzazione.`
+          : 'Seleziona lo stesso account Google con cui hai effettuato l’accesso.'
+      );
+      mismatchErr.code = 'auth/user-mismatch';
+      throw mismatchErr;
+    }
     throw err;
   }
 }
 
 export async function signOutGoogle() {
   if (!auth) return;
-  _pendingContactsAccessToken = null;
+  clearCachedContactsAccessToken();
   await signOut(auth);
 }
 
