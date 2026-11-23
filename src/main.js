@@ -185,6 +185,12 @@ function _dismissTopTransientUI() {
     return 'auth-dropdown';
   }
 
+  const editorAuthDropdown = document.getElementById('editorAuthDropdown');
+  if (editorAuthDropdown && !editorAuthDropdown.classList.contains('hidden')) {
+    editorAuthDropdown.classList.add('hidden');
+    return 'editor-auth-dropdown';
+  }
+
   if (isEditorActive()) {
     const toolbarMenu = document.getElementById('toolbarMenuPanel');
     if (toolbarMenu && toolbarMenu.classList.contains('open')) {

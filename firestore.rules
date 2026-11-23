@@ -1,0 +1,331 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --------------------------------------------------------
+    // Primitives & validation helpers
+    // --------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidHandle(handle) {
+      return handle is string && handle.size() >= 3 && handle.size() <= 24 && handle.matches('^[a-z0-9_]{3,24}$');
+    }
+
+    function isValidSha256(hash) {
+      return hash is string && hash.size() == 64 && hash.matches('^[a-f0-9]{64}$');
+    }
+
+    function isValidPhotoUrl(url) {
+      return url is string && url.size() <= 500 && (url == '' || url.matches('^https://.*'));
+    }
+
+    function isValidChunkId(chunkId) {
+      return chunkId is string && chunkId.size() >= 1 && chunkId.size() <= 3 && chunkId.matches('^[0-9]{1,3}$');
+    }
+
+    // --------------------------------------------------------
+    // Validation blueprints
+    // --------------------------------------------------------
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'photoURL', 'handle',
+          'discoverable', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'photoURL', 'handle',
+          'discoverable', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId && data.uid == request.auth.uid && data.uid.size() <= 128
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && isValidPhotoUrl(data.photoURL)
+        && isValidHandle(data.handle)
+        && data.discoverable is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDirectoryEmail(data) {
+      return data.keys().hasAll(['uid', 'handle', 'displayName', 'photoURL', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'handle', 'displayName', 'photoURL', 'updatedAt'])
+        && data.uid is string && data.uid == request.auth.uid && data.uid.size() <= 128
+        && isValidHandle(data.handle)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && isValidPhotoUrl(data.photoURL)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDirectoryHandle(data, handle) {
+      return data.keys().hasAll(['uid', 'handle', 'displayName', 'photoURL', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'handle', 'displayName', 'photoURL', 'updatedAt'])
+        && data.uid is string && data.uid == request.auth.uid && data.uid.size() <= 128
+        && data.handle is string && data.handle == handle && isValidHandle(data.handle)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && isValidPhotoUrl(data.photoURL)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFriendDoc(data, friendUid) {
+      return data.keys().hasAll(['uid', 'displayName', 'handle', 'photoURL', 'source', 'addedAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'handle', 'photoURL', 'source', 'addedAt', 'updatedAt'])
+        && data.uid is string && data.uid == friendUid && data.uid.size() <= 128
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.handle is string && (data.handle == '' || isValidHandle(data.handle))
+        && isValidPhotoUrl(data.photoURL)
+        && data.source is string && data.source in ['manual', 'contacts', 'received']
+        && data.addedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTransferDoc(data, transferId) {
+      return data.keys().hasAll([
+          'id', 'senderUid', 'senderName', 'senderHandle', 'senderPhoto',
+          'recipientUid', 'recipientName', 'notebookTitle', 'coverColor',
+          'pageCount', 'byteSize', 'chunkCount', 'status', 'createdAt', 'expiresAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'senderUid', 'senderName', 'senderHandle', 'senderPhoto',
+          'recipientUid', 'recipientName', 'notebookTitle', 'coverColor',
+          'pageCount', 'byteSize', 'chunkCount', 'status', 'createdAt', 'expiresAt'
+        ])
+        && data.id is string && data.id == transferId && data.id.size() <= 128
+        && isValidId(data.senderUid)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80
+        && data.senderHandle is string && (data.senderHandle == '' || isValidHandle(data.senderHandle))
+        && isValidPhotoUrl(data.senderPhoto)
+        && isValidId(data.recipientUid)
+        && data.recipientName is string && data.recipientName.size() >= 1 && data.recipientName.size() <= 80
+        && data.notebookTitle is string && data.notebookTitle.size() >= 1 && data.notebookTitle.size() <= 140
+        && data.coverColor is string && data.coverColor.size() == 7 && data.coverColor.matches('^#[0-9a-fA-F]{6}$')
+        && data.pageCount is int && data.pageCount >= 1 && data.pageCount <= 500
+        && data.byteSize is int && data.byteSize >= 1 && data.byteSize <= 15728640
+        && data.chunkCount is int && data.chunkCount >= 1 && data.chunkCount <= 25
+        && data.status is string && data.status in ['uploading', 'pending', 'imported', 'declined']
+        && data.createdAt is timestamp
+        && data.expiresAt is timestamp;
+    }
+
+    function isValidTransferChunk(data) {
+      return data.keys().hasAll(['index', 'data'])
+        && data.keys().hasOnly(['index', 'data'])
+        && data.index is int && data.index >= 0 && data.index < 25
+        && data.data is string && data.data.size() >= 1 && data.data.size() <= 750000;
+    }
+
+    // --------------------------------------------------------
+    // /users/{userId} and /users/{userId}/friends/{friendUid}
+    // --------------------------------------------------------
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || existing().discoverable == true);
+      allow list: if false;
+
+      allow create: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'photoURL', 'handle', 'discoverable', 'updatedAt'
+        ]);
+
+      allow delete: if isVerifiedOwner(userId) && isValidId(userId);
+
+      match /friends/{friendUid} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(friendUid);
+        allow list: if isOwner(userId) && isValidId(userId);
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(friendUid)
+          && friendUid != userId
+          && isValidFriendDoc(incoming(), friendUid)
+          && incoming().addedAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(friendUid)
+          && isValidFriendDoc(incoming(), friendUid)
+          && incoming().uid == existing().uid
+          && incoming().addedAt == existing().addedAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName', 'handle', 'photoURL', 'source', 'updatedAt'
+          ])
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow delete: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(friendUid);
+      }
+    }
+
+    // --------------------------------------------------------
+    // /directory_emails/{emailHash}
+    // --------------------------------------------------------
+    match /directory_emails/{emailHash} {
+      allow get: if isSignedIn() && isValidSha256(emailHash);
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidSha256(emailHash)
+        && isValidDirectoryEmail(incoming())
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidSha256(emailHash)
+        && existing().uid == request.auth.uid
+        && isValidDirectoryEmail(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['handle', 'displayName', 'photoURL', 'updatedAt']);
+
+      allow delete: if isVerifiedUser()
+        && isValidSha256(emailHash)
+        && existing().uid == request.auth.uid;
+    }
+
+    // --------------------------------------------------------
+    // /directory_handles/{handle}
+    // --------------------------------------------------------
+    match /directory_handles/{handle} {
+      allow get: if isSignedIn() && isValidHandle(handle);
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidHandle(handle)
+        && isValidDirectoryHandle(incoming(), handle)
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidHandle(handle)
+        && existing().uid == request.auth.uid
+        && isValidDirectoryHandle(incoming(), handle)
+        && incoming().uid == existing().uid
+        && incoming().handle == existing().handle
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+
+      allow delete: if isVerifiedUser()
+        && isValidHandle(handle)
+        && existing().uid == request.auth.uid;
+    }
+
+    // --------------------------------------------------------
+    // /transfers/{transferId} & /transfers/{transferId}/chunks/{chunkId}
+    // --------------------------------------------------------
+    match /transfers/{transferId} {
+      function parentTransfer() {
+        return get(/databases/$(database)/documents/transfers/$(transferId)).data;
+      }
+
+      allow get: if isSignedIn()
+        && isValidId(transferId)
+        && (existing().senderUid == request.auth.uid || existing().recipientUid == request.auth.uid);
+
+      allow list: if isSignedIn()
+        && (resource.data.senderUid == request.auth.uid || resource.data.recipientUid == request.auth.uid);
+
+      allow create: if isVerifiedUser()
+        && isValidId(transferId)
+        && isValidTransferDoc(incoming(), transferId)
+        && incoming().senderUid == request.auth.uid
+        && incoming().recipientUid != request.auth.uid
+        && incoming().status == 'uploading'
+        && incoming().createdAt == request.time
+        && incoming().expiresAt > request.time
+        && incoming().expiresAt <= request.time + duration.value(25, 'h')
+        && exists(/databases/$(database)/documents/users/$(incoming().recipientUid));
+
+      allow update: if isVerifiedUser()
+        && isValidId(transferId)
+        && isValidTransferDoc(incoming(), transferId)
+        && incoming().id == existing().id
+        && incoming().senderUid == existing().senderUid
+        && incoming().senderName == existing().senderName
+        && incoming().senderHandle == existing().senderHandle
+        && incoming().senderPhoto == existing().senderPhoto
+        && incoming().recipientUid == existing().recipientUid
+        && incoming().recipientName == existing().recipientName
+        && incoming().notebookTitle == existing().notebookTitle
+        && incoming().coverColor == existing().coverColor
+        && incoming().pageCount == existing().pageCount
+        && incoming().byteSize == existing().byteSize
+        && incoming().chunkCount == existing().chunkCount
+        && incoming().createdAt == existing().createdAt
+        && incoming().expiresAt == existing().expiresAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        && (
+          // Action: Sender finalizes chunk upload -> ready for recipient
+          (existing().status == 'uploading' && request.auth.uid == existing().senderUid && incoming().status == 'pending')
+          ||
+          // Action: Recipient accepts or declines pending transfer
+          (existing().status == 'pending' && request.auth.uid == existing().recipientUid && incoming().status in ['imported', 'declined'])
+        );
+
+      allow delete: if isSignedIn()
+        && isValidId(transferId)
+        && (existing().senderUid == request.auth.uid || existing().recipientUid == request.auth.uid);
+
+      match /chunks/{chunkId} {
+        allow get: if isSignedIn()
+          && isValidId(transferId)
+          && isValidChunkId(chunkId)
+          && (parentTransfer().senderUid == request.auth.uid || parentTransfer().recipientUid == request.auth.uid);
+
+        allow list: if isSignedIn()
+          && isValidId(transferId)
+          && (parentTransfer().senderUid == request.auth.uid || parentTransfer().recipientUid == request.auth.uid);
+
+        allow create: if isVerifiedUser()
+          && isValidId(transferId)
+          && isValidChunkId(chunkId)
+          && isValidTransferChunk(incoming())
+          && parentTransfer().senderUid == request.auth.uid
+          && parentTransfer().status == 'uploading';
+
+        allow update: if false;
+
+        allow delete: if isSignedIn()
+          && isValidId(transferId)
+          && isValidChunkId(chunkId)
+          && (parentTransfer().senderUid == request.auth.uid || parentTransfer().recipientUid == request.auth.uid);
+      }
+    }
+  }
+}

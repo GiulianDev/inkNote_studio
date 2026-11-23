@@ -11,7 +11,9 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@tailwindcss/vite": "^4.3.5",
+    "eslint": "^10.15.0",
     "tailwindcss": "^4.3.5",
     "vite": "^8.3.6",
     "vite-plugin-singlefile": "^2.3.4",

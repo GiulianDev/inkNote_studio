@@ -25,21 +25,26 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install
         run: npm ci
 
+      - name: Test unitari
+        run: find src -name '*.test.js' | sort | xargs npx --yes tsx --test
+
       - name: Build singlefile
         env:
           # Iniettate da GitHub Secrets → Vite le legge come import.meta.env.VITE_*
+          # (Se non impostati, fallback automatico su firebase-applet-config.json se presente)
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_ID: ${{ secrets.VITE_FIREBASE_DATABASE_ID }}
         run: npm run build:singlefileoffline
 
       - name: Verifica output
@@ -55,15 +60,21 @@ jobs:
             echo "⚠️  File troppo piccolo — singlefile non attivo nel mode?"
             exit 1
           fi
+          if grep -qE '<script[^>]+src=' dist/index.html; then
+            echo "❌ Trovati script esterni non inlinati in dist/index.html"
+            exit 1
+          fi
+          echo "✅ Tutto il JavaScript è inlinato nel file singolo"
 
       - name: Verifica config Firebase nel bundle
         run: |
-          # Sanity check: la apiKey deve essere presente nel file compilato.
+          # Sanity check: la apiKey deve essere presente nel file compilato
+          # (via GitHub Secrets oppure via firebase-applet-config.json).
           # Non mostriamo il valore (solo l'esito), per non leakare i log.
           if grep -q 'AIza[0-9A-Za-z_-]\{20,\}' dist/index.html; then
             echo "✅ Firebase apiKey presente nel bundle"
           else
-            echo "❌ Firebase apiKey NON presente nel bundle — i secrets non sono stati iniettati"
+            echo "❌ Firebase apiKey NON presente nel bundle — verifica i secrets o firebase-applet-config.json"
             exit 1
           fi
 

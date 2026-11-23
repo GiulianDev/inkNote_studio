@@ -96,7 +96,7 @@ export const emit = (name, detail) => _bus.dispatchEvent(new CustomEvent(name, {
 export const on   = (name, fn)     => _bus.addEventListener(name, e => fn(e.detail));
 
 // --- Notifiche UI ---
-export function showToast(msg, icon = 'ℹ️') {
+export function showToast(msg, icon = 'ℹ️', durationMs = 2800) {
   const toast = document.getElementById('toastNotification');
   if (!toast) return;
   const msgEl  = document.getElementById('toastMessage');
@@ -109,7 +109,7 @@ export function showToast(msg, icon = 'ℹ️') {
   toast._hideTimer = setTimeout(() => {
     toast.classList.remove('translate-y-0', 'opacity-100');
     toast.classList.add('translate-y-2', 'opacity-0');
-  }, 2500);
+  }, durationMs);
 }
 
 export function showStatusBadge(txt) {

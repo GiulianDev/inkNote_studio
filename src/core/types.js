@@ -101,6 +101,7 @@
  * @property {string} color            hex (#rrggbb)
  * @property {number} size             valore slider 1..25
  * @property {Point[]} points
+ * @property {{lightMul:number, heavyMul:number, curve:number, speedWeight:number}} [inkParams]
  * @property {number} [startTime]      performance.now() al pointerdown
  * @property {Object} [_styleCache]    cache stile canvas (invalicata da cambio tema)
  * @property {number} [_pathLen]       lunghezza cumulativa path (cache forme)
@@ -178,9 +179,11 @@
  * @property {'light'|'dark'} printTheme
  * @property {'right'|'left'} handedness
  * @property {'small'|'medium'|'large'} dockSize
+ * @property {number} pressureSensitivity  0..100
  * @property {number} pressureLight        0..100
  * @property {number} pressureHeavy        100..500
  * @property {number} pressureCurve        0..100
+ * @property {number} pressureSpeedWeight  0..100
  * @property {number} scrollSensitivity    0..100
  * @property {boolean} palmRejection
  */
@@ -231,6 +234,8 @@
  * @property {boolean} [snapRectangles] riconoscimento rettangoli
  * @property {boolean} [snapTriangles]  riconoscimento triangoli
  * @property {boolean} [snapArrows]     riconoscimento frecce
+ * @property {boolean} [snapMathSymbols] riconoscimento simboli matematici
+ * @property {boolean} [snapGreekLetters] riconoscimento lettere greche
  * @property {number} smoothing         0..100
  * @property {boolean} compactMode
  * @property {string[]} recentColors    array di hex

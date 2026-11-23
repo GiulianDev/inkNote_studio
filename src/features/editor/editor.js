@@ -228,11 +228,19 @@ export async function openNotebook(id) {
 
     if (nb.pages && nb.pages.length > 0) {
       const total = nb.pages.length;
+      const frag = document.createDocumentFragment();
       for (let i = 0; i < total; i++) {
         if (myToken !== _openToken) return;
         const pageData = nb.pages[i];
-        const initialStrokes = unpackedByPageId.get(pageData.pageId) || pageData.strokes || [];
-        createNewPageDOM(pageData.pageIndex, initialStrokes, pageData.pageId, pageData.textBoxes || []);
+        const preUnpacked = unpackedByPageId.get(pageData.pageId);
+        const initialStrokes = preUnpacked || pageData.strokes || [];
+        createNewPageDOM(
+          pageData.pageIndex,
+          initialStrokes,
+          pageData.pageId,
+          pageData.textBoxes || [],
+          { parent: frag, alreadyUnpacked: !!preUnpacked }
+        );
 
         if (_activeOpenDialog) {
           _activeOpenDialog.update({ done: i + 1, total, label: 'Preparazione pagine' });
@@ -241,6 +249,8 @@ export async function openNotebook(id) {
           await _yieldToUI();
         }
       }
+      if (myToken !== _openToken) return;
+      container.appendChild(frag);
     } else {
       createNewPageDOM(0, [], null, []);
     }

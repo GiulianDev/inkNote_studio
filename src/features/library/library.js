@@ -9,6 +9,7 @@ import {
   updateNotebookMetadataInDB, loadAllFoldersFromDB, saveFolderToDB, deleteLibraryItemsFromDB
 } from '../../services/db.js';
 import { openNotebook, closeNotebookIfOpen } from '../editor/editor.js';
+import { DEFAULT_TOOLBAR_SETTINGS } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
 import { exportNotebooks } from '../backup/backup-export.js';
 import { importNotebooks } from '../backup/backup-import.js';
@@ -18,6 +19,7 @@ import {
 } from './library-modals.js';
 import { createLibraryDndController } from './library-dnd.js';
 import { bindLibraryAuth } from './library-auth.js';
+import { openSharingModal } from '../sharing/sharing-ui.js';
 import {
   getFolderPath,
   formatFolderPathLabel,
@@ -37,6 +39,10 @@ import {
   pushFolderBackState,
   navigateBreadcrumbBackState
 } from '../../core/back-navigation.js';
+import {
+  initAppFullscreenSync,
+  toggleAppFullscreen
+} from '../../core/fullscreen.js';
 
 const COVER_COLOR_ACTIVE_CLASSES = ['ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'];
 
@@ -212,6 +218,44 @@ export function clearLibrarySearch() {
 // SELEZIONE MULTIPLA
 // ============================================================
 
+function _syncHeaderModeUI() {
+  const header = document.getElementById('libraryHeader');
+  const leadingBtn = document.getElementById('libraryLeadingBtn');
+  const titleGroup = document.getElementById('libraryHeaderTitleGroup');
+  const titleEl = document.getElementById('libraryHeaderTitle');
+  const subtitleEl = document.getElementById('libraryHeaderSubtitle');
+
+  if (header) {
+    header.classList.add('has-mode-transition');
+    header.classList.toggle('is-selection-mode', _selectionMode);
+  }
+
+  if (titleGroup) {
+    titleGroup.classList.remove('is-title-swap');
+    void titleGroup.offsetWidth;
+    titleGroup.classList.add('is-title-swap');
+  }
+
+  if (leadingBtn) {
+    leadingBtn.tabIndex = _selectionMode ? 0 : -1;
+    leadingBtn.setAttribute('aria-hidden', _selectionMode ? 'false' : 'true');
+    if (_selectionMode) {
+      leadingBtn.title = 'Esci dalla selezione';
+      leadingBtn.setAttribute('aria-label', 'Esci dalla selezione');
+    } else {
+      leadingBtn.removeAttribute('title');
+      leadingBtn.removeAttribute('aria-label');
+    }
+  }
+
+  if (!_selectionMode) {
+    if (titleEl) titleEl.textContent = 'InkNote Library';
+    if (subtitleEl) subtitleEl.textContent = 'I tuoi blocchetti salvati in locale';
+  } else if (subtitleEl) {
+    subtitleEl.textContent = 'Tocca quaderni o raccolte';
+  }
+}
+
 function _enterSelectionMode(initial = null) {
   if (_selectionMode) return;
   _selectionMode = true;
@@ -224,13 +268,8 @@ function _enterSelectionMode(initial = null) {
     selectedNotebookIds.add(initial);
   }
 
-  document.getElementById('libraryHeader')?.classList.add('hidden');
-  const bar = document.getElementById('librarySelectionBar');
-  if (bar) {
-    bar.classList.remove('hidden');
-    bar.classList.add('flex');
-  }
-
+  document.getElementById('authDropdown')?.classList.add('hidden');
+  _syncHeaderModeUI();
   _applySelectionStateToCards();
   _updateSelectionBar();
 }
@@ -240,13 +279,7 @@ function _exitSelectionMode() {
   selectedNotebookIds.clear();
   selectedFolderIds.clear();
 
-  document.getElementById('libraryHeader')?.classList.remove('hidden');
-  const bar = document.getElementById('librarySelectionBar');
-  if (bar) {
-    bar.classList.add('hidden');
-    bar.classList.remove('flex');
-  }
-
+  _syncHeaderModeUI();
   _applySelectionStateToCards();
 }
 
@@ -290,15 +323,25 @@ function _applySelectionStateToCards() {
 
 function _updateSelectionBar() {
   const count = selectedNotebookIds.size + selectedFolderIds.size;
-  const countEl = document.getElementById('selectionCount');
-  if (countEl) countEl.textContent = `${count} selezionat${count === 1 ? 'o' : 'i'}`;
+  const titleEl = document.getElementById('libraryHeaderTitle');
+  if (titleEl && _selectionMode) {
+    titleEl.textContent = `${count} selezionat${count === 1 ? 'o' : 'i'}`;
+  }
 
   const moveBtn = document.getElementById('selectionMoveBtn');
   const duplicateBtn = document.getElementById('selectionDuplicateBtn');
+  const sendBtn = document.getElementById('selectionSendBtn');
   const exportBtn = document.getElementById('selectionExportBtn');
   const deleteBtn = document.getElementById('selectionDeleteBtn');
+  const sendableNbIds = collectNotebookIdsInSelection({
+    selectedNotebookIds,
+    selectedFolderIds,
+    folders: _cachedFolders,
+    notebooks: _cachedNotebooks
+  });
   if (moveBtn) moveBtn.disabled = count === 0;
   if (duplicateBtn) duplicateBtn.disabled = count === 0 || _isDuplicating;
+  if (sendBtn) sendBtn.disabled = sendableNbIds.length === 0;
   if (exportBtn) exportBtn.disabled = count === 0;
   if (deleteBtn) deleteBtn.disabled = count === 0;
 }
@@ -1013,6 +1056,23 @@ async function _handleDuplicateSelection() {
   }
 }
 
+async function _handleSendSelection() {
+  const ids = collectNotebookIdsInSelection({
+    selectedNotebookIds,
+    selectedFolderIds,
+    folders: _cachedFolders,
+    notebooks: _cachedNotebooks
+  });
+  if (ids.length === 0) {
+    showToast('Seleziona almeno un quaderno da inviare', '⚠️');
+    return;
+  }
+  const nbMap = new Map(_cachedNotebooks.map(n => [n.id, n]));
+  const sendNotebooks = ids.map(id => nbMap.get(id)).filter(Boolean);
+  if (sendNotebooks.length === 0) return;
+  openSharingModal({ sendNotebooks });
+}
+
 async function _handleExportSelection() {
   const nbCount = selectedNotebookIds.size;
   const fldCount = selectedFolderIds.size;
@@ -1215,6 +1275,7 @@ async function _confirmCreateNotebook() {
     const folderId = document.getElementById('modalNbFolder')?.value || null;
     const firstPageId = generatePageId();
     const rand = Math.random().toString(36).slice(2, 7);
+    const now = new Date().toISOString();
     const newNb = {
       id: `nb_${Date.now()}_${rand}`,
       title,
@@ -1222,8 +1283,10 @@ async function _confirmCreateNotebook() {
       pattern,
       folderId,
       isFavorite: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
+      lastEditAt: now,
+      toolbarSettings: deepClone(DEFAULT_TOOLBAR_SETTINGS),
       pageOrder: [firstPageId],
       pages: [{ pageId: firstPageId, strokes: [], textBoxes: [] }],
       lastPageIndex: 0
@@ -1273,13 +1336,24 @@ export function bindLibraryUI() {
     }
   });
   document.getElementById('openSettingsBtnLib')?.addEventListener('click', openSettingsModal);
+  initAppFullscreenSync();
+  document.getElementById('libraryFullscreenBtn')?.addEventListener('click', () => {
+    const next = toggleAppFullscreen();
+    showToast(
+      next ? 'Schermo intero attivo' : 'Schermo intero disattivato',
+      next ? '⛶' : '↩️'
+    );
+  });
   document.getElementById('confirmCreateNbBtn')?.addEventListener('click', _confirmCreateNotebook);
   document.getElementById('cancelNewNbBtn')?.addEventListener('click', closeNewNotebookModal);
 
-  document.getElementById('selectionDoneBtn')?.addEventListener('click', _exitSelectionMode);
+  document.getElementById('libraryLeadingBtn')?.addEventListener('click', () => {
+    if (_selectionMode) _exitSelectionMode();
+  });
   document.getElementById('selectionSelectAllBtn')?.addEventListener('click', _selectAll);
   document.getElementById('selectionMoveBtn')?.addEventListener('click', _handleMoveSelection);
   document.getElementById('selectionDuplicateBtn')?.addEventListener('click', _handleDuplicateSelection);
+  document.getElementById('selectionSendBtn')?.addEventListener('click', _handleSendSelection);
   document.getElementById('selectionExportBtn')?.addEventListener('click', _handleExportSelection);
   document.getElementById('selectionDeleteBtn')?.addEventListener('click', _handleDeleteSelection);
 
@@ -1399,10 +1473,20 @@ export function bindLibraryUI() {
     });
   }
 
+  const libViewEl = document.getElementById('libraryView');
+  const topBarWrap = document.getElementById('libraryTopBarWrap');
+  if (libViewEl && topBarWrap) {
+    const syncScrollShadow = () => {
+      topBarWrap.classList.toggle('is-scrolled', libViewEl.scrollTop > 4);
+    };
+    libViewEl.addEventListener('scroll', syncScrollShadow, { passive: true });
+    syncScrollShadow();
+  }
+
   document.addEventListener('click', (e) => {
     if (!_selectionMode) return;
     if (document.querySelector('.library-modal')) return;
-    if (e.target.closest('.notebook-card, .folder-card, #librarySelectionBar, #librarySelectBtn')) return;
+    if (e.target.closest('.notebook-card, .folder-card, #libraryHeader')) return;
     _exitSelectionMode();
   });
 
@@ -1431,3 +1515,6 @@ export function bindLibraryUI() {
 }
 
 on('library:refresh', renderLibraryView);
+on('library:open-notebook', (nbId) => {
+  if (nbId) openNotebook(nbId);
+});

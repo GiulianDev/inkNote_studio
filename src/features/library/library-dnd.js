@@ -184,9 +184,11 @@ export function createLibraryDndController(gridEl, callbacks) {
     const scrollEl = document.getElementById('libraryView');
     if (scrollEl) {
       const rect = scrollEl.getBoundingClientRect();
+      const topBar = document.getElementById('libraryTopBarWrap');
+      const topEdge = topBar ? Math.max(rect.top, topBar.getBoundingClientRect().bottom) : rect.top;
       let delta = 0;
-      if (_lastY < rect.top + EDGE_SCROLL_ZONE_PX) {
-        const ratio = Math.max(0, (rect.top + EDGE_SCROLL_ZONE_PX - _lastY) / EDGE_SCROLL_ZONE_PX);
+      if (_lastY < topEdge + EDGE_SCROLL_ZONE_PX) {
+        const ratio = Math.max(0, (topEdge + EDGE_SCROLL_ZONE_PX - _lastY) / EDGE_SCROLL_ZONE_PX);
         delta = -Math.ceil(EDGE_SCROLL_SPEED_PX * ratio);
       } else if (_lastY > rect.bottom - EDGE_SCROLL_ZONE_PX) {
         const ratio = Math.max(0, (_lastY - (rect.bottom - EDGE_SCROLL_ZONE_PX)) / EDGE_SCROLL_ZONE_PX);

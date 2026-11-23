@@ -14,6 +14,7 @@
 // ============================================================
 
 import { state } from '../../core/state.js';
+import { showToast } from '../../core/utils.js';
 import { updateSettings, getSettings } from '../../core/app-settings.js';
 import {
   setMainMenu, setTool, selectColor, updateStrokeWidth, updateSmoothing,
@@ -38,6 +39,23 @@ import {
 } from '../tools/lazo.js';
 import { finalizePendingShape } from '../tools/shapes.js';
 import { commitActiveTextBox } from '../tools/text.js';
+import { getCurrentNotebook } from '../persistence/session.js';
+import { forceSave } from '../persistence/autosave.js';
+import { exportNotebooks } from '../backup/backup-export.js';
+import { showProgressDialog } from '../backup/backup-progress.js';
+import { openSharingModal } from '../sharing/sharing-ui.js';
+import { closeAllAuthDropdowns } from '../library/library-auth.js';
+
+async function _flushCurrentNotebookForAction() {
+  if (state.pendingShape) finalizePendingShape();
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
+  const nb = getCurrentNotebook();
+  if (!nb) return null;
+  await forceSave();
+  return getCurrentNotebook();
+}
 
 function _openEditorSettings() {
   if (state.pendingShape) finalizePendingShape();
@@ -45,6 +63,56 @@ function _openEditorSettings() {
     commitActiveTextBox({ deselect: true });
   }
   openSettingsModal();
+}
+
+async function _handleExportCurrentNotebook() {
+  closeOverflowMenu();
+  closeAllAuthDropdowns();
+  let nb;
+  try {
+    nb = await _flushCurrentNotebookForAction();
+  } catch (err) {
+    console.error('[editor-export] save before export failed:', err);
+    showToast('Salvataggio non riuscito prima dell\'esportazione', '❌');
+    return;
+  }
+  if (!nb) {
+    showToast('Nessun quaderno aperto', '⚠️');
+    return;
+  }
+
+  const progress = showProgressDialog('Esportazione quaderno...');
+  try {
+    await exportNotebooks(
+      [nb.id],
+      ({ done, total, notebookTitle }) => {
+        progress.update({ done, total, label: notebookTitle });
+      }
+    );
+    progress.close();
+  } catch (err) {
+    console.error('[editor-export] failed:', err);
+    progress.close();
+    showToast('Esportazione fallita', '❌');
+  }
+}
+
+async function _handleSendCurrentNotebook() {
+  closeOverflowMenu();
+  closeAllAuthDropdowns();
+  let nb;
+  try {
+    nb = await _flushCurrentNotebookForAction();
+  } catch (err) {
+    console.error('[editor-send] save before share failed:', err);
+    showToast('Salvataggio non riuscito prima dell\'invio', '❌');
+    return;
+  }
+  if (!nb) {
+    showToast('Nessun quaderno aperto', '⚠️');
+    return;
+  }
+  openSharingModal({ sendNotebooks: [nb] });
 }
 
 export function bindEditorUI() {
@@ -69,7 +137,7 @@ export function bindEditorUI() {
   // --- Dock Writing: opacity (bottone) → apre popover già bindato in toolbar.js
   // (gestito internamente da toolbar.js::_setupDockButtons)
 
-  // --- Header: back, titolo, compact, impostazioni, tema, PDF ---
+  // --- Header: back, titolo, compact, impostazioni ---
   document.getElementById('backToLibraryBtn')
     ?.addEventListener('click', returnToLibrary);
   document.getElementById('docTitle')
@@ -78,10 +146,8 @@ export function bindEditorUI() {
     ?.addEventListener('click', toggleCompactMode);
   document.getElementById('openSettingsBtnHeader')
     ?.addEventListener('click', _openEditorSettings);
-  document.getElementById('themeToggleBtn')
-    ?.addEventListener('click', toggleTheme);
-  document.getElementById('exportPdfBtn')
-    ?.addEventListener('click', exportToPDF);
+  document.getElementById('editorAuthDropdownSendBtn')
+    ?.addEventListener('click', _handleSendCurrentNotebook);
 
   // --- Menu ⋯: voci ---
   document.getElementById('addPageBtn')
@@ -90,6 +156,10 @@ export function bindEditorUI() {
     ?.addEventListener('click', () => { clearCurrentPage(); closeOverflowMenu(); });
   document.getElementById('exportPdfFromMenu')
     ?.addEventListener('click', () => { closeOverflowMenu(); exportToPDF(); });
+  document.getElementById('exportNotebookFromMenu')
+    ?.addEventListener('click', _handleExportCurrentNotebook);
+  document.getElementById('sendNotebookFromMenu')
+    ?.addEventListener('click', _handleSendCurrentNotebook);
   document.getElementById('themeToggleFromMenu')
     ?.addEventListener('click', () => { toggleTheme(); closeOverflowMenu(); });
   document.getElementById('openSettingsFromMenu')

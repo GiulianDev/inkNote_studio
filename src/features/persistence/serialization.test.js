@@ -78,4 +78,31 @@ describe('serialization: _packedCache & immutable snapshot safety', () => {
     assert.equal(restoredA.points[0].x, 42);
     assert.equal(packStroke(restoredA).packed[0], 42);
   });
+
+  it('preserves optional inkParams snapshot through packStroke and unpackStroke', () => {
+    const customParams = { lightMul: 0.22, heavyMul: 4.1, curve: 1.55, speedWeight: 0.35 };
+    const strokeWithInk = {
+      tool: 'pen',
+      color: '#1e293b',
+      size: 5,
+      opacity: 1,
+      style: 'solid',
+      inkParams: customParams,
+      points: [
+        { x: 10, y: 15, pressure: 0.3, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+        { x: 50, y: 65, pressure: 0.8, tiltX: 0, tiltY: 0, speed: 2, pointerType: 'pen' }
+      ]
+    };
+    const packed = packStroke(strokeWithInk);
+    assert.deepEqual(packed.inkParams, customParams);
+
+    const restored = unpackStroke(packed);
+    assert.deepEqual(restored.inkParams, customParams);
+    assert.notEqual(restored.inkParams, customParams);
+
+    // Mutating settings/object externally does not leak between strokes
+    restored.inkParams.heavyMul = 999;
+    assert.equal(packed.inkParams.heavyMul, 4.1);
+  });
 });
+

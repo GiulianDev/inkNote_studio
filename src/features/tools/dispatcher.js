@@ -178,7 +178,6 @@ export function handlePointerDown(e, pageData) {
   refreshPageCounter();
 
   const point = getCanvasCoords(e, pageData.canvas);
-  if (point.pointerType === 'pen') point.pressure = Math.max(point.pressure, 0.2);
 
   const effectiveTool = penEraser ? 'eraser' : state.activeTool;
 

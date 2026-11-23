@@ -1,0 +1,308 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public/app discoverable user profile without raw PII (no email stored).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID matching document ID.",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name shown to friends.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "HTTPS avatar URL or empty string.",
+          "maxLength": 500
+        },
+        "handle": {
+          "type": "string",
+          "description": "Unique lowercase friend code / @username.",
+          "pattern": "^[a-z0-9_]{3,24}$",
+          "minLength": 3,
+          "maxLength": 24
+        },
+        "discoverable": {
+          "type": "boolean",
+          "description": "Whether friends can discover this profile by email hash or handle."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "photoURL",
+        "handle",
+        "discoverable",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DirectoryEmailEntry": {
+      "title": "DirectoryEmailEntry",
+      "description": "Privacy-preserving lookup entry keyed by SHA-256 hex digest of normalized email.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]{3,24}$",
+          "minLength": 3,
+          "maxLength": 24
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "handle",
+        "displayName",
+        "photoURL",
+        "updatedAt"
+      ]
+    },
+    "DirectoryHandleEntry": {
+      "title": "DirectoryHandleEntry",
+      "description": "Unique @username / friend code lookup entry keyed by lowercase handle.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]{3,24}$",
+          "minLength": 3,
+          "maxLength": 24
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "handle",
+        "displayName",
+        "photoURL",
+        "updatedAt"
+      ]
+    },
+    "FriendEntry": {
+      "title": "FriendEntry",
+      "description": "Saved friend entry inside a user's personal friends subcollection.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "handle": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "source": {
+          "type": "string",
+          "enum": ["manual", "contacts", "received"],
+          "maxLength": 16
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "handle",
+        "photoURL",
+        "source",
+        "addedAt",
+        "updatedAt"
+      ]
+    },
+    "NotebookTransfer": {
+      "title": "NotebookTransfer",
+      "description": "24-hour expiring peer-to-peer notebook transfer metadata document.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "senderUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "senderHandle": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "senderPhoto": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "recipientUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "recipientName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "notebookTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "coverColor": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "maxLength": 7
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "byteSize": {
+          "type": "integer"
+        },
+        "chunkCount": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["uploading", "pending", "imported", "declined"],
+          "maxLength": 16
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "senderUid",
+        "senderName",
+        "senderHandle",
+        "senderPhoto",
+        "recipientUid",
+        "recipientName",
+        "notebookTitle",
+        "coverColor",
+        "pageCount",
+        "byteSize",
+        "chunkCount",
+        "status",
+        "createdAt",
+        "expiresAt"
+      ]
+    },
+    "NotebookTransferChunk": {
+      "title": "NotebookTransferChunk",
+      "description": "Base64 slice of a compressed .inknote transfer payload.",
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 750000
+        }
+      },
+      "required": [
+        "index",
+        "data"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User discoverable profiles (no raw email PII)."
+    },
+    "/directory_emails/{emailHash}": {
+      "schema": { "$ref": "#/entities/DirectoryEmailEntry" },
+      "description": "Exact-get lookup by SHA-256 of normalized email."
+    },
+    "/directory_handles/{handle}": {
+      "schema": { "$ref": "#/entities/DirectoryHandleEntry" },
+      "description": "Exact-get lookup by unique lowercase @handle."
+    },
+    "/users/{userId}/friends/{friendUid}": {
+      "schema": { "$ref": "#/entities/FriendEntry" },
+      "description": "User's personal saved friends subcollection."
+    },
+    "/transfers/{transferId}": {
+      "schema": { "$ref": "#/entities/NotebookTransfer" },
+      "description": "24-hour expiring peer-to-peer notebook transfers."
+    },
+    "/transfers/{transferId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/NotebookTransferChunk" },
+      "description": "Chunked compressed .inknote payload pieces."
+    }
+  }
+}

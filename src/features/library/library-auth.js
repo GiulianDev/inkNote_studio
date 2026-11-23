@@ -5,6 +5,12 @@
 import { escapeHtml, showToast } from '../../core/utils.js';
 import { authState } from '../../core/state.js';
 import { signInWithGoogle, signOutGoogle, onAuthChange } from '../../services/firebase.js';
+import {
+  initSharingSession,
+  openSharingModal,
+  copyMyInviteLink,
+  handleGoogleAuthError
+} from '../sharing/sharing-ui.js';
 
 const AVATAR_PALETTE = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
@@ -44,20 +50,20 @@ function _renderAvatarHtml(user, size) {
   return `<span class="flex items-center justify-center w-full h-full text-white font-bold" style="background-color: ${bg}; font-size: ${Math.round(size * 0.4)}px;">${escapeHtml(initials)}</span>`;
 }
 
-function _updateAuthUI() {
-  const btn = document.getElementById('authBtn');
-  const content = document.getElementById('authBtnContent');
-  const dropdown = document.getElementById('authDropdown');
+function _syncTargetAuthDOM({ btnId, contentId, dropdownId, avatarId, nameId, emailId }) {
+  const btn = document.getElementById(btnId);
+  const content = document.getElementById(contentId);
+  const dropdown = document.getElementById(dropdownId);
   if (!btn || !content) return;
 
   if (authState.user) {
     btn.title = 'Profilo';
-    content.className = 'w-full h-full';
+    content.className = 'flex items-center justify-center w-full h-full';
     content.innerHTML = _renderAvatarHtml(authState.user, 40);
 
-    const dAvatar = document.getElementById('authDropdownAvatar');
-    const dName = document.getElementById('authDropdownName');
-    const dEmail = document.getElementById('authDropdownEmail');
+    const dAvatar = document.getElementById(avatarId);
+    const dName = document.getElementById(nameId);
+    const dEmail = document.getElementById(emailId);
     if (dAvatar) {
       dAvatar.className = 'w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0';
       dAvatar.innerHTML = _renderAvatarHtml(authState.user, 40);
@@ -66,17 +72,43 @@ function _updateAuthUI() {
     if (dEmail) dEmail.textContent = authState.user.email || '';
   } else {
     btn.title = 'Accedi con Google';
-    content.className = 'text-base';
+    content.className = 'flex items-center justify-center w-full h-full text-base';
     content.innerHTML = GUEST_ICON_SVG;
     if (dropdown) dropdown.classList.add('hidden');
   }
 }
 
-async function _handleAuthClick() {
+function _updateAuthUI() {
+  _syncTargetAuthDOM({
+    btnId: 'authBtn',
+    contentId: 'authBtnContent',
+    dropdownId: 'authDropdown',
+    avatarId: 'authDropdownAvatar',
+    nameId: 'authDropdownName',
+    emailId: 'authDropdownEmail'
+  });
+  _syncTargetAuthDOM({
+    btnId: 'editorAuthBtn',
+    contentId: 'editorAuthBtnContent',
+    dropdownId: 'editorAuthDropdown',
+    avatarId: 'editorAuthDropdownAvatar',
+    nameId: 'editorAuthDropdownName',
+    emailId: 'editorAuthDropdownEmail'
+  });
+}
+
+export function closeAllAuthDropdowns() {
+  document.getElementById('authDropdown')?.classList.add('hidden');
+  document.getElementById('editorAuthDropdown')?.classList.add('hidden');
+}
+
+async function _handleAuthClick(dropdownId = 'authDropdown') {
   if (authState.loading) return;
 
   if (authState.user) {
-    document.getElementById('authDropdown')?.classList.toggle('hidden');
+    const otherId = dropdownId === 'authDropdown' ? 'editorAuthDropdown' : 'authDropdown';
+    document.getElementById(otherId)?.classList.add('hidden');
+    document.getElementById(dropdownId)?.classList.toggle('hidden');
     return;
   }
 
@@ -86,17 +118,14 @@ async function _handleAuthClick() {
       showToast(`Benvenuto, ${user.displayName || user.email}!`, '👋');
     }
   } catch (err) {
-    console.error('[auth] login failed:', err);
-    if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
-      showToast('Login fallito', '❌');
-    }
+    await handleGoogleAuthError(err);
   }
 }
 
 async function _handleLogout() {
   try {
     await signOutGoogle();
-    document.getElementById('authDropdown')?.classList.add('hidden');
+    closeAllAuthDropdowns();
     showToast('Disconnesso', '👋');
   } catch (err) {
     console.error('[auth] signOut failed:', err);
@@ -105,23 +134,50 @@ async function _handleLogout() {
 }
 
 /**
- * Inizializza lo stato Firebase Auth e collega i controlli dell'header libreria.
+ * Inizializza lo stato Firebase Auth e collega i controlli dell'header libreria ed editor.
  */
 export function bindLibraryAuth() {
   onAuthChange((user) => {
     authState.user = user;
     authState.loading = false;
     _updateAuthUI();
+    void initSharingSession(user);
   });
 
   document.addEventListener('click', (e) => {
-    const authContainer = document.getElementById('authContainer');
-    const authDropdown = document.getElementById('authDropdown');
-    if (authContainer && authDropdown && !authDropdown.classList.contains('hidden')) {
-      if (!authContainer.contains(e.target)) authDropdown.classList.add('hidden');
+    for (const [containerId, dropdownId] of [
+      ['authContainer', 'authDropdown'],
+      ['editorAuthContainer', 'editorAuthDropdown']
+    ]) {
+      const container = document.getElementById(containerId);
+      const dropdown = document.getElementById(dropdownId);
+      if (container && dropdown && !dropdown.classList.contains('hidden')) {
+        if (!container.contains(e.target)) dropdown.classList.add('hidden');
+      }
     }
   });
 
-  document.getElementById('authBtn')?.addEventListener('click', _handleAuthClick);
+  document.getElementById('authBtn')?.addEventListener('click', () => _handleAuthClick('authDropdown'));
+  document.getElementById('authDropdownSharingBtn')?.addEventListener('click', () => {
+    closeAllAuthDropdowns();
+    openSharingModal({ initialTab: 'inbox' });
+  });
+  document.getElementById('authDropdownCopyInviteBtn')?.addEventListener('click', () => {
+    closeAllAuthDropdowns();
+    void copyMyInviteLink();
+  });
   document.getElementById('authLogoutBtn')?.addEventListener('click', _handleLogout);
+
+  document.getElementById('editorAuthBtn')?.addEventListener('click', () => _handleAuthClick('editorAuthDropdown'));
+  document.getElementById('editorAuthDropdownSharingBtn')?.addEventListener('click', () => {
+    closeAllAuthDropdowns();
+    openSharingModal({ initialTab: 'inbox' });
+  });
+  document.getElementById('editorAuthDropdownCopyInviteBtn')?.addEventListener('click', () => {
+    closeAllAuthDropdowns();
+    void copyMyInviteLink();
+  });
+  document.getElementById('editorAuthLogoutBtn')?.addEventListener('click', _handleLogout);
+
+  _updateAuthUI();
 }
