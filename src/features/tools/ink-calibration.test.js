@@ -12,7 +12,9 @@ import {
   samplePressureCurve,
   createStrokeStabilizer,
   getHoldMoveTolerancePx,
-  trimStationaryTail
+  trimStationaryTail,
+  extractEventTilt,
+  computeTiltNorm
 } from './ink-calibration.js';
 
 describe('ink-calibration: cross-device pressure normalization & curve', () => {
@@ -156,5 +158,34 @@ describe('ink-calibration: One Euro stabilizer & stationary tail trimming', () =
     assert.ok(pTilt / pNoTilt >= 2.1, 'pencil/Matita must widen strongly on tilt');
     assert.ok(pTilt / pNoTilt > fTilt / fNoTilt, 'pencil/Matita tilt ratio must exceed Stilografica');
   });
+
+  it('keeps initial zero-pressure fallback identical across iOS, Android and desktop', () => {
+    const pIos = normalizePenPressure(0, { platform: 'ios', isDrawing: false, lastValidPressure: 0 });
+    const pAnd = normalizePenPressure(0, { platform: 'android', isDrawing: false, lastValidPressure: 0 });
+    const pDesk = normalizePenPressure(0, { platform: 'desktop', isDrawing: false, lastValidPressure: 0 });
+    assert.equal(pIos, pAnd);
+    assert.equal(pAnd, pDesk);
+    assert.ok(Math.abs(pIos - 0.28) < 1e-6);
+
+    const carried = normalizePenPressure(0, { platform: 'ios', isDrawing: true, lastValidPressure: 0.62 });
+    assert.ok(Math.abs(carried - 0.62) < 1e-6);
+  });
+
+  it('applies natural writing deadzone to tilt and supports altitudeAngle fallback', () => {
+    // Natural 22° grip should not inflate stroke width
+    assert.equal(computeTiltNorm({ tiltX: 16, tiltY: 15 }), 0);
+    // ~44° slant maps to ~0.5
+    const mid = computeTiltNorm({ tiltX: 44, tiltY: 0 });
+    assert.ok(Math.abs(mid - 0.5) < 0.02, `expected ~0.5 tilt at 44deg, got ${mid}`);
+    // >=64° flat shading saturates cleanly to 1.0
+    assert.equal(computeTiltNorm({ tiltX: 65, tiltY: 0 }), 1);
+
+    // Safari / WebKit altitudeAngle fallback when tiltX/Y are 0
+    const altRad = ((90 - 45) * Math.PI) / 180; // 45° from vertical
+    const extracted = extractEventTilt({ tiltX: 0, tiltY: 0, altitudeAngle: altRad, azimuthAngle: 0 });
+    assert.ok(Math.hypot(extracted.tiltX, extracted.tiltY) > 44 && Math.hypot(extracted.tiltX, extracted.tiltY) < 46);
+    assert.ok(computeTiltNorm(extracted) > 0.45 && computeTiltNorm(extracted) < 0.6);
+  });
 });
+
 

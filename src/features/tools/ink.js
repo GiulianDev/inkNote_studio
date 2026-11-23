@@ -10,7 +10,7 @@ import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark } from '../../core/utils.js
 import {
   clearOverlay, renderPendingShapeOnOverlay,
   drawDotOnly, renderFullStroke,
-  getStrokeBBoxCanvas, clearOverlayBBox, blitAndClearBBox
+  getStrokeBBoxCanvas, clearOverlayBBox
 } from '../render/render.js';
 import {
   finalizePendingShape, applyAngleSnap,
@@ -26,11 +26,13 @@ import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import {
   getCanvasCoords, getCanvasRect, pushPointsToBatch, scheduleFlush,
-  isPredictionSupported, drawPredictions, clearLineHoldTimer
+  isPredictionSupported, drawPredictions, clearLineHoldTimer,
+  resetLastValidPenPressure
 } from './tool-shared.js';
 
 export function beginInkStroke(point) {
   clearLineHoldTimer();
+  resetLastValidPenPressure();
   const now = performance.now();
   const initialPt = {
     x: point.x, y: point.y, pressure: point.pressure,
@@ -166,13 +168,13 @@ export function endInkStroke(pageData) {
   for (let i = 0; i < extraStrokes.length; i++) {
     _renderFinalStroke(pageData, extraStrokes[i], true);
   }
-  scheduleSave();
+  scheduleSave({ pageId: pageData.pageId });
   pushHistory();
   state.currentStroke = null;
   return 'ink';
 }
 
-function _renderFinalStroke(pageData, stroke, snapped, extraClearBBox = null) {
+function _renderFinalStroke(pageData, stroke, _snapped, extraClearBBox = null) {
   if (pageData.overlayCanvas) {
     pageData.overlayCanvas.style.opacity = '';
     pageData.overlayCanvas.style.mixBlendMode = '';
@@ -183,8 +185,11 @@ function _renderFinalStroke(pageData, stroke, snapped, extraClearBBox = null) {
     ? Math.max(28, Math.ceil((stroke.size * 2) + 12))
     : 24;
 
-  if (snapped || stroke.points.length === 1 || stroke.tool === 'pencil') {
-    const pctx = pageData.ctx, dpr = pageData.dpr || 1;
+  // Ridisegna sempre in piena risoluzione sul canvas principale evitando blit 1.5x sfocati
+  // (Android/Surface Go 1 con zoom) e garantendo coerenza su punta finale e trasparenza.
+  const pctx = pageData.ctx;
+  const dpr = pageData.dpr || 1;
+  if (pctx) {
     pctx.save();
     pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (stroke.points.length === 1) {
@@ -193,22 +198,7 @@ function _renderFinalStroke(pageData, stroke, snapped, extraClearBBox = null) {
       renderFullStroke(pctx, stroke, state.isDarkMode);
     }
     pctx.restore();
-    if (extraClearBBox) clearOverlayBBox(pageData, extraClearBBox);
-    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke, pad));
-    return;
   }
-
-  const bbox = getStrokeBBoxCanvas(stroke, pad);
-  const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
-  if (isHL) {
-    blitAndClearBBox(pageData, bbox, {
-      alpha: opacity,
-      compositeOp: isPaperDark(state.isDarkMode, state.paperColor) ? 'screen' : 'multiply'
-    });
-  } else {
-    blitAndClearBBox(pageData, bbox, {
-      alpha: opacity,
-      compositeOp: 'source-over'
-    });
-  }
+  if (extraClearBBox) clearOverlayBBox(pageData, extraClearBBox);
+  clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke, pad));
 }

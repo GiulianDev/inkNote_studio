@@ -14,7 +14,8 @@ import {
   detectInkPlatform,
   normalizePenPressure,
   createStrokeStabilizer,
-  getHoldMoveTolerancePx
+  getHoldMoveTolerancePx,
+  extractEventTilt
 } from './ink-calibration.js';
 
 const MAX_BATCH_POINTS = 16;
@@ -27,8 +28,13 @@ const _platform = detectInkPlatform();
 
 let _lastValidPenPressure = 0;
 
-export const _useRawPointerUpdate =
-  typeof window !== 'undefined' && 'onpointerrawupdate' in window;
+export function resetLastValidPenPressure() {
+  _lastValidPenPressure = 0;
+}
+
+// pointermove + getCoalescedEvents() + getPredictedEvents() garantisce
+// predizione attiva e minor carico CPU su Surface Go 1 / Android / WebView.
+export const _useRawPointerUpdate = false;
 
 let _holdSnapTimer = null;
 let _holdPageData = null;
@@ -149,20 +155,32 @@ export function getCanvasCoords(e, canvas) {
 
   if (e.pointerType === 'pen') {
     const sens = getPressureParams().sensitivity;
-    const norm = normalizePenPressure(e.pressure, {
+    const rawP = Number.isFinite(e.pressure) ? e.pressure : 0;
+    const norm = normalizePenPressure(rawP, {
       platform: _platform,
       sensitivity: sens,
       isDrawing: state.isDrawing,
-      lastValidPressure: _lastValidPenPressure
+      lastValidPressure: state.isDrawing ? _lastValidPenPressure : 0
     });
-    _lastValidPenPressure = norm;
+    if (state.isDrawing && rawP > 0) {
+      _lastValidPenPressure = norm;
+    }
     p.pressure = norm;
   } else {
     p.pressure = 0.5;
   }
 
-  p.tiltX = e.tiltX || 0;
-  p.tiltY = e.tiltY || 0;
+  if (e.tiltX || e.tiltY) {
+    p.tiltX = e.tiltX || 0;
+    p.tiltY = e.tiltY || 0;
+  } else if (Number.isFinite(e.altitudeAngle) && e.altitudeAngle < Math.PI / 2) {
+    const t = extractEventTilt(e);
+    p.tiltX = t.tiltX;
+    p.tiltY = t.tiltY;
+  } else {
+    p.tiltX = 0;
+    p.tiltY = 0;
+  }
   p.speed = 0;
   p.pointerType = e.pointerType;
   p.timeStamp = e.timeStamp || 0;

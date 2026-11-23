@@ -5,7 +5,8 @@
 import { state } from '../../core/state.js';
 import { showToast, sliderToBaseSize, fastHypot } from '../../core/utils.js';
 import { redrawPageCanvas, clearOverlay, drawScribbleStroke } from '../render/render.js';
-import { getRawStrokeBBox } from '../render/stroke-geometry.js';
+import { invalidateStrokeBitmap } from '../render/stroke-cache.js';
+import { getRawStrokeBBox, invalidateStrokeBBox } from '../render/stroke-geometry.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 
@@ -271,8 +272,12 @@ export function finalizeScribble(pageData) {
     state.currentStroke ? state.currentStroke.points : [], pageData
   );
   if (targets.length > 0) {
+    for (const t of targets) {
+      invalidateStrokeBitmap(t);
+      invalidateStrokeBBox(t);
+    }
     pageData.strokes = pageData.strokes.filter(s => !targets.includes(s));
-    scheduleSave();
+    scheduleSave({ pageId: pageData?.pageId });
     pushHistory();
     showToast(
       targets.length === 1 ? 'Tratto cancellato' : `${targets.length} tratti cancellati`, '🧹'

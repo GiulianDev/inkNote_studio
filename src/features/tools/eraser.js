@@ -16,6 +16,7 @@ import { redrawPageCanvas } from '../render/render.js';
 import { markPageDirty } from '../persistence/session.js';
 import { getEraserRadius } from '../toolbar/toolbar-settings.js';
 import { getCanvasCoords, getCanvasRect, isPenEraser, resetPointPool } from './tool-shared.js';
+import { cloneInkParams } from './ink-calibration.js';
 
 // ============================================================
 // CURSORE GOMMA
@@ -199,6 +200,7 @@ function cloneStrokeSegment(stroke, points) {
     size: stroke.size,
     ...(stroke.opacity !== undefined ? { opacity: stroke.opacity } : {}),
     ...(stroke.style !== undefined ? { style: stroke.style } : {}),
+    ...(stroke.inkParams ? { inkParams: cloneInkParams(stroke.inkParams) } : {}),
     points
   };
 }
@@ -359,6 +361,13 @@ function performEraserBatch(pageData, points) {
         const steps = segLen > subStep ? Math.ceil(segLen / subStep) : 1;
         const pA = a.pressure ?? 0.5;
         const pB = b.pressure ?? 0.5;
+        const txA = a.tiltX || 0;
+        const txB = b.tiltX || 0;
+        const tyA = a.tiltY || 0;
+        const tyB = b.tiltY || 0;
+        const spdA = a.speed || 0;
+        const spdB = b.speed || 0;
+        const ptType = b.pointerType || a.pointerType;
 
         for (let k = 1; k <= steps; k++) {
           const t = k / steps;
@@ -367,7 +376,11 @@ function performEraserBatch(pageData, points) {
             : {
                 x: a.x + (b.x - a.x) * t,
                 y: a.y + (b.y - a.y) * t,
-                pressure: pA + (pB - pA) * t
+                pressure: pA + (pB - pA) * t,
+                tiltX: txA + (txB - txA) * t,
+                tiltY: tyA + (tyB - tyA) * t,
+                speed: spdA + (spdB - spdA) * t,
+                ...(ptType ? { pointerType: ptType } : {})
               };
 
           if (isPointErased(sp.x, sp.y, points, radiusSq)) {

@@ -261,10 +261,15 @@ export function setupViewportGestures() {
 
   window.addEventListener('resize', invalidateClampCache);
 
-  window.addEventListener('blur', () => {
+  const onAppBackgrounded = () => {
     _palmTracker.resetAll();
     viewport.activePointers.clear();
     _cancelCurrentGesture(false);
+    abortCurrentDrawing();
+  };
+  window.addEventListener('blur', onAppBackgrounded);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) onAppBackgrounded();
   });
 
   // Safety net globale se la penna viene sollevata fuori da #viewport

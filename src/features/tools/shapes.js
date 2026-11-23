@@ -451,8 +451,11 @@ export function detectReleaseShapeOrSymbol(stroke, pageData, extraStrokes = []) 
 export const detectAndSnapShape = detectReleaseShapeOrSymbol;
 
 function triggerSnapAnimation(pageData) {
+  if (!pageData?.wrapper) return;
   pageData.wrapper.classList.add('shape-snapped');
-  setTimeout(() => pageData.wrapper.classList.remove('shape-snapped'), 250);
+  setTimeout(() => {
+    if (pageData?.wrapper) pageData.wrapper.classList.remove('shape-snapped');
+  }, 250);
 }
 
 // ------------------------------------------------------------

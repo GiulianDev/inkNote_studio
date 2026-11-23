@@ -31,7 +31,7 @@ import { initSettings, onSettingsChanged } from './core/app-settings.js';
 import { initToolbarSettings, onToolbarSettingsChanged } from './features/toolbar/toolbar-settings.js';
 import { state } from './core/state.js';
 import {
-  centerViewport, refreshCanvasResolution
+  centerViewport, scheduleResolutionRefresh
 } from './features/editor/pages.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './features/render/render.js';
 import { hasLassoSelection } from './features/tools/lazo.js';
@@ -153,7 +153,7 @@ window.addEventListener('load', async () => {
   applySnapTogglesToUI();
   renderRecentColors();
 
-  window.addEventListener('resize', () => refreshCanvasResolution(true));
+  window.addEventListener('resize', scheduleResolutionRefresh);
 });
 
 function _dismissTopTransientUI() {

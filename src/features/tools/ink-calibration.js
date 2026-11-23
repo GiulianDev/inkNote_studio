@@ -11,6 +11,8 @@
 
 export const DEFAULT_PRESSURE_SENSITIVITY = 50;
 export const DEFAULT_PRESSURE_SPEED_WEIGHT = 20;
+export const TILT_DEADZONE_DEG = 24;
+export const TILT_MAX_DEG = 64;
 
 export const LEGACY_PRESSURE_PARAMS = Object.freeze({
   lightMul: 0.05,
@@ -120,7 +122,43 @@ export function normalizePenPressure(rawPressure, {
   if (isDrawing && lastValidPressure > 0) {
     return _clamp(lastValidPressure, 0.02, 1.0);
   }
-  return platform === 'ios' ? 0.16 : 0.30;
+  return 0.28;
+}
+
+/**
+ * Estrae tiltX/tiltY in gradi da un PointerEvent, con fallback a
+ * `altitudeAngle`/`azimuthAngle` (iPadOS WebKit / alcuni stili Android).
+ */
+export function extractEventTilt(e) {
+  if (!e) return { tiltX: 0, tiltY: 0 };
+  const rawX = Number.isFinite(e.tiltX) ? e.tiltX : 0;
+  const rawY = Number.isFinite(e.tiltY) ? e.tiltY : 0;
+  if (rawX !== 0 || rawY !== 0) {
+    return { tiltX: rawX, tiltY: rawY };
+  }
+  if (Number.isFinite(e.altitudeAngle) && e.altitudeAngle >= 0 && e.altitudeAngle < Math.PI / 2) {
+    const deg = Math.max(0, Math.min(90, 90 - (e.altitudeAngle * 180) / Math.PI));
+    if (deg > 0.5) {
+      const az = Number.isFinite(e.azimuthAngle) ? e.azimuthAngle : 0;
+      return {
+        tiltX: Math.round(deg * Math.cos(az) * 100) / 100,
+        tiltY: Math.round(deg * Math.sin(az) * 100) / 100
+      };
+    }
+  }
+  return { tiltX: 0, tiltY: 0 };
+}
+
+/**
+ * Normalizza l'inclinazione della penna in [0..1] con una deadzone
+ * per la postura naturale di scrittura (<= 24° -> 0) e ramp fluido
+ * fino allo shading intenzionale (64° -> 1).
+ */
+export function computeTiltNorm(pt) {
+  if (!pt || (!pt.tiltX && !pt.tiltY)) return 0;
+  const deg = Math.hypot(pt.tiltX || 0, pt.tiltY || 0);
+  if (deg <= TILT_DEADZONE_DEG) return 0;
+  return _clamp01((deg - TILT_DEADZONE_DEG) / (TILT_MAX_DEG - TILT_DEADZONE_DEG));
 }
 
 /**

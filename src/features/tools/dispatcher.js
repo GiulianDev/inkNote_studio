@@ -14,7 +14,7 @@
 import { state, viewport } from '../../core/state.js';
 import {
   getCanvasCoords, invalidateStrokeRect, resetPointPool,
-  forceFlushNow, cancelFlush, isPenEraser, _useRawPointerUpdate
+  forceFlushNow, cancelFlush, isPenEraser, resetLastValidPenPressure
 } from './tool-shared.js';
 import {
   updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
@@ -57,17 +57,10 @@ export function attachPointerListeners(pageData) {
     handlePointerDown(e, pageData);
   });
 
-  if (_useRawPointerUpdate) {
-    target.addEventListener('pointerrawupdate', (e) => {
-      if (!pageData.canvas) return;
-      handlePointerMove(e, pageData);
-    }, { passive: false });
-  } else {
-    target.addEventListener('pointermove', (e) => {
-      if (!pageData.canvas) return;
-      handlePointerMove(e, pageData);
-    }, { passive: false });
-  }
+  target.addEventListener('pointermove', (e) => {
+    if (!pageData.canvas) return;
+    handlePointerMove(e, pageData);
+  }, { passive: false });
 
   target.addEventListener('pointerup', (e) => {
     if (!pageData.canvas) return;
@@ -120,16 +113,44 @@ export function handlePointerDown(e, pageData) {
   if (viewport.isPanning || viewport.isPinching) return;
   if (viewport.activePointers.size > 1) return;
 
-  // Fix A.1: chiude stroke orfano
-  if (state.isDrawing &&
-      state.currentPointerId === e.pointerId &&
-      state.currentPageForPointer === pageData) {
-    forceFlushNow(pageData);
-    endInkStroke(pageData);
+  // Fix A.1 (rafforzato): chiude qualsiasi gesto/tratto orfano anche su pagina o pointerId diversi
+  if (state.isDrawing || state.currentStroke || state.isDraggingSelection || state.isResizingSelection) {
+    const orphanPage = state.currentPageForPointer || pageData;
+    const prevPointerId = state.currentPointerId;
+    if (prevPointerId !== null && orphanPage?.wrapper) {
+      try { orphanPage.wrapper.releasePointerCapture(prevPointerId); } catch (err) {}
+    }
+    if (orphanPage && orphanPage.canvas) {
+      if (state.activeTool === 'text' && !state._penEraserActive && state.isDrawing) {
+        state.isDrawing = false;
+        endTextPointer(orphanPage);
+      } else if (_gestureUsedEraser) {
+        flushEraserFrame(orphanPage);
+        if (consumeEraserModified()) {
+          pushHistory();
+          scheduleSave({ pageId: orphanPage.pageId });
+        }
+        _gestureUsedEraser = false;
+        _lastGestureWasEraser = true;
+      } else if (state.isResizingSelection) {
+        endResizeSelection(orphanPage, state.selectionMoved);
+      } else if (state.isDraggingSelection) {
+        endSelectionDrag(orphanPage, state.selectionMoved);
+      } else if (state.currentStroke && state.isDrawing) {
+        forceFlushNow(orphanPage);
+        clearPredictions(orphanPage);
+        endInkStroke(orphanPage);
+      } else if (state.activeTool === 'lasso' && state.isDrawing) {
+        flushLassoFrame(orphanPage);
+        endLasso(orphanPage);
+      }
+    }
     state.isDrawing = false;
     state.currentStroke = null;
     state.currentPointerId = null;
     state.currentPageForPointer = null;
+    state._penEraserActive = false;
+    resetLastValidPenPressure();
   }
 
   const isEraserGesture = penEraser || state.activeTool === 'eraser';
@@ -353,6 +374,21 @@ export function abortCurrentDrawing() {
     state.currentPageForPointer = null;
     endTextPointer(currPage);
   }
+  if (state.isResizingSelection) {
+    if (state.currentPointerId !== null && state.currentPageForPointer) {
+      try { state.currentPageForPointer.wrapper.releasePointerCapture(state.currentPointerId); } catch (err) {}
+    }
+    if (currPage?.canvas) endResizeSelection(currPage, state.selectionMoved);
+    state.currentPointerId = null;
+    state.currentPageForPointer = null;
+  } else if (state.isDraggingSelection) {
+    if (state.currentPointerId !== null && state.currentPageForPointer) {
+      try { state.currentPageForPointer.wrapper.releasePointerCapture(state.currentPointerId); } catch (err) {}
+    }
+    if (currPage?.canvas) endSelectionDrag(currPage, state.selectionMoved);
+    state.currentPointerId = null;
+    state.currentPageForPointer = null;
+  }
   if (state.isDrawing || state.currentStroke) {
     if (_gestureUsedEraser && consumeEraserModified()) {
       pushHistory();
@@ -368,17 +404,23 @@ export function abortCurrentDrawing() {
     clearSelection();
     resetScribbleState();
     const curr = state.pages[state.activePageIndex];
-    if (curr && curr.canvas) {
-      if (curr.overlayCanvas) {
-        curr.overlayCanvas.style.opacity = '';
-        curr.overlayCanvas.style.mixBlendMode = '';
+    const pagesToClear = curr && currPage && curr !== currPage ? [currPage, curr] : [curr || currPage];
+    for (const p of pagesToClear) {
+      if (p && p.canvas) {
+        if (p.overlayCanvas) {
+          p.overlayCanvas.style.opacity = '';
+          p.overlayCanvas.style.mixBlendMode = '';
+        }
+        redrawPageCanvas(p);
+        clearOverlay(p);
+        clearPredictions(p);
       }
-      redrawPageCanvas(curr); clearOverlay(curr); clearPredictions(curr);
     }
   }
   state._penEraserActive = false;
   _gestureUsedEraser = false;
   _lastGestureWasEraser = false;
+  resetLastValidPenPressure();
   flushLassoFrame(currPage);
   resetSelectionDragState();
   resetPointPool();

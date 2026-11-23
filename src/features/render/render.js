@@ -37,6 +37,7 @@ import {
 import { getPressureParams } from '../../core/app-settings.js';
 import {
   computeInkStrokeWidth,
+  computeTiltNorm,
   LEGACY_PRESSURE_PARAMS
 } from '../tools/ink-calibration.js';
 
@@ -57,6 +58,24 @@ function _ensureCircleBuf(neededFloats) {
   while (nextLen < neededFloats) nextLen *= 2;
   _circleBuf = new Float32Array(nextLen);
   return _circleBuf;
+}
+
+let _strokeScratchCanvas = null;
+let _strokeScratchCtx = null;
+function _getStrokeScratch(reqW, reqH) {
+  if (typeof document === 'undefined') return null;
+  if (reqW <= 0 || reqH <= 0 || reqW > 2048 || reqH > 2048) return null;
+  if (!_strokeScratchCanvas) {
+    _strokeScratchCanvas = document.createElement('canvas');
+    _strokeScratchCanvas.width = Math.max(256, reqW);
+    _strokeScratchCanvas.height = Math.max(256, reqH);
+    _strokeScratchCtx = _strokeScratchCanvas.getContext('2d');
+  } else if (_strokeScratchCanvas.width < reqW || _strokeScratchCanvas.height < reqH) {
+    _strokeScratchCanvas.width = Math.max(_strokeScratchCanvas.width, reqW);
+    _strokeScratchCanvas.height = Math.max(_strokeScratchCanvas.height, reqH);
+    _strokeScratchCtx = _strokeScratchCanvas.getContext('2d');
+  }
+  return _strokeScratchCtx ? { canvas: _strokeScratchCanvas, ctx: _strokeScratchCtx } : null;
 }
 
 // ============================================================
@@ -138,8 +157,7 @@ export function findClosestPointInSelection(target) {
 // ============================================================
 
 function getTiltNorm(pt) {
-  if (!pt || (!pt.tiltX && !pt.tiltY)) return 0;
-  return Math.min(1, fastHypot(pt.tiltX || 0, pt.tiltY || 0) / 30);
+  return computeTiltNorm(pt);
 }
 function getSpeedNorm(pt) {
   if (!pt || !pt.speed) return 0;
@@ -791,6 +809,24 @@ function drawStrokeWithCache(ctx, stroke, drawDpr, inkDark, isTarget = false, bu
           cached.bbox.w, cached.bbox.h
         );
         ctx.restore();
+      } else if (cached.opaqueAlpha) {
+        const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
+        if (opacity < 0.999) {
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.drawImage(
+            cached.canvas,
+            cached.bbox.x, cached.bbox.y,
+            cached.bbox.w, cached.bbox.h
+          );
+          ctx.restore();
+        } else {
+          ctx.drawImage(
+            cached.canvas,
+            cached.bbox.x, cached.bbox.y,
+            cached.bbox.w, cached.bbox.h
+          );
+        }
       } else {
         ctx.drawImage(
           cached.canvas,
@@ -1018,6 +1054,8 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     return;
   }
 
+  const opaqueStroke = !!(opts && opts.opaqueStroke);
+
   ctx.save();
   if (overrideColor) {
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -1025,60 +1063,103 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     ctx.strokeStyle = overrideColor; ctx.fillStyle = overrideColor;
   } else {
     setupStrokeStyle(ctx, stroke, forceTargetDark);
-    ctx.globalAlpha = opacity;
+    ctx.globalAlpha = opaqueStroke ? 1.0 : opacity;
   }
 
   const unified = overrideColor != null || canUnifyFill(stroke.tool);
   if (unified) {
-    let cIdx = 0;
-    let buf = _circleBuf;
+    const _fillUnifiedPath = (targetCtx) => {
+      let cIdx = 0;
+      let buf = _circleBuf;
 
-    ctx.beginPath();
-    for (let i = 1; i < n; i++) {
-      const p0 = pts[i >= 2 ? i - 2 : 0];
-      const p1 = pts[i - 1];
-      const p2 = pts[i];
-      const p3 = pts[i + 1 < n ? i + 1 : n - 1];
-      const w1 = widths[i - 1], w2 = widths[i];
-      const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-      const steps = computeSegmentSteps(segLen, smoothness);
-      if (cIdx + steps * 3 + 3 > buf.length) {
-        buf = _ensureCircleBuf(cIdx + steps * 3 + 3);
+      targetCtx.beginPath();
+      for (let i = 1; i < n; i++) {
+        const p0 = pts[i >= 2 ? i - 2 : 0];
+        const p1 = pts[i - 1];
+        const p2 = pts[i];
+        const p3 = pts[i + 1 < n ? i + 1 : n - 1];
+        const w1 = widths[i - 1], w2 = widths[i];
+        const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
+        const steps = computeSegmentSteps(segLen, smoothness);
+        if (cIdx + steps * 3 + 3 > buf.length) {
+          buf = _ensureCircleBuf(cIdx + steps * 3 + 3);
+        }
+
+        _ptA.x = p1.x;
+        _ptA.y = p1.y;
+        let wa = w1;
+        for (let s = 0; s < steps; s++) {
+          const t1 = (s + 1) / steps;
+          const wb = w1 + (w2 - w1) * t1;
+          interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
+          addTaperedSegmentPolygon(targetCtx, _ptA, _ptB, wa, wb);
+          buf[cIdx++] = _ptA.x;
+          buf[cIdx++] = _ptA.y;
+          buf[cIdx++] = Math.max(wa, 0.5) * 0.5;
+          _ptA.x = _ptB.x;
+          _ptA.y = _ptB.y;
+          wa = wb;
+        }
       }
+      targetCtx.fill();
 
-      _ptA.x = p1.x;
-      _ptA.y = p1.y;
-      let wa = w1;
-      for (let s = 0; s < steps; s++) {
-        const t1 = (s + 1) / steps;
-        const wb = w1 + (w2 - w1) * t1;
-        interpolatePointInto(_ptB, p0, p1, p2, p3, t1, smoothness);
-        addTaperedSegmentPolygon(ctx, _ptA, _ptB, wa, wb);
-        buf[cIdx++] = _ptA.x;
-        buf[cIdx++] = _ptA.y;
-        buf[cIdx++] = Math.max(wa, 0.5) * 0.5;
-        _ptA.x = _ptB.x;
-        _ptA.y = _ptB.y;
-        wa = wb;
+      // Include last tip cap in single arc fill pass
+      if (cIdx + 3 > buf.length) buf = _ensureCircleBuf(cIdx + 3);
+      buf[cIdx++] = pts[n - 1].x;
+      buf[cIdx++] = pts[n - 1].y;
+      buf[cIdx++] = Math.max(widths[n - 1], 0.5) * 0.5;
+
+      targetCtx.beginPath();
+      for (let k = 0; k < cIdx; k += 3) {
+        const cx = buf[k];
+        const cy = buf[k + 1];
+        const r = buf[k + 2];
+        targetCtx.moveTo(cx + r, cy);
+        targetCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      }
+      targetCtx.fill();
+    };
+
+    // Per tratti semi-trasparenti (es. marker opaco 0.9) evita doppio accumulo alpha sui giunti
+    if (!overrideColor && !opaqueStroke && opacity < 0.999) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, maxW = 1;
+      for (let i = 0; i < n; i++) {
+        const p = pts[i];
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+        if (widths[i] > maxW) maxW = widths[i];
+      }
+      const pad = Math.ceil(maxW * 0.75 + 4);
+      const bx = minX - pad;
+      const by = minY - pad;
+      const bw = Math.max(1, (maxX - minX) + pad * 2);
+      const bh = Math.max(1, (maxY - minY) + pad * 2);
+      const tr = typeof ctx.getTransform === 'function' ? ctx.getTransform() : { a: 1, b: 0 };
+      const scale = Math.max(1, Math.min(4, Math.hypot(tr.a || 1, tr.b || 0) || 1));
+      const pxW = Math.ceil(bw * scale);
+      const pxH = Math.ceil(bh * scale);
+      const scratch = _getStrokeScratch(pxW, pxH);
+      if (scratch) {
+        const sctx = scratch.ctx;
+        sctx.save();
+        sctx.setTransform(1, 0, 0, 1, 0, 0);
+        sctx.clearRect(0, 0, pxW, pxH);
+        sctx.setTransform(scale, 0, 0, scale, -bx * scale, -by * scale);
+        setupStrokeStyle(sctx, stroke, forceTargetDark);
+        sctx.globalAlpha = 1.0;
+        _fillUnifiedPath(sctx);
+        sctx.restore();
+
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(scratch.canvas, 0, 0, pxW, pxH, bx, by, bw, bh);
+        ctx.restore();
+        return;
       }
     }
-    ctx.fill();
 
-    // Include last tip cap in single arc fill pass
-    if (cIdx + 3 > buf.length) buf = _ensureCircleBuf(cIdx + 3);
-    buf[cIdx++] = pts[n - 1].x;
-    buf[cIdx++] = pts[n - 1].y;
-    buf[cIdx++] = Math.max(widths[n - 1], 0.5) * 0.5;
-
-    ctx.beginPath();
-    for (let k = 0; k < cIdx; k += 3) {
-      const cx = buf[k];
-      const cy = buf[k + 1];
-      const r = buf[k + 2];
-      ctx.moveTo(cx + r, cy);
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    }
-    ctx.fill();
+    _fillUnifiedPath(ctx);
     ctx.restore();
     return;
   }
@@ -1283,17 +1364,22 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       ctx.fill();
     }
 
-    if (smoothness <= 0.01 && n >= 2) {
+    if (n >= 2) {
       const tipP1 = pts[n - 2], tipP2 = pts[n - 1];
-      const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure,
-        getTiltNorm(tipP1), getSpeedNorm(tipP1), 1.0, baseSize, inkParams);
       const tipW2 = computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure,
         getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize, inkParams);
+      if (smoothness <= 0.01) {
+        const tipW1 = computeStrokeWidth(stroke.tool, stroke.size, tipP1.pressure,
+          getTiltNorm(tipP1), getSpeedNorm(tipP1), 1.0, baseSize, inkParams);
+        ctx.beginPath();
+        addTaperedSegmentPolygon(ctx, tipP1, tipP2, tipW1, tipW2);
+        ctx.fill();
+        ctx.beginPath();
+        addTaperedSegmentCircle(ctx, tipP1, tipW1);
+        ctx.fill();
+      }
       ctx.beginPath();
-      addTaperedSegmentPolygon(ctx, tipP1, tipP2, tipW1, tipW2);
-      ctx.fill();
-      ctx.beginPath();
-      addTaperedSegmentCircle(ctx, tipP1, tipW1);
+      addTaperedSegmentCircle(ctx, tipP2, tipW2);
       ctx.fill();
     }
   } else {
