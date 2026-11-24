@@ -31,10 +31,14 @@ import { initSettings, onSettingsChanged } from './core/app-settings.js';
 import { initToolbarSettings, onToolbarSettingsChanged } from './features/toolbar/toolbar-settings.js';
 import { state } from './core/state.js';
 import {
-  centerViewport, refreshCanvasResolution
+  centerViewport, scheduleResolutionRefresh
 } from './features/editor/pages.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './features/render/render.js';
-import { hasLassoSelection } from './features/tools/lazo.js';
+import {
+  hasLassoSelection,
+  hideSelectionStylePopover,
+  isSelectionStylePopoverOpen
+} from './features/tools/lazo.js';
 import { setupViewportGestures } from './features/viewport/gestures.js';
 import { setupKeyboardShortcuts } from './features/shortcuts/keyboard.js';
 import {
@@ -56,6 +60,7 @@ import {
   hasActiveLibrarySearch, clearLibrarySearch
 } from './features/library/library.js';
 import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
+import { closeAllAuthDropdowns } from './features/library/library-auth.js';
 import { terminateWorker } from './features/backup/serialization-cloud.js';
 import { handleRedirectResult } from './services/firebase.js';
 import { showToast } from './core/utils.js';
@@ -121,11 +126,8 @@ window.addEventListener('load', async () => {
       renderRecentColors();
       return;
     }
-    // activeTool è runtime-only, non va persistito nel notebook.
-    if (changed.length === 1 && changed[0] === 'activeTool') return;
-    // Cambio preferenza toolbar (colore, spessore, smoothing,
-    // snapLines, snapShapes, compact, eraserSize, eraserMode,
-    // recentColors): persisti nel notebook.
+    // Cambio preferenza toolbar o strumento attivo (activeTool, colore,
+    // spessore, smoothing, snap, compact, gomma, colori recenti): persisti.
     scheduleSave({ markDirty: false });
   });
 
@@ -153,7 +155,7 @@ window.addEventListener('load', async () => {
   applySnapTogglesToUI();
   renderRecentColors();
 
-  window.addEventListener('resize', () => refreshCanvasResolution(true));
+  window.addEventListener('resize', scheduleResolutionRefresh);
 });
 
 function _dismissTopTransientUI() {
@@ -181,19 +183,19 @@ function _dismissTopTransientUI() {
 
   const authDropdown = document.getElementById('authDropdown');
   if (authDropdown && !authDropdown.classList.contains('hidden')) {
-    authDropdown.classList.add('hidden');
+    closeAllAuthDropdowns();
     return 'auth-dropdown';
   }
 
   const editorAuthDropdown = document.getElementById('editorAuthDropdown');
   if (editorAuthDropdown && !editorAuthDropdown.classList.contains('hidden')) {
-    editorAuthDropdown.classList.add('hidden');
+    closeAllAuthDropdowns();
     return 'editor-auth-dropdown';
   }
 
   if (isEditorActive()) {
     const toolbarMenu = document.getElementById('toolbarMenuPanel');
-    if (toolbarMenu && toolbarMenu.classList.contains('open')) {
+    if (toolbarMenu && !toolbarMenu.classList.contains('hidden')) {
       closeToolbarMenu();
       return 'toolbar-menu';
     }
@@ -206,6 +208,10 @@ function _dismissTopTransientUI() {
     if (pagePopover && !pagePopover.classList.contains('hidden')) {
       hidePagePopover();
       return 'page-popover';
+    }
+    if (isSelectionStylePopoverOpen()) {
+      hideSelectionStylePopover();
+      return 'selection-style-popover';
     }
     return null;
   }

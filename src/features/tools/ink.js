@@ -6,12 +6,12 @@
 
 import { state, viewport } from '../../core/state.js';
 import { getPressureParams } from '../../core/app-settings.js';
-import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark } from '../../core/utils.js';
+import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark, emit } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
-  drawDotOnly, renderFullStroke,
-  getStrokeBBoxCanvas, clearOverlayBBox, blitAndClearBBox
+  drawDotOnly, renderFullStroke
 } from '../render/render.js';
+import { clearPredictions } from '../render/prediction.js';
 import {
   finalizePendingShape, applyAngleSnap,
   detectReleaseShapeOrSymbol, trySnapHighlighter,
@@ -19,18 +19,27 @@ import {
 } from './shapes.js';
 import {
   cloneInkParams,
-  createStrokeStabilizer
+  createStrokeStabilizer,
+  detectInkPlatform
 } from './ink-calibration.js';
+
+const _inkPlatform = detectInkPlatform();
 import { finalizeScribble } from './scribble.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import {
   getCanvasCoords, getCanvasRect, pushPointsToBatch, scheduleFlush,
-  isPredictionSupported, drawPredictions, clearLineHoldTimer
+  isPredictionSupported, drawPredictions, clearLineHoldTimer,
+  resetLastValidPenPressure, seedLastValidPenPressure
 } from './tool-shared.js';
 
 export function beginInkStroke(point) {
   clearLineHoldTimer();
+  resetLastValidPenPressure();
+  const hasSyntheticInitial = point.pointerType === 'pen' && !!point._pressureFallback;
+  if (point.pointerType === 'pen' && !hasSyntheticInitial) {
+    seedLastValidPenPressure(point.pressure);
+  }
   const now = performance.now();
   const initialPt = {
     x: point.x, y: point.y, pressure: point.pressure,
@@ -43,12 +52,16 @@ export function beginInkStroke(point) {
     size: state.strokeWidth,
     opacity: state.currentOpacity != null ? state.currentOpacity : 1.0,
     style: state.currentStyle || 'solid',
+    smoothing: state.smoothing,
     inkParams: cloneInkParams(getPressureParams()),
     startTime: now,
     _lastMoveTime: now,
     _holdAnchorX: point.x,
     _holdAnchorY: point.y,
-    _stabilizer: createStrokeStabilizer(initialPt),
+    _pendingInitialPressure: hasSyntheticInitial,
+    _syntheticPointCount: hasSyntheticInitial ? 1 : 0,
+    _needsOverlayRebase: false,
+    _stabilizer: createStrokeStabilizer(initialPt, { platform: _inkPlatform }),
     _drawnIdx: 0,
     _lastSnapCheck: 0,
     points: [{
@@ -98,7 +111,7 @@ export function moveInkStroke(pageData, e) {
   const events = (coalesced && coalesced.length > 0) ? coalesced : [e];
 
   const points = [];
-  for (const ev of events) points.push(getCanvasCoords(ev, pageData.canvas));
+  for (const ev of events) points.push(getCanvasCoords(ev, pageData.canvas, e.pointerType));
   pushPointsToBatch(points);
   scheduleFlush(pageData);
 
@@ -137,12 +150,6 @@ export function endInkStroke(pageData) {
   const stroke = state.currentStroke;
   const pts = stroke.points;
 
-  const isHL = stroke.tool === 'highlighter';
-  const pad = (isHL || stroke.tool === 'pencil')
-    ? Math.max(28, Math.ceil((stroke.size * 2) + 12))
-    : 24;
-  const origBBox = getStrokeBBoxCanvas(stroke, pad);
-
   const extraStrokes = [];
   let snapped = false;
   if (pts.length > 2) {
@@ -162,29 +169,32 @@ export function endInkStroke(pageData) {
   for (let i = 0; i < extraStrokes.length; i++) {
     pageData.strokes.push(extraStrokes[i]);
   }
-  _renderFinalStroke(pageData, stroke, snapped, snapped ? origBBox : null);
+  _renderFinalStroke(pageData, stroke, snapped);
   for (let i = 0; i < extraStrokes.length; i++) {
     _renderFinalStroke(pageData, extraStrokes[i], true);
   }
-  scheduleSave();
+  if (!state.pendingShape && !(state.selectedStrokes && state.selectedStrokes.length > 0)) {
+    clearOverlay(pageData);
+  }
+  clearPredictions(pageData, true);
+  scheduleSave({ pageId: pageData.pageId });
   pushHistory();
+  emit('ink:color-used', { color: stroke.color, tool: stroke.tool });
   state.currentStroke = null;
   return 'ink';
 }
 
-function _renderFinalStroke(pageData, stroke, snapped, extraClearBBox = null) {
+function _renderFinalStroke(pageData, stroke, _snapped) {
   if (pageData.overlayCanvas) {
     pageData.overlayCanvas.style.opacity = '';
     pageData.overlayCanvas.style.mixBlendMode = '';
   }
 
-  const isHL = stroke.tool === 'highlighter';
-  const pad = (isHL || stroke.tool === 'pencil')
-    ? Math.max(28, Math.ceil((stroke.size * 2) + 12))
-    : 24;
-
-  if (snapped || stroke.points.length === 1 || stroke.tool === 'pencil') {
-    const pctx = pageData.ctx, dpr = pageData.dpr || 1;
+  // Ridisegna sempre in piena risoluzione sul canvas principale evitando blit 1.5x sfocati
+  // (Android/Surface Go 1 con zoom) e garantendo coerenza su punta finale e trasparenza.
+  const pctx = pageData.ctx;
+  const dpr = pageData.dpr || 1;
+  if (pctx) {
     pctx.save();
     pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (stroke.points.length === 1) {
@@ -193,22 +203,5 @@ function _renderFinalStroke(pageData, stroke, snapped, extraClearBBox = null) {
       renderFullStroke(pctx, stroke, state.isDarkMode);
     }
     pctx.restore();
-    if (extraClearBBox) clearOverlayBBox(pageData, extraClearBBox);
-    clearOverlayBBox(pageData, getStrokeBBoxCanvas(stroke, pad));
-    return;
-  }
-
-  const bbox = getStrokeBBoxCanvas(stroke, pad);
-  const opacity = stroke.opacity != null ? stroke.opacity : 1.0;
-  if (isHL) {
-    blitAndClearBBox(pageData, bbox, {
-      alpha: opacity,
-      compositeOp: isPaperDark(state.isDarkMode, state.paperColor) ? 'screen' : 'multiply'
-    });
-  } else {
-    blitAndClearBBox(pageData, bbox, {
-      alpha: opacity,
-      compositeOp: 'source-over'
-    });
   }
 }

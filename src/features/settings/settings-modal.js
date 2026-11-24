@@ -24,8 +24,12 @@ import {
   detectInkPlatform,
   normalizePenPressure,
   createStrokeStabilizer,
-  samplePressureCurve
+  samplePressureCurve,
+  extractEventTilt,
+  computeTiltNorm,
+  computeDirectionalNibFactor
 } from '../tools/ink-calibration.js';
+import { closeAllEditorMenus } from '../toolbar/toolbar.js';
 
 import settingsHtml from './settings-modal.html?raw';
 
@@ -45,6 +49,7 @@ export function mountSettingsModal() {
 }
 
 export function openSettingsModal() {
+  closeAllEditorMenus();
   mountSettingsModal();
 
   if (!_isOpen) {
@@ -171,7 +176,7 @@ function _renderPressureCurveSvg() {
   if (!pathEl || !areaEl) return;
 
   const params = getPressureParams();
-  const pts = samplePressureCurve(params, 28);
+  const pts = samplePressureCurve({ ...params, platform: _pressureTestState.platform }, 28);
   const left = 12, right = 208, bottom = 78, top = 12;
   const w = right - left;
   const h = bottom - top;
@@ -314,21 +319,23 @@ function _onPressureTestDown(e) {
   });
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
+  const { tiltX, tiltY } = extractEventTilt(e);
   const firstPt = {
     x,
     y,
     rawPressure,
     pressure: normP,
-    tiltX: e.tiltX || 0,
-    tiltY: e.tiltY || 0,
+    tiltX,
+    tiltY,
     speed: 0,
     timeStamp: e.timeStamp || performance.now()
   };
   _pressureTestState.current = {
     tool,
     size: state.strokeWidth || 4,
-    _stabilizer: createStrokeStabilizer(firstPt),
+    _stabilizer: createStrokeStabilizer(firstPt, { platform: _pressureTestState.platform }),
     _lastRawValidPressure: rawPressure > 0 ? normP : 0,
+    _pendingInitialPressure: rawPressure <= 0,
     points: [firstPt]
   };
   try { canvas.setPointerCapture(e.pointerId); } catch {}
@@ -342,40 +349,64 @@ function _onPressureTestMove(e) {
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
   const params = getPressureParams();
-  const rawPressure = e.pressure || 0;
-  const normP = normalizePenPressure(rawPressure, {
-    platform: _pressureTestState.platform,
-    sensitivity: params.sensitivity,
-    isDrawing: true,
-    lastValidPressure: cur._lastRawValidPressure
-  });
-  if (rawPressure > 0) cur._lastRawValidPressure = normP;
+  const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
+  const events = (coalesced && coalesced.length > 0) ? coalesced : [e];
+  let added = false;
 
-  const filtered = cur._stabilizer.filterPoint({
-    x: e.clientX - rect.left,
-    y: e.clientY - rect.top,
-    pressure: normP,
-    timeStamp: e.timeStamp || performance.now()
-  }, {
-    smoothing: state.smoothing,
-    scale: 1.0
-  });
-  if (!filtered.accepted) return;
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i];
+    const rawPressure = ev.pressure || 0;
+    const isFallback = rawPressure <= 0;
+    const normP = normalizePenPressure(rawPressure, {
+      platform: _pressureTestState.platform,
+      sensitivity: params.sensitivity,
+      isDrawing: true,
+      lastValidPressure: cur._lastRawValidPressure
+    });
+    if (!isFallback) {
+      cur._lastRawValidPressure = normP;
+      if (cur._pendingInitialPressure) {
+        cur._pendingInitialPressure = false;
+        for (let k = 0; k < cur.points.length; k++) {
+          cur.points[k].rawPressure = rawPressure;
+          cur.points[k].pressure = normP;
+        }
+        if (typeof cur._stabilizer.seedInitialPressure === 'function') {
+          cur._stabilizer.seedInitialPressure(normP);
+        }
+      }
+    }
 
-  const last = cur.points[cur.points.length - 1];
-  const dist = Math.hypot(filtered.x - last.x, filtered.y - last.y);
-  const speed = dist / Math.max(1, filtered.dtMs / 8.33);
+    const filtered = cur._stabilizer.filterPoint({
+      x: ev.clientX - rect.left,
+      y: ev.clientY - rect.top,
+      pressure: normP,
+      _pressureFallback: isFallback,
+      timeStamp: ev.timeStamp || performance.now()
+    }, {
+      smoothing: state.smoothing,
+      scale: 1.0
+    });
+    if (!filtered.accepted) continue;
 
-  cur.points.push({
-    x: filtered.x,
-    y: filtered.y,
-    rawPressure,
-    pressure: filtered.pressure,
-    tiltX: e.tiltX || 0,
-    tiltY: e.tiltY || 0,
-    speed
-  });
-  _redrawPressureTest();
+    const last = cur.points[cur.points.length - 1];
+    const dist = Math.hypot(filtered.x - last.x, filtered.y - last.y);
+    const speed = dist / Math.max(1, filtered.dtMs / 8.33);
+    const { tiltX, tiltY } = extractEventTilt(ev);
+
+    cur.points.push({
+      x: filtered.x,
+      y: filtered.y,
+      rawPressure,
+      pressure: filtered.pressure,
+      tiltX,
+      tiltY,
+      speed
+    });
+    added = true;
+  }
+
+  if (added) _redrawPressureTest();
 }
 
 function _onPressureTestUp(e) {
@@ -439,9 +470,13 @@ function _redrawPressureTest() {
           })
         : pt.pressure;
       if (pt.rawPressure > 0) lastValid = pNorm;
-      const tiltNorm  = Math.min(1, Math.hypot(pt.tiltX || 0, pt.tiltY || 0) / 30);
+      const tiltNorm  = computeTiltNorm(pt);
       const speedNorm = Math.min(1, (pt.speed || 0) / 8);
-      return computeStrokeWidth(stroke.tool, stroke.size, pNorm, tiltNorm, speedNorm, 1.0, null, params);
+      const prevPt = pts[idx > 0 ? idx - 1 : 0];
+      const nextPt = pts[idx < pts.length - 1 ? idx + 1 : pts.length - 1];
+      const nibMul = computeDirectionalNibFactor(nextPt.x - prevPt.x, nextPt.y - prevPt.y, stroke.tool);
+      const wRaw = computeStrokeWidth(stroke.tool, stroke.size, pNorm, tiltNorm, speedNorm, 1.0, null, params);
+      return Math.max(0.25, wRaw * nibMul);
     });
 
     const inkColor = getEffectiveColor('#000000', isDark);

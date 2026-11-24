@@ -42,6 +42,7 @@ import {
   formatAuthErrorMessage,
   formatFirestoreErrorMessage
 } from './sharing-helpers.js';
+import { closeAllEditorMenus } from '../toolbar/toolbar.js';
 
 const NOTIF_PREF_KEY = 'inknote_browser_notifications';
 const PENDING_INVITE_KEY = 'inknote_pending_invite_handle';
@@ -399,6 +400,7 @@ export async function openSharingModal({
   sendNotebooks = null,
   autoScanContacts = false
 } = {}) {
+  closeAllEditorMenus();
   // Se già aperto, chiudi quello precedente
   if (_activeModalState?.close) {
     _activeModalState.close();

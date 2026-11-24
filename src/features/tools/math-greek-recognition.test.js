@@ -240,3 +240,37 @@ test('recognizeGreekSingleStroke rejects plain circle and straight lines', () =>
   assert.equal(recognizeGreekSingleStroke(circle), null);
   assert.equal(recognizeGreekSingleStroke(sampleLine(100, 100, 180, 100, 15)), null);
 });
+
+test('curly braces render with sleek Word/LaTeX proportions and vertical stems, parens stay subtly curved', () => {
+  // Hand-drawn brace rather wide (w=46, h=110)
+  const wideCurly = [
+    ...cubicPts({ x: 156, y: 100 }, { x: 128, y: 102 }, { x: 132, y: 146 }, { x: 110, y: 155 }, 16),
+    ...cubicPts({ x: 110, y: 155 }, { x: 132, y: 164 }, { x: 128, y: 208 }, { x: 156, y: 210 }, 16).slice(1)
+  ];
+  const braceRes = recognizeMathSymbolSingleStroke(wideCurly);
+  assert.equal(braceRes?.symbol, '{');
+  const xs = braceRes.points.map(p => p.x);
+  const ys = braceRes.points.map(p => p.y);
+  const bw = Math.max(...xs) - Math.min(...xs);
+  const bh = Math.max(...ys) - Math.min(...ys);
+  // Larghezza proporzionata stile LaTeX (~<= 0.28 * altezza) e cima ancorata esattamente a minY (100)
+  assert.ok(bw <= bh * 0.28, `Expected sleek brace width <= 0.28*h, got ${bw / bh}`);
+  assert.ok(Math.abs(Math.min(...ys) - 100) < 0.5);
+  // Verifica che esista la cuspide centrale ben distinta verso sinistra
+  const minX = Math.min(...xs);
+  const cuspPts = braceRes.points.filter(p => Math.abs(p.x - minX) < 1.0);
+  assert.ok(cuspPts.length >= 1 && Math.abs(cuspPts[0].y - 155) < 2);
+
+  // Hand-drawn paren rather wide (w=34, h=100) -> output paren is much more slender & gentle
+  const wideParen = [];
+  for (let i = 0; i <= 30; i++) {
+    const t = i / 30;
+    wideParen.push({ x: 140 - Math.sin(Math.PI * t) * 34, y: 100 + t * 100 });
+  }
+  const parenRes = recognizeMathSymbolSingleStroke(wideParen);
+  assert.equal(parenRes?.symbol, '(');
+  const pXs = parenRes.points.map(p => p.x);
+  const pw = Math.max(...pXs) - Math.min(...pXs);
+  assert.ok(pw <= 18.5, `Expected restrained paren width <= 18.5px, got ${pw}`);
+});
+

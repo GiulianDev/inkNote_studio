@@ -9,7 +9,7 @@ import {
   updateNotebookMetadataInDB, loadAllFoldersFromDB, saveFolderToDB, deleteLibraryItemsFromDB
 } from '../../services/db.js';
 import { openNotebook, closeNotebookIfOpen } from '../editor/editor.js';
-import { DEFAULT_TOOLBAR_SETTINGS } from '../toolbar/toolbar-settings.js';
+import { getInitialNewNotebookToolbarSettings } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
 import { exportNotebooks } from '../backup/backup-export.js';
 import { importNotebooks } from '../backup/backup-import.js';
@@ -18,7 +18,7 @@ import {
   buildFolderTreeList, openFolderEditorModal, openMoveItemsModal
 } from './library-modals.js';
 import { createLibraryDndController } from './library-dnd.js';
-import { bindLibraryAuth } from './library-auth.js';
+import { bindLibraryAuth, closeAllAuthDropdowns } from './library-auth.js';
 import { openSharingModal } from '../sharing/sharing-ui.js';
 import {
   getFolderPath,
@@ -268,7 +268,7 @@ function _enterSelectionMode(initial = null) {
     selectedNotebookIds.add(initial);
   }
 
-  document.getElementById('authDropdown')?.classList.add('hidden');
+  closeAllAuthDropdowns();
   _syncHeaderModeUI();
   _applySelectionStateToCards();
   _updateSelectionBar();
@@ -1232,6 +1232,7 @@ function _populateModalFolderSelect(folders, targetFolderId) {
 }
 
 async function _openNewNotebookModal() {
+  closeAllAuthDropdowns();
   const modal = document.getElementById('newNotebookModal');
   if (!modal) return;
 
@@ -1286,7 +1287,7 @@ async function _confirmCreateNotebook() {
       createdAt: now,
       updatedAt: now,
       lastEditAt: now,
-      toolbarSettings: deepClone(DEFAULT_TOOLBAR_SETTINGS),
+      toolbarSettings: getInitialNewNotebookToolbarSettings(),
       pageOrder: [firstPageId],
       pages: [{ pageId: firstPageId, strokes: [], textBoxes: [] }],
       lastPageIndex: 0

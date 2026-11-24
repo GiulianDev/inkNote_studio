@@ -84,4 +84,17 @@ describe('line-snap: hold-to-snap vs strict release auto-snap & H/V hysteresis',
     assert.ok(res, 'ultra-straight line should auto-snap on release');
     assert.equal(res.end.y, 300, 'near-horizontal ultra-straight line snaps cleanly to Y=300');
   });
+
+  it('still snaps a short fast line after a long stationary iPad hold with tail jitter', () => {
+    const lineWithHold = makeLine(80, 220, 240, 220, 14, 0.6);
+    for (let j = 0; j < 36; j++) {
+      lineWithHold.push({
+        x: 240 + (j % 2 === 0 ? 1.8 : -1.8),
+        y: 220 + (j % 3 === 0 ? -1.6 : 1.6),
+        pressure: 0.5
+      });
+    }
+    const res = evaluateLineHoldCandidate(lineWithHold);
+    assert.ok(res, 'long iPad hold jitter cluster must not break line hold-to-snap');
+  });
 });

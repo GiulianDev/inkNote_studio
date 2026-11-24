@@ -13,13 +13,15 @@ import { packStrokes, unpackStrokes } from '../persistence/serialization.js';
 import { showProgressDialog } from '../backup/backup-progress.js';
 import {
   createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
-  installViewportResizeObserver, refreshCanvasResolution, centerViewport
+  installViewportResizeObserver, refreshCanvasResolution, centerViewport,
+  cancelPendingPageTimers
 } from './pages.js';
 import { pagePool } from './page-pool.js';
 import { clearStrokeCache } from '../render/stroke-cache.js';
 import {
   refreshPageCounter, setDockDrawingHidden,
-  applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI
+  applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI,
+  closeAllEditorMenus
 } from '../toolbar/toolbar.js';
 import { resetHistory } from '../history/history.js';
 import {
@@ -30,6 +32,7 @@ import { finalizePendingShape } from '../tools/shapes.js';
 import {
   commitActiveTextBox, resetTextToolState, updateTextSelectionMenuPosition
 } from '../tools/text.js';
+import { abortCurrentDrawing } from '../tools/dispatcher.js';
 import {
   initToolbarSettings, resetToolbarSettings,
   getToolbarSettings, getToolbarSettingsForSave
@@ -326,11 +329,14 @@ export async function returnToLibrary({ fromPopstate = false } = {}) {
     _openToken++;
     _isOpeningNotebook = false;
     _closeOpenDialog();
+    closeAllEditorMenus();
+    cancelPendingPageTimers();
 
     if (state.pendingShape) finalizePendingShape();
     if (state.editingTextBoxId || state.selectedTextBoxId) {
       commitActiveTextBox({ deselect: true });
     }
+    abortCurrentDrawing();
     try {
       await forceSave();
     } catch (err) {
@@ -377,6 +383,9 @@ export function closeNotebookIfOpen(id) {
     _openToken++;
     _isOpeningNotebook = false;
     _closeOpenDialog();
+    closeAllEditorMenus();
+    cancelPendingPageTimers();
+    abortCurrentDrawing();
     cancelPendingSave();
     clearSelection();
     pagePool.reset();

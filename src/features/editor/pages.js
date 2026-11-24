@@ -261,6 +261,18 @@ export function updateActivePageFromViewport() {
 // POOL — delega
 // ============================================================
 
+export function cancelPendingPageTimers() {
+  if (_activePageCheckTimer !== null) {
+    clearTimeout(_activePageCheckTimer);
+    _activePageCheckTimer = null;
+  }
+  if (_resolutionRefreshTimer !== null) {
+    clearTimeout(_resolutionRefreshTimer);
+    _resolutionRefreshTimer = null;
+  }
+  _programmaticScrollUntil = 0;
+}
+
 export function refreshCanvasResolution(force = false) {
   pagePool.updateAround(state.activePageIndex, force);
 }
@@ -269,7 +281,7 @@ export function scheduleResolutionRefresh() {
   if (_resolutionRefreshTimer) clearTimeout(_resolutionRefreshTimer);
   _resolutionRefreshTimer = setTimeout(() => {
     _resolutionRefreshTimer = null;
-    refreshCanvasResolution(false);
+    refreshCanvasResolution(true);
   }, 200);
 }
 
@@ -526,7 +538,7 @@ function restorePageFromSnapshot(snap) {
 
   refreshPageCounter();
   invalidateClampCache();
-  refreshCanvasResolution(true);
+  refreshCanvasResolution(false);
 }
 
 on('history:restore', restorePageFromSnapshot);

@@ -11,6 +11,8 @@
 
 export const DEFAULT_PRESSURE_SENSITIVITY = 50;
 export const DEFAULT_PRESSURE_SPEED_WEIGHT = 20;
+export const TILT_DEADZONE_DEG = 24;
+export const TILT_MAX_DEG = 64;
 
 export const LEGACY_PRESSURE_PARAMS = Object.freeze({
   lightMul: 0.05,
@@ -59,12 +61,12 @@ export function derivePressureParams(settings = {}) {
   const lightMul = 0.06 + lightFrac * 0.84;
   const heavyMul = Math.max(lightMul + 0.15, _clamp(heavyRaw, 100, 500) / 100);
 
-  // Curva continua 0..100 -> esponente gamma 0.45 (morbida) .. 1.20 (media) .. 3.20 (progressiva)
+  // Curva continua 0..100 -> esponente gamma 0.65 (morbida) .. 1.65 (media) .. 1.99 (default 60) .. 4.20 (progressiva)
   const curveFrac = _clamp01(curveRaw / 100);
-  const curve = 0.45 * Math.pow(3.2 / 0.45, curveFrac);
+  const curve = 0.65 * Math.pow(4.2 / 0.65, curveFrac);
 
   const sensitivity = _clamp(sensRaw, 0, 100);
-  const speedWeight = _clamp01(speedRaw / 100) * 0.45;
+  const speedWeight = _clamp01(speedRaw / 100) * 0.55;
 
   return {
     lightMul,
@@ -104,7 +106,7 @@ export function normalizePenPressure(rawPressure, {
 } = {}) {
   const sens = _clamp(Number.isFinite(sensitivity) ? sensitivity : DEFAULT_PRESSURE_SENSITIVITY, 0, 100);
   const userGain = Math.pow(2.2, (sens - 50) / 50); // 0 -> ~0.45x, 50 -> 1.0x, 100 -> 2.2x
-  const platformBaseGain = platform === 'ios' ? 1.65 : (platform === 'android' ? 1.15 : 1.0);
+  const platformBaseGain = platform === 'ios' ? 1.48 : (platform === 'android' ? 1.12 : 1.0);
   const totalGain = platformBaseGain * userGain;
 
   const raw = Number.isFinite(rawPressure) ? rawPressure : 0;
@@ -120,11 +122,51 @@ export function normalizePenPressure(rawPressure, {
   if (isDrawing && lastValidPressure > 0) {
     return _clamp(lastValidPressure, 0.02, 1.0);
   }
-  return platform === 'ios' ? 0.16 : 0.30;
+  return 0.28;
+}
+
+/**
+ * Estrae tiltX/tiltY in gradi da un PointerEvent, con fallback a
+ * `altitudeAngle`/`azimuthAngle` (iPadOS WebKit / alcuni stili Android).
+ */
+export function extractEventTilt(e) {
+  if (!e) return { tiltX: 0, tiltY: 0 };
+  const rawX = Number.isFinite(e.tiltX) ? e.tiltX : 0;
+  const rawY = Number.isFinite(e.tiltY) ? e.tiltY : 0;
+  if (rawX !== 0 || rawY !== 0) {
+    return { tiltX: rawX, tiltY: rawY };
+  }
+  if (Number.isFinite(e.altitudeAngle) && e.altitudeAngle >= 0 && e.altitudeAngle < Math.PI / 2) {
+    const deg = Math.max(0, Math.min(90, 90 - (e.altitudeAngle * 180) / Math.PI));
+    if (deg > 0.5) {
+      const az = Number.isFinite(e.azimuthAngle) ? e.azimuthAngle : 0;
+      return {
+        tiltX: Math.round(deg * Math.cos(az) * 100) / 100,
+        tiltY: Math.round(deg * Math.sin(az) * 100) / 100
+      };
+    }
+  }
+  return { tiltX: 0, tiltY: 0 };
+}
+
+/**
+ * Normalizza l'inclinazione della penna in [0..1] con una deadzone
+ * per la postura naturale di scrittura (<= 24° -> 0) e ramp fluido
+ * fino allo shading intenzionale (64° -> 1).
+ */
+export function computeTiltNorm(pt) {
+  if (!pt || (!pt.tiltX && !pt.tiltY)) return 0;
+  const deg = Math.hypot(pt.tiltX || 0, pt.tiltY || 0);
+  if (deg <= TILT_DEADZONE_DEG) return 0;
+  return _clamp01((deg - TILT_DEADZONE_DEG) / (TILT_MAX_DEG - TILT_DEADZONE_DEG));
 }
 
 /**
  * Calcola lo spessore finale di un punto dello stroke dato tool, pressione, tilt e velocità.
+ *   - `'marker'` (Penna): spessore uniforme e pulito (~1.0x baseSize)
+ *   - `'pen'` (Stilografica): spessore normale allineato alla Penna a pressione media (~0.95x),
+ *     ma con ampia escursione dinamica su pressione leggera/forte, inclinazione e velocità
+ *   - `'pencil'` (Matita): effetto grafite/pastello molto sensibile all'inclinazione
  */
 export function computeInkStrokeWidth(
   tool,
@@ -142,7 +184,6 @@ export function computeInkStrokeWidth(
   let w = baseSize;
 
   if (tool === 'pen') {
-    // Stilografica: massima espressività su pressione, inclinazione e velocità
     const lightMul = Number.isFinite(params.lightMul) ? params.lightMul : LEGACY_PRESSURE_PARAMS.lightMul;
     const heavyMul = Number.isFinite(params.heavyMul) ? params.heavyMul : LEGACY_PRESSURE_PARAMS.heavyMul;
     const curve = Number.isFinite(params.curve) ? params.curve : LEGACY_PRESSURE_PARAMS.curve;
@@ -150,10 +191,10 @@ export function computeInkStrokeWidth(
 
     const range = Math.max(0.05, heavyMul - lightMul);
     w = baseSize * (lightMul + Math.pow(p, curve) * range);
-    w *= (1 + tNorm * 0.45);
-    w *= (1 - sNorm * speedWeight);
+    w *= (1 + tNorm * 0.82);
+    const effectiveSpeedW = speedWeight > 0 ? Math.min(0.48, speedWeight * 1.45 + 0.08) : 0;
+    w *= (1 - sNorm * effectiveSpeedW);
   } else if (tool === 'pencil') {
-    // Matita: pressione più dolce e fortissima sensibilità all'inclinazione (effetto pastello/grafite larga)
     const lightMul = Number.isFinite(params.lightMul) ? params.lightMul : LEGACY_PRESSURE_PARAMS.lightMul;
     const heavyMul = Number.isFinite(params.heavyMul) ? params.heavyMul : LEGACY_PRESSURE_PARAMS.heavyMul;
     const curve = Number.isFinite(params.curve) ? params.curve : LEGACY_PRESSURE_PARAMS.curve;
@@ -166,10 +207,9 @@ export function computeInkStrokeWidth(
     w *= (1 + tNorm * 1.45);
     w *= (1 - sNorm * Math.max(0.10, speedWeight * 0.65));
   } else if (tool === 'marker') {
-    // Penna: tratto molto più uniforme, minima variazione da pressione/inclinazione/velocità
-    w = baseSize * (0.90 + p * 0.30);
-    w *= (1 + tNorm * 0.08);
-    w *= (1 - sNorm * 0.08);
+    w = baseSize * (0.93 + p * 0.18);
+    w *= (1 + tNorm * 0.04);
+    w *= (1 - sNorm * 0.04);
   } else if (tool === 'highlighter') {
     const base = baseSize * 4.0;
     const pressureMul = 0.85 + p * 0.30;
@@ -178,6 +218,72 @@ export function computeInkStrokeWidth(
   }
 
   return Math.max(0.25, w * (taper != null ? taper : 1.0));
+}
+
+/**
+ * Modulazione direzionale bilanciata del pennino della stilografica (`'pen'`):
+ * centrata attorno a ~1.0x per non ingrossare costantemente il tratto rispetto alla Penna,
+ * snellendo leggermente i traversali e arricchendo le aste discendenti.
+ */
+export function computeDirectionalNibFactor(dx, dy, tool = 'pen') {
+  if (tool !== 'pen') return 1.0;
+  const len = Math.hypot(dx || 0, dy || 0);
+  if (len < 0.05) return 1.0;
+  const ux = dx / len;
+  const uy = dy / len;
+  const nibAxis = Math.abs(uy * 0.88 - ux * 0.47);
+  const downBias = Math.max(-0.15, uy);
+  return _clamp(0.82 + nibAxis * 0.28 + downBias * 0.10, 0.80, 1.14);
+}
+
+/**
+ * Calcola la larghezza dinamica della preview predittiva (`getPredictedEvents`)
+ * coerente con lo strumento, la pressione dell'ultimo punto e gli eventi predetti.
+ */
+export function computePredictionWidth({
+  tool = 'pen',
+  baseSize = 3,
+  lastPoint = null,
+  predictedEvents = null,
+  inkParams = null,
+  platform = 'desktop',
+  sensitivity = DEFAULT_PRESSURE_SENSITIVITY
+} = {}) {
+  const bSize = Math.max(0.5, Number.isFinite(baseSize) ? baseSize : 3);
+  if (tool === 'highlighter') {
+    return Math.max(1, bSize * 4.0);
+  }
+
+  const lastP = lastPoint && Number.isFinite(lastPoint.pressure) ? lastPoint.pressure : 0.28;
+  const lastTilt = computeTiltNorm(lastPoint);
+  const lastSpeed = Math.min(1, ((lastPoint && Number.isFinite(lastPoint.speed)) ? lastPoint.speed : 0) / 8);
+  const lastW = computeInkStrokeWidth(tool, bSize, lastP, lastTilt, lastSpeed, 1.0, inkParams);
+
+  let latestPred = null;
+  if (Array.isArray(predictedEvents)) {
+    for (let i = predictedEvents.length - 1; i >= 0; i--) {
+      const ev = predictedEvents[i];
+      if (ev && Number.isFinite(ev.pressure) && ev.pressure > 0) {
+        latestPred = ev;
+        break;
+      }
+    }
+  }
+
+  if (latestPred) {
+    const normPredP = normalizePenPressure(latestPred.pressure, {
+      platform,
+      sensitivity,
+      isDrawing: true,
+      lastValidPressure: lastP
+    });
+    const evTilt = extractEventTilt(latestPred);
+    const predTilt = (evTilt.tiltX !== 0 || evTilt.tiltY !== 0) ? computeTiltNorm(evTilt) : lastTilt;
+    const predW = computeInkStrokeWidth(tool, bSize, normPredP, predTilt, lastSpeed, 1.0, inkParams);
+    return Math.max(0.4, lastW * 0.45 + predW * 0.55);
+  }
+
+  return Math.max(0.4, lastW);
 }
 
 /**
@@ -197,7 +303,7 @@ export function samplePressureCurve(params, steps = 28) {
     const pNorm = x === 0
       ? 0
       : normalizePenPressure(x, {
-          platform: 'desktop',
+          platform: (params && params.platform) || 'desktop',
           sensitivity: derived.sensitivity != null ? derived.sensitivity : DEFAULT_PRESSURE_SENSITIVITY
         });
     const mul = derived.lightMul + Math.pow(pNorm, derived.curve) * range;
@@ -210,7 +316,11 @@ export function samplePressureCurve(params, steps = 28) {
 }
 
 // ============================================================
-// STABILIZZATORE ONE EURO FILTER + DEADZONE ZOOM-AWARE
+// STABILIZZATORE INDIPENDENTE DALLO STRUMENTO
+//   - 0          (`bypass`):   zero filtri, 0 lag
+//   - 0.01..0.65 (`gaussian`): filtro gaussiano leggero a lag quasi nullo
+//                              (elimina solo i micro-tremori seguendo 1:1 la punta)
+//   - 0.66..1.00 (`strong`):   stabilizzazione progressiva per tratti calligrafici
 // ============================================================
 
 function _lowPassAlpha(cutoffHz, dtSec) {
@@ -218,15 +328,86 @@ function _lowPassAlpha(cutoffHz, dtSec) {
   return 1.0 / (1.0 + tau / Math.max(1e-4, dtSec));
 }
 
+export function getStabilizerParams(smoothing = 0.5, scale = 1.0, platform = 'desktop') {
+  const s = _clamp01(smoothing == null ? 0.5 : smoothing);
+  const vpScale = Math.max(0.25, Number.isFinite(scale) ? scale : 1.0);
+  const plat = platform === 'ios' || platform === 'android' ? platform : 'desktop';
+
+  if (s < 0.005) {
+    return {
+      mode: 'bypass',
+      platform: plat,
+      s: 0,
+      liveBlend: 0,
+      maxLiveShift: 0,
+      minCutoff: Infinity,
+      beta: 0,
+      dCutoff: Infinity,
+      deadzone: 0.01,
+      restDeadzone: 0.01,
+      pressureNewWeight: 0.80
+    };
+  }
+
+  let mode;
+  let liveBlend;
+  let maxLiveShift;
+  let minCutoff;
+  let beta;
+  let dCutoff;
+  let baseDeadzone;
+
+  if (s <= 0.65) {
+    mode = 'gaussian';
+    const u = s / 0.65;
+    const platBlendScale = plat === 'ios' ? 0.72 : (plat === 'android' ? 0.90 : 1.0);
+    const platShiftScale = plat === 'ios' ? 0.82 : 1.0;
+    liveBlend = (0.05 + u * 0.27) * platBlendScale;
+    maxLiveShift = ((0.30 + u * 1.15) * platShiftScale) / vpScale;
+    minCutoff = 120.0 * Math.pow(14.0 / 120.0, u);
+    beta = 0.18 - u * 0.148;
+    dCutoff = 20.0 - u * 12.0;
+    baseDeadzone = 0.03 + u * 0.31;
+  } else {
+    mode = 'strong';
+    const w = (s - 0.65) / 0.35;
+    liveBlend = 0.32 + w * 0.34;
+    maxLiveShift = (1.45 + w * 7.5) / vpScale;
+    minCutoff = 14.0 * Math.pow(1.6 / 14.0, w);
+    beta = 0.032 - w * 0.024;
+    dCutoff = 8.0 - w * 5.0;
+    baseDeadzone = 0.34 + w * 0.72;
+  }
+
+  const deadzone = Math.min(2.4, baseDeadzone / vpScale);
+  // Anti-tremolio stazionario attivo solo a punta ferma (es. hold-to-snap su iPad)
+  const restDeadzone = Math.min(2.4, Math.max(deadzone, 1.38 / vpScale));
+
+  return {
+    mode,
+    platform: plat,
+    s,
+    liveBlend,
+    maxLiveShift,
+    minCutoff,
+    beta,
+    dCutoff,
+    deadzone,
+    restDeadzone,
+    pressureNewWeight: 0.78 - s * 0.24
+  };
+}
+
 /**
- * Crea uno stabilizzatore stateful per un singolo tratto.
- * Filtra i micro-tremolii ad alta frequenza a bassa velocità / punta ferma
- * mantenendo reattività immediata nei movimenti rapidi.
+ * Crea uno stabilizzatore stateful per un singolo tratto, indipendente dallo strumento.
  */
-export function createStrokeStabilizer(initialPoint = null) {
+export function createStrokeStabilizer(initialPoint = null, { platform = 'desktop' } = {}) {
+  const defaultPlatform = platform === 'ios' || platform === 'android' ? platform : 'desktop';
   let hasInit = false;
-  let lastRawX = 0;
-  let lastRawY = 0;
+  let rawCount = 0;
+  let r0x = 0, r0y = 0; // più recente
+  let r1x = 0, r1y = 0; // precedente
+  let r2x = 0, r2y = 0; // terzultimo
   let lastFiltX = 0;
   let lastFiltY = 0;
   let lastDx = 0;
@@ -235,11 +416,13 @@ export function createStrokeStabilizer(initialPoint = null) {
   let lastAcceptY = 0;
   let lastPressure = 0.5;
   let lastTs = 0;
+  let observedDtMs = defaultPlatform === 'ios' ? 8.33 : 16.67;
 
   if (initialPoint) {
     hasInit = true;
-    lastRawX = initialPoint.x;
-    lastRawY = initialPoint.y;
+    rawCount = 1;
+    r0x = r1x = r2x = initialPoint.x;
+    r0y = r1y = r2y = initialPoint.y;
     lastFiltX = initialPoint.x;
     lastFiltY = initialPoint.y;
     lastAcceptX = initialPoint.x;
@@ -248,16 +431,33 @@ export function createStrokeStabilizer(initialPoint = null) {
     lastTs = initialPoint.timeStamp || 0;
   }
 
+  const _blendPressure = (rawPoint, cfg) => {
+    if (!rawPoint || rawPoint._pressureFallback) return;
+    if (Number.isFinite(rawPoint.pressure)) {
+      lastPressure = _clamp(
+        lastPressure * (1 - cfg.pressureNewWeight) + rawPoint.pressure * cfg.pressureNewWeight,
+        0.02,
+        1.0
+      );
+    }
+  };
+
   return {
-    filterPoint(rawPoint, { smoothing = 0.5, scale = 1.0 } = {}) {
-      const s = _clamp01(smoothing == null ? 0.5 : smoothing);
-      const vpScale = Math.max(0.25, Number.isFinite(scale) ? scale : 1.0);
+    seedInitialPressure(p) {
+      if (Number.isFinite(p)) {
+        lastPressure = _clamp(p, 0.02, 1.0);
+      }
+    },
+
+    filterPoint(rawPoint, { smoothing = 0.5, scale = 1.0, platform: overridePlat = null } = {}) {
+      const cfg = getStabilizerParams(smoothing, scale, overridePlat || defaultPlatform);
       const ts = Number.isFinite(rawPoint.timeStamp) ? rawPoint.timeStamp : 0;
 
       if (!hasInit) {
         hasInit = true;
-        lastRawX = rawPoint.x;
-        lastRawY = rawPoint.y;
+        rawCount = 1;
+        r0x = r1x = r2x = rawPoint.x;
+        r0y = r1y = r2y = rawPoint.y;
         lastFiltX = rawPoint.x;
         lastFiltY = rawPoint.y;
         lastAcceptX = rawPoint.x;
@@ -270,91 +470,137 @@ export function createStrokeStabilizer(initialPoint = null) {
           y: rawPoint.y,
           pressure: lastPressure,
           distFromAccepted: 0,
-          dtMs: 16.67
+          dtMs: observedDtMs
         };
       }
 
-      const rawDtMs = (ts > 0 && lastTs > 0 && ts > lastTs) ? (ts - lastTs) : 8.33;
-      const clampedDtMs = _clamp(rawDtMs, 2, 64);
-      const dtSec = clampedDtMs / 1000;
+      let rawDtMs;
+      if (ts > 0 && lastTs > 0) {
+        if (ts > lastTs) {
+          rawDtMs = ts - lastTs;
+          observedDtMs = observedDtMs * 0.7 + _clamp(rawDtMs, 4, 33.34) * 0.3;
+        } else {
+          rawDtMs = 5.0;
+        }
+      } else {
+        rawDtMs = observedDtMs;
+      }
+      const effectiveDtMs = _clamp(rawDtMs * 0.75 + observedDtMs * 0.25, 2, 48);
+      const dtSec = effectiveDtMs / 1000;
       if (ts > 0) lastTs = ts;
 
-      // Smoothing spenta: bypass filtro spaziale, deadzone minima
-      if (s <= 0.01) {
+      // Fascia 0 (smoothing=0): bypass totale, zero lag
+      if (cfg.mode === 'bypass') {
+        _blendPressure(rawPoint, cfg);
         const dx = rawPoint.x - lastAcceptX;
         const dy = rawPoint.y - lastAcceptY;
         const dist = Math.hypot(dx, dy);
-        if (dist < 0.01) {
-          return { accepted: false, x: lastAcceptX, y: lastAcceptY, pressure: lastPressure, distFromAccepted: dist, dtMs: clampedDtMs };
+        if (dist < cfg.deadzone) {
+          return { accepted: false, x: lastAcceptX, y: lastAcceptY, pressure: lastPressure, distFromAccepted: dist, dtMs: effectiveDtMs };
         }
+        r2x = r1x; r2y = r1y;
+        r1x = r0x; r1y = r0y;
+        r0x = rawPoint.x; r0y = rawPoint.y;
+        rawCount++;
         lastAcceptX = rawPoint.x;
         lastAcceptY = rawPoint.y;
         lastFiltX = rawPoint.x;
         lastFiltY = rawPoint.y;
-        lastRawX = rawPoint.x;
-        lastRawY = rawPoint.y;
-        const rawP = rawPoint.pressure != null ? rawPoint.pressure : lastPressure;
-        lastPressure = _clamp(lastPressure * 0.25 + rawP * 0.75, 0.02, 1.0);
         return {
           accepted: true,
           x: rawPoint.x,
           y: rawPoint.y,
           pressure: lastPressure,
           distFromAccepted: dist,
-          dtMs: clampedDtMs
+          dtMs: effectiveDtMs
         };
       }
 
-      // One Euro Filter 2D
-      const dxRaw = (rawPoint.x - lastRawX) / dtSec;
-      const dyRaw = (rawPoint.y - lastRawY) / dtSec;
-      lastRawX = rawPoint.x;
-      lastRawY = rawPoint.y;
+      const prevRawX = r0x;
+      const prevRawY = r0y;
+      r2x = r1x; r2y = r1y;
+      r1x = r0x; r1y = r0y;
+      r0x = rawPoint.x; r0y = rawPoint.y;
+      rawCount++;
 
-      const dAlpha = _lowPassAlpha(1.0, dtSec);
-      lastDx = lastDx + (dxRaw - lastDx) * dAlpha;
-      lastDy = lastDy + (dyRaw - lastDy) * dAlpha;
+      const distRaw = Math.hypot(rawPoint.x - lastAcceptX, rawPoint.y - lastAcceptY);
+      const isResting = distRaw < cfg.restDeadzone;
 
-      const speedPerSec = Math.hypot(lastDx, lastDy);
-      // s=0.5 -> minCutoff=3.9Hz (smorza jitter a riposo), s=1.0 -> minCutoff=0.65Hz (molto stabile)
-      const minCutoff = Math.max(0.55, 7.2 - s * 6.55);
-      // beta regola quanto velocemente si "apre" il filtro in movimento veloce
-      const beta = 0.004 + (1 - s) * 0.028;
-      const cutoff = minCutoff + beta * speedPerSec;
-      const alpha = _lowPassAlpha(cutoff, dtSec);
+      let outX = rawPoint.x;
+      let outY = rawPoint.y;
 
-      lastFiltX = lastFiltX + (rawPoint.x - lastFiltX) * alpha;
-      lastFiltY = lastFiltY + (rawPoint.y - lastFiltY) * alpha;
+      if (cfg.mode === 'gaussian') {
+        // Filtro spaziale gaussiano leggero (kernel causale pesato + clamp maxLiveShift):
+        // smorza i micro-tremori senza introdurre trascinamento dietro la punta.
+        if (!isResting && rawCount >= 3) {
+          const gCausalX = 0.50 * r0x + 0.35 * r1x + 0.15 * r2x;
+          const gCausalY = 0.50 * r0y + 0.35 * r1y + 0.15 * r2y;
+          const shiftX = (gCausalX - rawPoint.x) * cfg.liveBlend;
+          const shiftY = (gCausalY - rawPoint.y) * cfg.liveBlend;
+          const shiftMag = Math.hypot(shiftX, shiftY);
+          if (shiftMag > cfg.maxLiveShift && shiftMag > 1e-6) {
+            const sc = cfg.maxLiveShift / shiftMag;
+            outX = rawPoint.x + shiftX * sc;
+            outY = rawPoint.y + shiftY * sc;
+          } else {
+            outX = rawPoint.x + shiftX;
+            outY = rawPoint.y + shiftY;
+          }
+        }
+        lastFiltX = outX;
+        lastFiltY = outY;
+      } else {
+        // Modalità 'strong' (solo smoothing alto > 65%): stabilizzazione fluida progressiva
+        const dxRaw = (rawPoint.x - prevRawX) / dtSec;
+        const dyRaw = (rawPoint.y - prevRawY) / dtSec;
+        const dAlpha = _lowPassAlpha(cfg.dCutoff, dtSec);
+        lastDx = lastDx + (dxRaw - lastDx) * dAlpha;
+        lastDy = lastDy + (dyRaw - lastDy) * dAlpha;
+        const speedPerSec = Math.hypot(lastDx, lastDy);
+        const cutoff = isResting ? Math.min(cfg.minCutoff, 3.8) : (cfg.minCutoff + cfg.beta * speedPerSec);
+        const alpha = _lowPassAlpha(cutoff, dtSec);
+        lastFiltX = lastFiltX + (rawPoint.x - lastFiltX) * alpha;
+        lastFiltY = lastFiltY + (rawPoint.y - lastFiltY) * alpha;
+        const shiftX = lastFiltX - rawPoint.x;
+        const shiftY = lastFiltY - rawPoint.y;
+        const shiftMag = Math.hypot(shiftX, shiftY);
+        if (shiftMag > cfg.maxLiveShift && shiftMag > 1e-6) {
+          const sc = cfg.maxLiveShift / shiftMag;
+          outX = rawPoint.x + shiftX * sc;
+          outY = rawPoint.y + shiftY * sc;
+          lastFiltX = outX;
+          lastFiltY = outY;
+        } else {
+          outX = lastFiltX;
+          outY = lastFiltY;
+        }
+      }
 
-      // Deadzone zoom-aware: ~0.6..1.6 CSS px tradotti in coordinate pagina (max 2.6 page px)
-      const deadzone = Math.min(2.6, Math.max(0.45, (0.55 + s * 1.05) / vpScale));
-      const dist = Math.hypot(lastFiltX - lastAcceptX, lastFiltY - lastAcceptY);
-      if (dist < deadzone) {
+      _blendPressure(rawPoint, cfg);
+
+      const effectiveDeadzone = isResting ? cfg.restDeadzone : cfg.deadzone;
+      const dist = Math.hypot(outX - lastAcceptX, outY - lastAcceptY);
+      if (dist < effectiveDeadzone) {
         return {
           accepted: false,
-          x: lastFiltX,
-          y: lastFiltY,
+          x: outX,
+          y: outY,
           pressure: lastPressure,
           distFromAccepted: dist,
-          dtMs: clampedDtMs
+          dtMs: effectiveDtMs
         };
       }
 
-      lastAcceptX = lastFiltX;
-      lastAcceptY = lastFiltY;
-
-      // Smoothing pressione reattivo (preserva variazioni intenzionali)
-      const rawP = rawPoint.pressure != null ? rawPoint.pressure : lastPressure;
-      const pNewW = 0.68 - s * 0.16; // 0.68 .. 0.52
-      lastPressure = _clamp(lastPressure * (1 - pNewW) + rawP * pNewW, 0.02, 1.0);
+      lastAcceptX = outX;
+      lastAcceptY = outY;
 
       return {
         accepted: true,
-        x: lastFiltX,
-        y: lastFiltY,
+        x: outX,
+        y: outY,
         pressure: lastPressure,
         distFromAccepted: dist,
-        dtMs: clampedDtMs
+        dtMs: effectiveDtMs
       };
     }
   };
@@ -377,7 +623,7 @@ export function trimStationaryTail(points, maxClusterRadius = 5.5) {
   if (!Array.isArray(points) || points.length < 6) return points;
   const n = points.length;
   const tip = points[n - 1];
-  const minKeep = Math.max(4, Math.ceil(n * 0.45));
+  const minKeep = 4;
 
   let cutIdx = n - 1;
   while (cutIdx > minKeep) {

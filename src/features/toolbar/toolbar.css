@@ -106,181 +106,7 @@ body.dark .main-menu-btn.active {
   border-color: #4338ca;
 }
 
-/* ============================================================
-   CONTEXT DOCK — flottante, centrato via
-   left:50% + translateX(-50%).
-
-   Larghezza:
-     - width: max-content  → il dock si allarga esattamente
-       quanto serve per stare su UNA riga. Se lo schermo è più
-       largo del necessario, si ferma alla larghezza naturale.
-     - max-width: calc(100vw - 16px) → mai oltre il viewport.
-       Quando lo schermo è più stretto del contenuto, il dock
-       occupa tutta la larghezza disponibile e va a capo.
-     - Centraggio sempre identico → nessuno scatto.
-   ============================================================ */
-
-.context-dock {
-  position: fixed;
-  top: 68px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 35;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-
-  width: max-content;
-  max-width: calc(100vw - 16px);
-
-  background: rgba(255, 255, 255, 0.96);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 16px;
-  box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.18), 0 2px 6px -2px rgba(15, 23, 42, 0.08);
-
-  animation: dockFadeIn .14s ease-out;
-  transition: opacity .12s ease;
-}
-
-body.dock-auto-hidden .context-dock,
-body.dock-auto-hidden #pagePopover {
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-
-body.dark .context-dock {
-  background: rgba(30, 41, 59, 0.96);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
-}
-
-.context-dock.hidden {
-  display: none !important;
-}
-
-@keyframes dockFadeIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-.context-dock-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.context-dock-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.context-dock-divider {
-  width: 1px;
-  height: var(--dock-divider-h);
-  background: #cbd5e1;
-  margin: 0 0.15rem;
-  flex-shrink: 0;
-}
-
-body.dark .context-dock-divider {
-  background: #475569;
-}
-
-.context-dock-label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #64748b;
-  white-space: nowrap;
-}
-
-body.dark .context-dock-label {
-  color: #94a3b8;
-}
-
-.context-dock-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #334155;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.5rem;
-  transition: background-color .12s;
-}
-
-.context-dock-toggle:hover {
-  background-color: #f1f5f9;
-}
-
-body.dark .context-dock-toggle {
-  color: #e2e8f0;
-}
-
-body.dark .context-dock-toggle:hover {
-  background-color: #334155;
-}
-
-/* ============================================================
-   DOCK BUTTONS
-   ============================================================ */
-
-.dock-tool-btn {
-  min-height: var(--dock-btn-h);
-  padding-left: var(--dock-px);
-  padding-right: var(--dock-px);
-  font-size: var(--dock-font-size);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.65rem;
-  color: #475569;
-  transition: background-color .12s, color .12s;
-  cursor: pointer;
-}
-
-body.dark .dock-tool-btn {
-  color: #cbd5e1;
-}
-
-.dock-tool-btn:hover {
-  background-color: #f1f5f9;
-}
-
-body.dark .dock-tool-btn:hover {
-  background-color: #334155;
-}
-
-.dock-tool-btn.active,
-.dock-tool-btn.bg-white {
-  background-color: #ffffff;
-  color: #4338ca;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-}
-
-body.dark .dock-tool-btn.active,
-body.dark .dock-tool-btn.dark\:bg-slate-700 {
-  background-color: #334155;
-  color: #c7d2fe;
-}
-
-.dock-range {
-  width: var(--dock-range-w);
-}
-
-.dock-swatch {
-  width: var(--dock-swatch-size);
-  height: var(--dock-swatch-size);
-  flex-shrink: 0;
-  cursor: pointer;
-}
+/* Stili superficie e controlli dei dock tool centralizzati in src/style.css (.ui-dock / <ink-tool-dock>) */
 
 .dock-icon-btn {
   width: var(--dock-btn-h);
@@ -291,51 +117,6 @@ body.dark .dock-tool-btn.dark\:bg-slate-700 {
 .dock-pill-btn {
   height: var(--dock-btn-h);
   font-size: calc(var(--dock-font-size) * 0.75);
-}
-
-#customColorPicker.dock-swatch {
-  width: var(--dock-swatch-size);
-  height: var(--dock-swatch-size);
-}
-
-.eraser-level-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 0.5rem;
-  background: transparent;
-  transition: background-color .12s, box-shadow .12s;
-  cursor: pointer;
-}
-
-.eraser-level-btn span {
-  display: block;
-  border-radius: 9999px;
-  background-color: #334155;
-}
-
-body.dark .eraser-level-btn span {
-  background-color: #cbd5e1;
-}
-
-.eraser-level-btn:hover {
-  background-color: #f1f5f9;
-}
-
-body.dark .eraser-level-btn:hover {
-  background-color: #334155;
-}
-
-.eraser-level-btn.active {
-  background-color: #e0e7ff;
-  box-shadow: 0 0 0 2px #6366f1 inset;
-}
-
-body.dark .eraser-level-btn.active {
-  background-color: #312e81;
-  box-shadow: 0 0 0 2px #818cf8 inset;
 }
 
 /* ============================================================
@@ -355,12 +136,17 @@ body.dark .eraser-level-btn.active {
   max-width: calc(100vw - 16px);
 
   background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 16px;
-  box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.18);
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.16), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
   padding: 12px;
-  animation: dockFadeIn .14s ease-out;
+  animation: uiDockEnter .14s ease-out;
   transition: opacity .12s ease;
+}
+
+body.dock-auto-hidden #pagePopover {
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 #pagePopover.hidden {
@@ -368,8 +154,9 @@ body.dark .eraser-level-btn.active {
 }
 
 body.dark #pagePopover {
-  background: #1e293b;
-  border-color: rgba(255, 255, 255, 0.08);
+  background: #0f172a;
+  border-color: #1e293b;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65);
 }
 
 .page-popover-title {
@@ -444,78 +231,7 @@ body.dark .page-pattern-btn.active {
   border-color: #4338ca;
 }
 
-/* ============================================================
-   MENU ⋯ (pannello)
-   ============================================================ */
-
-#toolbarMenuBackdrop.open {
-  display: block !important;
-}
-
-#toolbarMenuPanel.open {
-  display: flex !important;
-}
-
-.menu-section {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-body.dark .menu-section {
-  border-bottom-color: #334155;
-}
-
-.menu-section:last-child {
-  border-bottom: none;
-}
-
-.menu-section-title {
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #64748b;
-  padding: 4px 8px;
-}
-
-body.dark .menu-section-title {
-  color: #94a3b8;
-}
-
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: #334155;
-  background: transparent;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color .12s;
-}
-
-body.dark .menu-item {
-  color: #e2e8f0;
-}
-
-.menu-item:hover {
-  background-color: #f1f5f9;
-}
-
-body.dark .menu-item:hover {
-  background-color: #334155;
-}
-
-.menu-item-toggle {
-  cursor: pointer;
-}
+/* Stili Menu ⋯ centralizzati in src/style.css (.ui-menu / <ink-menu>) */
 
 /* ============================================================
    HANDEDNESS
@@ -596,10 +312,6 @@ body.compact-mode.dark #mainHeader {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
 }
 
-body.compact-mode .context-dock {
-  top: 76px;
-}
-
 body.compact-mode #pagePopover {
   top: 76px;
 }
@@ -638,6 +350,7 @@ body.compact-mode #pagePopover {
   #backToLibraryBtn {
     padding: 0.4rem;
     min-width: 34px;
+    justify-content: center;
   }
   #backToLibraryBtn > span {
     display: none;
@@ -692,6 +405,7 @@ body.compact-mode #pagePopover {
     min-width: 28px;
     height: 28px;
     padding: 0;
+    justify-content: center;
   }
 
   #mainMenuBar {
@@ -705,50 +419,9 @@ body.compact-mode #pagePopover {
   }
 }
 
-/* ============================================================
-   RESPONSIVE — dock contestuali
-   Solo padding/gap/label: la larghezza è gestita da
-   width: max-content + max-width (vedi sopra).
-   ============================================================ */
-
 @media (max-width: 640px) {
-  .context-dock {
-    padding: 4px 6px;
-    gap: 3px;
-  }
-
-  .context-dock-row {
-    gap: 0.25rem;
-    justify-content: space-evenly;
-  }
-
-  .context-dock-group {
-    gap: 0.2rem;
-  }
-
-  /* Niente label testuali: recuperano molta larghezza */
-  .context-dock-label {
-    display: none;
-  }
-
-  .context-dock-divider {
-    margin: 0 0.05rem;
-  }
-
   #pagePopover {
     padding: 10px;
-  }
-}
-
-@media (max-width: 400px) {
-  .context-dock-row {
-    gap: 0.15rem;
-  }
-  .context-dock-group {
-    gap: 0.15rem;
-  }
-  .dock-range {
-    width: calc(var(--dock-range-w) * 0.85);
   }
 }
 
@@ -899,22 +572,7 @@ body.dark .main-menu-btn.will-hide {
   border-radius: 12px;
 }
 
-/* ============================================================
-   MENU ⋯ — sezione "Modalità nascoste"
-   ============================================================ */
-
-.menu-hidden-btn {
-  /* Stesso stile di .menu-item, ma con icona a sinistra più compatta */
-}
-
-.menu-hidden-btn > span:first-child {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  font-size: 0.95rem;
-  flex-shrink: 0;
-}
+/* Stili voci "Modalità nascoste" gestiti da .ui-menu-item */
 
 /* ============================================================
    SVG ICONS (Lucide) — dimensioni e comportamento
@@ -961,157 +619,7 @@ body.compact-mode .ui-icon { width: 16px; height: 16px; }
    PRINT
    ============================================================ */
 @media print {
-  header, .context-dock, #pagePopover, #toolbarMenuPanel, #toolbarMenuBackdrop {
+  header, .ui-dock, ink-tool-dock, .context-dock, #pagePopover, .ui-menu, ink-menu, .ui-menu-backdrop, #colorPickerPopover {
     display: none !important;
   }
-}
-
-/* ============================================================
-   STILE TRATTO (solid/dashed/dotted/dash-dot)
-   ============================================================ */
-
-.stroke-style-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 28px;
-  padding: 0;
-  border-radius: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: #475569;
-  cursor: pointer;
-  transition: background-color .12s, border-color .12s, color .12s;
-}
-
-.stroke-style-btn svg {
-  width: 28px;
-  height: 12px;
-  display: block;
-  pointer-events: none;
-}
-
-.stroke-style-btn:hover {
-  background: #f1f5f9;
-}
-
-.stroke-style-btn.active {
-  background: #e0e7ff;
-  border-color: #a5b4fc;
-  color: #4338ca;
-}
-
-body.dark .stroke-style-btn {
-  color: #cbd5e1;
-}
-
-body.dark .stroke-style-btn:hover {
-  background: #334155;
-}
-
-body.dark .stroke-style-btn.active {
-  background: #312e81;
-  border-color: #4338ca;
-  color: #c7d2fe;
-}
-
-/* Mobile: pulsanti più compatti */
-@media (max-width: 640px) {
-  .stroke-style-btn {
-    width: 32px;
-    height: 26px;
-  }
-  .stroke-style-btn svg {
-    width: 24px;
-    height: 11px;
-  }
-}
-
-/* ============================================================
-   DOCK TESTO (#dockText)
-   ============================================================ */
-
-.dock-select {
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 8px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #1e293b;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  outline: none;
-}
-
-.dock-select-compact {
-  padding: 0 4px;
-  min-width: 52px;
-  text-align: center;
-}
-
-body.dark .dock-select {
-  background: #334155;
-  border-color: #475569;
-  color: #f1f5f9;
-}
-
-.text-dock-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  min-width: 30px;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: #475569;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color .12s, color .12s, border-color .12s;
-}
-
-.text-dock-btn:hover:not(:disabled) {
-  background: #f1f5f9;
-  color: #0f172a;
-}
-
-.text-dock-btn.active {
-  background: #e0e7ff;
-  border-color: #a5b4fc;
-  color: #4338ca;
-}
-
-.text-dock-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.text-dock-action.danger:hover:not(:disabled) {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-body.dark .text-dock-btn {
-  color: #cbd5e1;
-}
-
-body.dark .text-dock-btn:hover:not(:disabled) {
-  background: #334155;
-  color: #f8fafc;
-}
-
-body.dark .text-dock-btn.active {
-  background: #312e81;
-  border-color: #4338ca;
-  color: #c7d2fe;
-}
-
-body.dark .text-dock-action.danger:hover:not(:disabled) {
-  background: #7f1d1d;
-  color: #fecaca;
 }

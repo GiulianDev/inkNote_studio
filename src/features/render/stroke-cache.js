@@ -107,8 +107,11 @@ export function buildStrokeBitmap(stroke, dpr, isDark, smoothness = state.smooth
   ctx.scale(pxW / bbox.w, pxH / bbox.h);
   ctx.translate(-bbox.x, -bbox.y);
 
+  const isOpaqueUnified = (stroke.tool === 'pen' || stroke.tool === 'marker') && (!stroke.style || stroke.style === 'solid');
   if (stroke.tool === 'highlighter') {
     renderFullStroke(ctx, stroke, isDark, null, { opaqueHighlighter: true });
+  } else if (isOpaqueUnified) {
+    renderFullStroke(ctx, stroke, isDark, null, { opaqueStroke: true });
   } else {
     renderFullStroke(ctx, stroke, isDark);
   }
@@ -123,7 +126,8 @@ export function buildStrokeBitmap(stroke, dpr, isDark, smoothness = state.smooth
     isDark: !!isDark,
     smoothKey,
     len: stroke.points.length,
-    pixels
+    pixels,
+    opaqueAlpha: isOpaqueUnified
   };
 
   setNonEnumerable(stroke, '_cacheCanvas', entry);

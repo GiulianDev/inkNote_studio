@@ -68,6 +68,7 @@ function _sameInkParams(a, b) {
 export function packStroke(s) {
   if (!s) return s;
   const inkParams = _cloneInkParamsOptional(s.inkParams);
+  const smoothing = Number.isFinite(s.smoothing) ? s.smoothing : undefined;
   if (!s.points && s.packed) {
     const out = {
       tool: s.tool,
@@ -78,6 +79,7 @@ export function packStroke(s) {
       packed: s.packed,
       count: s.count != null ? s.count : ((s.packed.length / PACKED_STRIDE) | 0)
     };
+    if (smoothing !== undefined) out.smoothing = smoothing;
     if (inkParams) out.inkParams = inkParams;
     return out;
   }
@@ -94,6 +96,7 @@ export function packStroke(s) {
       cached.size === s.size &&
       cached.opacity === opacity &&
       cached.style === style &&
+      cached.smoothing === smoothing &&
       _sameInkParams(cached.inkParams, inkParams)) {
     return cached;
   }
@@ -119,6 +122,7 @@ export function packStroke(s) {
     packed: buf,
     count: n
   };
+  if (smoothing !== undefined) packed.smoothing = smoothing;
   if (inkParams) packed.inkParams = inkParams;
   setNonEnumerable(s, '_packedCache', packed);
   return packed;
@@ -141,9 +145,11 @@ export function unpackStroke(s) {
 
   const style = s.style || 'solid';
   const inkParams = _cloneInkParamsOptional(s.inkParams);
+  const smoothing = Number.isFinite(s.smoothing) ? s.smoothing : undefined;
 
   if (!s.packed) {
     const out = { tool: s.tool, color, size: s.size, opacity, style, points: s.points };
+    if (smoothing !== undefined) out.smoothing = smoothing;
     if (inkParams) out.inkParams = inkParams;
     return out;
   }
@@ -165,6 +171,7 @@ export function unpackStroke(s) {
   }
 
   const out = { tool: s.tool, color, size: s.size, opacity, style, points: pts };
+  if (smoothing !== undefined) out.smoothing = smoothing;
   if (inkParams) out.inkParams = inkParams;
   const packedRef = {
     tool: s.tool,
@@ -175,6 +182,7 @@ export function unpackStroke(s) {
     packed: buf,
     count: n
   };
+  if (smoothing !== undefined) packedRef.smoothing = smoothing;
   if (inkParams) packedRef.inkParams = inkParams;
   setNonEnumerable(out, '_packedCache', packedRef);
   return out;

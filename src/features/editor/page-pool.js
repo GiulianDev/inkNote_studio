@@ -213,14 +213,27 @@ function _resizeSlot(slot, page, cachedVpRect = null, opts = {}) {
   const dpr = getTargetDpr(page, cachedVpRect || opts.vpRect || null);
   const newW = Math.floor(PAGE_WIDTH * dpr);
   const newH = Math.floor(PAGE_HEIGHT * dpr);
+  const oDpr = Math.min(dpr, BASE_OVERLAY_DPR);
+  const oW = Math.floor(PAGE_WIDTH * oDpr);
+  const oH = Math.floor(PAGE_HEIGHT * oDpr);
+
+  if (!opts.forceRedraw &&
+      slot.dpr === dpr &&
+      slot.overlayDpr === oDpr &&
+      slot.canvas.width === newW &&
+      slot.canvas.height === newH &&
+      slot.overlayCanvas.width === oW &&
+      slot.overlayCanvas.height === oH &&
+      page.ctx === slot.ctx &&
+      page.overlayCtx === slot.overlayCtx) {
+    return;
+  }
+
   if (slot.canvas.width !== newW || slot.canvas.height !== newH) {
     slot.canvas.width = newW;
     slot.canvas.height = newH;
     slot.ctx = slot.canvas.getContext('2d');
   }
-  const oDpr = Math.min(dpr, BASE_OVERLAY_DPR);
-  const oW = Math.floor(PAGE_WIDTH * oDpr);
-  const oH = Math.floor(PAGE_HEIGHT * oDpr);
   if (slot.overlayCanvas.width !== oW || slot.overlayCanvas.height !== oH) {
     slot.overlayCanvas.width = oW;
     slot.overlayCanvas.height = oH;

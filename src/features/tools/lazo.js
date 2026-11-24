@@ -37,6 +37,12 @@ import { markPageDirty } from '../persistence/session.js';
 import { packStrokes, unpackStrokes } from '../persistence/serialization.js';
 import { pagePool } from '../editor/page-pool.js';
 import { getCanvasCoords, getCanvasRect } from './tool-shared.js';
+import {
+  resolveSelectionStrokeStyle,
+  applyStyleToStrokes,
+  computeSelectionStylePopoverPosition,
+  isValidSelectionStrokeStyle
+} from './selection-style.js';
 
 let _clipboard = null; // { strokes: [], textBoxes: [], sourcePageId: string|null, pasteCount: number }
 
@@ -583,6 +589,120 @@ export function changeSelectionWidth(newWidth) {
   showToast('Spessore aggiornato', '📏');
 }
 
+const _STYLE_SVG_ATTRS = {
+  solid:        { dash: null,            width: '2' },
+  dashed:       { dash: '6 4',           width: '2' },
+  'dashed-large': { dash: '9 5',         width: '2' },
+  dotted:       { dash: '0.1 5',         width: '2.5' },
+  'dash-dot':   { dash: '6 3 0.1 3',     width: '2' }
+};
+
+function _syncSelectionStyleUI() {
+  const info = resolveSelectionStrokeStyle(state.selectedStrokes);
+  const menu = document.getElementById('selectionMenu');
+  if (menu) {
+    menu.querySelectorAll('[data-selection-style-only]').forEach(el => {
+      el.classList.toggle('hidden', !info.hasStyleCapable);
+    });
+  }
+
+  const previewWrap = document.getElementById('selectionStylePreview');
+  const previewLine = document.getElementById('selectionStylePreviewLine');
+  if (previewWrap) {
+    previewWrap.classList.toggle('is-mixed', info.isMixed);
+  }
+  if (previewLine) {
+    const spec = _STYLE_SVG_ATTRS[info.style] || _STYLE_SVG_ATTRS.solid;
+    previewLine.setAttribute('stroke-width', spec.width);
+    if (spec.dash) {
+      previewLine.setAttribute('stroke-dasharray', spec.dash);
+    } else {
+      previewLine.removeAttribute('stroke-dasharray');
+    }
+  }
+
+  const popover = document.getElementById('selectionStylePopover');
+  if (popover) {
+    popover.querySelectorAll('.selection-style-option').forEach(btn => {
+      const isActive = info.activeStyle !== null && btn.dataset.selectionStyle === info.activeStyle;
+      btn.classList.toggle('active', isActive);
+    });
+  }
+  return info;
+}
+
+export function isSelectionStylePopoverOpen() {
+  const popover = document.getElementById('selectionStylePopover');
+  return !!(popover && !popover.classList.contains('hidden'));
+}
+
+export function repositionSelectionStylePopover() {
+  const popover = document.getElementById('selectionStylePopover');
+  const trigger = document.getElementById('selectionStyleBtn');
+  if (!popover || !trigger || popover.classList.contains('hidden')) return;
+  const triggerRect = trigger.getBoundingClientRect();
+  if (!triggerRect || (triggerRect.width === 0 && triggerRect.height === 0)) return;
+  const pos = computeSelectionStylePopoverPosition({
+    triggerRect,
+    popoverWidth: popover.offsetWidth || 204,
+    popoverHeight: popover.offsetHeight || 42,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight
+  });
+  popover.style.left = `${pos.left}px`;
+  popover.style.top = `${pos.top}px`;
+}
+
+export function hideSelectionStylePopover() {
+  const popover = document.getElementById('selectionStylePopover');
+  if (popover) popover.classList.add('hidden');
+  document.getElementById('selectionStyleBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+export function showSelectionStylePopover() {
+  const popover = document.getElementById('selectionStylePopover');
+  const trigger = document.getElementById('selectionStyleBtn');
+  if (!popover || !trigger) return;
+  const info = _syncSelectionStyleUI();
+  if (!info.hasStyleCapable) return;
+  popover.classList.remove('hidden');
+  trigger.setAttribute('aria-expanded', 'true');
+  repositionSelectionStylePopover();
+}
+
+export function toggleSelectionStylePopover() {
+  if (isSelectionStylePopoverOpen()) {
+    hideSelectionStylePopover();
+  } else {
+    showSelectionStylePopover();
+  }
+}
+
+export function changeSelectionStyle(newStyle) {
+  if (state.selectedStrokes.length === 0 || !isValidSelectionStrokeStyle(newStyle)) return false;
+  const result = applyStyleToStrokes(state.selectedStrokes, newStyle, {
+    onInvalidate: (s) => {
+      setNonEnumerable(s, '_styleCache', null);
+      invalidateStrokePacked(s);
+      invalidateStrokeBitmap(s);
+    }
+  });
+  if (result.updatedCount === 0) return false;
+
+  _syncSelectionStyleUI();
+  const current = state.pages[state.activePageIndex];
+  if (current && current.canvas) {
+    redrawSelectionOverlay(current);
+  }
+  if (result.changed) {
+    if (current) markPageDirty(current.pageId);
+    scheduleSave();
+    pushHistory();
+    showToast('Stile tratto aggiornato', '〰️');
+  }
+  return true;
+}
+
 export function deleteSelection() {
   const current = state.pages[state.activePageIndex];
   if (!current || !hasLassoSelection()) return false;
@@ -787,6 +907,7 @@ function showSelectionMenu() {
     if (colorPicker && first.color) colorPicker.value = first.color;
     if (widthSlider) widthSlider.value = first.size || 3;
     if (widthValue) widthValue.innerText = first.size || 3;
+    _syncSelectionStyleUI();
   }
   _cachedMenuWidth = menu.offsetWidth || 360;
   updateSelectionMenuPosition();
@@ -797,6 +918,7 @@ function _setSelectionMenuInteracting(interacting) {
   if (!menu) return;
   if (interacting) {
     _menuInteractingHidden = true;
+    hideSelectionStylePopover();
     menu.classList.add('hidden');
   } else {
     _menuInteractingHidden = false;
@@ -811,6 +933,7 @@ function _setSelectionMenuInteracting(interacting) {
 function hideSelectionMenu() {
   _menuInteractingHidden = false;
   _cachedMenuWidth = 0;
+  hideSelectionStylePopover();
   document.getElementById('selectionMenu')?.classList.add('hidden');
 }
 
@@ -830,6 +953,9 @@ export function updateSelectionMenuPosition() {
   const x = Math.round(Math.max(16, Math.min(window.innerWidth - menuWidth - 16, screenX - menuWidth / 2)));
   const y = Math.round(Math.max(64, screenY));
   menu.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  if (isSelectionStylePopoverOpen()) {
+    repositionSelectionStylePopover();
+  }
 }
 
 export function canStartLassoDragOnTouch(e) {

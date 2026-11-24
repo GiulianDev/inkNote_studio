@@ -8,8 +8,8 @@
 
   <!-- LEFT: back + titolo -->
   <div id="headerLeft" class="flex items-center space-x-2 shrink-0">
-    <button id="backToLibraryBtn"
-      class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+    <button id="backToLibraryBtn" type="button"
+      class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition"
       title="Torna alla Libreria">
       <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -87,9 +87,9 @@
 
     <!-- RIGHT: azioni -->
   <div id="headerRight" class="relative z-10 flex items-center space-x-1 shrink-0">
-    <button id="toolbarMenuBtn"
+    <button id="toolbarMenuBtn" type="button"
       class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95"
-      title="Menu e azioni">
+      title="Menu e azioni" aria-label="Menu e azioni">
       <svg class="ui-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
       </svg>
@@ -124,68 +124,34 @@
         </span>
       </button>
       <span id="editorAuthInboxBadge" class="hidden absolute -top-1 -right-1 min-w-[1.05rem] h-[1.05rem] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none items-center justify-center ring-2 ring-white dark:ring-slate-900 pointer-events-none" aria-hidden="true">0</span>
-      <div id="editorAuthDropdown"
-        class="hidden absolute right-0 top-full mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 z-[60] overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-          <div class="flex items-center gap-3">
-            <div id="editorAuthDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-indigo-500 text-white font-bold flex-shrink-0"></div>
-            <div class="min-w-0">
-              <div id="editorAuthDropdownName" class="text-sm font-semibold text-slate-900 dark:text-white truncate"></div>
-              <div id="editorAuthDropdownEmail" class="text-[11px] text-slate-500 dark:text-slate-400 truncate"></div>
-              <div id="editorAuthDropdownHandle" class="hidden text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 truncate mt-0.5"></div>
-            </div>
-          </div>
-        </div>
-        <button id="editorAuthDropdownSendBtn" type="button"
-          class="w-full text-left px-4 py-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition flex items-center gap-2 cursor-pointer">
-          <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
-            <path d="m21.854 2.147-10.94 10.939"/>
-          </svg>
-          <span>Invia questo quaderno</span>
-        </button>
-        <button id="editorAuthDropdownSharingBtn" type="button"
-          class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-between cursor-pointer">
-          <span>Ricevuti e Amici</span>
-          <span id="editorAuthDropdownInboxBadge" class="hidden px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none">0</span>
-        </button>
-        <button id="editorAuthDropdownCopyInviteBtn" type="button"
-          class="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
-          Copia link invito amici
-        </button>
-        <button id="editorAuthLogoutBtn" type="button"
-          class="w-full text-left px-4 py-2.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition border-t border-slate-100 dark:border-slate-800 cursor-pointer">
-          Esci
-        </button>
-      </div>
     </div>
   </div>
 </header>
 
 <!-- ============================================================
-     DOCK CONTESTUALI
+     DOCK CONTESTUALI — usano componente globale <ink-tool-dock> / .ui-dock
      Uno per menu. Nascosti di default, mostrati da toolbar.js.
      ============================================================ -->
 
 <!-- DOCK SCRITTURA -->
-<div id="dockWriting" class="context-dock hidden" data-menu="writing">
-  <div class="context-dock-row">
+<ink-tool-dock id="dockWriting" class="ui-dock context-dock hidden" data-menu="writing">
+  <div class="ui-dock-row">
     <!-- Tool writing (ordine default: Penna → Matita → Stilografica → Evidenziatore) -->
-    <div id="writingToolsGroup" class="context-dock-group">
-      <button id="btnTool-marker" class="dock-tool-btn tool-btn" data-tool="marker" title="Penna">
+    <div id="writingToolsGroup" class="ui-dock-group">
+      <button id="btnTool-marker" class="ui-dock-btn ui-dock-btn--tool dock-tool-btn tool-btn" data-tool="marker" title="Penna">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
         </svg>
       </button>
-      <button id="btnTool-pencil" class="dock-tool-btn tool-btn" data-tool="pencil" title="Matita">
+      <button id="btnTool-pencil" class="ui-dock-btn ui-dock-btn--tool dock-tool-btn tool-btn" data-tool="pencil" title="Matita">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
           <path d="m15 5 4 4"/>
         </svg>
       </button>
-      <button id="btnTool-pen" class="dock-tool-btn tool-btn" data-tool="pen" title="Stilografica">
+      <button id="btnTool-pen" class="ui-dock-btn ui-dock-btn--tool dock-tool-btn tool-btn" data-tool="pen" title="Stilografica">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m12 19 7-7 3 3-7 7-3-3z"/>
@@ -194,7 +160,7 @@
           <circle cx="11" cy="11" r="2"/>
         </svg>
       </button>
-      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn" data-tool="highlighter" title="Evidenziatore">
+      <button id="btnTool-highlighter" class="ui-dock-btn ui-dock-btn--tool dock-tool-btn tool-btn" data-tool="highlighter" title="Evidenziatore">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m9 11-6 6v3h9l3-3"/>
@@ -203,95 +169,99 @@
       </button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Palette colori -->
-    <div id="colorPalette" class="context-dock-group">
-      <button class="color-swatch dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
-      <button class="color-swatch dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
-      <button class="color-swatch dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
-      <button class="color-swatch dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
-      <button class="color-swatch dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
+    <div id="colorPalette" class="ui-dock-group">
+      <button class="color-swatch ui-dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
+      <button class="color-swatch ui-dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
+      <button class="color-swatch ui-dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
+      <button class="color-swatch ui-dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
+      <button class="color-swatch ui-dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
       <div id="recentColorsContainer" class="hidden items-center space-x-1"></div>
-      <input type="color" id="customColorPicker"
-        class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent"
-        title="Colore personalizzato">
+      <button type="button" id="customColorPicker"
+        class="ui-dock-color-trigger"
+        title="Colore personalizzato"
+        aria-label="Colore personalizzato"
+        aria-haspopup="true"
+        aria-expanded="false">
+        <span class="ui-dock-color-trigger__inner" id="customColorPickerInner"></span>
+      </button>
     </div>
   </div>
 
-  <div class="context-dock-row">
+  <div class="ui-dock-row">
     <!-- Spessore -->
-    <div class="context-dock-group" title="Spessore tratto">
-      <span class="context-dock-label">Spessore</span>
+    <div class="ui-dock-group" title="Spessore tratto">
+      <span class="ui-dock-label">Spessore</span>
       <input type="range" id="strokeWidthSlider" min="1" max="25" value="3"
-        class="dock-range accent-indigo-600 cursor-pointer">
+        class="ui-dock-range">
       <span id="strokeWidthValue"
-        class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">3</span>
+        class="ui-dock-value w-4 text-center">3</span>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Opacità (apre il popover colore) -->
-    <div class="context-dock-group" title="Opacità">
-      <span class="context-dock-label">Opacità</span>
-      <button id="opacityBtn"
-        class="text-xs font-semibold text-slate-700 dark:text-slate-200 px-2 py-1 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 transition">
+    <div class="ui-dock-group" title="Opacità">
+      <span class="ui-dock-label">Opacità</span>
+      <button id="opacityBtn" type="button" class="ui-dock-btn ui-dock-btn--chip">
         <span id="opacityValue">100%</span>
       </button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Smoothing -->
-    <div class="context-dock-group" title="Levigatura del tratto">
-      <span class="context-dock-label">Levigatura</span>
+    <div class="ui-dock-group" title="Levigatura del tratto">
+      <span class="ui-dock-label">Levigatura</span>
       <input type="range" id="smoothingSlider" min="0" max="100" value="50"
-        class="dock-range accent-indigo-600 cursor-pointer">
+        class="ui-dock-range ui-dock-range--wide" aria-label="Levigatura del tratto">
       <span id="smoothingValue"
-        class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">50</span>
+        class="ui-dock-value min-w-[1.5rem] text-center">50</span>
     </div>
   </div>
 
   <!-- Riga stile tratto (nascosta per highlighter, visibile per pen/pencil/marker) -->
-  <div class="context-dock-row" id="strokeStyleRow">
-    <div class="context-dock-group" title="Tipo di tratto">
-      <span class="context-dock-label">Stile</span>
-      <button class="stroke-style-btn" data-style="solid" title="Solido">
+  <div class="ui-dock-row" id="strokeStyleRow">
+    <div class="ui-dock-group" title="Tipo di tratto">
+      <span class="ui-dock-label">Stile</span>
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="solid" title="Solido">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
       </button>
-      <button class="stroke-style-btn" data-style="dashed" title="Tratteggiato">
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="dashed" title="Tratteggiato">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 4"/>
         </svg>
       </button>
-      <button class="stroke-style-btn" data-style="dashed-large" title="Tratteggio largo">
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="dashed-large" title="Tratteggio largo">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="9 5"/>
         </svg>
       </button>
-      <button class="stroke-style-btn" data-style="dotted" title="Punteggiato">
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="dotted" title="Punteggiato">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="0.1 5"/>
         </svg>
       </button>
-      <button class="stroke-style-btn" data-style="dash-dot" title="Tratto-punto">
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="dash-dot" title="Tratto-punto">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 3 0.1 3"/>
         </svg>
       </button>
     </div>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- DOCK TESTO -->
-<div id="dockText" class="context-dock hidden" data-menu="text">
-  <div class="context-dock-row">
+<ink-tool-dock id="dockText" class="ui-dock context-dock hidden" data-menu="text">
+  <div class="ui-dock-row">
     <!-- Font -->
-    <div class="context-dock-group" title="Carattere">
-      <span class="context-dock-label">Font</span>
-      <select id="textFontSelect" class="dock-select">
+    <div class="ui-dock-group" title="Carattere">
+      <span class="ui-dock-label">Font</span>
+      <select id="textFontSelect" class="ui-dock-select">
         <option value="sans">Sans-serif</option>
         <option value="serif">Serif</option>
         <option value="mono">Monospace</option>
@@ -299,13 +269,13 @@
       </select>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Grandezza -->
-    <div class="context-dock-group" title="Dimensione testo">
-      <span class="context-dock-label">Dim.</span>
-      <button type="button" id="textSizeDecBtn" class="text-dock-btn" title="Riduci dimensione">A-</button>
-      <select id="textSizeSelect" class="dock-select dock-select-compact">
+    <div class="ui-dock-group" title="Dimensione testo">
+      <span class="ui-dock-label">Dim.</span>
+      <button type="button" id="textSizeDecBtn" class="ui-dock-btn text-dock-btn" title="Riduci dimensione">A-</button>
+      <select id="textSizeSelect" class="ui-dock-select ui-dock-select--compact">
         <option value="12">12</option>
         <option value="14">14</option>
         <option value="16">16</option>
@@ -318,68 +288,68 @@
         <option value="48">48</option>
         <option value="60">60</option>
       </select>
-      <button type="button" id="textSizeIncBtn" class="text-dock-btn" title="Aumenta dimensione">A+</button>
+      <button type="button" id="textSizeIncBtn" class="ui-dock-btn text-dock-btn" title="Aumenta dimensione">A+</button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Stile: Grassetto / Corsivo -->
-    <div class="context-dock-group">
-      <button type="button" id="textBoldBtn" class="text-dock-btn font-bold" title="Grassetto">B</button>
-      <button type="button" id="textItalicBtn" class="text-dock-btn italic font-serif" title="Corsivo">I</button>
+    <div class="ui-dock-group">
+      <button type="button" id="textBoldBtn" class="ui-dock-btn text-dock-btn font-bold" title="Grassetto">B</button>
+      <button type="button" id="textItalicBtn" class="ui-dock-btn text-dock-btn italic font-serif" title="Corsivo">I</button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Allineamento -->
-    <div class="context-dock-group" title="Allineamento">
-      <button type="button" class="text-dock-btn text-align-btn" data-align="left" title="Allinea a sinistra">
+    <div class="ui-dock-group" title="Allineamento">
+      <button type="button" class="ui-dock-btn text-dock-btn text-align-btn" data-align="left" title="Allinea a sinistra">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="21" x2="3" y1="6" y2="6"/><line x1="15" x2="3" y1="12" y2="12"/><line x1="17" x2="3" y1="18" y2="18"/></svg>
       </button>
-      <button type="button" class="text-dock-btn text-align-btn" data-align="center" title="Centra">
+      <button type="button" class="ui-dock-btn text-dock-btn text-align-btn" data-align="center" title="Centra">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="21" x2="3" y1="6" y2="6"/><line x1="17" x2="7" y1="12" y2="12"/><line x1="19" x2="5" y1="18" y2="18"/></svg>
       </button>
-      <button type="button" class="text-dock-btn text-align-btn" data-align="right" title="Allinea a destra">
+      <button type="button" class="ui-dock-btn text-dock-btn text-align-btn" data-align="right" title="Allinea a destra">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="21" x2="3" y1="6" y2="6"/><line x1="21" x2="9" y1="12" y2="12"/><line x1="21" x2="7" y1="18" y2="18"/></svg>
       </button>
     </div>
   </div>
 
-  <div class="context-dock-row">
+  <div class="ui-dock-row">
     <!-- Colore testo -->
-    <div id="textColorPalette" class="context-dock-group">
-      <span class="context-dock-label">Colore</span>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
+    <div id="textColorPalette" class="ui-dock-group">
+      <span class="ui-dock-label">Colore</span>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
       <input type="color" id="textCustomColorPicker"
-        class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent"
+        class="ui-dock-color-picker"
         title="Colore testo personalizzato" value="#000000">
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Azioni casella selezionata -->
-    <div class="context-dock-group">
-      <button type="button" id="textEditBtn" class="text-dock-btn text-dock-action" disabled title="Modifica casella selezionata">
+    <div class="ui-dock-group">
+      <button type="button" id="textEditBtn" class="ui-dock-btn text-dock-btn" disabled title="Modifica casella selezionata">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
         <span>Modifica</span>
       </button>
-      <button type="button" id="textDeleteBtn" class="text-dock-btn text-dock-action danger" disabled title="Elimina casella selezionata">
+      <button type="button" id="textDeleteBtn" class="ui-dock-btn ui-dock-btn--danger text-dock-btn" disabled title="Elimina casella selezionata">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         <span>Elimina</span>
       </button>
     </div>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- DOCK SELEZIONE -->
-<div id="dockSelection" class="context-dock hidden" data-menu="selection">
-  <div class="context-dock-row">
-    <div class="context-dock-group" title="Modalità di selezione">
-      <button type="button" class="text-dock-btn lasso-mode-btn" data-lasso-mode="freehand" title="Lazo a mano libera">
+<ink-tool-dock id="dockSelection" class="ui-dock context-dock hidden" data-menu="selection">
+  <div class="ui-dock-row">
+    <div class="ui-dock-group" title="Modalità di selezione">
+      <button type="button" class="ui-dock-btn text-dock-btn lasso-mode-btn" data-lasso-mode="freehand" title="Lazo a mano libera">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M7 22a5 5 0 0 1-2-4"/>
           <path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1"/>
@@ -387,7 +357,7 @@
         </svg>
         <span>Lazo</span>
       </button>
-      <button type="button" class="text-dock-btn lasso-mode-btn" data-lasso-mode="rect" title="Selezione rettangolare">
+      <button type="button" class="ui-dock-btn text-dock-btn lasso-mode-btn" data-lasso-mode="rect" title="Selezione rettangolare">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 3"/>
         </svg>
@@ -395,30 +365,30 @@
       </button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
-    <div class="context-dock-group" title="Elementi inclusi nella selezione">
-      <label class="context-dock-toggle" title="Includi tratti e forme nella selezione">
-        <input type="checkbox" id="lassoFilterInk" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-group" title="Elementi inclusi nella selezione">
+      <label class="ui-dock-toggle" title="Includi tratti e forme nella selezione">
+        <input type="checkbox" id="lassoFilterInk" checked class="ui-dock-checkbox">
         <span>Inchiostro</span>
       </label>
-      <label class="context-dock-toggle" title="Includi caselle di testo nella selezione">
-        <input type="checkbox" id="lassoFilterText" checked class="accent-indigo-600 w-4 h-4">
+      <label class="ui-dock-toggle" title="Includi caselle di testo nella selezione">
+        <input type="checkbox" id="lassoFilterText" checked class="ui-dock-checkbox">
         <span>Testo</span>
       </label>
     </div>
   </div>
 
-  <div class="context-dock-row">
-    <div class="context-dock-group">
-      <button type="button" id="lassoCopyBtn" class="text-dock-btn text-dock-action" disabled title="Copia selezione (Ctrl+C)">
+  <div class="ui-dock-row">
+    <div class="ui-dock-group">
+      <button type="button" id="lassoCopyBtn" class="ui-dock-btn text-dock-btn" disabled title="Copia selezione (Ctrl+C)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
           <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
         </svg>
         <span>Copia</span>
       </button>
-      <button type="button" id="lassoCutBtn" class="text-dock-btn text-dock-action" disabled title="Taglia selezione (Ctrl+X)">
+      <button type="button" id="lassoCutBtn" class="ui-dock-btn text-dock-btn" disabled title="Taglia selezione (Ctrl+X)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="6" cy="6" r="3"/>
           <path d="M8.12 8.12 12 12"/>
@@ -428,14 +398,14 @@
         </svg>
         <span>Taglia</span>
       </button>
-      <button type="button" id="lassoPasteBtn" class="text-dock-btn text-dock-action" disabled title="Incolla nella pagina corrente (Ctrl+V)">
+      <button type="button" id="lassoPasteBtn" class="ui-dock-btn text-dock-btn" disabled title="Incolla nella pagina corrente (Ctrl+V)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect width="8" height="4" x="8" y="2" rx="1" ry="1"/>
           <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
         </svg>
         <span>Incolla</span>
       </button>
-      <button type="button" id="lassoDuplicateBtn" class="text-dock-btn text-dock-action" disabled title="Duplica selezione (Ctrl+D)">
+      <button type="button" id="lassoDuplicateBtn" class="ui-dock-btn text-dock-btn" disabled title="Duplica selezione (Ctrl+D)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
           <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
@@ -443,7 +413,7 @@
         </svg>
         <span>Duplica</span>
       </button>
-      <button type="button" id="lassoDeleteBtn" class="text-dock-btn text-dock-action danger" disabled title="Elimina selezione (Canc)">
+      <button type="button" id="lassoDeleteBtn" class="ui-dock-btn ui-dock-btn--danger text-dock-btn" disabled title="Elimina selezione (Canc)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
           <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -453,85 +423,84 @@
       </button>
     </div>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- DOCK FORME -->
-<div id="dockShapes" class="context-dock hidden" data-menu="shapes">
-  <div class="context-dock-row">
-    <label class="context-dock-toggle" title="Tieni premuto per linea con snap orizzontale/verticale · Raddrizza al rilascio solo se molto dritta">
-      <input type="checkbox" id="snapLinesToggle" checked class="accent-indigo-600 w-4 h-4">
+<ink-tool-dock id="dockShapes" class="ui-dock context-dock hidden" data-menu="shapes">
+  <div class="ui-dock-row">
+    <label class="ui-dock-toggle" title="Tieni premuto per linea con snap orizzontale/verticale · Raddrizza al rilascio solo se molto dritta">
+      <input type="checkbox" id="snapLinesToggle" checked class="ui-dock-checkbox">
       <span>Linee</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce cerchi ed ellissi tenendo premuto">
-      <input type="checkbox" id="snapCirclesToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce cerchi ed ellissi tenendo premuto">
+      <input type="checkbox" id="snapCirclesToggle" checked class="ui-dock-checkbox">
       <span>Cerchi</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce i rettangoli tenendo premuto">
-      <input type="checkbox" id="snapRectanglesToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce i rettangoli tenendo premuto">
+      <input type="checkbox" id="snapRectanglesToggle" checked class="ui-dock-checkbox">
       <span>Rettangoli</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce i triangoli tenendo premuto">
-      <input type="checkbox" id="snapTrianglesToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce i triangoli tenendo premuto">
+      <input type="checkbox" id="snapTrianglesToggle" checked class="ui-dock-checkbox">
       <span>Triangoli</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce le frecce al rilascio (1 tratto o punta a V su linea)">
-      <input type="checkbox" id="snapArrowsToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce le frecce al rilascio (1 tratto o punta a V su linea)">
+      <input type="checkbox" id="snapArrowsToggle" checked class="ui-dock-checkbox">
       <span>Frecce</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce simboli matematici al rilascio: ( ), [ ], { }, ∑, ⇒">
-      <input type="checkbox" id="snapMathSymbolsToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce simboli matematici al rilascio: ( ), [ ], { }, ∑, ⇒">
+      <input type="checkbox" id="snapMathSymbolsToggle" checked class="ui-dock-checkbox">
       <span>Simboli mat.</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce le lettere greche al rilascio (α, β, γ, θ, λ, μ, π, σ, φ, ψ, ω, Δ, Σ, Ω…)">
-      <input type="checkbox" id="snapGreekLettersToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce le lettere greche al rilascio (α, β, γ, θ, λ, μ, π, σ, φ, ψ, ω, Δ, Σ, Ω…)">
+      <input type="checkbox" id="snapGreekLettersToggle" checked class="ui-dock-checkbox">
       <span>Lettere greche</span>
     </label>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- DOCK GOMMA -->
-<div id="dockEraser" class="context-dock hidden" data-menu="eraser">
-  <div class="context-dock-row">
-    <span class="context-dock-label">Dimensione</span>
-    <button class="eraser-level-btn" data-eraser-level="1" title="Piccola">
+<ink-tool-dock id="dockEraser" class="ui-dock context-dock hidden" data-menu="eraser">
+  <div class="ui-dock-row">
+    <span class="ui-dock-label">Dimensione</span>
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="1" title="Piccola">
       <span style="width:6px;height:6px;"></span>
     </button>
-    <button class="eraser-level-btn" data-eraser-level="2" title="Medio-piccola">
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="2" title="Medio-piccola">
       <span style="width:11px;height:11px;"></span>
     </button>
-    <button class="eraser-level-btn" data-eraser-level="3" title="Media">
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="3" title="Media">
       <span style="width:16px;height:16px;"></span>
     </button>
-    <button class="eraser-level-btn" data-eraser-level="4" title="Medio-grande">
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="4" title="Medio-grande">
       <span style="width:21px;height:21px;"></span>
     </button>
-    <button class="eraser-level-btn" data-eraser-level="5" title="Grande">
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="5" title="Grande">
       <span style="width:26px;height:26px;"></span>
     </button>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
-    <span class="context-dock-label">Modalità</span>
-    <select id="eraserModeSelect"
-      class="bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs font-medium">
+    <span class="ui-dock-label">Modalità</span>
+    <select id="eraserModeSelect" class="ui-dock-select">
       <option value="stroke">Tratto intero</option>
       <option value="point">Raggio puntuale</option>
     </select>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- POPOVER FOGLIO (non è un dock: one-shot, si chiude dopo la scelta) -->
 <div id="pagePopover" class="hidden">
   <div class="page-popover-title">Foglio</div>
 
   <div class="page-popover-section">
-    <label class="page-popover-label">Pattern</label>
+    <span class="page-popover-label">Pattern</span>
     <div class="page-pattern-grid">
       <button class="page-pattern-btn" data-pattern="ruled"  title="A righe">Righe</button>
       <button class="page-pattern-btn" data-pattern="grid"   title="A quadretti">Griglia</button>
@@ -541,7 +510,7 @@
   </div>
 
   <div class="page-popover-section" style="margin-top: 10px;">
-    <label class="page-popover-label">Colori</label>
+    <span class="page-popover-label">Colori</span>
     <div class="page-colors-row">
       <label class="page-color-field" title="Colore del foglio">
         <span>Foglio</span>
@@ -561,18 +530,30 @@
 </div>
 
 <!-- ============================================================
-     MENU ⋯ (azioni rare) — pannello con sezioni
+     MENU ⋯ (azioni rare) — usa componente globale <ink-menu> / .ui-menu
      ============================================================ -->
-<div id="toolbarMenuBackdrop" class="hidden fixed inset-0 bg-slate-900/20 dark:bg-slate-950/40 backdrop-blur-[1px] z-[45]"></div>
-<div id="toolbarMenuPanel"
-     class="hidden fixed bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2 z-[46] flex flex-col gap-1 min-w-[240px]">
-
-  <div class="menu-section">
-    <div class="menu-section-title">Questo quaderno</div>
-    <button id="addPageBtn" class="menu-item">➕ Nuova pagina</button>
-    <button id="clearPageBtn" class="menu-item">🧹 Pulisci pagina</button>
-    <button id="exportPdfFromMenu" class="menu-item">
-      <svg class="ui-icon-sm shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+<ink-menu id="toolbarMenuPanel" class="ui-menu hidden">
+  <div class="ui-menu-section">
+    <div class="ui-menu-section-title">Questo quaderno</div>
+    <button id="addPageBtn" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+        <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+        <path d="M9 15h6"/>
+        <path d="M12 12v6"/>
+      </svg>
+      <span>Nuova pagina</span>
+    </button>
+    <button id="clearPageBtn" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>
+        <path d="M22 21H7"/>
+        <path d="m5 11 9 9"/>
+      </svg>
+      <span>Pulisci pagina</span>
+    </button>
+    <button id="exportPdfFromMenu" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"/>
         <path d="M20 10V8l-6-6"/>
@@ -582,8 +563,8 @@
       </svg>
       <span>Esporta PDF</span>
     </button>
-    <button id="exportNotebookFromMenu" class="menu-item">
-      <svg class="ui-icon-sm shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <button id="exportNotebookFromMenu" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
         <polyline points="17 8 12 3 7 8"/>
@@ -591,8 +572,8 @@
       </svg>
       <span>Esporta quaderno (.inknote)</span>
     </button>
-    <button id="sendNotebookFromMenu" class="menu-item">
-      <svg class="ui-icon-sm shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <button id="sendNotebookFromMenu" type="button" class="ui-menu-item ui-menu-item--accent" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
         <path d="m21.854 2.147-10.94 10.939"/>
@@ -601,62 +582,150 @@
     </button>
   </div>
 
-  <div class="menu-section">
-    <div class="menu-section-title">Input (globale)</div>
+  <div class="ui-menu-section">
+    <div class="ui-menu-section-title">Input (globale)</div>
     <!--
       "Scrittura con il dito":
         OFF (default) → 1 dito fa pan, penna scrive, 2 dita pinch
         ON            → 1 dito scrive,  2 dita fanno pan+pinch
       L'id resta palmRejectionCheck per non toccare i binding esistenti.
     -->
-    <label class="menu-item menu-item-toggle"
+    <label class="ui-menu-item"
            title="Se attivo: 1 dito disegna, 2 dita muovono e zoomano">
-      <input type="checkbox" id="palmRejectionCheck" class="accent-indigo-600 w-4 h-4">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/>
+        <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/>
+        <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/>
+        <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+      </svg>
       <span>Scrittura con il dito</span>
+      <input type="checkbox" id="palmRejectionCheck" class="ui-menu-toggle-input">
     </label>
   </div>
 
-  <div class="menu-section">
-    <button id="themeToggleFromMenu" class="menu-item">
-      <svg class="ui-icon-sm shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  <div class="ui-menu-section">
+    <button id="themeToggleFromMenu" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
       </svg>
       <span>Tema chiaro / scuro</span>
     </button>
-    <button id="openSettingsFromMenu" class="menu-item">⚙️ Impostazioni complete…</button>
+    <button id="openSettingsFromMenu" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <span>Impostazioni complete…</span>
+    </button>
   </div>
-</div>
+</ink-menu>
 
 <!-- ============================================================
-     POPOVER COLORE + OPACITÀ (invariato)
+     MENU UTENTE EDITOR — usa componente globale <ink-menu> / .ui-menu
      ============================================================ -->
-<div id="colorPickerPopover" class="fixed hidden z-[70] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 w-64">
+<ink-menu id="editorAuthDropdown" class="ui-menu hidden">
+  <div class="ui-menu-header">
+    <div class="flex items-center gap-3">
+      <div id="editorAuthDropdownAvatar" class="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-indigo-500 text-white font-bold flex-shrink-0"></div>
+      <div class="min-w-0">
+        <div id="editorAuthDropdownName" class="text-sm font-semibold text-slate-900 dark:text-white truncate"></div>
+        <div id="editorAuthDropdownEmail" class="text-[11px] text-slate-500 dark:text-slate-400 truncate"></div>
+        <div id="editorAuthDropdownHandle" class="hidden text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 truncate mt-0.5"></div>
+      </div>
+    </div>
+  </div>
+  <div class="ui-menu-section">
+    <button id="editorAuthDropdownSendBtn" type="button" class="ui-menu-item ui-menu-item--accent" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
+        <path d="m21.854 2.147-10.94 10.939"/>
+      </svg>
+      <span>Invia questo quaderno</span>
+    </button>
+    <button id="editorAuthDropdownSharingBtn" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+      </svg>
+      <span>Ricevuti e Amici</span>
+      <span id="editorAuthDropdownInboxBadge" class="hidden ml-auto px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none">0</span>
+    </button>
+    <button id="editorAuthDropdownCopyInviteBtn" type="button" class="ui-menu-item" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      <span>Copia link invito amici</span>
+    </button>
+  </div>
+  <div class="ui-menu-section">
+    <button id="editorAuthLogoutBtn" type="button" class="ui-menu-item ui-menu-item--danger" role="menuitem">
+      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <polyline points="16 17 21 12 16 7"/>
+        <line x1="21" x2="9" y1="12" y2="12"/>
+      </svg>
+      <span>Esci</span>
+    </button>
+  </div>
+</ink-menu>
+
+<!-- ============================================================
+     POPOVER COLORE + OPACITÀ (superficie allineata a .ui-popover-surface)
+     ============================================================ -->
+<div id="colorPickerPopover" class="fixed hidden z-[55] ui-popover-surface p-3 w-64">
   <div class="flex items-center justify-between mb-2">
-    <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">Colore & Opacità</span>
-    <button id="closeColorPickerPopoverBtn" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none w-6 h-6 flex items-center justify-center">×</button>
+    <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">Colore &amp; Opacità</span>
+    <button id="closeColorPickerPopoverBtn" type="button" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none w-6 h-6 flex items-center justify-center" aria-label="Chiudi selettore colore">×</button>
   </div>
 
-  <div id="colorPickerPreview" class="w-full h-12 rounded-xl mb-3 border-2 border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-medium" style="background-color: #000000;"></div>
+  <div id="colorPickerPreview" class="w-full h-9 rounded-xl mb-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-[11px] font-semibold tabular-nums tracking-wide" style="background-color: #000000; color: #ffffff;">#000000 · 100%</div>
 
-  <div class="mb-3">
-    <label class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Colore</label>
-    <input type="color" id="popoverColorPicker" class="w-full h-9 rounded-lg cursor-pointer border border-slate-300 dark:border-slate-600 bg-transparent p-0">
+  <div class="mb-2.5">
+    <div id="popoverSvArea" class="ui-cp-sv-area" role="slider" aria-label="Saturazione e luminosità" tabindex="0">
+      <div class="ui-cp-sv-white"></div>
+      <div class="ui-cp-sv-black"></div>
+      <div id="popoverSvThumb" class="ui-cp-sv-thumb"></div>
+    </div>
   </div>
 
-  <div class="mb-3">
-    <label class="flex justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+  <div class="mb-2.5 flex items-center gap-2">
+    <input type="range" id="popoverHueSlider" min="0" max="360" value="0" class="ui-cp-hue-slider flex-1" aria-label="Tonalità">
+    <input type="text" id="popoverHexInput" maxlength="7" value="#000000" spellcheck="false" autocomplete="off"
+      class="w-[4.6rem] shrink-0 px-1.5 py-1 text-[11px] font-mono uppercase rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-center outline-none focus:ring-2 focus:ring-indigo-500"
+      aria-label="Codice esadecimale colore">
+  </div>
+
+  <div class="mb-2.5">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Preset rapidi</div>
+    <div id="popoverWritingSwatches" class="flex flex-wrap gap-1.5">
+      <button type="button" data-popover-color="#000000" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#000000" title="Nero"></button>
+      <button type="button" data-popover-color="#2563eb" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#2563eb" title="Blu"></button>
+      <button type="button" data-popover-color="#059669" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#059669" title="Verde"></button>
+      <button type="button" data-popover-color="#e11d48" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#e11d48" title="Rosso"></button>
+      <button type="button" data-popover-color="#d97706" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#d97706" title="Arancio"></button>
+    </div>
+    <div id="popoverHighlighterSwatches" class="hidden flex-wrap gap-1.5">
+      <button type="button" data-popover-color="#ffeb3b" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFEB3B" title="Giallo"></button>
+      <button type="button" data-popover-color="#7cff7c" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CFF7C" title="Verde"></button>
+      <button type="button" data-popover-color="#ff7cbe" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FF7CBE" title="Rosa"></button>
+      <button type="button" data-popover-color="#7cd4ff" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CD4FF" title="Azzurro"></button>
+      <button type="button" data-popover-color="#ffa97c" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFA97C" title="Arancio"></button>
+    </div>
+  </div>
+
+  <div id="popoverRecentSection" class="hidden mb-2.5 pt-2 border-t border-slate-200 dark:border-slate-700">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Colori recenti</div>
+    <div id="popoverRecentSwatches" class="flex flex-wrap gap-1.5"></div>
+  </div>
+
+  <div class="pt-2 border-t border-slate-200 dark:border-slate-700">
+    <label for="popoverOpacitySlider" class="flex justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
       <span>Opacità</span>
       <span id="popoverOpacityValue" class="text-slate-700 dark:text-slate-300 tabular-nums">100%</span>
     </label>
     <input type="range" id="popoverOpacitySlider" min="10" max="100" value="100" class="w-full accent-indigo-600">
-  </div>
-
-  <div id="popoverHighlighterSwatches" class="hidden flex-wrap gap-1.5 pt-1 border-t border-slate-200 dark:border-slate-700">
-    <button data-popover-color="#FFEB3B" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFEB3B" title="Giallo"></button>
-    <button data-popover-color="#7CFF7C" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CFF7C" title="Verde"></button>
-    <button data-popover-color="#FF7CBE" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FF7CBE" title="Rosa"></button>
-    <button data-popover-color="#7CD4FF" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CD4FF" title="Azzurro"></button>
-    <button data-popover-color="#FFA97C" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFA97C" title="Arancio"></button>
   </div>
 </div>

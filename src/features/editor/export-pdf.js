@@ -22,6 +22,7 @@ import { getSettings } from '../../core/app-settings.js';
 import { getCurrentNotebook } from '../persistence/session.js';
 import { finalizePendingShape } from '../tools/shapes.js';
 import { commitActiveTextBox } from '../tools/text.js';
+import { closeAllEditorMenus } from '../toolbar/toolbar.js';
 import {
   redrawPageCanvas,
   TEXT_PAD_X,
@@ -415,6 +416,7 @@ function _triggerPdfDownload(pdfBytes, filename) {
 }
 
 export function exportToPDF() {
+  closeAllEditorMenus();
   if (state.pendingShape) finalizePendingShape();
   if (state.editingTextBoxId || state.selectedTextBoxId) {
     commitActiveTextBox({ deselect: true });
