@@ -45,6 +45,7 @@ export function beginInkStroke(point) {
     size: state.strokeWidth,
     opacity: state.currentOpacity != null ? state.currentOpacity : 1.0,
     style: state.currentStyle || 'solid',
+    smoothing: state.smoothing,
     inkParams: cloneInkParams(getPressureParams()),
     startTime: now,
     _lastMoveTime: now,

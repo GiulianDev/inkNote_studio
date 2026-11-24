@@ -258,7 +258,153 @@ export function getSelectionBBoxFromItems(strokes, textBoxes, pad = 0) {
   };
 }
 
+/**
+ * Calcola il numero di suddivisioni geometriche per segmento riducendo
+ * il carico poligonale su CPU lente (Surface Go 1):
+ *   - smoothing = 0 o segmenti <= 2.5px -> 1 step lineare
+ *   - fascia bassa (0.01..0.30) -> max 1..3 step solo su segmenti lunghi
+ *   - fascia medio/alta (> 0.30) -> 1..4 step adattivi alla lunghezza
+ */
 export function computeSegmentSteps(segLen, smoothness) {
-  const baseSteps = Math.max(2, Math.min(3, Math.ceil(segLen / 3)));
-  return Math.max(1, Math.round(baseSteps * (0.3 + smoothness * 0.7)));
+  const s = smoothness == null ? 0.5 : smoothness;
+  if (s <= 0.005 || segLen <= 2.5) return 1;
+  if (s <= 0.30) {
+    if (segLen <= 6) return 1;
+    if (segLen <= 16) return 2;
+    return 3;
+  }
+  if (segLen <= 3.5) return 1;
+  if (segLen <= 10) return 2;
+  if (segLen <= 22) return 3;
+  return 4;
+}
+
+/**
+ * Peso di arrotondamento geometrico [0..1] in funzione dello smoothing:
+ * nella fascia 1..30 sale rapidamente per ammorbidire gli spigoli senza lag temporale.
+ */
+export function computeCurveWeight(smoothness) {
+  const s = smoothness == null ? 0.5 : (smoothness < 0 ? 0 : (smoothness > 1 ? 1 : smoothness));
+  if (s <= 0.005) return 0;
+  if (s <= 0.30) return 0.14 + (s / 0.30) * 0.56;
+  if (s <= 0.70) return 0.70 + ((s - 0.30) / 0.40) * 0.30;
+  return 1.0;
+}
+
+/**
+ * Pre-calcola le tangenti Hermite clampate per il segmento `[p1, p2]`
+ * una sola volta fuori dal loop interno, evitando overshoot/loop su spaziature
+ * irregolari tipiche degli stili 60Hz/120Hz.
+ */
+export function prepareSegmentCurve(out, p0, p1, p2, p3, segLen, smoothness) {
+  const s = smoothness == null ? 0.5 : smoothness;
+  if (s <= 0.005) {
+    out.linear = true;
+    return out;
+  }
+  out.linear = false;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const w = computeCurveWeight(s);
+  const tension = s > 0.70 ? (0.5 + ((s - 0.70) / 0.30) * 0.10) : 0.5;
+
+  let m1x = (p2.x - p0.x) * tension;
+  let m1y = (p2.y - p0.y) * tension;
+  let m2x = (p3.x - p1.x) * tension;
+  let m2y = (p3.y - p1.y) * tension;
+
+  const maxMag = Math.max(0.5, segLen * 1.15);
+  const m1Len = Math.hypot(m1x, m1y);
+  if (m1Len > maxMag) {
+    const scale = maxMag / m1Len;
+    m1x *= scale;
+    m1y *= scale;
+  }
+  const m2Len = Math.hypot(m2x, m2y);
+  if (m2Len > maxMag) {
+    const scale = maxMag / m2Len;
+    m2x *= scale;
+    m2y *= scale;
+  }
+
+  // Equivalente al blend lineare->curva via identità Hermite (m=dx => P(t)=p1+t*dx)
+  out.m1x = dx + (m1x - dx) * w;
+  out.m1y = dy + (m1y - dy) * w;
+  out.m2x = dx + (m2x - dx) * w;
+  out.m2y = dy + (m2y - dy) * w;
+  return out;
+}
+
+export function evalSegmentCurveInto(out, p1, p2, curve, t) {
+  if (curve.linear) {
+    out.x = p1.x + (p2.x - p1.x) * t;
+    out.y = p1.y + (p2.y - p1.y) * t;
+    return;
+  }
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const h00 = 2 * t3 - 3 * t2 + 1;
+  const h10 = t3 - 2 * t2 + t;
+  const h01 = -2 * t3 + 3 * t2;
+  const h11 = t3 - t2;
+  out.x = h00 * p1.x + h10 * curve.m1x + h01 * p2.x + h11 * curve.m2x;
+  out.y = h00 * p1.y + h10 * curve.m1y + h01 * p2.y + h11 * curve.m2y;
+}
+
+/**
+ * Peso di rilassamento geometrico [0..0.55] applicato ai vertici interni
+ * al termine del tratto (`renderFullStroke`) per appiattire micro-ondulazioni
+ * residue senza aggiungere latenza durante la scrittura live.
+ */
+export function computeRelaxWeight(smoothness) {
+  const s = smoothness == null ? 0.5 : (smoothness < 0 ? 0 : (smoothness > 1 ? 1 : smoothness));
+  if (s <= 0.005) return 0;
+  if (s <= 0.30) return 0.04 + (s / 0.30) * 0.14;
+  if (s <= 0.70) return 0.18 + ((s - 0.30) / 0.40) * 0.22;
+  return 0.40 + ((s - 0.70) / 0.30) * 0.15;
+}
+
+/**
+ * Restituisce un array di punti arrotondati geometricamente (senza mutare `pts`)
+ * preservando i punti estremi e limitando lo spostamento massimo così da
+ * eliminare tremolii/zig-zag senza smussare eccessivamente angoli netti intenzionali (es. V, L, 7).
+ */
+export function buildRelaxedPoints(pts, smoothness) {
+  if (!Array.isArray(pts) || pts.length < 4) return pts;
+  const s = smoothness == null ? 0.5 : (smoothness < 0 ? 0 : (smoothness > 1 ? 1 : smoothness));
+  const w = computeRelaxWeight(s);
+  if (w <= 0.001) return pts;
+
+  const n = pts.length;
+  const passes = s > 0.78 ? 2 : 1;
+  const maxShift = 2.0 + s * 5.5;
+
+  let src = pts;
+  for (let pass = 0; pass < passes; pass++) {
+    const out = new Array(n);
+    out[0] = src[0];
+    out[n - 1] = src[n - 1];
+    for (let i = 1; i < n - 1; i++) {
+      const prev = src[i - 1];
+      const curr = src[i];
+      const next = src[i + 1];
+      const dx = 0.5 * (prev.x + next.x) - curr.x;
+      const dy = 0.5 * (prev.y + next.y) - curr.y;
+      const shiftX = dx * w;
+      const shiftY = dy * w;
+      const mag = Math.hypot(shiftX, shiftY);
+      const scale = mag > maxShift ? (maxShift / mag) : 1;
+      out[i] = {
+        x: curr.x + shiftX * scale,
+        y: curr.y + shiftY * scale,
+        pressure: curr.pressure,
+        tiltX: curr.tiltX,
+        tiltY: curr.tiltY,
+        speed: curr.speed,
+        pointerType: curr.pointerType
+      };
+    }
+    src = out;
+  }
+  return src;
 }

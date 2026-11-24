@@ -200,6 +200,7 @@ function cloneStrokeSegment(stroke, points) {
     size: stroke.size,
     ...(stroke.opacity !== undefined ? { opacity: stroke.opacity } : {}),
     ...(stroke.style !== undefined ? { style: stroke.style } : {}),
+    ...(Number.isFinite(stroke.smoothing) ? { smoothing: stroke.smoothing } : {}),
     ...(stroke.inkParams ? { inkParams: cloneInkParams(stroke.inkParams) } : {}),
     points
   };

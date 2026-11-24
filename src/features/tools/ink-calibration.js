@@ -248,7 +248,7 @@ export function samplePressureCurve(params, steps = 28) {
 }
 
 // ============================================================
-// STABILIZZATORE ONE EURO FILTER + DEADZONE ZOOM-AWARE
+// STABILIZZATORE MULTI-LIVELLO (Bypass / Zero-Lag / One Euro)
 // ============================================================
 
 function _lowPassAlpha(cutoffHz, dtSec) {
@@ -257,9 +257,73 @@ function _lowPassAlpha(cutoffHz, dtSec) {
 }
 
 /**
+ * Restituisce i parametri continui dello stabilizzatore in base al grado `smoothing` (0..1)
+ * e allo zoom corrente, dividendo lo slider 0..100 in 4 fasce senza salti:
+ *   - 0        (`bypass`):      0 lag, nessun filtro spaziale
+ *   - 0.01..0.30 (`geometric`): micro-damping ad altissima banda (lag < 1px su 60Hz) + rounding geometrico
+ *   - 0.31..0.70 (`balanced`):  One Euro adattivo tarato sia per 60Hz (Surface Go 1) che 120Hz (iPadOS)
+ *   - 0.71..1.00 (`calligraphy`): stabilizzazione spinta per tremolii / curve calligrafiche
+ */
+export function getStabilizerParams(smoothing = 0.5, scale = 1.0) {
+  const s = _clamp01(smoothing == null ? 0.5 : smoothing);
+  const vpScale = Math.max(0.25, Number.isFinite(scale) ? scale : 1.0);
+
+  if (s < 0.005) {
+    return {
+      mode: 'bypass',
+      s: 0,
+      minCutoff: Infinity,
+      beta: 0,
+      dCutoff: Infinity,
+      deadzone: 0.01,
+      pressureNewWeight: 0.80
+    };
+  }
+
+  let mode;
+  let minCutoff;
+  let beta;
+  let dCutoff;
+  let baseDeadzone;
+
+  if (s <= 0.30) {
+    mode = 'geometric';
+    const u = s / 0.30; // 0..1
+    minCutoff = 80.0 * Math.pow(16.0 / 80.0, u);
+    beta = 0.085 - u * 0.030;
+    dCutoff = 10.0 - u * 5.0;
+    baseDeadzone = 0.38 * u;
+  } else if (s <= 0.70) {
+    mode = 'balanced';
+    const v = (s - 0.30) / 0.40; // 0..1
+    minCutoff = 16.0 * Math.pow(3.2 / 16.0, v);
+    beta = 0.055 - v * 0.025;
+    dCutoff = 5.0 - v * 2.2;
+    baseDeadzone = 0.38 + v * 0.67;
+  } else {
+    mode = 'calligraphy';
+    const w = (s - 0.70) / 0.30; // 0..1
+    minCutoff = 3.2 * Math.pow(0.95 / 3.2, w);
+    beta = 0.030 - w * 0.020;
+    dCutoff = 2.8 - w * 1.2;
+    baseDeadzone = 1.05 + w * 0.55;
+  }
+
+  return {
+    mode,
+    s,
+    minCutoff,
+    beta,
+    dCutoff,
+    deadzone: Math.min(2.6, baseDeadzone / vpScale),
+    pressureNewWeight: 0.78 - s * 0.24
+  };
+}
+
+/**
  * Crea uno stabilizzatore stateful per un singolo tratto.
- * Filtra i micro-tremolii ad alta frequenza a bassa velocità / punta ferma
- * mantenendo reattività immediata nei movimenti rapidi.
+ * A smoothing basso azzera il lag temporale affidando l'arrotondamento all'interpolazione
+ * geometrica di render; a smoothing medio/alto attiva progressivamente il One Euro Filter.
  */
 export function createStrokeStabilizer(initialPoint = null) {
   let hasInit = false;
@@ -273,6 +337,7 @@ export function createStrokeStabilizer(initialPoint = null) {
   let lastAcceptY = 0;
   let lastPressure = 0.5;
   let lastTs = 0;
+  let observedDtMs = 16.67;
 
   if (initialPoint) {
     hasInit = true;
@@ -288,8 +353,7 @@ export function createStrokeStabilizer(initialPoint = null) {
 
   return {
     filterPoint(rawPoint, { smoothing = 0.5, scale = 1.0 } = {}) {
-      const s = _clamp01(smoothing == null ? 0.5 : smoothing);
-      const vpScale = Math.max(0.25, Number.isFinite(scale) ? scale : 1.0);
+      const cfg = getStabilizerParams(smoothing, scale);
       const ts = Number.isFinite(rawPoint.timeStamp) ? rawPoint.timeStamp : 0;
 
       if (!hasInit) {
@@ -308,21 +372,32 @@ export function createStrokeStabilizer(initialPoint = null) {
           y: rawPoint.y,
           pressure: lastPressure,
           distFromAccepted: 0,
-          dtMs: 16.67
+          dtMs: observedDtMs
         };
       }
 
-      const rawDtMs = (ts > 0 && lastTs > 0 && ts > lastTs) ? (ts - lastTs) : 8.33;
+      let rawDtMs;
+      if (ts > 0 && lastTs > 0) {
+        if (ts > lastTs) {
+          rawDtMs = ts - lastTs;
+          observedDtMs = observedDtMs * 0.7 + _clamp(rawDtMs, 4, 33.34) * 0.3;
+        } else {
+          // Eventi coalesced nello stesso frame condividono talvolta il timestamp
+          rawDtMs = 6.0;
+        }
+      } else {
+        rawDtMs = observedDtMs;
+      }
       const clampedDtMs = _clamp(rawDtMs, 2, 64);
       const dtSec = clampedDtMs / 1000;
       if (ts > 0) lastTs = ts;
 
-      // Smoothing spenta: bypass filtro spaziale, deadzone minima
-      if (s <= 0.01) {
+      // Fascia 0 (smoothing=0): bypass filtro spaziale, zero lag
+      if (cfg.mode === 'bypass') {
         const dx = rawPoint.x - lastAcceptX;
         const dy = rawPoint.y - lastAcceptY;
         const dist = Math.hypot(dx, dy);
-        if (dist < 0.01) {
+        if (dist < cfg.deadzone) {
           return { accepted: false, x: lastAcceptX, y: lastAcceptY, pressure: lastPressure, distFromAccepted: dist, dtMs: clampedDtMs };
         }
         lastAcceptX = rawPoint.x;
@@ -332,7 +407,7 @@ export function createStrokeStabilizer(initialPoint = null) {
         lastRawX = rawPoint.x;
         lastRawY = rawPoint.y;
         const rawP = rawPoint.pressure != null ? rawPoint.pressure : lastPressure;
-        lastPressure = _clamp(lastPressure * 0.25 + rawP * 0.75, 0.02, 1.0);
+        lastPressure = _clamp(lastPressure * (1 - cfg.pressureNewWeight) + rawP * cfg.pressureNewWeight, 0.02, 1.0);
         return {
           accepted: true,
           x: rawPoint.x,
@@ -343,31 +418,25 @@ export function createStrokeStabilizer(initialPoint = null) {
         };
       }
 
-      // One Euro Filter 2D
+      // One Euro Filter 2D con parametri progressivi per fascia
       const dxRaw = (rawPoint.x - lastRawX) / dtSec;
       const dyRaw = (rawPoint.y - lastRawY) / dtSec;
       lastRawX = rawPoint.x;
       lastRawY = rawPoint.y;
 
-      const dAlpha = _lowPassAlpha(1.0, dtSec);
+      const dAlpha = _lowPassAlpha(cfg.dCutoff, dtSec);
       lastDx = lastDx + (dxRaw - lastDx) * dAlpha;
       lastDy = lastDy + (dyRaw - lastDy) * dAlpha;
 
       const speedPerSec = Math.hypot(lastDx, lastDy);
-      // s=0.5 -> minCutoff=3.9Hz (smorza jitter a riposo), s=1.0 -> minCutoff=0.65Hz (molto stabile)
-      const minCutoff = Math.max(0.55, 7.2 - s * 6.55);
-      // beta regola quanto velocemente si "apre" il filtro in movimento veloce
-      const beta = 0.004 + (1 - s) * 0.028;
-      const cutoff = minCutoff + beta * speedPerSec;
+      const cutoff = cfg.minCutoff + cfg.beta * speedPerSec;
       const alpha = _lowPassAlpha(cutoff, dtSec);
 
       lastFiltX = lastFiltX + (rawPoint.x - lastFiltX) * alpha;
       lastFiltY = lastFiltY + (rawPoint.y - lastFiltY) * alpha;
 
-      // Deadzone zoom-aware: ~0.6..1.6 CSS px tradotti in coordinate pagina (max 2.6 page px)
-      const deadzone = Math.min(2.6, Math.max(0.45, (0.55 + s * 1.05) / vpScale));
       const dist = Math.hypot(lastFiltX - lastAcceptX, lastFiltY - lastAcceptY);
-      if (dist < deadzone) {
+      if (dist < cfg.deadzone) {
         return {
           accepted: false,
           x: lastFiltX,
@@ -381,10 +450,12 @@ export function createStrokeStabilizer(initialPoint = null) {
       lastAcceptX = lastFiltX;
       lastAcceptY = lastFiltY;
 
-      // Smoothing pressione reattivo (preserva variazioni intenzionali)
       const rawP = rawPoint.pressure != null ? rawPoint.pressure : lastPressure;
-      const pNewW = 0.68 - s * 0.16; // 0.68 .. 0.52
-      lastPressure = _clamp(lastPressure * (1 - pNewW) + rawP * pNewW, 0.02, 1.0);
+      lastPressure = _clamp(
+        lastPressure * (1 - cfg.pressureNewWeight) + rawP * cfg.pressureNewWeight,
+        0.02,
+        1.0
+      );
 
       return {
         accepted: true,
