@@ -33,6 +33,15 @@ import {
   updateToolbarSettings, getEraserRadius, STROKE_STYLES,
   onToolbarSettingsChanged
 } from './toolbar-settings.js';
+import {
+  RECENT_COLORS_MAX,
+  normalizeHexColor,
+  pushRecentColor,
+  colorsEqual,
+  hsvToHex,
+  hexToHsv,
+  getReadableContrastColor
+} from './color-palette.js';
 import { changeBackgroundPattern } from '../editor/pages.js';
 import { redrawPageCanvas } from '../render/render.js';
 import {
@@ -193,6 +202,15 @@ export function mountToolbar() {
 
   on('history:restore', () => {
     applyBgPatternToUI();
+  });
+
+  on('ink:color-used', ({ color, tool }) => {
+    if (!color) return;
+    if (_pendingRecentColor && colorsEqual(_pendingRecentColor, color)) {
+      _pendingRecentColor = null;
+      _pendingRecentTool = null;
+    }
+    saveRecentColor(color, tool);
   });
 
   _mounted = true;
@@ -662,6 +680,7 @@ function _syncToolbarModeToActiveTool() {
   applyTextControlsToUI();
   applyLassoControlsToUI();
   applyPageColorsToUI();
+  renderRecentColors();
   _syncPageCursorsForActiveTool();
 }
 
@@ -818,21 +837,16 @@ export function applyActiveToolToUI() {
     activeBtn.classList.add('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
   }
 
+  _syncWritingColorPaletteUI();
+
   if (state.activeTool === 'eraser' || state.activeTool === 'lasso' || state.activeTool === 'text') return;
 
   const conf = getActiveToolConfig();
-  const swatch = document.querySelector(`.color-swatch[data-color="${conf.color}"]`);
-  document.querySelectorAll('.color-swatch').forEach(el =>
-    el.classList.remove('ring-2', 'ring-indigo-500', 'scale-105'));
-  if (swatch) swatch.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
 
   const widthSlider = document.getElementById('strokeWidthSlider');
   const widthLabel  = document.getElementById('strokeWidthValue');
   if (widthSlider) widthSlider.value = conf.width;
   if (widthLabel)  widthLabel.innerText = conf.width;
-
-  const picker = document.getElementById('customColorPicker');
-  if (picker) picker.value = conf.color;
 
   const opacityVal = conf.opacity != null ? conf.opacity : 1.0;
   const opacityEl = document.getElementById('opacityValue');
@@ -876,58 +890,137 @@ export function applyStrokeStyleToUI() {
 // COLORS
 // ============================================================
 
-const RECENT_COLORS_MAX = 4;
-const DEFAULT_COLORS = ['#000000', '#2563eb', '#059669', '#e11d48', '#d97706'];
+function _getWritingToolForPalette() {
+  if (WRITING_TOOLS.includes(state.activeTool)) return state.activeTool;
+  return WRITING_TOOLS.includes(_lastWritingTool) ? _lastWritingTool : 'marker';
+}
 
-export function saveRecentColor(colorHex) {
-  const color = colorHex.toLowerCase();
-  if (DEFAULT_COLORS.includes(color)) return;
+function _getWritingToolConfigForPalette() {
+  const settings = getToolbarSettings();
+  const toolName = _getWritingToolForPalette();
+  return settings.tools?.[toolName] || getActiveToolConfig();
+}
+
+function _syncWritingColorPaletteUI() {
+  const conf = _getWritingToolConfigForPalette();
+  const activeHex = normalizeHexColor(conf.color, '#000000');
+
+  let matchedPresetOrRecent = false;
+  document.querySelectorAll('#colorPalette .color-swatch').forEach(el => {
+    const match = colorsEqual(el.dataset.color, activeHex);
+    el.classList.toggle('ring-2', match);
+    el.classList.toggle('ring-indigo-500', match);
+    el.classList.toggle('scale-105', match);
+    if (match) matchedPresetOrRecent = true;
+  });
+
+  document.querySelectorAll('#recentColorsContainer .recent-color-swatch').forEach(el => {
+    const match = colorsEqual(el.dataset.color, activeHex);
+    el.classList.toggle('ring-2', match);
+    el.classList.toggle('ring-indigo-500', match);
+    el.classList.toggle('scale-105', match);
+    if (match) matchedPresetOrRecent = true;
+  });
+
+  const trigger = document.getElementById('customColorPicker');
+  const inner = document.getElementById('customColorPickerInner');
+  if (inner) {
+    inner.style.backgroundColor = activeHex;
+  }
+  if (trigger) {
+    trigger.style.setProperty('--custom-color-value', activeHex);
+    const highlightCustom = !matchedPresetOrRecent;
+    trigger.classList.toggle('ring-2', highlightCustom);
+    trigger.classList.toggle('ring-indigo-500', highlightCustom);
+    trigger.classList.toggle('ring-offset-1', highlightCustom);
+    trigger.classList.toggle('scale-105', highlightCustom);
+  }
+}
+
+export function saveRecentColor(colorHex, toolName = null) {
   const current = getToolbarSettings();
-  if (current.recentColors.includes(color)) return;
-  const recent = [color, ...current.recentColors].slice(0, RECENT_COLORS_MAX);
-  updateToolbarSettings({ recentColors: recent });
+  const tool = toolName || _getWritingToolForPalette();
+  const nextRecent = pushRecentColor(current.recentColors, colorHex, {
+    max: RECENT_COLORS_MAX,
+    toolName: tool
+  });
+  const prevRecent = Array.isArray(current.recentColors) ? current.recentColors : [];
+  const same =
+    nextRecent.length === prevRecent.length &&
+    nextRecent.every((c, idx) => colorsEqual(c, prevRecent[idx]));
+  if (same) return;
+
+  updateToolbarSettings({ recentColors: nextRecent });
   renderRecentColors();
 }
 
 export function renderRecentColors() {
+  const recent = getToolbarSettings().recentColors || [];
+
   const container = document.getElementById('recentColorsContainer');
-  if (!container) return;
-  const recent = getToolbarSettings().recentColors;
-  if (recent.length === 0) { container.classList.add('hidden'); container.classList.remove('flex'); return; }
-  container.classList.remove('hidden');
-  container.classList.add('flex');
-  container.innerHTML = '';
-  const sep = document.createElement('div');
-  sep.className = 'w-px h-4 bg-slate-300 dark:bg-slate-600 mx-0.5 shrink-0';
-  container.appendChild(sep);
-  recent.forEach(color => {
-    const btn = document.createElement('button');
-    btn.className = 'w-4 h-4 rounded-full border border-white dark:border-slate-800 cursor-pointer transition hover:scale-110 shrink-0';
-    btn.style.backgroundColor = color;
-    btn.title = color;
-    btn.addEventListener('click', () => selectColor(color, btn));
-    container.appendChild(btn);
-  });
+  if (container) {
+    if (recent.length === 0) {
+      container.classList.add('hidden');
+      container.classList.remove('flex');
+      container.innerHTML = '';
+    } else {
+      container.classList.remove('hidden');
+      container.classList.add('flex');
+      container.innerHTML = '';
+      const sep = document.createElement('div');
+      sep.className = 'w-px h-4 bg-slate-300 dark:bg-slate-600 mx-0.5 shrink-0';
+      container.appendChild(sep);
+      recent.forEach(color => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.color = color;
+        btn.className = 'recent-color-swatch ui-dock-swatch rounded-full border-2 border-white dark:border-slate-800 cursor-pointer transition hover:scale-110 shrink-0';
+        btn.style.backgroundColor = color;
+        btn.title = color.toUpperCase();
+        btn.setAttribute('aria-label', `Colore recente ${color.toUpperCase()}`);
+        btn.addEventListener('click', () => {
+          _pendingRecentColor = null;
+          _pendingRecentTool = null;
+          selectColor(color, btn, { commitRecent: false });
+        });
+        container.appendChild(btn);
+      });
+    }
+  }
+
+  _renderPopoverRecentSwatches(recent);
+  _syncWritingColorPaletteUI();
 }
 
-export function selectColor(colorHex, element) {
-  if (state.activeTool === 'eraser' || state.activeTool === 'lasso') {
-    setTool('pen');
+export function selectColor(colorHex, _element = null, opts = {}) {
+  const norm = normalizeHexColor(colorHex);
+  if (!norm) return;
+
+  if (state.activeTool === 'eraser' || state.activeTool === 'lasso' || state.activeTool === 'text') {
+    setTool(_getWritingToolForPalette());
   }
   const current = getToolbarSettings();
   const toolName = getActiveTool();
   const tool = current.tools[toolName];
+  if (!tool) return;
+
   updateToolbarSettings({
-    tools: { ...current.tools, [toolName]: { ...tool, color: colorHex } }
+    tools: { ...current.tools, [toolName]: { ...tool, color: norm } }
   });
 
-  document.querySelectorAll('.color-swatch').forEach(el =>
-    el.classList.remove('ring-2', 'ring-indigo-500', 'scale-105'));
-  if (element && element.classList.contains('color-swatch'))
-    element.classList.add('ring-2', 'ring-indigo-500', 'scale-105');
+  if (opts.commitRecent === true) {
+    saveRecentColor(norm, toolName);
+  } else {
+    _syncWritingColorPaletteUI();
+  }
 
-  saveRecentColor(colorHex);
-  _refreshPopoverPreview();
+  if (opts.syncHsv !== false) {
+    _popoverHsv = hexToHsv(norm);
+    _syncPopoverControlsFromHsv(norm);
+  } else {
+    _refreshPopoverPreview();
+    _syncPopoverSwatchHighlights(norm);
+  }
 }
 
 export function updateStrokeWidth(val) {
@@ -1543,35 +1636,133 @@ export function applyLassoControlsToUI() {
 // COLOR PICKER POPOVER
 // ============================================================
 
-function _refreshPopoverPreview() {
-  const preview = document.getElementById('colorPickerPreview');
-  if (!preview) return;
-  const conf = getActiveToolConfig();
-  const opacity = conf.opacity != null ? conf.opacity : 1.0;
-  const rgba = hexToRgbA(conf.color, opacity);
-  preview.style.backgroundColor = rgba;
-  preview.style.color = (conf.color === '#FFFFFF' || conf.color === '#ffffff') ? '#000' : '#fff';
-  preview.textContent = `${conf.color.toUpperCase()} · ${Math.round(opacity * 100)}%`;
+let _popoverHsv = { h: 0, s: 0, v: 0 };
+let _popoverInitialColor = null;
+let _pendingRecentColor = null;
+let _pendingRecentTool = null;
+
+function _renderPopoverRecentSwatches(recent = getToolbarSettings().recentColors || []) {
+  const section = document.getElementById('popoverRecentSection');
+  const container = document.getElementById('popoverRecentSwatches');
+  if (!section || !container) return;
+
+  if (!Array.isArray(recent) || recent.length === 0) {
+    section.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  section.classList.remove('hidden');
+  container.innerHTML = '';
+  const activeHex = normalizeHexColor(_getWritingToolConfigForPalette().color, '#000000');
+
+  recent.forEach(color => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.popoverColor = color;
+    btn.className = 'ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0';
+    btn.style.backgroundColor = color;
+    btn.title = color.toUpperCase();
+    btn.setAttribute('aria-label', `Colore recente ${color.toUpperCase()}`);
+    if (colorsEqual(color, activeHex)) {
+      btn.classList.add('is-active');
+    }
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _pendingRecentColor = null;
+      _pendingRecentTool = null;
+      selectColor(color, null, { commitRecent: false });
+    });
+    container.appendChild(btn);
+  });
 }
 
-function _populatePopoverForActiveTool() {
-  const conf = getActiveToolConfig();
-  const colorPicker = document.getElementById('popoverColorPicker');
-  const opacitySlider = document.getElementById('popoverOpacitySlider');
-  const opacityLabel = document.getElementById('popoverOpacityValue');
-  const swatches = document.getElementById('popoverHighlighterSwatches');
+function _syncPopoverSwatchHighlights(activeHex) {
+  const popover = document.getElementById('colorPickerPopover');
+  if (!popover) return;
+  popover.querySelectorAll('[data-popover-color]').forEach(btn => {
+    const match = colorsEqual(btn.dataset.popoverColor, activeHex);
+    btn.classList.toggle('is-active', match);
+  });
+}
 
-  if (colorPicker) colorPicker.value = conf.color;
-  if (opacitySlider) opacitySlider.value = Math.round((conf.opacity ?? 1.0) * 100);
-  if (opacityLabel) opacityLabel.innerText = `${Math.round((conf.opacity ?? 1.0) * 100)}%`;
+function _syncPopoverControlsFromHsv(explicitHex = null) {
+  const hex = normalizeHexColor(explicitHex, hsvToHex(_popoverHsv.h, _popoverHsv.s, _popoverHsv.v));
+  const svArea = document.getElementById('popoverSvArea');
+  const svThumb = document.getElementById('popoverSvThumb');
+  const hueSlider = document.getElementById('popoverHueSlider');
+  const hexInput = document.getElementById('popoverHexInput');
 
-  if (swatches) {
-    const isHL = state.activeTool === 'highlighter';
-    swatches.classList.toggle('hidden', !isHL);
-    swatches.classList.toggle('flex', isHL);
+  if (svArea) {
+    svArea.style.backgroundColor = hsvToHex(_popoverHsv.h, 1, 1);
+  }
+  if (svThumb) {
+    const leftPct = Math.max(0, Math.min(100, _popoverHsv.s * 100));
+    const topPct = Math.max(0, Math.min(100, (1 - _popoverHsv.v) * 100));
+    svThumb.style.left = `${leftPct}%`;
+    svThumb.style.top = `${topPct}%`;
+    svThumb.style.backgroundColor = hex;
+  }
+  if (hueSlider) {
+    hueSlider.value = String(Math.round(_popoverHsv.h));
+  }
+  if (hexInput && document.activeElement !== hexInput) {
+    hexInput.value = hex.toUpperCase();
   }
 
   _refreshPopoverPreview();
+  _syncPopoverSwatchHighlights(hex);
+}
+
+function _commitPendingRecentColor() {
+  if (!_pendingRecentColor) return;
+  const colorToCommit = _pendingRecentColor;
+  const toolToCommit = _pendingRecentTool || _getWritingToolForPalette();
+  _pendingRecentColor = null;
+  _pendingRecentTool = null;
+  if (_popoverInitialColor && colorsEqual(colorToCommit, _popoverInitialColor)) {
+    return;
+  }
+  saveRecentColor(colorToCommit, toolToCommit);
+}
+
+function _refreshPopoverPreview() {
+  const preview = document.getElementById('colorPickerPreview');
+  if (!preview) return;
+  const conf = _getWritingToolConfigForPalette();
+  const hex = normalizeHexColor(conf.color, '#000000');
+  const opacity = conf.opacity != null ? conf.opacity : 1.0;
+  const rgba = hexToRgbA(hex, opacity);
+  preview.style.backgroundColor = rgba;
+  preview.style.color = getReadableContrastColor(hex, opacity);
+  preview.textContent = `${hex.toUpperCase()} · ${Math.round(opacity * 100)}%`;
+}
+
+function _populatePopoverForActiveTool() {
+  const conf = _getWritingToolConfigForPalette();
+  const hex = normalizeHexColor(conf.color, '#000000');
+  const opacitySlider = document.getElementById('popoverOpacitySlider');
+  const opacityLabel = document.getElementById('popoverOpacityValue');
+  const writingSwatches = document.getElementById('popoverWritingSwatches');
+  const hlSwatches = document.getElementById('popoverHighlighterSwatches');
+
+  _popoverHsv = hexToHsv(hex);
+
+  if (opacitySlider) opacitySlider.value = String(Math.round((conf.opacity ?? 1.0) * 100));
+  if (opacityLabel) opacityLabel.innerText = `${Math.round((conf.opacity ?? 1.0) * 100)}%`;
+
+  const isHL = _getWritingToolForPalette() === 'highlighter';
+  if (writingSwatches) {
+    writingSwatches.classList.toggle('hidden', isHL);
+    writingSwatches.classList.toggle('flex', !isHL);
+  }
+  if (hlSwatches) {
+    hlSwatches.classList.toggle('hidden', !isHL);
+    hlSwatches.classList.toggle('flex', isHL);
+  }
+
+  _renderPopoverRecentSwatches();
+  _syncPopoverControlsFromHsv(hex);
 }
 
 export function showColorPickerPopover(triggerEl = null) {
@@ -1580,24 +1771,37 @@ export function showColorPickerPopover(triggerEl = null) {
   if (!popover || !trigger) return;
 
   closeAllEditorMenus({ keep: 'colorPopover' });
+  const conf = _getWritingToolConfigForPalette();
+  _popoverInitialColor = normalizeHexColor(conf.color, '#000000');
+  _pendingRecentColor = null;
+  _pendingRecentTool = null;
+
   _populatePopoverForActiveTool();
 
   popover.classList.remove('hidden');
+  document.getElementById('customColorPicker')?.setAttribute('aria-expanded', 'true');
+
   const r = trigger.getBoundingClientRect();
   const mw = popover.offsetWidth || 256;
-  const mh = popover.offsetHeight || 260;
+  const mh = popover.offsetHeight || 340;
   let left = r.left + r.width / 2 - mw / 2;
   let top = r.bottom + 8;
   if (top + mh > window.innerHeight - 8) top = r.top - mh - 8;
   left = Math.max(8, Math.min(window.innerWidth - mw - 8, left));
-  top = Math.max(8, top);
+  top = Math.max(8, Math.min(window.innerHeight - mh - 8, top));
   popover.style.left = `${left}px`;
   popover.style.top = `${top}px`;
 }
 
 export function hideColorPickerPopover() {
   const popover = document.getElementById('colorPickerPopover');
+  const wasOpen = popover && !popover.classList.contains('hidden');
   if (popover) popover.classList.add('hidden');
+  document.getElementById('customColorPicker')?.setAttribute('aria-expanded', 'false');
+  if (wasOpen) {
+    _commitPendingRecentColor();
+  }
+  _popoverInitialColor = null;
 }
 
 function _setupColorPopover() {
@@ -1608,21 +1812,93 @@ function _setupColorPopover() {
   trigger.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    showColorPickerPopover();
+    if (!popover.classList.contains('hidden')) {
+      hideColorPickerPopover();
+    } else {
+      showColorPickerPopover(trigger);
+    }
   });
 
   document.getElementById('closeColorPickerPopoverBtn')
     ?.addEventListener('click', hideColorPickerPopover);
 
-  const colorPicker = document.getElementById('popoverColorPicker');
-  colorPicker?.addEventListener('input', (e) => {
-    selectColor(e.target.value, null);
+  const svArea = document.getElementById('popoverSvArea');
+  const hueSlider = document.getElementById('popoverHueSlider');
+  const hexInput = document.getElementById('popoverHexInput');
+
+  const applyCustomHsvChange = () => {
+    const hex = hsvToHex(_popoverHsv.h, _popoverHsv.s, _popoverHsv.v);
+    _pendingRecentColor = hex;
+    _pendingRecentTool = _getWritingToolForPalette();
+    selectColor(hex, null, { commitRecent: false, syncHsv: false });
+    _syncPopoverControlsFromHsv(hex);
+  };
+
+  if (svArea) {
+    let draggingSv = false;
+    const updateSvFromClient = (clientX, clientY) => {
+      const rect = svArea.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const s = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const v = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
+      _popoverHsv = { h: _popoverHsv.h, s, v };
+      applyCustomHsvChange();
+    };
+
+    svArea.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      draggingSv = true;
+      svArea.setPointerCapture?.(e.pointerId);
+      updateSvFromClient(e.clientX, e.clientY);
+    });
+    svArea.addEventListener('pointermove', (e) => {
+      if (!draggingSv) return;
+      e.preventDefault();
+      updateSvFromClient(e.clientX, e.clientY);
+    });
+    const stopSv = (e) => {
+      if (!draggingSv) return;
+      draggingSv = false;
+      svArea.releasePointerCapture?.(e.pointerId);
+    };
+    svArea.addEventListener('pointerup', stopSv);
+    svArea.addEventListener('pointercancel', stopSv);
+  }
+
+  hueSlider?.addEventListener('input', (e) => {
+    const h = Math.max(0, Math.min(360, Number(e.target.value) || 0));
+    _popoverHsv = { ..._popoverHsv, h };
+    // Se saturazione e luminosità sono ancora a 0 (nero puro), spostarsi sulla barra hue
+    // porta subito un colore vivido visibile anziché restare intrappolati su #000000.
+    if (_popoverHsv.s === 0 && _popoverHsv.v === 0) {
+      _popoverHsv.s = 1;
+      _popoverHsv.v = 1;
+    }
+    applyCustomHsvChange();
+  });
+
+  hexInput?.addEventListener('input', (e) => {
+    const raw = String(e.target.value || '').trim();
+    const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+    if (/^#[0-9a-fA-F]{6}$/.test(withHash)) {
+      const norm = withHash.toLowerCase();
+      _popoverHsv = hexToHsv(norm);
+      _pendingRecentColor = norm;
+      _pendingRecentTool = _getWritingToolForPalette();
+      selectColor(norm, null, { commitRecent: false, syncHsv: false });
+      _syncPopoverControlsFromHsv(norm);
+    }
+  });
+  hexInput?.addEventListener('blur', () => {
+    const currentHex = normalizeHexColor(_getWritingToolConfigForPalette().color, '#000000');
+    hexInput.value = currentHex.toUpperCase();
   });
 
   const opacitySlider = document.getElementById('popoverOpacitySlider');
   const opacityLabel = document.getElementById('popoverOpacityValue');
   opacitySlider?.addEventListener('input', (e) => {
-    const v = parseInt(e.target.value);
+    const v = parseInt(e.target.value, 10);
     if (opacityLabel) opacityLabel.innerText = `${v}%`;
     updateOpacity(v);
   });
@@ -1630,8 +1906,9 @@ function _setupColorPopover() {
   popover.querySelectorAll('[data-popover-color]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      selectColor(btn.dataset.popoverColor, null);
-      _populatePopoverForActiveTool();
+      _pendingRecentColor = null;
+      _pendingRecentTool = null;
+      selectColor(btn.dataset.popoverColor, null, { commitRecent: false });
     });
   });
 

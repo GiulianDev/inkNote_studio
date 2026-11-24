@@ -6,7 +6,7 @@
 
 import { state, viewport } from '../../core/state.js';
 import { getPressureParams } from '../../core/app-settings.js';
-import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark } from '../../core/utils.js';
+import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark, emit } from '../../core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
   drawDotOnly, renderFullStroke
@@ -179,6 +179,7 @@ export function endInkStroke(pageData) {
   clearPredictions(pageData, true);
   scheduleSave({ pageId: pageData.pageId });
   pushHistory();
+  emit('ink:color-used', { color: stroke.color, tool: stroke.tool });
   state.currentStroke = null;
   return 'ink';
 }

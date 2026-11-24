@@ -179,9 +179,14 @@
       <button class="color-swatch ui-dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
       <button class="color-swatch ui-dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
       <div id="recentColorsContainer" class="hidden items-center space-x-1"></div>
-      <input type="color" id="customColorPicker"
-        class="ui-dock-color-picker"
-        title="Colore personalizzato">
+      <button type="button" id="customColorPicker"
+        class="ui-dock-color-trigger"
+        title="Colore personalizzato"
+        aria-label="Colore personalizzato"
+        aria-haspopup="true"
+        aria-expanded="false">
+        <span class="ui-dock-color-trigger__inner" id="customColorPickerInner"></span>
+      </button>
     </div>
   </div>
 
@@ -672,30 +677,55 @@
      ============================================================ -->
 <div id="colorPickerPopover" class="fixed hidden z-[55] ui-popover-surface p-3 w-64">
   <div class="flex items-center justify-between mb-2">
-    <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">Colore & Opacità</span>
-    <button id="closeColorPickerPopoverBtn" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none w-6 h-6 flex items-center justify-center">×</button>
+    <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">Colore &amp; Opacità</span>
+    <button id="closeColorPickerPopoverBtn" type="button" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none w-6 h-6 flex items-center justify-center" aria-label="Chiudi selettore colore">×</button>
   </div>
 
-  <div id="colorPickerPreview" class="w-full h-12 rounded-xl mb-3 border-2 border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-medium" style="background-color: #000000;"></div>
+  <div id="colorPickerPreview" class="w-full h-9 rounded-xl mb-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-[11px] font-semibold tabular-nums tracking-wide" style="background-color: #000000; color: #ffffff;">#000000 · 100%</div>
 
-  <div class="mb-3">
-    <label for="popoverColorPicker" class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 block">Colore</label>
-    <input type="color" id="popoverColorPicker" class="w-full h-9 rounded-lg cursor-pointer border border-slate-300 dark:border-slate-600 bg-transparent p-0">
+  <div class="mb-2.5">
+    <div id="popoverSvArea" class="ui-cp-sv-area" role="slider" aria-label="Saturazione e luminosità" tabindex="0">
+      <div class="ui-cp-sv-white"></div>
+      <div class="ui-cp-sv-black"></div>
+      <div id="popoverSvThumb" class="ui-cp-sv-thumb"></div>
+    </div>
   </div>
 
-  <div class="mb-3">
+  <div class="mb-2.5 flex items-center gap-2">
+    <input type="range" id="popoverHueSlider" min="0" max="360" value="0" class="ui-cp-hue-slider flex-1" aria-label="Tonalità">
+    <input type="text" id="popoverHexInput" maxlength="7" value="#000000" spellcheck="false" autocomplete="off"
+      class="w-[4.6rem] shrink-0 px-1.5 py-1 text-[11px] font-mono uppercase rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-center outline-none focus:ring-2 focus:ring-indigo-500"
+      aria-label="Codice esadecimale colore">
+  </div>
+
+  <div class="mb-2.5">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Preset rapidi</div>
+    <div id="popoverWritingSwatches" class="flex flex-wrap gap-1.5">
+      <button type="button" data-popover-color="#000000" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#000000" title="Nero"></button>
+      <button type="button" data-popover-color="#2563eb" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#2563eb" title="Blu"></button>
+      <button type="button" data-popover-color="#059669" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#059669" title="Verde"></button>
+      <button type="button" data-popover-color="#e11d48" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#e11d48" title="Rosso"></button>
+      <button type="button" data-popover-color="#d97706" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#d97706" title="Arancio"></button>
+    </div>
+    <div id="popoverHighlighterSwatches" class="hidden flex-wrap gap-1.5">
+      <button type="button" data-popover-color="#ffeb3b" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFEB3B" title="Giallo"></button>
+      <button type="button" data-popover-color="#7cff7c" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CFF7C" title="Verde"></button>
+      <button type="button" data-popover-color="#ff7cbe" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FF7CBE" title="Rosa"></button>
+      <button type="button" data-popover-color="#7cd4ff" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CD4FF" title="Azzurro"></button>
+      <button type="button" data-popover-color="#ffa97c" class="ui-cp-swatch w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFA97C" title="Arancio"></button>
+    </div>
+  </div>
+
+  <div id="popoverRecentSection" class="hidden mb-2.5 pt-2 border-t border-slate-200 dark:border-slate-700">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Colori recenti</div>
+    <div id="popoverRecentSwatches" class="flex flex-wrap gap-1.5"></div>
+  </div>
+
+  <div class="pt-2 border-t border-slate-200 dark:border-slate-700">
     <label for="popoverOpacitySlider" class="flex justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
       <span>Opacità</span>
       <span id="popoverOpacityValue" class="text-slate-700 dark:text-slate-300 tabular-nums">100%</span>
     </label>
     <input type="range" id="popoverOpacitySlider" min="10" max="100" value="100" class="w-full accent-indigo-600">
-  </div>
-
-  <div id="popoverHighlighterSwatches" class="hidden flex-wrap gap-1.5 pt-1 border-t border-slate-200 dark:border-slate-700">
-    <button data-popover-color="#FFEB3B" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFEB3B" title="Giallo"></button>
-    <button data-popover-color="#7CFF7C" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CFF7C" title="Verde"></button>
-    <button data-popover-color="#FF7CBE" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FF7CBE" title="Rosa"></button>
-    <button data-popover-color="#7CD4FF" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#7CD4FF" title="Azzurro"></button>
-    <button data-popover-color="#FFA97C" class="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shrink-0" style="background-color:#FFA97C" title="Arancio"></button>
   </div>
 </div>
