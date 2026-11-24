@@ -28,6 +28,7 @@ import {
   setNonEnumerable, getRawStrokeBBox,
   getSelectionBBoxFromItems, computePlatformSegmentSteps,
   prepareSegmentCurve, evalSegmentCurveInto,
+  buildGaussianSmoothedPoints,
   bboxesOverlap, clampDirtyRect
 } from './stroke-geometry.js';
 import { state, viewport } from '../../core/state.js';
@@ -67,6 +68,8 @@ function _ensureCircleBuf(neededFloats) {
 
 let _strokeScratchCanvas = null;
 let _strokeScratchCtx = null;
+let _scratchDirtyW = 0;
+let _scratchDirtyH = 0;
 function _getStrokeScratch(reqW, reqH) {
   if (typeof document === 'undefined') return null;
   if (reqW <= 0 || reqH <= 0 || reqW > 2048 || reqH > 2048) return null;
@@ -75,10 +78,14 @@ function _getStrokeScratch(reqW, reqH) {
     _strokeScratchCanvas.width = Math.max(256, reqW);
     _strokeScratchCanvas.height = Math.max(256, reqH);
     _strokeScratchCtx = _strokeScratchCanvas.getContext('2d');
+    _scratchDirtyW = 0;
+    _scratchDirtyH = 0;
   } else if (_strokeScratchCanvas.width < reqW || _strokeScratchCanvas.height < reqH) {
     _strokeScratchCanvas.width = Math.max(_strokeScratchCanvas.width, reqW);
     _strokeScratchCanvas.height = Math.max(_strokeScratchCanvas.height, reqH);
     _strokeScratchCtx = _strokeScratchCanvas.getContext('2d');
+    _scratchDirtyW = 0;
+    _scratchDirtyH = 0;
   }
   return _strokeScratchCtx ? { canvas: _strokeScratchCanvas, ctx: _strokeScratchCtx } : null;
 }
@@ -1060,7 +1067,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   }
 
   const smoothness = _getStrokeSmoothness(stroke);
-  const renderPts = pts;
+  const renderPts = buildGaussianSmoothedPoints(pts, smoothness);
   const baseSize = sliderToBaseSize(stroke.size);
   const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
   const widths = new Array(n);
@@ -1168,29 +1175,37 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     if (!overrideColor && !opaqueStroke && opacity < 0.999) {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, maxW = 1;
       for (let i = 0; i < n; i++) {
-        const p = pts[i];
+        const p = renderPts[i];
         if (p.x < minX) minX = p.x;
         if (p.x > maxX) maxX = p.x;
         if (p.y < minY) minY = p.y;
         if (p.y > maxY) maxY = p.y;
         if (widths[i] > maxW) maxW = widths[i];
       }
-      const pad = Math.ceil(maxW * 0.75 + 4);
-      const bx = minX - pad;
-      const by = minY - pad;
-      const bw = Math.max(1, (maxX - minX) + pad * 2);
-      const bh = Math.max(1, (maxY - minY) + pad * 2);
+      const pad = Math.ceil(maxW * 0.85 + 6);
       const tr = typeof ctx.getTransform === 'function' ? ctx.getTransform() : { a: 1, b: 0 };
-      const scale = Math.max(1, Math.min(4, Math.hypot(tr.a || 1, tr.b || 0) || 1));
-      const pxW = Math.ceil(bw * scale);
-      const pxH = Math.ceil(bh * scale);
-      const scratch = _getStrokeScratch(pxW, pxH);
+      const scale = Math.max(1, Math.min(4, fastHypot(tr.a || 1, tr.b || 0) || 1));
+      const pxMinX = Math.floor((minX - pad) * scale);
+      const pxMinY = Math.floor((minY - pad) * scale);
+      const pxMaxX = Math.ceil((maxX + pad) * scale);
+      const pxMaxY = Math.ceil((maxY + pad) * scale);
+      const pxW = Math.max(1, pxMaxX - pxMinX);
+      const pxH = Math.max(1, pxMaxY - pxMinY);
+      const bx = pxMinX / scale;
+      const by = pxMinY / scale;
+      const bw = pxW / scale;
+      const bh = pxH / scale;
+      const scratch = _getStrokeScratch(pxW + 4, pxH + 4);
       if (scratch) {
         const sctx = scratch.ctx;
+        const clearW = Math.min(scratch.canvas.width, Math.max(_scratchDirtyW, pxW + 4));
+        const clearH = Math.min(scratch.canvas.height, Math.max(_scratchDirtyH, pxH + 4));
         sctx.save();
         sctx.setTransform(1, 0, 0, 1, 0, 0);
-        sctx.clearRect(0, 0, pxW, pxH);
-        sctx.setTransform(scale, 0, 0, scale, -bx * scale, -by * scale);
+        sctx.clearRect(0, 0, clearW, clearH);
+        _scratchDirtyW = pxW + 4;
+        _scratchDirtyH = pxH + 4;
+        sctx.setTransform(scale, 0, 0, scale, -pxMinX, -pxMinY);
         setupStrokeStyle(sctx, stroke, forceTargetDark);
         sctx.globalAlpha = 1.0;
         _fillUnifiedPath(sctx);

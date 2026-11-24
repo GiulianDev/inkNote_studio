@@ -122,11 +122,8 @@ window.addEventListener('load', async () => {
       renderRecentColors();
       return;
     }
-    // activeTool è runtime-only, non va persistito nel notebook.
-    if (changed.length === 1 && changed[0] === 'activeTool') return;
-    // Cambio preferenza toolbar (colore, spessore, smoothing,
-    // snapLines, snapShapes, compact, eraserSize, eraserMode,
-    // recentColors): persisti nel notebook.
+    // Cambio preferenza toolbar o strumento attivo (activeTool, colore,
+    // spessore, smoothing, snap, compact, gomma, colori recenti): persisti.
     scheduleSave({ markDirty: false });
   });
 

@@ -262,20 +262,20 @@ export function getSelectionBBoxFromItems(strokes, textBoxes, pad = 0) {
  * Calcola il numero di suddivisioni geometriche per segmento riducendo
  * il carico poligonale su CPU lente (Surface Go 1):
  *   - smoothing = 0 o segmenti <= 2.5px -> 1 step lineare
- *   - fascia bassa (0.01..0.30) -> max 1..3 step solo su segmenti lunghi
+ *   - fascia bassa (0.01..0.30) -> salta suddivisione fino a 10px, max 1..3 step
  *   - fascia medio/alta (> 0.30) -> 1..4 step adattivi alla lunghezza
  */
 export function computeSegmentSteps(segLen, smoothness) {
   const s = smoothness == null ? 0.5 : smoothness;
   if (s <= 0.005 || segLen <= 2.5) return 1;
   if (s <= 0.30) {
-    if (segLen <= 6) return 1;
-    if (segLen <= 16) return 2;
+    if (segLen <= 10) return 1;
+    if (segLen <= 22) return 2;
     return 3;
   }
-  if (segLen <= 3.5) return 1;
-  if (segLen <= 10) return 2;
-  if (segLen <= 22) return 3;
+  if (segLen <= 4) return 1;
+  if (segLen <= 12) return 2;
+  if (segLen <= 24) return 3;
   return 4;
 }
 
@@ -299,14 +299,16 @@ export function computePlatformSegmentSteps(segLen, smoothness, platform = 'desk
 
 /**
  * Peso di arrotondamento geometrico [0..1] in funzione dello smoothing:
- * nella fascia 1..30 sale rapidamente per ammorbidire gli spigoli senza lag temporale.
+ * - fascia bassa (1..30%): arrotondamento lieve (0.03..0.18) senza deformare la forma
+ * - fascia media (31..65%): 0.18..0.50
+ * - fascia alta (> 65%): 0.50..1.00
  */
 export function computeCurveWeight(smoothness) {
   const s = smoothness == null ? 0.5 : (smoothness < 0 ? 0 : (smoothness > 1 ? 1 : smoothness));
   if (s <= 0.005) return 0;
-  if (s <= 0.30) return 0.14 + (s / 0.30) * 0.56;
-  if (s <= 0.70) return 0.70 + ((s - 0.30) / 0.40) * 0.30;
-  return 1.0;
+  if (s <= 0.30) return 0.03 + (s / 0.30) * 0.15;
+  if (s <= 0.65) return 0.18 + ((s - 0.30) / 0.35) * 0.32;
+  return 0.50 + ((s - 0.65) / 0.35) * 0.50;
 }
 
 /**
@@ -395,32 +397,63 @@ export function evalSegmentCurveInto(out, p1, p2, curve, t) {
 }
 
 /**
- * Peso di rilassamento geometrico [0..0.55] applicato ai vertici interni
- * al termine del tratto (`renderFullStroke`) per appiattire micro-ondulazioni
- * residue senza aggiungere latenza durante la scrittura live.
+ * Peso di filtro gaussiano [0..1] per il pass finale indipendente dallo strumento.
  */
 export function computeRelaxWeight(smoothness) {
   const s = smoothness == null ? 0.5 : (smoothness < 0 ? 0 : (smoothness > 1 ? 1 : smoothness));
   if (s <= 0.005) return 0;
-  if (s <= 0.30) return 0.04 + (s / 0.30) * 0.14;
-  if (s <= 0.70) return 0.18 + ((s - 0.30) / 0.40) * 0.22;
-  return 0.40 + ((s - 0.70) / 0.30) * 0.15;
+  if (s <= 0.35) return 0.18 + (s / 0.35) * 0.52;
+  if (s <= 0.65) return 0.70 + ((s - 0.35) / 0.30) * 0.25;
+  return 0.95;
 }
 
 /**
- * Restituisce un array di punti arrotondati geometricamente (senza mutare `pts`)
- * preservando i punti estremi e limitando lo spostamento massimo così da
- * eliminare tremolii/zig-zag senza smussare eccessivamente angoli netti intenzionali (es. V, L, 7).
+ * Filtro gaussiano spaziale 1D puro (indipendente dallo strumento) applicato al tratto
+ * senza mutare `pts`:
+ *   - s <= 0.005: nessuna allocazione, punti originali intatti
+ *   - 0.005 < s <= 0.35: 1 passata gaussiana 3-tap [0.25, 0.50, 0.25], maxShift 0.45..1.30px,
+ *                        preserva spigoli netti (V, L, 7)
+ *   - 0.35 < s <= 0.65: 1 passata gaussiana 5-tap [1,4,6,4,1]/16, maxShift 1.30..2.10px
+ *   - s > 0.65: 2 passate gaussiane 5-tap [1,4,6,4,1]/16, maxShift 2.10..6.0px
  */
-export function buildRelaxedPoints(pts, smoothness) {
+export function buildGaussianSmoothedPoints(pts, smoothness) {
   if (!Array.isArray(pts) || pts.length < 4) return pts;
   const s = smoothness == null ? 0.5 : (smoothness < 0 ? 0 : (smoothness > 1 ? 1 : smoothness));
-  const w = computeRelaxWeight(s);
-  if (w <= 0.001) return pts;
+  if (s <= 0.005) return pts;
 
   const n = pts.length;
-  const passes = s > 0.78 ? 2 : 1;
-  const maxShift = 2.0 + s * 5.5;
+  let passes = 1;
+  let useFiveTap = false;
+  let blend = 0;
+  let maxShift = 0.45;
+  let cornerCosLimit = 0.25;
+  let cornerMinFactor = 0.10;
+
+  if (s <= 0.35) {
+    const u = s / 0.35;
+    passes = 1;
+    useFiveTap = false;
+    blend = 0.18 + u * 0.52;
+    maxShift = 0.45 + u * 0.85;
+    cornerCosLimit = 0.25;
+    cornerMinFactor = 0.10;
+  } else if (s <= 0.65) {
+    const u = (s - 0.35) / 0.30;
+    passes = 1;
+    useFiveTap = true;
+    blend = 0.70 + u * 0.25;
+    maxShift = 1.30 + u * 0.80;
+    cornerCosLimit = 0.15;
+    cornerMinFactor = 0.15;
+  } else {
+    const u = (s - 0.65) / 0.35;
+    passes = 2;
+    useFiveTap = true;
+    blend = 0.95;
+    maxShift = 2.10 + u * 3.90;
+    cornerCosLimit = -0.35;
+    cornerMinFactor = 0.35;
+  }
 
   let src = pts;
   for (let pass = 0; pass < passes; pass++) {
@@ -431,12 +464,38 @@ export function buildRelaxedPoints(pts, smoothness) {
       const prev = src[i - 1];
       const curr = src[i];
       const next = src[i + 1];
-      const dx = 0.5 * (prev.x + next.x) - curr.x;
-      const dy = 0.5 * (prev.y + next.y) - curr.y;
-      const shiftX = dx * w;
-      const shiftY = dy * w;
+
+      let gx, gy;
+      if (useFiveTap && i >= 2 && i <= n - 3) {
+        const p2 = src[i - 2];
+        const n2 = src[i + 2];
+        gx = (p2.x + 4 * prev.x + 6 * curr.x + 4 * next.x + n2.x) * 0.0625;
+        gy = (p2.y + 4 * prev.y + 6 * curr.y + 4 * next.y + n2.y) * 0.0625;
+      } else {
+        gx = 0.25 * prev.x + 0.50 * curr.x + 0.25 * next.x;
+        gy = 0.25 * prev.y + 0.50 * curr.y + 0.25 * next.y;
+      }
+
+      let localBlend = blend;
+      const vx1 = curr.x - prev.x;
+      const vy1 = curr.y - prev.y;
+      const vx2 = next.x - curr.x;
+      const vy2 = next.y - curr.y;
+      const len1 = Math.hypot(vx1, vy1);
+      const len2 = Math.hypot(vx2, vy2);
+      if (len1 > 0.8 && len2 > 0.8) {
+        const cosAng = (vx1 * vx2 + vy1 * vy2) / (len1 * len2);
+        if (cosAng < cornerCosLimit) {
+          const factor = Math.max(cornerMinFactor, (cosAng + 1) / (1 + cornerCosLimit));
+          localBlend *= factor;
+        }
+      }
+
+      const shiftX = (gx - curr.x) * localBlend;
+      const shiftY = (gy - curr.y) * localBlend;
       const mag = Math.hypot(shiftX, shiftY);
       const scale = mag > maxShift ? (maxShift / mag) : 1;
+
       out[i] = {
         x: curr.x + shiftX * scale,
         y: curr.y + shiftY * scale,
@@ -451,3 +510,8 @@ export function buildRelaxedPoints(pts, smoothness) {
   }
   return src;
 }
+
+export function buildRelaxedPoints(pts, smoothness) {
+  return buildGaussianSmoothedPoints(pts, smoothness);
+}
+

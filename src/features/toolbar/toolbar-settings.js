@@ -15,7 +15,11 @@ import { isAppFullscreen } from '../../core/fullscreen.js';
 export const HIGHLIGHTER_COLORS = ['#FFEB3B', '#7CFF7C', '#FF7CBE', '#7CD4FF', '#FFA97C'];
 export const HIGHLIGHTER_DEFAULT_COLOR = HIGHLIGHTER_COLORS[0];
 
+export const LAST_TOOLBAR_STORAGE_KEY = 'inknote_last_toolbar_settings';
+export const VALID_TOOLS = ['pen', 'pencil', 'marker', 'highlighter', 'eraser', 'lasso', 'text'];
+
 export const DEFAULT_TOOLBAR_SETTINGS = {
+  activeTool: 'marker',
   tools: {
     pen:         { color: '#000000', width: 3, opacity: 1.0, style: 'solid' },
     pencil:      { color: '#000000', width: 3, opacity: 1.0, style: 'solid' },
@@ -59,10 +63,35 @@ function _normalizeStyle(v) {
   return STROKE_STYLES.includes(v) ? v : 'solid';
 }
 
+function _normalizeActiveTool(v) {
+  return VALID_TOOLS.includes(v) ? v : DEFAULT_TOOLBAR_SETTINGS.activeTool;
+}
+
 export const ERASER_RADII = [3, 8, 16, 30, 50];
 
 let _current = null;
-let _activeTool = 'pen';
+let _activeTool = DEFAULT_TOOLBAR_SETTINGS.activeTool;
+
+function _readLastSavedToolbarSettings() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(LAST_TOOLBAR_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function _writeLastSavedToolbarSettings(snapshot) {
+  try {
+    if (typeof localStorage === 'undefined' || !snapshot) return;
+    localStorage.setItem(LAST_TOOLBAR_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // ignore storage quota/privacy errors
+  }
+}
 
 function _isLegacyHighlighterBlack(c) {
   return !c || c === '#000000' || c === '#000' || c === 'black';
@@ -73,6 +102,7 @@ function _defaultOpacityFor(name) {
 }
 
 function _applyCompactToDOM(compact) {
+  if (typeof document === 'undefined' || !document.body) return;
   document.body.classList.toggle('compact-mode', compact);
   const btn = document.getElementById('compactExitBtn');
   if (btn) {
@@ -141,6 +171,7 @@ function _normalize(raw) {
     ...(raw || {}),
     tools: { ...DEFAULT_TOOLBAR_SETTINGS.tools, ...((raw && raw.tools) || {}) }
   };
+  merged.activeTool = _normalizeActiveTool(merged.activeTool);
   for (const name of ['pen', 'pencil', 'marker']) {
     const t = merged.tools[name] || {};
     merged.tools[name] = {
@@ -234,10 +265,20 @@ function _normalize(raw) {
 }
 
 export function initToolbarSettings(notebookSettings = null) {
-  _current = _normalize(notebookSettings);
+  const lastSaved = _readLastSavedToolbarSettings();
+  _current = notebookSettings ? _normalize(notebookSettings) : _normalize(lastSaved || null);
   // Lo stato schermo intero / compatto segue lo stato globale attivo dell'app
   _current.compactMode = isAppFullscreen();
-  _activeTool = 'pen';
+
+  if (notebookSettings && VALID_TOOLS.includes(notebookSettings.activeTool)) {
+    _activeTool = notebookSettings.activeTool;
+  } else if (lastSaved && VALID_TOOLS.includes(lastSaved.activeTool)) {
+    _activeTool = lastSaved.activeTool;
+  } else {
+    _activeTool = _current.activeTool || DEFAULT_TOOLBAR_SETTINGS.activeTool;
+  }
+  _current.activeTool = _activeTool;
+
   _syncRuntime();
   _applyCompactToDOM(!!_current.compactMode);
   emit('toolbar-settings:changed', {
@@ -268,6 +309,7 @@ export function getEraserRadius() {
 export function getToolbarSettingsForSave() {
   if (!_current) initToolbarSettings(null);
   return {
+    activeTool:       _activeTool,
     tools:            JSON.parse(JSON.stringify(_current.tools)),
     text:             { ..._current.text },
     eraserSize:       _current.eraserSize,
@@ -291,26 +333,43 @@ export function getToolbarSettingsForSave() {
   };
 }
 
+export function getInitialNewNotebookToolbarSettings() {
+  const lastSaved = _readLastSavedToolbarSettings();
+  const base = _normalize(lastSaved || null);
+  base.paperColor = null;
+  base.patternColor = null;
+  base.compactMode = false;
+  return base;
+}
+
 export function updateToolbarSettings(partial, opts = {}) {
   if (!_current) initToolbarSettings(null);
   const before = _current;
   const beforeActive = _activeTool;
+  const patch = partial ? { ...partial } : {};
 
-  if (partial.activeTool) {
-    _activeTool = partial.activeTool;
-    delete partial.activeTool;
+  if (patch.activeTool !== undefined) {
+    _activeTool = _normalizeActiveTool(patch.activeTool);
+    delete patch.activeTool;
   }
 
-  if (Object.keys(partial).length > 0) {
-    _current = _normalize({ ..._current, ...partial });
+  const changedKeys = Object.keys(patch);
+  if (changedKeys.length > 0) {
+    _current = _normalize({ ..._current, ...patch, activeTool: _activeTool });
+  } else {
+    _current.activeTool = _activeTool;
   }
 
   _syncRuntime();
   _applyCompactToDOM(!!_current.compactMode);
 
+  if (opts.persistLast !== false) {
+    _writeLastSavedToolbarSettings(getToolbarSettingsForSave());
+  }
+
   if (!opts.silent) {
     emit('toolbar-settings:changed', {
-      changed: Object.keys(partial).concat(beforeActive !== _activeTool ? ['activeTool'] : []),
+      changed: changedKeys.concat(beforeActive !== _activeTool ? ['activeTool'] : []),
       settings: _current,
       activeTool: _activeTool,
       before,
@@ -321,11 +380,8 @@ export function updateToolbarSettings(partial, opts = {}) {
 }
 
 export function resetToolbarSettings() {
-  _current = {
-    ...DEFAULT_TOOLBAR_SETTINGS,
-    tools: JSON.parse(JSON.stringify(DEFAULT_TOOLBAR_SETTINGS.tools))
-  };
-  _activeTool = 'pen';
+  _current = _normalize(null);
+  _activeTool = _current.activeTool;
   _syncRuntime();
   _applyCompactToDOM(!!_current.compactMode);
   emit('toolbar-settings:changed', { changed: ['reset'], settings: _current, activeTool: _activeTool });

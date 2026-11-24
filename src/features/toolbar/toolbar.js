@@ -81,9 +81,10 @@ const _dockAutoHide = createDockAutoHideController({
 
 const WRITING_TOOLS = ['pen', 'pencil', 'marker', 'highlighter'];
 const STYLE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
+let _lastWritingTool = 'marker';
 
 const MENU_TO_DEFAULT_TOOL = {
-  writing:   'pen',
+  writing:   null,
   text:      'text',
   selection: 'lasso',
   shapes:    null,
@@ -640,6 +641,9 @@ function _syncPageCursorsForActiveTool() {
 }
 
 function _syncToolbarModeToActiveTool() {
+  if (WRITING_TOOLS.includes(state.activeTool)) {
+    _lastWritingTool = state.activeTool;
+  }
   _mainMenu = TOOL_TO_MENU[state.activeTool] || 'writing';
   _dockCollapsed = false;
   setDockDrawingHidden(false, { immediate: true });
@@ -700,8 +704,8 @@ function _setMainMenu(menu, opts = {}) {
     _dockCollapsed = false;
   }
 
-  const defaultTool = MENU_TO_DEFAULT_TOOL[menu];
-  if (defaultTool && state.activeTool !== defaultTool) {
+  const defaultTool = menu === 'writing' ? _lastWritingTool : MENU_TO_DEFAULT_TOOL[menu];
+  if (!opts.silent && defaultTool && state.activeTool !== defaultTool) {
     if (state.activeTool === 'text' && defaultTool !== 'text') {
       clearTextBoxSelection();
     }
@@ -763,6 +767,7 @@ export function setTool(toolName) {
   clearSelection();
 
   if (WRITING_TOOLS.includes(toolName)) {
+    _lastWritingTool = toolName;
     _mainMenu = 'writing';
   } else if (toolName === 'text') {
     _mainMenu = 'text';
@@ -802,6 +807,9 @@ export function setTool(toolName) {
 }
 
 export function applyActiveToolToUI() {
+  if (WRITING_TOOLS.includes(state.activeTool)) {
+    _lastWritingTool = state.activeTool;
+  }
   document.querySelectorAll('.tool-btn').forEach(btn => {
     btn.classList.remove('active', 'bg-white', 'dark:bg-slate-700', 'text-indigo-600', 'dark:text-indigo-300', 'shadow-sm');
   });

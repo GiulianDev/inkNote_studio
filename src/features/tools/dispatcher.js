@@ -207,6 +207,7 @@ export function handlePointerDown(e, pageData) {
   if (effectiveTool === 'lasso') return beginLasso(pageData, point);
 
   clearSelection();
+  clearOverlay(pageData);
   state.isDrawing = true;
 
   if (effectiveTool === 'eraser') {
