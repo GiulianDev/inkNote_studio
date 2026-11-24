@@ -37,6 +37,7 @@ import { invalidateClampCache } from '../viewport/transform.js';
 import {
   deletePage, movePage, addNewPage, scrollToPage
 } from '../editor/pages.js';
+import { resolveSidebarHeaderTop } from './sidebar-layout.js';
 
 const THUMB_DPR = 2;
 const THUMB_CSS_W = 120;
@@ -71,6 +72,11 @@ let _drawQueue = [];
 let _drawBatchRaf = null;
 let _drawBatchToken = 0;
 
+// Sync altezza header → top sidebar
+let _lastHeaderTopPx = null;
+let _syncTopRaf = null;
+let _headerResizeObserver = null;
+
 // ============================================================
 // MOUNT + BOOTSTRAP
 // ============================================================
@@ -88,7 +94,8 @@ export function mountPagesSidebar() {
   _updateTabTitle();
 
   _syncSidebarTop();
-  window.addEventListener('resize', _syncSidebarTop);
+  window.addEventListener('resize', _scheduleSyncSidebarTop);
+  _observeHeaderHeight();
 
   _bindUI();
 
@@ -108,6 +115,13 @@ export function mountPagesSidebar() {
       if (_isOpen) _scheduleRedrawAllThumbs();
       else _thumbsNeedFullRedraw = true;
     }
+    if (
+      changed.includes('dockSize') ||
+      changed.includes('mainMenuOrder') ||
+      changed.includes('mainMenuHidden')
+    ) {
+      _scheduleSyncSidebarTop();
+    }
   });
 
   // Colori foglio/pattern o reset toolbar → ridisegna le thumbnail
@@ -120,6 +134,13 @@ export function mountPagesSidebar() {
     ) {
       if (_isOpen) _scheduleRedrawAllThumbs();
       else _thumbsNeedFullRedraw = true;
+    }
+    if (
+      changed.includes('compactMode') ||
+      changed.includes('reset') ||
+      changed.includes('init')
+    ) {
+      _scheduleSyncSidebarTop();
     }
   });
 
@@ -138,6 +159,7 @@ export function mountPagesSidebar() {
   window.addEventListener('inknote:notebook-opened', () => {
     _thumbsNeedFullRebuild = true;
     _dirtyThumbKeys.clear();
+    _scheduleSyncSidebarTop();
     if (_isOpen) refreshThumbnails();
   });
 
@@ -296,10 +318,39 @@ function _syncSidebarTop() {
   const header = document.getElementById('mainHeader');
   const sidebar = document.getElementById('pagesSidebar');
   if (!header || !sidebar) return;
-  const top = header.getBoundingClientRect().bottom;
+  const nextTop = resolveSidebarHeaderTop({
+    rect: header.getBoundingClientRect(),
+    isCompactMode: document.body.classList.contains('compact-mode'),
+    lastTop: _lastHeaderTopPx
+  });
+  if (nextTop === null) return;
+  _lastHeaderTopPx = nextTop;
   document.documentElement.style.setProperty(
-    '--pages-sidebar-header-height', `${top}px`
+    '--pages-sidebar-header-height', `${nextTop}px`
   );
+}
+
+function _scheduleSyncSidebarTop() {
+  if (_syncTopRaf !== null) return;
+  _syncTopRaf = requestAnimationFrame(() => {
+    _syncTopRaf = null;
+    _syncSidebarTop();
+  });
+}
+
+function _observeHeaderHeight() {
+  const header = document.getElementById('mainHeader');
+  if (!header) return;
+  if (typeof ResizeObserver !== 'undefined' && !_headerResizeObserver) {
+    _headerResizeObserver = new ResizeObserver(() => {
+      _scheduleSyncSidebarTop();
+    });
+    _headerResizeObserver.observe(header);
+  }
+  header.addEventListener('transitionend', (e) => {
+    if (e.target !== header) return;
+    _scheduleSyncSidebarTop();
+  });
 }
 
 // ============================================================
