@@ -26,8 +26,8 @@
 import { getStrokeBitmap, buildStrokeBitmap } from './stroke-cache.js';
 import {
   setNonEnumerable, getRawStrokeBBox,
-  getSelectionBBoxFromItems, computeSegmentSteps,
-  prepareSegmentCurve, evalSegmentCurveInto, buildRelaxedPoints,
+  getSelectionBBoxFromItems, computePlatformSegmentSteps,
+  prepareSegmentCurve, evalSegmentCurveInto,
   bboxesOverlap, clampDirtyRect
 } from './stroke-geometry.js';
 import { state, viewport } from '../../core/state.js';
@@ -37,11 +37,14 @@ import {
 } from '../../core/utils.js';
 import { getPressureParams } from '../../core/app-settings.js';
 import {
+  detectInkPlatform,
   computeInkStrokeWidth,
+  computeDirectionalNibFactor,
   computeTiltNorm,
   LEGACY_PRESSURE_PARAMS
 } from '../tools/ink-calibration.js';
 
+const _renderPlatform = detectInkPlatform();
 const SCRIBBLE_ERASE_COLOR  = 'rgba(220, 38, 38, 0.6)';
 const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';
 const HL_JITTER_MAG = 1.2;
@@ -165,8 +168,22 @@ function getSpeedNorm(pt) {
   if (!pt || !pt.speed) return 0;
   return Math.min(1, pt.speed / 8);
 }
-function getTaper() {
+function getTaper(idx, n, tool, includeExit = true) {
+  if (tool !== 'pen' || n < 5) return 1.0;
+  if (idx === 0) return 0.58;
+  if (idx === 1) return 0.82;
+  if (includeExit) {
+    if (idx === n - 1) return 0.54;
+    if (idx === n - 2) return 0.82;
+  }
   return 1.0;
+}
+function getPointNibFactor(pts, idx, tool) {
+  if (tool !== 'pen' || !pts || pts.length < 2) return 1.0;
+  const n = pts.length;
+  const prev = pts[idx > 0 ? idx - 1 : 0];
+  const next = pts[idx < n - 1 ? idx + 1 : n - 1];
+  return computeDirectionalNibFactor(next.x - prev.x, next.y - prev.y, tool);
 }
 
 // ============================================================
@@ -621,7 +638,7 @@ function _buildPencilSpine(pts, widths, fromIdx, toIdx, smoothness) {
     const pr2 = p2.pressure != null ? p2.pressure : 0.5;
     const t1Norm = getTiltNorm(p1), t2Norm = getTiltNorm(p2);
     const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-    const steps = computeSegmentSteps(segLen, smoothness);
+    const steps = computePlatformSegmentSteps(segLen, smoothness, _renderPlatform);
     if (spine.length === 0) {
       spine.push({ x: p1.x, y: p1.y, w: w1, p: pr1, t: t1Norm });
     }
@@ -713,8 +730,10 @@ export function clearOverlayBBox(pageData, bbox) {
   const octx = pageData.overlayCtx;
   const x = Math.max(0, Math.floor(bbox.minX * dpr));
   const y = Math.max(0, Math.floor(bbox.minY * dpr));
-  const w = Math.ceil((bbox.maxX - bbox.minX) * dpr);
-  const h = Math.ceil((bbox.maxY - bbox.minY) * dpr);
+  const right = Math.ceil(bbox.maxX * dpr);
+  const bottom = Math.ceil(bbox.maxY * dpr);
+  const w = Math.max(0, right - x);
+  const h = Math.max(0, bottom - y);
   if (w > 0 && h > 0) {
     octx.save();
     octx.setTransform(1, 0, 0, 1, 0, 0);
@@ -751,13 +770,17 @@ export function blitAndClearBBox(pageData, bbox, opts = {}) {
 
   const px = Math.max(0, Math.floor(bbox.minX * pDpr));
   const py = Math.max(0, Math.floor(bbox.minY * pDpr));
-  const pw = Math.ceil((bbox.maxX - bbox.minX) * pDpr);
-  const ph = Math.ceil((bbox.maxY - bbox.minY) * pDpr);
+  const pRight = Math.ceil(bbox.maxX * pDpr);
+  const pBottom = Math.ceil(bbox.maxY * pDpr);
+  const pw = Math.max(0, pRight - px);
+  const ph = Math.max(0, pBottom - py);
 
-  const ox = Math.floor(bbox.minX * oDpr);
-  const oy = Math.floor(bbox.minY * oDpr);
-  const ow = Math.ceil((bbox.maxX - bbox.minX) * oDpr);
-  const oh = Math.ceil((bbox.maxY - bbox.minY) * oDpr);
+  const ox = Math.max(0, Math.floor(bbox.minX * oDpr));
+  const oy = Math.max(0, Math.floor(bbox.minY * oDpr));
+  const oRight = Math.ceil(bbox.maxX * oDpr);
+  const oBottom = Math.ceil(bbox.maxY * oDpr);
+  const ow = Math.max(0, oRight - ox);
+  const oh = Math.max(0, oBottom - oy);
 
   if (pw > 0 && ph > 0 && ow > 0 && oh > 0) {
     const alpha = opts.alpha != null ? opts.alpha : 1;
@@ -1037,14 +1060,15 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   }
 
   const smoothness = _getStrokeSmoothness(stroke);
-  const renderPts = buildRelaxedPoints(pts, smoothness);
+  const renderPts = pts;
   const baseSize = sliderToBaseSize(stroke.size);
   const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
   const widths = new Array(n);
   for (let i = 0; i < n; i++) {
     const pt = renderPts[i];
-    widths[i] = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
-      getTiltNorm(pt), getSpeedNorm(pt), getTaper(i, stroke.tool), baseSize, inkParams);
+    const wRaw = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
+      getTiltNorm(pt), getSpeedNorm(pt), getTaper(i, n, stroke.tool, true), baseSize, inkParams);
+    widths[i] = Math.max(0.25, wRaw * getPointNibFactor(renderPts, i, stroke.tool));
   }
 
   if (stroke.tool === 'pencil' && !overrideColor) {
@@ -1079,7 +1103,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
         const p3 = renderPts[i + 1 < n ? i + 1 : n - 1];
         const w1 = widths[i - 1], w2 = widths[i];
         const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-        const steps = computeSegmentSteps(segLen, smoothness);
+        const steps = computePlatformSegmentSteps(segLen, smoothness, _renderPlatform);
         if (cIdx + steps * 3 + 3 > buf.length) {
           buf = _ensureCircleBuf(cIdx + steps * 3 + 3);
         }
@@ -1191,7 +1215,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     const p3 = renderPts[i + 1 < n ? i + 1 : n - 1];
     const w1 = widths[i - 1], w2 = widths[i];
     const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-    const steps = computeSegmentSteps(segLen, smoothness);
+    const steps = computePlatformSegmentSteps(segLen, smoothness, _renderPlatform);
     _ptA.x = p1.x;
     _ptA.y = p1.y;
     let wa = w1;
@@ -1350,12 +1374,14 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const p1 = pts[i - 1];
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
-      const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
-        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize, inkParams);
-      const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
-        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize, inkParams);
+      const w1 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
+        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, n, stroke.tool, false), baseSize, inkParams) *
+        getPointNibFactor(pts, i - 1, stroke.tool));
+      const w2 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
+        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, n, stroke.tool, false), baseSize, inkParams) *
+        getPointNibFactor(pts, i, stroke.tool));
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-      const steps = computeSegmentSteps(segLen, smoothness);
+      const steps = computePlatformSegmentSteps(segLen, smoothness, _renderPlatform);
       if (cIdx + steps * 3 > buf.length) {
         buf = _ensureCircleBuf(cIdx + steps * 3);
       }
@@ -1413,8 +1439,9 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
 
     if (n >= 2) {
       const tipP2 = pts[n - 1];
-      const tipW2 = computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure,
-        getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize, inkParams);
+      const tipW2 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure,
+        getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize, inkParams) *
+        getPointNibFactor(pts, n - 1, stroke.tool));
       ctx.beginPath();
       addTaperedSegmentCircle(ctx, tipP2, tipW2);
       ctx.fill();
@@ -1425,12 +1452,14 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const p1 = pts[i - 1];
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
-      const w1 = computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
-        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, stroke.tool), baseSize, inkParams);
-      const w2 = computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
-        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, stroke.tool), baseSize, inkParams);
+      const w1 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
+        getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, n, stroke.tool, false), baseSize, inkParams) *
+        getPointNibFactor(pts, i - 1, stroke.tool));
+      const w2 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
+        getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, n, stroke.tool, false), baseSize, inkParams) *
+        getPointNibFactor(pts, i, stroke.tool));
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
-      const steps = computeSegmentSteps(segLen, smoothness);
+      const steps = computePlatformSegmentSteps(segLen, smoothness, _renderPlatform);
       _ptA.x = p1.x;
       _ptA.y = p1.y;
       let wa = w1;

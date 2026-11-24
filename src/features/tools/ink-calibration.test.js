@@ -15,10 +15,13 @@ import {
   getHoldMoveTolerancePx,
   trimStationaryTail,
   extractEventTilt,
-  computeTiltNorm
+  computeTiltNorm,
+  computePredictionWidth,
+  computeDirectionalNibFactor
 } from './ink-calibration.js';
 import {
   computeSegmentSteps,
+  computePlatformSegmentSteps,
   computeCurveWeight,
   prepareSegmentCurve,
   evalSegmentCurveInto,
@@ -297,6 +300,163 @@ describe('ink-calibration: multi-tier stabilizer & stationary tail trimming', ()
     assert.ok(Math.hypot(extracted.tiltX, extracted.tiltY) > 44 && Math.hypot(extracted.tiltX, extracted.tiltY) < 46);
     assert.ok(computeTiltNorm(extracted) > 0.45 && computeTiltNorm(extracted) < 0.6);
   });
+
+  it('computes dynamic pressure-matched prediction width and reseeds synthetic entry pressure cleanly', () => {
+    const params = derivePressureParams({ pressureLight: 10, pressureHeavy: 360, pressureCurve: 60, pressureSpeedWeight: 20 });
+
+    const lightPredW = computePredictionWidth({
+      tool: 'pen',
+      baseSize: 3,
+      lastPoint: { pressure: 0.08, tiltX: 0, tiltY: 0, speed: 0 },
+      predictedEvents: [{ pressure: 0.05, tiltX: 0, tiltY: 0 }],
+      inkParams: params,
+      platform: 'ios',
+      sensitivity: 50
+    });
+    const heavyPredW = computePredictionWidth({
+      tool: 'pen',
+      baseSize: 3,
+      lastPoint: { pressure: 0.72, tiltX: 0, tiltY: 0, speed: 0 },
+      predictedEvents: [{ pressure: 0.55, tiltX: 0, tiltY: 0 }],
+      inkParams: params,
+      platform: 'ios',
+      sensitivity: 50
+    });
+    const zeroPredW = computePredictionWidth({
+      tool: 'pen',
+      baseSize: 3,
+      lastPoint: { pressure: 0.72, tiltX: 0, tiltY: 0, speed: 0 },
+      predictedEvents: [{ pressure: 0, tiltX: 0, tiltY: 0 }],
+      inkParams: params,
+      platform: 'ios',
+      sensitivity: 50
+    });
+    const hlPredW = computePredictionWidth({
+      tool: 'highlighter',
+      baseSize: 3,
+      lastPoint: { pressure: 0.9, tiltX: 0, tiltY: 0, speed: 0 },
+      predictedEvents: [{ pressure: 0.9 }]
+    });
+
+    assert.ok(heavyPredW > lightPredW * 3.5, `prediction width must scale with pen pressure (${heavyPredW} vs ${lightPredW})`);
+    assert.ok(zeroPredW > lightPredW * 3.5, 'zero-pressure predicted event must fall back to lastPoint pressure');
+    assert.equal(hlPredW, 12);
+
+    // Sub-deadzone pressure progression and synthetic initial reseeding
+    const stab = createStrokeStabilizer({ x: 50, y: 50, pressure: 0.28, timeStamp: 100 });
+    stab.seedInitialPressure(0.07);
+    // Move slightly within deadzone while ramping up pressure (fallback=false)
+    const sub1 = stab.filterPoint({ x: 50.2, y: 50, pressure: 0.45, _pressureFallback: false, timeStamp: 108 }, { smoothing: 0.5, scale: 1 });
+    assert.equal(sub1.accepted, false);
+    // Fallback sample (pressure=0 -> 0.28) must NOT overwrite tracked real pressure
+    const subFallback = stab.filterPoint({ x: 50.3, y: 50, pressure: 0.28, _pressureFallback: true, timeStamp: 116 }, { smoothing: 0.5, scale: 1 });
+    assert.equal(subFallback.accepted, false);
+    assert.ok(Math.abs(subFallback.pressure - sub1.pressure) < 1e-6);
+    // Next accepted move continues cleanly from updated pressure
+    const acc = stab.filterPoint({ x: 62, y: 50, pressure: 0.65, _pressureFallback: false, timeStamp: 124 }, { smoothing: 0.5, scale: 1 });
+    assert.equal(acc.accepted, true);
+    assert.ok(acc.pressure > 0.40, `expected continuous sub-deadzone + move pressure ramp > 0.40, got ${acc.pressure}`);
+  });
+
+  it('optimizes stabilizer behavior per platform (ios near-zero lag, desktop sharp corner, android irregular dt, zero hold tremor on all)', () => {
+    // 1. Stationary hold tremor = 0 accepted across ios, android, desktop
+    for (const platform of ['ios', 'android', 'desktop']) {
+      for (const smoothing of [0.05, 0.35, 0.75]) {
+        const stab = createStrokeStabilizer({ x: 200, y: 200, pressure: 0.4, timeStamp: 1000 }, { platform });
+        let accepted = 0;
+        for (let i = 1; i <= 30; i++) {
+          const r = stab.filterPoint(
+            { x: 200 + (i % 2 ? 0.95 : -0.95), y: 200 + (i % 3 ? 0.7 : -0.7), pressure: 0.4, timeStamp: 1000 + i * 8.33 },
+            { smoothing, scale: 1.0 }
+          );
+          if (r.accepted) accepted++;
+        }
+        assert.equal(accepted, 0, `${platform} hold tremor must stay 0 at smoothing=${smoothing}`);
+      }
+    }
+
+    // 2. iOS (Apple Pencil) stays faster/lower-lag than desktop at 40% smoothing
+    const measureLag = (platform, dtMs) => {
+      const stab = createStrokeStabilizer({ x: 100, y: 100, pressure: 0.5, timeStamp: 1000 }, { platform });
+      let maxLag = 0;
+      for (let i = 1; i <= 15; i++) {
+        const rx = 100 + i * 7;
+        const ry = 100 + Math.sin(i * 0.4) * 10;
+        const res = stab.filterPoint({ x: rx, y: ry, pressure: 0.5, timeStamp: 1000 + i * dtMs }, { smoothing: 0.40, scale: 1.0 });
+        maxLag = Math.max(maxLag, Math.hypot(rx - res.x, ry - res.y));
+      }
+      return maxLag;
+    };
+    const iosLag40 = measureLag('ios', 8.33);
+    const deskLag40 = measureLag('desktop', 16.67);
+    assert.ok(iosLag40 < deskLag40, `iOS should track with lower lag than desktop at 40% (${iosLag40} vs ${deskLag40})`);
+    assert.ok(iosLag40 < 1.2, `iOS lag at 40% should be minimal (< 1.2px, got ${iosLag40})`);
+
+    // 3. Desktop sharp 90deg V-corner stays crisp (trendGain disengages around sharp turn)
+    const deskStab = createStrokeStabilizer({ x: 50, y: 50, pressure: 0.5, timeStamp: 1000 }, { platform: 'desktop' });
+    let lastOut = { x: 50, y: 50 };
+    for (let i = 1; i <= 6; i++) {
+      lastOut = deskStab.filterPoint({ x: 50 + i * 8, y: 50 + i * 8, pressure: 0.5, timeStamp: 1000 + i * 16.67 }, { smoothing: 0.30, scale: 1.0 });
+    }
+    const cornerApex = lastOut;
+    for (let i = 1; i <= 6; i++) {
+      lastOut = deskStab.filterPoint({ x: 98 + i * 8, y: 98 - i * 8, pressure: 0.5, timeStamp: 1100 + i * 16.67 }, { smoothing: 0.30, scale: 1.0 });
+    }
+    assert.ok(cornerApex.x > 90 && cornerApex.y > 90, 'corner apex should track near vertex (98, 98)');
+    assert.ok(lastOut.y < 60, `ascending leg of sharp V-corner must climb back cleanly (got y=${lastOut.y})`);
+
+    // 4. Android handles irregular coalesced dtMs gracefully
+    const andStab = createStrokeStabilizer({ x: 100, y: 100, pressure: 0.5, timeStamp: 1000 }, { platform: 'android' });
+    const dts = [4, 24, 5, 22, 6, 18];
+    let ts = 1000;
+    let outAnd = null;
+    for (let i = 0; i < dts.length; i++) {
+      ts += dts[i];
+      outAnd = andStab.filterPoint({ x: 100 + (i + 1) * 10, y: 100, pressure: 0.5, timeStamp: ts }, { smoothing: 0.45, scale: 1.0 });
+    }
+    assert.ok(outAnd && outAnd.accepted && outAnd.x > 145, 'Android stabilizer progresses cleanly under irregular timestamps');
+  });
+
+  it('keeps Centripetal Catmull-Rom loop-free under extreme spacing jumps and caps desktop steps', () => {
+    // Extreme uneven segment ratio: 35px -> 3px -> 38px must never create cusps or loops
+    const p0 = { x: 0, y: 0 };
+    const p1 = { x: 35, y: 0 };
+    const p2 = { x: 38, y: 2 };
+    const p3 = { x: 76, y: 38 };
+    const curve = {};
+    const out = {};
+    prepareSegmentCurve(curve, p0, p1, p2, p3, Math.hypot(3, 2), 0.95);
+    let prevX = p1.x;
+    for (let i = 1; i <= 8; i++) {
+      evalSegmentCurveInto(out, p1, p2, curve, i / 8);
+      assert.ok(out.x >= prevX - 0.05 && out.x <= p2.x + 0.3, `monotonic non-looping x (got ${out.x} vs prev ${prevX})`);
+      assert.ok(out.y >= -0.4 && out.y <= 2.4, `bounded centripetal y (got ${out.y})`);
+      prevX = out.x;
+    }
+
+    // Platform step budgets: desktop saves polygon vertices on Surface Go 1
+    assert.equal(computePlatformSegmentSteps(28, 0.85, 'desktop'), 3);
+    assert.equal(computePlatformSegmentSteps(40, 0.85, 'ios'), 5);
+  });
+
+  it('gives Stilografica (pen) authentic speed tapering and directional fountain-nib contrast vs uniform marker', () => {
+    const params = derivePressureParams({ pressureLight: 10, pressureHeavy: 360, pressureCurve: 60, pressureSpeedWeight: 20 });
+    const baseSize = 3;
+
+    // Velocity thinning on Stilografica: fast flick is clearly thinner than slow pool
+    const slowW = computeInkStrokeWidth('pen', baseSize, 0.5, 0, 0.05, 1.0, params);
+    const fastW = computeInkStrokeWidth('pen', baseSize, 0.5, 0, 0.90, 1.0, params);
+    assert.ok(fastW < slowW * 0.80, `fast Stilografica flick must slim noticeably (${fastW} vs ${slowW})`);
+
+    // Directional nib factor: downward strokes thicker than horizontal/upward hairlines for pen, neutral for marker/pencil
+    const downNib = computeDirectionalNibFactor(2, 12, 'pen');
+    const crossNib = computeDirectionalNibFactor(12, 1, 'pen');
+    const upNib = computeDirectionalNibFactor(8, -10, 'pen');
+    assert.ok(downNib > 1.05 && crossNib < 0.95 && downNib > crossNib * 1.18, `expected fountain downstroke > crossbar (${downNib} vs ${crossNib}, up=${upNib})`);
+    assert.equal(computeDirectionalNibFactor(2, 12, 'marker'), 1.0);
+    assert.equal(computeDirectionalNibFactor(12, 1, 'pencil'), 1.0);
+  });
 });
+
 
 

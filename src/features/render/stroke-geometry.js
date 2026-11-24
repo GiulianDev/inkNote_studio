@@ -280,6 +280,24 @@ export function computeSegmentSteps(segLen, smoothness) {
 }
 
 /**
+ * Varianti ottimizzate per piattaforma di `computeSegmentSteps`:
+ * su Surface Go 1 (`'desktop'`) limita a 3 step i segmenti standard per risparmiare CPU/GPU;
+ * su iOS/Android consente 5 step sui lanci lunghi ad alto smoothing.
+ */
+export function computePlatformSegmentSteps(segLen, smoothness, platform = 'desktop') {
+  const base = computeSegmentSteps(segLen, smoothness);
+  if (base <= 1) return 1;
+  const s = smoothness == null ? 0.5 : smoothness;
+  if (platform === 'desktop') {
+    return segLen <= 34 ? Math.min(base, 3) : base;
+  }
+  if (s > 0.70 && segLen > 34) {
+    return 5;
+  }
+  return base;
+}
+
+/**
  * Peso di arrotondamento geometrico [0..1] in funzione dello smoothing:
  * nella fascia 1..30 sale rapidamente per ammorbidire gli spigoli senza lag temporale.
  */
@@ -292,13 +310,13 @@ export function computeCurveWeight(smoothness) {
 }
 
 /**
- * Pre-calcola le tangenti Hermite clampate per il segmento `[p1, p2]`
- * una sola volta fuori dal loop interno, evitando overshoot/loop su spaziature
- * irregolari tipiche degli stili 60Hz/120Hz.
+ * Pre-calcola le tangenti Centripetal Catmull-Rom (α=0.5, Barry-Goldman) clampate
+ * per il segmento `[p1, p2]`: matematicamente privo di loop e overshoot anche con
+ * spaziature fortemente irregolari degli stili 60Hz/120Hz.
  */
 export function prepareSegmentCurve(out, p0, p1, p2, p3, segLen, smoothness) {
   const s = smoothness == null ? 0.5 : smoothness;
-  if (s <= 0.005) {
+  if (s <= 0.005 || segLen <= 1e-4) {
     out.linear = true;
     return out;
   }
@@ -306,14 +324,29 @@ export function prepareSegmentCurve(out, p0, p1, p2, p3, segLen, smoothness) {
   const dx = p2.x - p1.x;
   const dy = p2.y - p1.y;
   const w = computeCurveWeight(s);
-  const tension = s > 0.70 ? (0.5 + ((s - 0.70) / 0.30) * 0.10) : 0.5;
 
-  let m1x = (p2.x - p0.x) * tension;
-  let m1y = (p2.y - p0.y) * tension;
-  let m2x = (p3.x - p1.x) * tension;
-  let m2y = (p3.y - p1.y) * tension;
+  const l01 = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+  const l23 = Math.hypot(p3.x - p2.x, p3.y - p2.y);
+  const d12 = Math.sqrt(Math.max(1e-4, segLen));
 
-  const maxMag = Math.max(0.5, segLen * 1.15);
+  let m1x = dx;
+  let m1y = dy;
+  if (l01 > 1e-3) {
+    const d01 = Math.sqrt(l01);
+    m1x = d12 * ((p1.x - p0.x) / d01 - (p2.x - p0.x) / (d01 + d12) + dx / d12);
+    m1y = d12 * ((p1.y - p0.y) / d01 - (p2.y - p0.y) / (d01 + d12) + dy / d12);
+  }
+
+  let m2x = dx;
+  let m2y = dy;
+  if (l23 > 1e-3) {
+    const d23 = Math.sqrt(l23);
+    m2x = d12 * ((p3.x - p2.x) / d23 - (p3.x - p1.x) / (d12 + d23) + dx / d12);
+    m2y = d12 * ((p3.y - p2.y) / d23 - (p3.y - p1.y) / (d12 + d23) + dy / d12);
+  }
+
+  // Clamp di sicurezza + prevenzione inversione all'indietro rispetto alla corda
+  const maxMag = Math.max(0.5, segLen * 0.95);
   const m1Len = Math.hypot(m1x, m1y);
   if (m1Len > maxMag) {
     const scale = maxMag / m1Len;
@@ -325,6 +358,16 @@ export function prepareSegmentCurve(out, p0, p1, p2, p3, segLen, smoothness) {
     const scale = maxMag / m2Len;
     m2x *= scale;
     m2y *= scale;
+  }
+
+  const segSq = segLen * segLen;
+  if (m1x * dx + m1y * dy < -0.25 * segSq) {
+    m1x = dx * 0.5;
+    m1y = dy * 0.5;
+  }
+  if (m2x * dx + m2y * dy < -0.25 * segSq) {
+    m2x = dx * 0.5;
+    m2y = dy * 0.5;
   }
 
   // Equivalente al blend lineare->curva via identità Hermite (m=dx => P(t)=p1+t*dx)

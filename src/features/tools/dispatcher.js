@@ -138,7 +138,7 @@ export function handlePointerDown(e, pageData) {
         endSelectionDrag(orphanPage, state.selectionMoved);
       } else if (state.currentStroke && state.isDrawing) {
         forceFlushNow(orphanPage);
-        clearPredictions(orphanPage);
+        clearPredictions(orphanPage, true);
         endInkStroke(orphanPage);
       } else if (state.activeTool === 'lasso' && state.isDrawing) {
         flushLassoFrame(orphanPage);
@@ -294,7 +294,7 @@ export function handlePointerUp(e, pageData) {
 
   state._penEraserActive = false;
   forceFlushNow(pageData);
-  clearPredictions(pageData);
+  clearPredictions(pageData, true);
 
   if (_gestureUsedEraser) {
     flushEraserFrame(pageData);
@@ -413,7 +413,7 @@ export function abortCurrentDrawing() {
         }
         redrawPageCanvas(p);
         clearOverlay(p);
-        clearPredictions(p);
+        clearPredictions(p, true);
       }
     }
   }

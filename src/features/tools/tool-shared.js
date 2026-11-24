@@ -4,7 +4,7 @@
 // ============================================================
 
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
-import { drawIncrementalBatch, drawScribbleSegment } from '../render/render.js';
+import { drawIncrementalBatch, drawScribbleSegment, clearOverlay } from '../render/render.js';
 import { state, viewport } from '../../core/state.js';
 import { getPressureParams } from '../../core/app-settings.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../core/utils.js';
@@ -30,6 +30,12 @@ let _lastValidPenPressure = 0;
 
 export function resetLastValidPenPressure() {
   _lastValidPenPressure = 0;
+}
+
+export function seedLastValidPenPressure(pressure) {
+  if (Number.isFinite(pressure) && pressure > 0) {
+    _lastValidPenPressure = Math.max(0.02, Math.min(1.0, pressure));
+  }
 }
 
 // pointermove + getCoalescedEvents() + getPredictedEvents() garantisce
@@ -139,30 +145,38 @@ export function getCanvasRect(canvas) {
   return _strokeRect;
 }
 
-export function getCanvasCoords(e, canvas) {
+export function getCanvasCoords(e, canvas, fallbackPointerType = null) {
   const rect = getCanvasRect(canvas);
 
   let p;
   if (_pointPoolIdx < _pointPool.length) {
     p = _pointPool[_pointPoolIdx++];
   } else {
-    p = { x: 0, y: 0, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 0, pointerType: 'pen', timeStamp: 0 };
+    p = {
+      x: 0, y: 0, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 0,
+      pointerType: 'pen', timeStamp: 0, _pressureFallback: false
+    };
     _pointPool.push(p);
     _pointPoolIdx++;
   }
   p.x = (e.clientX - rect.left) * rect.scaleX;
   p.y = (e.clientY - rect.top) * rect.scaleY;
 
-  if (e.pointerType === 'pen') {
+  const ptrType = e.pointerType || fallbackPointerType || '';
+  p._pressureFallback = false;
+
+  if (ptrType === 'pen') {
     const sens = getPressureParams().sensitivity;
     const rawP = Number.isFinite(e.pressure) ? e.pressure : 0;
+    const isFallback = rawP <= 0;
     const norm = normalizePenPressure(rawP, {
       platform: _platform,
       sensitivity: sens,
       isDrawing: state.isDrawing,
       lastValidPressure: state.isDrawing ? _lastValidPenPressure : 0
     });
-    if (state.isDrawing && rawP > 0) {
+    p._pressureFallback = isFallback;
+    if (state.isDrawing && !isFallback) {
       _lastValidPenPressure = norm;
     }
     p.pressure = norm;
@@ -182,7 +196,7 @@ export function getCanvasCoords(e, canvas) {
     p.tiltY = 0;
   }
   p.speed = 0;
-  p.pointerType = e.pointerType;
+  p.pointerType = ptrType;
   p.timeStamp = e.timeStamp || 0;
   return p;
 }
@@ -214,7 +228,26 @@ function _processPointerPoint(rawPoint, pageData) {
 
   if (!stroke._stabilizer) {
     const firstPt = stroke.points[0] || rawPoint;
-    stroke._stabilizer = createStrokeStabilizer(firstPt);
+    stroke._stabilizer = createStrokeStabilizer(firstPt, { platform: _platform });
+  }
+
+  // iPadOS Apple Pencil a volte emette pressure=0 sul pointerdown iniziale prima
+  // del primo valore reale su pointermove: sostituisce retroattivamente il fallback 0.28
+  // per evitare il pallino spesso in testa ai tratti leggeri.
+  if (stroke._pendingInitialPressure && rawPoint.pointerType === 'pen' && !rawPoint._pressureFallback) {
+    const synCount = Math.min(stroke.points.length, stroke._syntheticPointCount || 1);
+    for (let i = 0; i < synCount; i++) {
+      stroke.points[i].pressure = rawPoint.pressure;
+    }
+    stroke._pendingInitialPressure = false;
+    stroke._syntheticPointCount = 0;
+    if (typeof stroke._stabilizer.seedInitialPressure === 'function') {
+      stroke._stabilizer.seedInitialPressure(rawPoint.pressure);
+    }
+    seedLastValidPenPressure(rawPoint.pressure);
+    if ((stroke._drawnIdx || 0) > 0) {
+      stroke._needsOverlayRebase = true;
+    }
   }
 
   const filt = stroke._stabilizer.filterPoint(rawPoint, {
@@ -247,6 +280,9 @@ function _processPointerPoint(rawPoint, pageData) {
     pointerType: rawPoint.pointerType
   };
   stroke.points.push(smoothedPoint);
+  if (stroke._pendingInitialPressure && rawPoint.pointerType === 'pen' && rawPoint._pressureFallback) {
+    stroke._syntheticPointCount = (stroke._syntheticPointCount || 1) + 1;
+  }
   if (stroke._pathLen === undefined) stroke._pathLen = 0;
   if (stroke.points.length >= 2) {
     const prev = stroke.points[stroke.points.length - 2];
@@ -358,7 +394,7 @@ function _doFlush() {
     if (state.pendingShape) return;
     clearPredictions(pageData);
 
-    const drawnIdx = state.currentStroke._drawnIdx || 0;
+    let drawnIdx = state.currentStroke._drawnIdx || 0;
 
     for (const rawPoint of batch) {
       if (state.pendingShape) break;
@@ -368,6 +404,12 @@ function _doFlush() {
 
     if (state.currentStroke && state.isDrawing &&
         !state.pendingShape && !state.scribbleMode) {
+      if (state.currentStroke._needsOverlayRebase) {
+        state.currentStroke._needsOverlayRebase = false;
+        state.currentStroke._dashOffset = null;
+        clearOverlay(pageData);
+        drawnIdx = 0;
+      }
       _renderBatchTarget(pageData, drawnIdx);
     }
 
@@ -395,7 +437,7 @@ export function forceFlushNow(pageData) {
     if (!state.currentStroke || !state.isDrawing) return;
     if (state.pendingShape) return;
 
-    const drawnIdx = state.currentStroke._drawnIdx || 0;
+    let drawnIdx = state.currentStroke._drawnIdx || 0;
 
     for (const rawPoint of batch) {
       if (state.pendingShape) break;
@@ -405,6 +447,12 @@ export function forceFlushNow(pageData) {
 
     if (state.currentStroke && state.isDrawing &&
         !state.pendingShape && !state.scribbleMode) {
+      if (state.currentStroke._needsOverlayRebase) {
+        state.currentStroke._needsOverlayRebase = false;
+        state.currentStroke._dashOffset = null;
+        clearOverlay(pageData);
+        drawnIdx = 0;
+      }
       _renderBatchTarget(pageData, drawnIdx);
     }
 

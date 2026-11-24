@@ -6,10 +6,13 @@
 // ============================================================
 
 import { state } from '../../core/state.js';
-import { PAGE_WIDTH, PAGE_HEIGHT, sliderToBaseSize, getEffectiveColor } from '../../core/utils.js';
+import { getPressureParams } from '../../core/app-settings.js';
+import { PAGE_WIDTH, PAGE_HEIGHT, sliderToBaseSize, getEffectiveColor, isPaperDark } from '../../core/utils.js';
+import { detectInkPlatform, computePredictionWidth } from '../tools/ink-calibration.js';
 
 const PREDICTION_ALPHA = 0.40;
 const PREDICTION_DPR = 1;
+const _predPlatform = detectInkPlatform();
 
 export function ensurePredictionCanvas(pageData) {
   if (pageData._predCanvas) return;
@@ -35,14 +38,21 @@ export function ensurePredictionCanvas(pageData) {
  * module-level condivisa, con rischio di clearRect su coordinate
  * sbagliate quando si cambiava pagina.
  */
-export function clearPredictions(pageData) {
+export function clearPredictions(pageData, forceFull = false) {
   if (!pageData || !pageData._predCtx) return;
+  if (forceFull) {
+    pageData._predCtx.clearRect(0, 0, pageData._predCanvas.width, pageData._predCanvas.height);
+    pageData._lastPredBBox = null;
+    return;
+  }
   if (!pageData._lastPredBBox) return;
-  const pad = 8;
-  pageData._predCtx.clearRect(
-    pageData._lastPredBBox.x - pad, pageData._lastPredBBox.y - pad,
-    pageData._lastPredBBox.w + pad * 2, pageData._lastPredBBox.h + pad * 2
-  );
+  const pad = 12;
+  const b = pageData._lastPredBBox;
+  const x = Math.max(0, Math.floor(b.x - pad));
+  const y = Math.max(0, Math.floor(b.y - pad));
+  const r = Math.ceil(b.x + b.w + pad);
+  const bt = Math.ceil(b.y + b.h + pad);
+  pageData._predCtx.clearRect(x, y, Math.max(1, r - x), Math.max(1, bt - y));
   pageData._lastPredBBox = null;
 }
 
@@ -57,31 +67,47 @@ export function clearPredictions(pageData) {
  *                                   (retrocompat, ma 1-3ms su canvas con scale).
  */
 export function drawPredictions(pageData, events, rect) {
-  if (!pageData._predCtx || !state.currentStroke) return;
-  if (state.currentStroke.points.length === 0) return;
+  const stroke = state.currentStroke;
+  if (!pageData._predCtx || !stroke) return;
+  if (stroke.points.length === 0) return;
   const ctx = pageData._predCtx;
   const dpr = PREDICTION_DPR;
 
   // Cancella solo il bbox della predizione precedente (per-page)
   if (pageData._lastPredBBox) {
-    const pad = 8;
-    ctx.clearRect(
-      pageData._lastPredBBox.x - pad, pageData._lastPredBBox.y - pad,
-      pageData._lastPredBBox.w + pad * 2, pageData._lastPredBBox.h + pad * 2
-    );
+    const pad = 12;
+    const b = pageData._lastPredBBox;
+    const cx = Math.max(0, Math.floor(b.x - pad));
+    const cy = Math.max(0, Math.floor(b.y - pad));
+    const cr = Math.ceil(b.x + b.w + pad);
+    const cb = Math.ceil(b.y + b.h + pad);
+    ctx.clearRect(cx, cy, Math.max(1, cr - cx), Math.max(1, cb - cy));
   }
+
+  const last = stroke.points[stroke.points.length - 1];
+  const pressureParams = getPressureParams();
+  const baseSize = sliderToBaseSize(stroke.size != null ? stroke.size : state.strokeWidth);
+  const strokeW = computePredictionWidth({
+    tool: stroke.tool || state.activeTool,
+    baseSize,
+    lastPoint: last,
+    predictedEvents: events,
+    inkParams: stroke.inkParams || pressureParams,
+    platform: _predPlatform,
+    sensitivity: pressureParams.sensitivity
+  });
+  const inkDark = isPaperDark(state.isDarkMode, state.paperColor);
+  const strokeOpacity = stroke.opacity != null ? stroke.opacity : 1.0;
 
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.globalCompositeOperation = 'source-over';
-  ctx.globalAlpha = PREDICTION_ALPHA;
-  ctx.strokeStyle = getEffectiveColor(state.currentColor, state.isDarkMode);
-  const strokeW = Math.max(0.5, sliderToBaseSize(state.strokeWidth) * 1.2);
+  ctx.globalAlpha = PREDICTION_ALPHA * strokeOpacity;
+  ctx.strokeStyle = getEffectiveColor(stroke.color || state.currentColor, inkDark);
   ctx.lineWidth = strokeW;
 
-  const last = state.currentStroke.points[state.currentStroke.points.length - 1];
   const r = rect || pageData.canvas.getBoundingClientRect();
   const scaleX = PAGE_WIDTH / r.width;
   const scaleY = PAGE_HEIGHT / r.height;
@@ -102,10 +128,11 @@ export function drawPredictions(pageData, events, rect) {
   ctx.stroke();
   ctx.restore();
 
+  const bboxPad = Math.max(12, strokeW + 6);
   pageData._lastPredBBox = {
-    x: minX - strokeW, y: minY - strokeW,
-    w: (maxX - minX) + strokeW * 2,
-    h: (maxY - minY) + strokeW * 2
+    x: minX - bboxPad, y: minY - bboxPad,
+    w: (maxX - minX) + bboxPad * 2,
+    h: (maxY - minY) + bboxPad * 2
   };
 }
 
