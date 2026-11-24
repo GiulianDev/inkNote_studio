@@ -34,7 +34,11 @@ import {
   centerViewport, scheduleResolutionRefresh
 } from './features/editor/pages.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from './features/render/render.js';
-import { hasLassoSelection } from './features/tools/lazo.js';
+import {
+  hasLassoSelection,
+  hideSelectionStylePopover,
+  isSelectionStylePopoverOpen
+} from './features/tools/lazo.js';
 import { setupViewportGestures } from './features/viewport/gestures.js';
 import { setupKeyboardShortcuts } from './features/shortcuts/keyboard.js';
 import {
@@ -204,6 +208,10 @@ function _dismissTopTransientUI() {
     if (pagePopover && !pagePopover.classList.contains('hidden')) {
       hidePagePopover();
       return 'page-popover';
+    }
+    if (isSelectionStylePopoverOpen()) {
+      hideSelectionStylePopover();
+      return 'selection-style-popover';
     }
     return null;
   }

@@ -32,7 +32,8 @@ import {
   beginLasso, moveLasso, endLasso, flushLassoFrame,
   beginSelectionDrag, moveSelectionDrag, endSelectionDrag,
   resetSelectionDragState, updateCursorForSelection,
-  hasLassoSelection, canStartLassoDragOnTouch
+  hasLassoSelection, canStartLassoDragOnTouch,
+  isSelectionStylePopoverOpen, hideSelectionStylePopover
 } from './lazo.js';
 import {
   redrawPageCanvas, clearOverlay, redrawSelectionOverlay,
@@ -83,6 +84,11 @@ export function attachPointerListeners(pageData) {
 export function handlePointerDown(e, pageData) {
   if (e.target && e.target.closest &&
       e.target.closest('.text-box-editor-wrap, #textSelectionMenu')) {
+    return;
+  }
+
+  if (isSelectionStylePopoverOpen()) {
+    hideSelectionStylePopover();
     return;
   }
 

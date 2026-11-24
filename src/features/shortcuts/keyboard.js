@@ -14,7 +14,8 @@ import { closeSettingsModal } from '../settings/settings-modal.js';
 import { closeNewNotebookModal } from '../library/library.js';
 import {
   clearSelection, hasLassoSelection, hasLassoClipboard,
-  deleteSelection, copySelection, cutSelection, pasteSelection, duplicateSelection
+  deleteSelection, copySelection, cutSelection, pasteSelection, duplicateSelection,
+  isSelectionStylePopoverOpen, hideSelectionStylePopover
 } from '../tools/lazo.js';
 import {
   commitActiveTextBox, clearTextBoxSelection, deleteSelectedTextBox
@@ -66,6 +67,7 @@ export function setupKeyboardShortcuts() {
       const newNb = document.getElementById('newNotebookModal');
       if (newNb && !newNb.classList.contains('hidden')) { closeNewNotebookModal(); return; }
       if (_isEditorInteractive()) {
+        if (isSelectionStylePopoverOpen()) { hideSelectionStylePopover(); return; }
         if (state.editingTextBoxId) { commitActiveTextBox(); return; }
         if (state.selectedTextBoxId) { clearTextBoxSelection(); return; }
         if (hasLassoSelection()) { clearSelection(); return; }

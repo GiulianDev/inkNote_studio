@@ -35,8 +35,13 @@ import {
   clearSelection, deleteSelectedStrokes,
   copySelection, cutSelection, duplicateSelection,
   previewSelectionColor, changeSelectionColor,
-  previewSelectionWidth, changeSelectionWidth
+  previewSelectionWidth, changeSelectionWidth,
+  changeSelectionStyle,
+  toggleSelectionStylePopover,
+  hideSelectionStylePopover,
+  isSelectionStylePopoverOpen
 } from '../tools/lazo.js';
+import { registerExternalMenuCloser } from '../../components/floating-menu.js';
 import { finalizePendingShape } from '../tools/shapes.js';
 import { commitActiveTextBox } from '../tools/text.js';
 import { getCurrentNotebook } from '../persistence/session.js';
@@ -192,6 +197,31 @@ export function bindEditorUI() {
   const selWidth = document.getElementById('selectionWidthSlider');
   selWidth?.addEventListener('input', (e) => previewSelectionWidth(e.target.value));
   selWidth?.addEventListener('change', (e) => changeSelectionWidth(e.target.value));
+
+  const selStyleBtn = document.getElementById('selectionStyleBtn');
+  const selStylePopover = document.getElementById('selectionStylePopover');
+  registerExternalMenuCloser('selectionStylePopover', hideSelectionStylePopover);
+
+  selStyleBtn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closeAllEditorMenus({ keep: 'selectionStylePopover' });
+    toggleSelectionStylePopover();
+  });
+
+  selStylePopover?.querySelectorAll('[data-selection-style]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      changeSelectionStyle(btn.dataset.selectionStyle);
+      hideSelectionStylePopover();
+    });
+  });
+
+  document.addEventListener('pointerdown', (e) => {
+    if (!isSelectionStylePopoverOpen()) return;
+    if (selStylePopover?.contains(e.target) || selStyleBtn?.contains(e.target)) return;
+    hideSelectionStylePopover();
+  });
 
   document.getElementById('copySelectionBtn')
     ?.addEventListener('click', () => copySelection());
