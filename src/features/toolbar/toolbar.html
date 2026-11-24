@@ -8,8 +8,8 @@
 
   <!-- LEFT: back + titolo -->
   <div id="headerLeft" class="flex items-center space-x-2 shrink-0">
-    <button id="backToLibraryBtn"
-      class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+    <button id="backToLibraryBtn" type="button"
+      class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition"
       title="Torna alla Libreria">
       <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -129,29 +129,29 @@
 </header>
 
 <!-- ============================================================
-     DOCK CONTESTUALI
+     DOCK CONTESTUALI — usano componente globale <ink-tool-dock> / .ui-dock
      Uno per menu. Nascosti di default, mostrati da toolbar.js.
      ============================================================ -->
 
 <!-- DOCK SCRITTURA -->
-<div id="dockWriting" class="context-dock hidden" data-menu="writing">
-  <div class="context-dock-row">
+<ink-tool-dock id="dockWriting" class="ui-dock context-dock hidden" data-menu="writing">
+  <div class="ui-dock-row">
     <!-- Tool writing (ordine default: Penna → Matita → Stilografica → Evidenziatore) -->
-    <div id="writingToolsGroup" class="context-dock-group">
-      <button id="btnTool-marker" class="dock-tool-btn tool-btn" data-tool="marker" title="Penna">
+    <div id="writingToolsGroup" class="ui-dock-group">
+      <button id="btnTool-marker" class="ui-dock-btn ui-dock-btn--tool dock-tool-btn tool-btn" data-tool="marker" title="Penna">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
         </svg>
       </button>
-      <button id="btnTool-pencil" class="dock-tool-btn tool-btn" data-tool="pencil" title="Matita">
+      <button id="btnTool-pencil" class="ui-dock-btn ui-dock-btn--tool dock-tool-btn tool-btn" data-tool="pencil" title="Matita">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
           <path d="m15 5 4 4"/>
         </svg>
       </button>
-      <button id="btnTool-pen" class="dock-tool-btn tool-btn" data-tool="pen" title="Stilografica">
+      <button id="btnTool-pen" class="ui-dock-btn ui-dock-btn--tool dock-tool-btn tool-btn" data-tool="pen" title="Stilografica">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m12 19 7-7 3 3-7 7-3-3z"/>
@@ -160,7 +160,7 @@
           <circle cx="11" cy="11" r="2"/>
         </svg>
       </button>
-      <button id="btnTool-highlighter" class="dock-tool-btn tool-btn" data-tool="highlighter" title="Evidenziatore">
+      <button id="btnTool-highlighter" class="ui-dock-btn ui-dock-btn--tool dock-tool-btn tool-btn" data-tool="highlighter" title="Evidenziatore">
         <svg class="ui-icon-dock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m9 11-6 6v3h9l3-3"/>
@@ -169,95 +169,94 @@
       </button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Palette colori -->
-    <div id="colorPalette" class="context-dock-group">
-      <button class="color-swatch dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
-      <button class="color-swatch dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
-      <button class="color-swatch dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
-      <button class="color-swatch dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
-      <button class="color-swatch dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
+    <div id="colorPalette" class="ui-dock-group">
+      <button class="color-swatch ui-dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
+      <button class="color-swatch ui-dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
+      <button class="color-swatch ui-dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
+      <button class="color-swatch ui-dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
+      <button class="color-swatch ui-dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
       <div id="recentColorsContainer" class="hidden items-center space-x-1"></div>
       <input type="color" id="customColorPicker"
-        class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent"
+        class="ui-dock-color-picker"
         title="Colore personalizzato">
     </div>
   </div>
 
-  <div class="context-dock-row">
+  <div class="ui-dock-row">
     <!-- Spessore -->
-    <div class="context-dock-group" title="Spessore tratto">
-      <span class="context-dock-label">Spessore</span>
+    <div class="ui-dock-group" title="Spessore tratto">
+      <span class="ui-dock-label">Spessore</span>
       <input type="range" id="strokeWidthSlider" min="1" max="25" value="3"
-        class="dock-range accent-indigo-600 cursor-pointer">
+        class="ui-dock-range">
       <span id="strokeWidthValue"
-        class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">3</span>
+        class="ui-dock-value w-4 text-center">3</span>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Opacità (apre il popover colore) -->
-    <div class="context-dock-group" title="Opacità">
-      <span class="context-dock-label">Opacità</span>
-      <button id="opacityBtn"
-        class="text-xs font-semibold text-slate-700 dark:text-slate-200 px-2 py-1 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 transition">
+    <div class="ui-dock-group" title="Opacità">
+      <span class="ui-dock-label">Opacità</span>
+      <button id="opacityBtn" type="button" class="ui-dock-btn ui-dock-btn--chip">
         <span id="opacityValue">100%</span>
       </button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Smoothing -->
-    <div class="context-dock-group" title="Levigatura del tratto">
-      <span class="context-dock-label">Levigatura</span>
+    <div class="ui-dock-group" title="Levigatura del tratto">
+      <span class="ui-dock-label">Levigatura</span>
       <input type="range" id="smoothingSlider" min="0" max="100" value="50"
-        class="dock-range accent-indigo-600 cursor-pointer">
+        class="ui-dock-range">
       <span id="smoothingValue"
-        class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 w-4 text-center tabular-nums">50</span>
+        class="ui-dock-value w-4 text-center">50</span>
     </div>
   </div>
 
   <!-- Riga stile tratto (nascosta per highlighter, visibile per pen/pencil/marker) -->
-  <div class="context-dock-row" id="strokeStyleRow">
-    <div class="context-dock-group" title="Tipo di tratto">
-      <span class="context-dock-label">Stile</span>
-      <button class="stroke-style-btn" data-style="solid" title="Solido">
+  <div class="ui-dock-row" id="strokeStyleRow">
+    <div class="ui-dock-group" title="Tipo di tratto">
+      <span class="ui-dock-label">Stile</span>
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="solid" title="Solido">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
       </button>
-      <button class="stroke-style-btn" data-style="dashed" title="Tratteggiato">
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="dashed" title="Tratteggiato">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 4"/>
         </svg>
       </button>
-      <button class="stroke-style-btn" data-style="dashed-large" title="Tratteggio largo">
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="dashed-large" title="Tratteggio largo">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="9 5"/>
         </svg>
       </button>
-      <button class="stroke-style-btn" data-style="dotted" title="Punteggiato">
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="dotted" title="Punteggiato">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="0.1 5"/>
         </svg>
       </button>
-      <button class="stroke-style-btn" data-style="dash-dot" title="Tratto-punto">
+      <button class="ui-dock-btn ui-dock-btn--style stroke-style-btn" data-style="dash-dot" title="Tratto-punto">
         <svg viewBox="0 0 32 12" fill="none" aria-hidden="true">
           <line x1="2" y1="6" x2="30" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 3 0.1 3"/>
         </svg>
       </button>
     </div>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- DOCK TESTO -->
-<div id="dockText" class="context-dock hidden" data-menu="text">
-  <div class="context-dock-row">
+<ink-tool-dock id="dockText" class="ui-dock context-dock hidden" data-menu="text">
+  <div class="ui-dock-row">
     <!-- Font -->
-    <div class="context-dock-group" title="Carattere">
-      <span class="context-dock-label">Font</span>
-      <select id="textFontSelect" class="dock-select">
+    <div class="ui-dock-group" title="Carattere">
+      <span class="ui-dock-label">Font</span>
+      <select id="textFontSelect" class="ui-dock-select">
         <option value="sans">Sans-serif</option>
         <option value="serif">Serif</option>
         <option value="mono">Monospace</option>
@@ -265,13 +264,13 @@
       </select>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Grandezza -->
-    <div class="context-dock-group" title="Dimensione testo">
-      <span class="context-dock-label">Dim.</span>
-      <button type="button" id="textSizeDecBtn" class="text-dock-btn" title="Riduci dimensione">A-</button>
-      <select id="textSizeSelect" class="dock-select dock-select-compact">
+    <div class="ui-dock-group" title="Dimensione testo">
+      <span class="ui-dock-label">Dim.</span>
+      <button type="button" id="textSizeDecBtn" class="ui-dock-btn text-dock-btn" title="Riduci dimensione">A-</button>
+      <select id="textSizeSelect" class="ui-dock-select ui-dock-select--compact">
         <option value="12">12</option>
         <option value="14">14</option>
         <option value="16">16</option>
@@ -284,68 +283,68 @@
         <option value="48">48</option>
         <option value="60">60</option>
       </select>
-      <button type="button" id="textSizeIncBtn" class="text-dock-btn" title="Aumenta dimensione">A+</button>
+      <button type="button" id="textSizeIncBtn" class="ui-dock-btn text-dock-btn" title="Aumenta dimensione">A+</button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Stile: Grassetto / Corsivo -->
-    <div class="context-dock-group">
-      <button type="button" id="textBoldBtn" class="text-dock-btn font-bold" title="Grassetto">B</button>
-      <button type="button" id="textItalicBtn" class="text-dock-btn italic font-serif" title="Corsivo">I</button>
+    <div class="ui-dock-group">
+      <button type="button" id="textBoldBtn" class="ui-dock-btn text-dock-btn font-bold" title="Grassetto">B</button>
+      <button type="button" id="textItalicBtn" class="ui-dock-btn text-dock-btn italic font-serif" title="Corsivo">I</button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Allineamento -->
-    <div class="context-dock-group" title="Allineamento">
-      <button type="button" class="text-dock-btn text-align-btn" data-align="left" title="Allinea a sinistra">
+    <div class="ui-dock-group" title="Allineamento">
+      <button type="button" class="ui-dock-btn text-dock-btn text-align-btn" data-align="left" title="Allinea a sinistra">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="21" x2="3" y1="6" y2="6"/><line x1="15" x2="3" y1="12" y2="12"/><line x1="17" x2="3" y1="18" y2="18"/></svg>
       </button>
-      <button type="button" class="text-dock-btn text-align-btn" data-align="center" title="Centra">
+      <button type="button" class="ui-dock-btn text-dock-btn text-align-btn" data-align="center" title="Centra">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="21" x2="3" y1="6" y2="6"/><line x1="17" x2="7" y1="12" y2="12"/><line x1="19" x2="5" y1="18" y2="18"/></svg>
       </button>
-      <button type="button" class="text-dock-btn text-align-btn" data-align="right" title="Allinea a destra">
+      <button type="button" class="ui-dock-btn text-dock-btn text-align-btn" data-align="right" title="Allinea a destra">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="21" x2="3" y1="6" y2="6"/><line x1="21" x2="9" y1="12" y2="12"/><line x1="21" x2="7" y1="18" y2="18"/></svg>
       </button>
     </div>
   </div>
 
-  <div class="context-dock-row">
+  <div class="ui-dock-row">
     <!-- Colore testo -->
-    <div id="textColorPalette" class="context-dock-group">
-      <span class="context-dock-label">Colore</span>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
-      <button type="button" class="text-color-swatch dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
+    <div id="textColorPalette" class="ui-dock-group">
+      <span class="ui-dock-label">Colore</span>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-slate-900 dark:bg-slate-100 border-2 border-white dark:border-slate-800 ring-2 ring-indigo-500 scale-105" data-color="#000000" title="Nero"></button>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-blue-600 border-2 border-white dark:border-slate-800" data-color="#2563eb" title="Blu"></button>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-emerald-600 border-2 border-white dark:border-slate-800" data-color="#059669" title="Verde"></button>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-rose-600 border-2 border-white dark:border-slate-800" data-color="#e11d48" title="Rosso"></button>
+      <button type="button" class="text-color-swatch ui-dock-swatch rounded-full bg-amber-500 border-2 border-white dark:border-slate-800" data-color="#d97706" title="Arancio"></button>
       <input type="color" id="textCustomColorPicker"
-        class="dock-swatch rounded-full border-0 cursor-pointer p-0 bg-transparent"
+        class="ui-dock-color-picker"
         title="Colore testo personalizzato" value="#000000">
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
     <!-- Azioni casella selezionata -->
-    <div class="context-dock-group">
-      <button type="button" id="textEditBtn" class="text-dock-btn text-dock-action" disabled title="Modifica casella selezionata">
+    <div class="ui-dock-group">
+      <button type="button" id="textEditBtn" class="ui-dock-btn text-dock-btn" disabled title="Modifica casella selezionata">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
         <span>Modifica</span>
       </button>
-      <button type="button" id="textDeleteBtn" class="text-dock-btn text-dock-action danger" disabled title="Elimina casella selezionata">
+      <button type="button" id="textDeleteBtn" class="ui-dock-btn ui-dock-btn--danger text-dock-btn" disabled title="Elimina casella selezionata">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         <span>Elimina</span>
       </button>
     </div>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- DOCK SELEZIONE -->
-<div id="dockSelection" class="context-dock hidden" data-menu="selection">
-  <div class="context-dock-row">
-    <div class="context-dock-group" title="Modalità di selezione">
-      <button type="button" class="text-dock-btn lasso-mode-btn" data-lasso-mode="freehand" title="Lazo a mano libera">
+<ink-tool-dock id="dockSelection" class="ui-dock context-dock hidden" data-menu="selection">
+  <div class="ui-dock-row">
+    <div class="ui-dock-group" title="Modalità di selezione">
+      <button type="button" class="ui-dock-btn text-dock-btn lasso-mode-btn" data-lasso-mode="freehand" title="Lazo a mano libera">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M7 22a5 5 0 0 1-2-4"/>
           <path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1"/>
@@ -353,7 +352,7 @@
         </svg>
         <span>Lazo</span>
       </button>
-      <button type="button" class="text-dock-btn lasso-mode-btn" data-lasso-mode="rect" title="Selezione rettangolare">
+      <button type="button" class="ui-dock-btn text-dock-btn lasso-mode-btn" data-lasso-mode="rect" title="Selezione rettangolare">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 3"/>
         </svg>
@@ -361,30 +360,30 @@
       </button>
     </div>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
-    <div class="context-dock-group" title="Elementi inclusi nella selezione">
-      <label class="context-dock-toggle" title="Includi tratti e forme nella selezione">
-        <input type="checkbox" id="lassoFilterInk" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-group" title="Elementi inclusi nella selezione">
+      <label class="ui-dock-toggle" title="Includi tratti e forme nella selezione">
+        <input type="checkbox" id="lassoFilterInk" checked class="ui-dock-checkbox">
         <span>Inchiostro</span>
       </label>
-      <label class="context-dock-toggle" title="Includi caselle di testo nella selezione">
-        <input type="checkbox" id="lassoFilterText" checked class="accent-indigo-600 w-4 h-4">
+      <label class="ui-dock-toggle" title="Includi caselle di testo nella selezione">
+        <input type="checkbox" id="lassoFilterText" checked class="ui-dock-checkbox">
         <span>Testo</span>
       </label>
     </div>
   </div>
 
-  <div class="context-dock-row">
-    <div class="context-dock-group">
-      <button type="button" id="lassoCopyBtn" class="text-dock-btn text-dock-action" disabled title="Copia selezione (Ctrl+C)">
+  <div class="ui-dock-row">
+    <div class="ui-dock-group">
+      <button type="button" id="lassoCopyBtn" class="ui-dock-btn text-dock-btn" disabled title="Copia selezione (Ctrl+C)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
           <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
         </svg>
         <span>Copia</span>
       </button>
-      <button type="button" id="lassoCutBtn" class="text-dock-btn text-dock-action" disabled title="Taglia selezione (Ctrl+X)">
+      <button type="button" id="lassoCutBtn" class="ui-dock-btn text-dock-btn" disabled title="Taglia selezione (Ctrl+X)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="6" cy="6" r="3"/>
           <path d="M8.12 8.12 12 12"/>
@@ -394,14 +393,14 @@
         </svg>
         <span>Taglia</span>
       </button>
-      <button type="button" id="lassoPasteBtn" class="text-dock-btn text-dock-action" disabled title="Incolla nella pagina corrente (Ctrl+V)">
+      <button type="button" id="lassoPasteBtn" class="ui-dock-btn text-dock-btn" disabled title="Incolla nella pagina corrente (Ctrl+V)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect width="8" height="4" x="8" y="2" rx="1" ry="1"/>
           <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
         </svg>
         <span>Incolla</span>
       </button>
-      <button type="button" id="lassoDuplicateBtn" class="text-dock-btn text-dock-action" disabled title="Duplica selezione (Ctrl+D)">
+      <button type="button" id="lassoDuplicateBtn" class="ui-dock-btn text-dock-btn" disabled title="Duplica selezione (Ctrl+D)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
           <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
@@ -409,7 +408,7 @@
         </svg>
         <span>Duplica</span>
       </button>
-      <button type="button" id="lassoDeleteBtn" class="text-dock-btn text-dock-action danger" disabled title="Elimina selezione (Canc)">
+      <button type="button" id="lassoDeleteBtn" class="ui-dock-btn ui-dock-btn--danger text-dock-btn" disabled title="Elimina selezione (Canc)">
         <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
           <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -419,78 +418,77 @@
       </button>
     </div>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- DOCK FORME -->
-<div id="dockShapes" class="context-dock hidden" data-menu="shapes">
-  <div class="context-dock-row">
-    <label class="context-dock-toggle" title="Tieni premuto per linea con snap orizzontale/verticale · Raddrizza al rilascio solo se molto dritta">
-      <input type="checkbox" id="snapLinesToggle" checked class="accent-indigo-600 w-4 h-4">
+<ink-tool-dock id="dockShapes" class="ui-dock context-dock hidden" data-menu="shapes">
+  <div class="ui-dock-row">
+    <label class="ui-dock-toggle" title="Tieni premuto per linea con snap orizzontale/verticale · Raddrizza al rilascio solo se molto dritta">
+      <input type="checkbox" id="snapLinesToggle" checked class="ui-dock-checkbox">
       <span>Linee</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce cerchi ed ellissi tenendo premuto">
-      <input type="checkbox" id="snapCirclesToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce cerchi ed ellissi tenendo premuto">
+      <input type="checkbox" id="snapCirclesToggle" checked class="ui-dock-checkbox">
       <span>Cerchi</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce i rettangoli tenendo premuto">
-      <input type="checkbox" id="snapRectanglesToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce i rettangoli tenendo premuto">
+      <input type="checkbox" id="snapRectanglesToggle" checked class="ui-dock-checkbox">
       <span>Rettangoli</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce i triangoli tenendo premuto">
-      <input type="checkbox" id="snapTrianglesToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce i triangoli tenendo premuto">
+      <input type="checkbox" id="snapTrianglesToggle" checked class="ui-dock-checkbox">
       <span>Triangoli</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce le frecce al rilascio (1 tratto o punta a V su linea)">
-      <input type="checkbox" id="snapArrowsToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce le frecce al rilascio (1 tratto o punta a V su linea)">
+      <input type="checkbox" id="snapArrowsToggle" checked class="ui-dock-checkbox">
       <span>Frecce</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce simboli matematici al rilascio: ( ), [ ], { }, ∑, ⇒">
-      <input type="checkbox" id="snapMathSymbolsToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce simboli matematici al rilascio: ( ), [ ], { }, ∑, ⇒">
+      <input type="checkbox" id="snapMathSymbolsToggle" checked class="ui-dock-checkbox">
       <span>Simboli mat.</span>
     </label>
-    <div class="context-dock-divider"></div>
-    <label class="context-dock-toggle" title="Riconosce le lettere greche al rilascio (α, β, γ, θ, λ, μ, π, σ, φ, ψ, ω, Δ, Σ, Ω…)">
-      <input type="checkbox" id="snapGreekLettersToggle" checked class="accent-indigo-600 w-4 h-4">
+    <div class="ui-dock-divider"></div>
+    <label class="ui-dock-toggle" title="Riconosce le lettere greche al rilascio (α, β, γ, θ, λ, μ, π, σ, φ, ψ, ω, Δ, Σ, Ω…)">
+      <input type="checkbox" id="snapGreekLettersToggle" checked class="ui-dock-checkbox">
       <span>Lettere greche</span>
     </label>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- DOCK GOMMA -->
-<div id="dockEraser" class="context-dock hidden" data-menu="eraser">
-  <div class="context-dock-row">
-    <span class="context-dock-label">Dimensione</span>
-    <button class="eraser-level-btn" data-eraser-level="1" title="Piccola">
+<ink-tool-dock id="dockEraser" class="ui-dock context-dock hidden" data-menu="eraser">
+  <div class="ui-dock-row">
+    <span class="ui-dock-label">Dimensione</span>
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="1" title="Piccola">
       <span style="width:6px;height:6px;"></span>
     </button>
-    <button class="eraser-level-btn" data-eraser-level="2" title="Medio-piccola">
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="2" title="Medio-piccola">
       <span style="width:11px;height:11px;"></span>
     </button>
-    <button class="eraser-level-btn" data-eraser-level="3" title="Media">
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="3" title="Media">
       <span style="width:16px;height:16px;"></span>
     </button>
-    <button class="eraser-level-btn" data-eraser-level="4" title="Medio-grande">
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="4" title="Medio-grande">
       <span style="width:21px;height:21px;"></span>
     </button>
-    <button class="eraser-level-btn" data-eraser-level="5" title="Grande">
+    <button class="ui-dock-btn ui-dock-btn--eraser eraser-level-btn" data-eraser-level="5" title="Grande">
       <span style="width:26px;height:26px;"></span>
     </button>
 
-    <div class="context-dock-divider"></div>
+    <div class="ui-dock-divider"></div>
 
-    <span class="context-dock-label">Modalità</span>
-    <select id="eraserModeSelect"
-      class="bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs font-medium">
+    <span class="ui-dock-label">Modalità</span>
+    <select id="eraserModeSelect" class="ui-dock-select">
       <option value="stroke">Tratto intero</option>
       <option value="point">Raggio puntuale</option>
     </select>
   </div>
-</div>
+</ink-tool-dock>
 
 <!-- POPOVER FOGLIO (non è un dock: one-shot, si chiude dopo la scelta) -->
 <div id="pagePopover" class="hidden">

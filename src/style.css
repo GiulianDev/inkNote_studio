@@ -70,6 +70,8 @@ body.dark {
 }
 
 header,
+.ui-dock,
+ink-tool-dock,
 .context-dock,
 #pagePopover {
   touch-action: manipulation;
@@ -178,6 +180,7 @@ body.compact-mode #viewport {
   #selectionMenu, #textSelectionMenu, .text-box-editor-wrap,
   #pullPageIndicator, #libraryView,
   #newNotebookModal, #settingsModal, #undoRedoContainer,
+  .ui-dock, ink-tool-dock, .context-dock,
   .ui-menu, ink-menu, .ui-menu-backdrop, #colorPickerPopover, #pagePopover {
     display: none !important;
   }
@@ -619,6 +622,413 @@ body.dark #undoRedoContainer.undo-redo-dragging {
     ink-menu:not(.hidden) {
       animation: none !important;
     }
+  }
+}
+
+/* ============================================================
+   COMPONENTE DOCK TOOL GLOBALE (.ui-dock / <ink-tool-dock>)
+   Allinea tutti i dock contestuali dei tool (Scrittura, Testo,
+   Selezione, Forme, Gomma) alla stessa superficie e ai controlli
+   di Foglio (#pagePopover), <ink-menu> e barre di selezione.
+   ============================================================ */
+
+@keyframes uiDockEnter {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.ui-dock,
+ink-tool-dock {
+  position: fixed;
+  top: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+
+  width: max-content;
+  max-width: calc(100vw - 16px);
+
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.16), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
+
+  transition: opacity .12s ease;
+}
+
+.ui-dock:not(.hidden),
+ink-tool-dock:not(.hidden) {
+  animation: uiDockEnter .14s ease-out;
+}
+
+body.dark .ui-dock,
+body.dark ink-tool-dock {
+  background: #0f172a;
+  color: #f8fafc;
+  border-color: #1e293b;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65);
+}
+
+.ui-dock.hidden,
+ink-tool-dock.hidden {
+  display: none !important;
+}
+
+body.dock-auto-hidden .ui-dock,
+body.dock-auto-hidden ink-tool-dock {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+body.compact-mode .ui-dock,
+body.compact-mode ink-tool-dock {
+  top: 76px;
+}
+
+.ui-dock-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ui-dock-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ui-dock-divider {
+  width: 1px;
+  height: var(--dock-divider-h, 20px);
+  background: #e2e8f0;
+  margin: 0 0.15rem;
+  flex-shrink: 0;
+}
+
+body.dark .ui-dock-divider {
+  background: #1e293b;
+}
+
+.ui-dock-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+body.dark .ui-dock-label {
+  color: #94a3b8;
+}
+
+.ui-dock-value {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+
+body.dark .ui-dock-value {
+  color: #cbd5e1;
+}
+
+.ui-dock-range {
+  width: var(--dock-range-w, 60px);
+  accent-color: #4f46e5;
+  cursor: pointer;
+}
+
+.ui-dock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+}
+
+.ui-dock-btn--tool {
+  min-height: var(--dock-btn-h, 36px);
+  height: auto;
+  padding-left: var(--dock-px, 10px);
+  padding-right: var(--dock-px, 10px);
+  font-size: var(--dock-font-size, 15px);
+  border-radius: 0.65rem;
+}
+
+.ui-dock-btn--chip {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #e2e8f0;
+  font-size: 0.75rem;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.ui-dock-btn--style {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.ui-dock-btn--style svg {
+  width: 28px;
+  height: 12px;
+  display: block;
+  pointer-events: none;
+}
+
+.ui-dock-btn--eraser {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.ui-dock-btn--eraser span {
+  display: block;
+  border-radius: 9999px;
+  background-color: #334155;
+}
+
+body.dark .ui-dock-btn {
+  color: #cbd5e1;
+}
+
+body.dark .ui-dock-btn--chip {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-color: #334155;
+}
+
+body.dark .ui-dock-btn--eraser span {
+  background-color: #cbd5e1;
+}
+
+.ui-dock-btn:hover:not(:disabled) {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.ui-dock-btn--chip:hover:not(:disabled) {
+  background-color: #e2e8f0;
+}
+
+body.dark .ui-dock-btn:hover:not(:disabled) {
+  background-color: #1e293b;
+  color: #f8fafc;
+}
+
+body.dark .ui-dock-btn--chip:hover:not(:disabled) {
+  background-color: #334155;
+}
+
+.ui-dock-btn.active {
+  background-color: #e0e7ff;
+  border-color: #a5b4fc;
+  color: #4338ca;
+  box-shadow: none;
+}
+
+body.dark .ui-dock-btn.active {
+  background-color: #312e81;
+  border-color: #4338ca;
+  color: #c7d2fe;
+  box-shadow: none;
+}
+
+.ui-dock-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ui-dock-btn--danger:hover:not(:disabled) {
+  background-color: #fff1f2;
+  color: #be123c;
+}
+
+body.dark .ui-dock-btn--danger:hover:not(:disabled) {
+  background-color: rgba(76, 5, 25, 0.45);
+  color: #fda4af;
+}
+
+.ui-dock-select {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #1e293b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+
+.ui-dock-select:hover {
+  background: #f1f5f9;
+}
+
+.ui-dock-select--compact {
+  padding: 0 4px;
+  min-width: 52px;
+  text-align: center;
+}
+
+body.dark .ui-dock-select {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+  color-scheme: dark;
+}
+
+body.dark .ui-dock-select:hover {
+  background: #334155;
+}
+
+.ui-dock-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 8px;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+.ui-dock-toggle:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+body.dark .ui-dock-toggle {
+  color: #e2e8f0;
+}
+
+body.dark .ui-dock-toggle:hover {
+  background-color: #1e293b;
+  color: #ffffff;
+}
+
+.ui-dock-checkbox {
+  width: 0.95rem;
+  height: 0.95rem;
+  accent-color: #4f46e5;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.dark .ui-dock-checkbox,
+body.dark .ui-dock-checkbox {
+  color-scheme: dark;
+}
+
+.ui-dock-swatch {
+  width: var(--dock-swatch-size, 24px);
+  height: var(--dock-swatch-size, 24px);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.ui-dock-color-picker {
+  width: var(--dock-swatch-size, 24px);
+  height: var(--dock-swatch-size, 24px);
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 9999px;
+  padding: 0;
+  border: 1.5px solid rgba(15, 23, 42, 0.16);
+  background: transparent;
+  overflow: hidden;
+}
+
+body.dark .ui-dock-color-picker {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.ui-dock-color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.ui-dock-color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+
+@media (max-width: 640px) {
+  .ui-dock,
+  ink-tool-dock {
+    padding: 5px 6px;
+    gap: 3px;
+  }
+
+  .ui-dock-row {
+    gap: 0.25rem;
+    justify-content: space-evenly;
+  }
+
+  .ui-dock-group {
+    gap: 0.2rem;
+  }
+
+  .ui-dock-label {
+    display: none;
+  }
+
+  .ui-dock-divider {
+    margin: 0 0.05rem;
+  }
+
+  .ui-dock-btn--style {
+    width: 32px;
+    height: 26px;
+  }
+
+  .ui-dock-btn--style svg {
+    width: 24px;
+    height: 11px;
+  }
+}
+
+@media (max-width: 400px) {
+  .ui-dock-row {
+    gap: 0.15rem;
+  }
+
+  .ui-dock-group {
+    gap: 0.15rem;
+  }
+
+  .ui-dock-range {
+    width: calc(var(--dock-range-w, 60px) * 0.85);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-dock:not(.hidden),
+  ink-tool-dock:not(.hidden) {
+    animation: none !important;
   }
 }
 
