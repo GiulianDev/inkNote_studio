@@ -289,10 +289,43 @@ function detectArrowTipOnLine(stroke, pageData, cleanPts) {
   const match = findArrowTipTarget(cleanPts || stroke.points, pageData.strokes);
   if (!match) return false;
 
+  const shaftStroke = pageData.strokes[match.shaftIndex];
+  const tail = match.target.tail;
+  let finalEnd = { x: match.target.end.x, y: match.target.end.y };
+  let dirX = match.target.dirX;
+  let dirY = match.target.dirY;
+
+  if (shaftStroke) {
+    if (match.isStraight) {
+      if (state.snapLines) {
+        const snapped = applyAngleSnap(tail, finalEnd, null, false);
+        finalEnd = { x: snapped.x, y: snapped.y };
+      }
+      const dx = finalEnd.x - tail.x;
+      const dy = finalEnd.y - tail.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 1) {
+        dirX = dx / len;
+        dirY = dy / len;
+      }
+      shaftStroke.points = buildOpenPolylineStrokePoints([{ x: tail.x, y: tail.y }, finalEnd], 4);
+      _invalidateStrokeCaches(shaftStroke);
+      if (pageData.canvas && pageData.ctx) {
+        redrawPageCanvas(pageData);
+      }
+    } else if (Array.isArray(match.target.smoothedPoints) && match.target.smoothedPoints.length >= 2) {
+      shaftStroke.points = match.target.smoothedPoints;
+      _invalidateStrokeCaches(shaftStroke);
+      if (pageData.canvas && pageData.ctx) {
+        redrawPageCanvas(pageData);
+      }
+    }
+  }
+
   stroke.points = buildSymmetricArrowHeadPoints(
-    match.target.end,
-    match.target.dirX,
-    match.target.dirY,
+    finalEnd,
+    dirX,
+    dirY,
     match.wingLen
   );
   _invalidateStrokeCaches(stroke);
@@ -306,34 +339,54 @@ function detectSingleStrokeArrow(stroke, pageData, extraStrokes, cleanPts) {
   const match = analyzeSingleStrokeArrow(cleanPts || stroke.points);
   if (!match) return false;
 
-  const { tail, rawTip, minAlong, avgSide } = match;
-  let finalTip = { x: rawTip.x, y: rawTip.y };
-  if (state.snapLines) {
-    const snapped = applyAngleSnap(tail, rawTip, null, false);
-    finalTip = { x: snapped.x, y: snapped.y };
-  }
-  const finalDx = finalTip.x - tail.x;
-  const finalDy = finalTip.y - tail.y;
-  const finalLen = Math.hypot(finalDx, finalDy);
-  if (finalLen < 35) return false;
-  const fux = finalDx / finalLen;
-  const fuy = finalDy / finalLen;
-
+  const { tail, rawTip, isStraight, dirX, dirY, smoothedShaft, minAlong, avgSide } = match;
   const rawWingLen = Math.hypot(minAlong, avgSide);
-  const wingLen = Math.max(10, Math.min(48, finalLen * 0.42, rawWingLen * 0.95));
 
-  stroke.points = buildOpenPolylineStrokePoints([{ x: tail.x, y: tail.y }, finalTip], 4);
-  _invalidateStrokeCaches(stroke);
-  const headStroke = {
-    tool: stroke.tool,
-    color: stroke.color,
-    size: stroke.size,
-    opacity: stroke.opacity != null ? stroke.opacity : 1.0,
-    style: stroke.style || 'solid',
-    points: buildSymmetricArrowHeadPoints(finalTip, fux, fuy, wingLen)
-  };
-  if (stroke.inkParams) headStroke.inkParams = cloneInkParams(stroke.inkParams);
-  extraStrokes.push(headStroke);
+  if (isStraight) {
+    let finalTip = { x: rawTip.x, y: rawTip.y };
+    if (state.snapLines) {
+      const snapped = applyAngleSnap(tail, rawTip, null, false);
+      finalTip = { x: snapped.x, y: snapped.y };
+    }
+    const finalDx = finalTip.x - tail.x;
+    const finalDy = finalTip.y - tail.y;
+    const finalLen = Math.hypot(finalDx, finalDy);
+    if (finalLen < 35) return false;
+    const fux = finalDx / finalLen;
+    const fuy = finalDy / finalLen;
+    const wingLen = Math.max(10, Math.min(48, finalLen * 0.42, rawWingLen * 0.95));
+
+    stroke.points = buildOpenPolylineStrokePoints([{ x: tail.x, y: tail.y }, finalTip], 4);
+    _invalidateStrokeCaches(stroke);
+    const headStroke = {
+      tool: stroke.tool,
+      color: stroke.color,
+      size: stroke.size,
+      opacity: stroke.opacity != null ? stroke.opacity : 1.0,
+      style: stroke.style || 'solid',
+      points: buildSymmetricArrowHeadPoints(finalTip, fux, fuy, wingLen)
+    };
+    if (stroke.inkParams) headStroke.inkParams = cloneInkParams(stroke.inkParams);
+    extraStrokes.push(headStroke);
+  } else if (Array.isArray(smoothedShaft) && smoothedShaft.length >= 2) {
+    const finalTip = smoothedShaft[smoothedShaft.length - 1];
+    const wingLen = Math.max(10, Math.min(48, rawWingLen * 0.95));
+
+    stroke.points = smoothedShaft;
+    _invalidateStrokeCaches(stroke);
+    const headStroke = {
+      tool: stroke.tool,
+      color: stroke.color,
+      size: stroke.size,
+      opacity: stroke.opacity != null ? stroke.opacity : 1.0,
+      style: stroke.style || 'solid',
+      points: buildSymmetricArrowHeadPoints(finalTip, dirX, dirY, wingLen)
+    };
+    if (stroke.inkParams) headStroke.inkParams = cloneInkParams(stroke.inkParams);
+    extraStrokes.push(headStroke);
+  } else {
+    return false;
+  }
 
   showToast('Forma: Freccia', '➡️');
   triggerSnapAnimation(pageData);
@@ -355,15 +408,15 @@ export function detectReleaseShapeOrSymbol(stroke, pageData, extraStrokes = []) 
   }
 
   const pts = trimStationaryTail(stroke.points, 5.5);
-  if (pts.length < 4) return false;
+  if (pts.length < 3) return false;
 
   // 1. Simbolo "di conseguenza" (=> / ⇒): 2 linee parallele + punta >
-  if ((allowArrow || allowMath) && pts.length >= 5 && detectImplicationArrow(stroke, pageData, pts)) {
+  if ((allowArrow || allowMath) && pts.length >= 3 && detectImplicationArrow(stroke, pageData, pts)) {
     return true;
   }
 
-  // 2. Freccia 2 tratti: punta a V disegnata sull'estremità di una linea esistente
-  if (allowArrow && pts.length >= 5 && detectArrowTipOnLine(stroke, pageData, pts)) {
+  // 2. Freccia 2 tratti: punta a V disegnata sull'estremità di un'asta (dritta o curva)
+  if (allowArrow && pts.length >= 3 && detectArrowTipOnLine(stroke, pageData, pts)) {
     return true;
   }
 
@@ -399,8 +452,8 @@ export function detectReleaseShapeOrSymbol(stroke, pageData, extraStrokes = []) 
   }
   const bboxDiag = Math.hypot(maxX - minX, maxY - minY);
 
-  // 4. Freccia 1 tratto continuo (asta + 2 alette alla fine)
-  if (allowArrow && pts.length >= 10 && bboxDiag >= 55 && detectSingleStrokeArrow(stroke, pageData, extraStrokes, pts)) {
+  // 4. Freccia 1 tratto continuo (asta dritta o curva + 2 alette alla fine)
+  if (allowArrow && pts.length >= 8 && bboxDiag >= 42 && detectSingleStrokeArrow(stroke, pageData, extraStrokes, pts)) {
     return true;
   }
 

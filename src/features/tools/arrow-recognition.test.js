@@ -182,3 +182,83 @@ test('rejects "= v", "= <", and "11 v" so math expressions do not falsely snap t
   );
   assert.equal(findImplicationArrowTarget(sideV, [one1, one2]), null);
 });
+
+test('recognizes curved 2-stroke arrow tail, preserves/smooths curve, and aligns tip with exit tangent', () => {
+  // Arco da (100, 100) che scende e curva verso destra finendo orizzontalmente a (220, 220)
+  const curvedShaft = [];
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20;
+    const angle = Math.PI - t * (Math.PI * 0.5); // π -> π/2: tangente finale verso +X
+    const jitter = (i > 0 && i < 20) ? Math.sin(i * 1.9) * 2.5 : 0;
+    curvedShaft.push({
+      x: 220 + Math.cos(angle) * 120,
+      y: 100 + Math.sin(angle) * 120 + jitter
+    });
+  }
+  // Punta '>' orientata orizzontalmente verso destra alla fine della curva (220, 220)
+  const tipPts = sampleVShape(
+    { x: 204, y: 208 },
+    { x: 221, y: 220 },
+    { x: 204, y: 232 }
+  );
+
+  const match = findArrowTipTarget(tipPts, [{ points: curvedShaft }]);
+  assert.ok(match, 'Expected curved 2-stroke arrow to match');
+  assert.equal(match.shaftIndex, 0);
+  assert.equal(match.isStraight, false);
+  assert.ok(Array.isArray(match.target.smoothedPoints) && match.target.smoothedPoints.length >= 10);
+  // La tangente finale deve puntare quasi orizzontalmente (+X), NON lungo la corda a 45°!
+  assert.ok(match.target.dirX > 0.88, `Expected horizontal exit tangent, got dirX=${match.target.dirX}`);
+  assert.ok(Math.abs(match.target.dirY) < 0.45);
+});
+
+test('recognizes straight-enough 2-stroke shaft with isStraight=true so tail can be straightened', () => {
+  const wobblyLine = sampleLine(100, 200, 260, 200, 18).map((p, idx) => ({
+    x: p.x,
+    y: p.y + (idx > 0 && idx < 18 ? Math.sin(idx * 1.3) * 2.5 : 0)
+  }));
+  const tipPts = sampleVShape({ x: 244, y: 188 }, { x: 260, y: 200 }, { x: 244, y: 212 });
+  const match = findArrowTipTarget(tipPts, [{ points: wobblyLine }]);
+  assert.ok(match);
+  assert.equal(match.shaftIndex, 0);
+  assert.equal(match.isStraight, true);
+});
+
+test('detects curved 1-stroke arrow, smooths curved shaft, and sets exit tangent', () => {
+  const curved = [];
+  for (let i = 0; i <= 18; i++) {
+    const t = i / 18;
+    const angle = Math.PI - t * (Math.PI * 0.5);
+    curved.push({
+      x: 200 + Math.cos(angle) * 100,
+      y: 100 + Math.sin(angle) * 100
+    });
+  }
+  const wing1 = sampleLine(200, 200, 184, 188, 4).slice(1);
+  const back = sampleLine(184, 188, 200, 200, 3).slice(1);
+  const wing2 = sampleLine(200, 200, 184, 212, 4).slice(1);
+
+  const res = analyzeSingleStrokeArrow([...curved, ...wing1, ...back, ...wing2]);
+  assert.ok(res, 'Expected curved 1-stroke arrow to match');
+  assert.equal(res.isStraight, false);
+  assert.ok(Array.isArray(res.smoothedShaft) && res.smoothedShaft.length >= 10);
+  assert.ok(res.dirX > 0.88, `Expected horizontal exit dirX, got ${res.dirX}`);
+});
+
+test('recognizes compact and fast 3-point "=>" implication arrows', () => {
+  // "=" compatto (barre da 15px distanti 4px) + ">" veloce con soli 3 punti
+  const topBar = sampleLine(100, 200, 115, 200, 4);
+  const botBar = sampleLine(100, 204, 116, 204, 4);
+  const fastChevron3pt = [
+    { x: 112, y: 195 },
+    { x: 122, y: 202 },
+    { x: 112, y: 209 }
+  ];
+
+  const match = findImplicationArrowTarget(fastChevron3pt, [{ points: topBar }, { points: botBar }]);
+  assert.ok(match, 'Expected compact 3-pt => implication symbol to match');
+  const geom = buildImplicationArrowGeometry(match, { snapAxis: true });
+  assert.equal(geom.dirX, 1);
+  assert.equal(geom.dirY, 0);
+});
+

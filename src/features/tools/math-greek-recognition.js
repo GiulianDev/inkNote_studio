@@ -198,28 +198,80 @@ function buildRoundParenUnit(side) {
   return pts;
 }
 
+function buildRoundParenRenderUnit(side) {
+  // Parentesi tonda tipografica più snella e meno panciuta rispetto a sin(πt)
+  const pts = [];
+  const steps = 36;
+  const xEnd = side === '(' ? 1.0 : 0.0;
+  const xMid = side === '(' ? 0.0 : 1.0;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const s = Math.pow(Math.sin(Math.PI * t), 0.72);
+    pts.push({
+      x: xEnd + (xMid - xEnd) * s,
+      y: t
+    });
+  }
+  return pts;
+}
+
 function buildCurlyBraceUnit(side) {
-  // `{` ha cuspide centrale a sinistra (x=0) ed estremità aperte a destra (x=1)
+  // `{` stile Word / LaTeX (\left\{): terminali eleganti, steli verticali snelli, cuspide centrale netta
   const isLeft = side === '{';
   const xOpen = isLeft ? 1.0 : 0.0;
-  const xMid = isLeft ? 0.45 : 0.55;
+  const xStem = isLeft ? 0.48 : 0.52;
   const xCusp = isLeft ? 0.0 : 1.0;
 
-  const upper = sampleCubicBezier(
+  const upperCurl = sampleCubicBezier(
     { x: xOpen, y: 0.0 },
-    { x: xMid, y: 0.02 },
-    { x: xMid + (xOpen - xMid) * 0.15, y: 0.44 },
-    { x: xCusp, y: 0.5 },
-    20
+    { x: xOpen + (xStem - xOpen) * 0.68, y: 0.0 },
+    { x: xStem, y: 0.04 },
+    { x: xStem, y: 0.14 },
+    10
   );
-  const lower = sampleCubicBezier(
+  const upperStem = [];
+  for (let i = 1; i <= 5; i++) {
+    upperStem.push({ x: xStem, y: 0.14 + (0.37 - 0.14) * (i / 5) });
+  }
+  // Passo finale ampio attorno a t=1.0 per mantenere la cuspide netta anche dopo lo smoothing gaussiano
+  const upperBeakRaw = sampleCubicBezier(
+    { x: xStem, y: 0.37 },
+    { x: xStem, y: 0.45 },
+    { x: xStem + (xCusp - xStem) * 0.54, y: 0.492 },
     { x: xCusp, y: 0.5 },
-    { x: xMid + (xOpen - xMid) * 0.15, y: 0.56 },
-    { x: xMid, y: 0.98 },
+    8
+  );
+  const upperBeak = [upperBeakRaw[2], upperBeakRaw[4], upperBeakRaw[6], upperBeakRaw[8]];
+
+  const lowerBeakRaw = sampleCubicBezier(
+    { x: xCusp, y: 0.5 },
+    { x: xStem + (xCusp - xStem) * 0.54, y: 0.508 },
+    { x: xStem, y: 0.55 },
+    { x: xStem, y: 0.63 },
+    8
+  );
+  const lowerBeak = [lowerBeakRaw[2], lowerBeakRaw[4], lowerBeakRaw[6], lowerBeakRaw[8]];
+
+  const lowerStem = [];
+  for (let i = 1; i <= 5; i++) {
+    lowerStem.push({ x: xStem, y: 0.63 + (0.86 - 0.63) * (i / 5) });
+  }
+  const lowerCurl = sampleCubicBezier(
+    { x: xStem, y: 0.86 },
+    { x: xStem, y: 0.96 },
+    { x: xOpen + (xStem - xOpen) * 0.68, y: 1.0 },
     { x: xOpen, y: 1.0 },
-    20
-  );
-  return upper.concat(lower.slice(1));
+    10
+  ).slice(1);
+
+  return [
+    ...upperCurl,
+    ...upperStem,
+    ...upperBeak,
+    ...lowerBeak,
+    ...lowerStem,
+    ...lowerCurl
+  ];
 }
 
 function buildSquareBracketUnit(side) {
@@ -736,7 +788,6 @@ export function recognizeMathSymbolSingleStroke(pts) {
 
   // Per distinguere `{}` da `()` calcoliamo anche la curvatura ai quarti vs centro
   const res = resamplePath(pts, 32);
-  const topY = Math.min(p0.y, pLast.y);
   const ordered = goingDown ? res : [...res].reverse();
   const q1 = ordered[Math.floor(ordered.length * 0.20)];
   const mid = ordered[Math.floor(ordered.length * 0.50)];
@@ -748,16 +799,18 @@ export function recognizeMathSymbolSingleStroke(pts) {
     const err = fitCurlyBraceScore(pts, m, side);
     // Verifica la cuspide centrale verso spine e i quarti più vicini al centro/lato aperto
     const cuspOk = isLeft
-      ? (mid.x <= m.minX + m.w * 0.28 && openX >= m.maxX - m.w * 0.35 && q1.x > mid.x + m.w * 0.18 && q3.x > mid.x + m.w * 0.18)
-      : (mid.x >= m.maxX - m.w * 0.28 && openX <= m.minX + m.w * 0.35 && q1.x < mid.x - m.w * 0.18 && q3.x < mid.x - m.w * 0.18);
-    if (cuspOk && err <= 0.082) {
+      ? (mid.x <= m.minX + m.w * 0.30 && openX >= m.maxX - m.w * 0.36 && q1.x > mid.x + m.w * 0.16 && q3.x > mid.x + m.w * 0.16)
+      : (mid.x >= m.maxX - m.w * 0.30 && openX <= m.minX + m.w * 0.36 && q1.x < mid.x - m.w * 0.16 && q3.x < mid.x - m.w * 0.16);
+    if (cuspOk && err <= 0.095) {
+      const renderW = Math.min(Math.max(m.w, Math.min(18, m.h * 0.18)), Math.max(12, m.h * 0.26));
+      const renderX = m.cx - renderW * 0.5;
       candidates.push({
         id: isLeft ? 'brace_left' : 'brace_right',
         symbol: side,
         label: `Parentesi graffa ${side}`,
         icon: side,
-        score: err * 0.92,
-        points: evalUnitCurve(buildCurlyBraceUnit(side), m.minX, topY, m.w, m.h)
+        score: err * 0.90,
+        points: evalUnitCurve(buildCurlyBraceUnit(side), renderX, m.minY, renderW, m.h)
       });
     }
   }
@@ -768,14 +821,16 @@ export function recognizeMathSymbolSingleStroke(pts) {
     const arcOk = isLeft
       ? (mid.x <= m.minX + m.w * 0.25 && openX >= m.maxX - m.w * 0.30 && q1.x <= openX - m.w * 0.42 && q3.x <= openX - m.w * 0.42)
       : (mid.x >= m.maxX - m.w * 0.25 && openX <= m.minX + m.w * 0.30 && q1.x >= openX + m.w * 0.42 && q3.x >= openX + m.w * 0.42);
-    if (arcOk && err <= 0.078) {
+    if (arcOk && err <= 0.080) {
+      const renderW = Math.min(Math.max(m.w, Math.min(12, m.h * 0.12)), Math.max(8, m.h * 0.175));
+      const renderX = m.cx - renderW * 0.5;
       candidates.push({
         id: isLeft ? 'paren_left' : 'paren_right',
         symbol: side,
         label: `Parentesi tonda ${side}`,
         icon: side,
         score: err,
-        points: evalUnitCurve(buildRoundParenUnit(side), m.minX, m.minY, m.w, m.h)
+        points: evalUnitCurve(buildRoundParenRenderUnit(side), renderX, m.minY, renderW, m.h)
       });
     }
   }
