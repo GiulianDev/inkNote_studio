@@ -269,13 +269,13 @@ export function computeSegmentSteps(segLen, smoothness) {
   const s = smoothness == null ? 0.5 : smoothness;
   if (s <= 0.005 || segLen <= 2.5) return 1;
   if (s <= 0.30) {
-    if (segLen <= 10) return 1;
-    if (segLen <= 22) return 2;
+    if (segLen <= 4.5) return 1;
+    if (segLen <= 14) return 2;
     return 3;
   }
   if (segLen <= 4) return 1;
-  if (segLen <= 12) return 2;
-  if (segLen <= 24) return 3;
+  if (segLen <= 10) return 2;
+  if (segLen <= 22) return 3;
   return 4;
 }
 
@@ -433,26 +433,26 @@ export function buildGaussianSmoothedPoints(pts, smoothness) {
     const u = s / 0.35;
     passes = 1;
     useFiveTap = false;
-    blend = 0.18 + u * 0.52;
-    maxShift = 0.45 + u * 0.85;
+    blend = 0.32 + u * 0.53;
+    maxShift = 0.70 + u * 0.90;
     cornerCosLimit = 0.25;
-    cornerMinFactor = 0.10;
+    cornerMinFactor = 0.06;
   } else if (s <= 0.65) {
     const u = (s - 0.35) / 0.30;
     passes = 1;
     useFiveTap = true;
-    blend = 0.70 + u * 0.25;
-    maxShift = 1.30 + u * 0.80;
+    blend = 0.85 + u * 0.10;
+    maxShift = 1.60 + u * 0.65;
     cornerCosLimit = 0.15;
-    cornerMinFactor = 0.15;
+    cornerMinFactor = 0.10;
   } else {
     const u = (s - 0.65) / 0.35;
     passes = 2;
     useFiveTap = true;
     blend = 0.95;
-    maxShift = 2.10 + u * 3.90;
+    maxShift = 2.25 + u * 3.75;
     cornerCosLimit = -0.35;
-    cornerMinFactor = 0.35;
+    cornerMinFactor = 0.30;
   }
 
   let src = pts;
@@ -483,11 +483,15 @@ export function buildGaussianSmoothedPoints(pts, smoothness) {
       const vy2 = next.y - curr.y;
       const len1 = Math.hypot(vx1, vy1);
       const len2 = Math.hypot(vx2, vy2);
-      if (len1 > 0.8 && len2 > 0.8) {
+      const minLeg = Math.min(len1, len2);
+      if (minLeg > 3.5) {
         const cosAng = (vx1 * vx2 + vy1 * vy2) / (len1 * len2);
         if (cosAng < cornerCosLimit) {
-          const factor = Math.max(cornerMinFactor, (cosAng + 1) / (1 + cornerCosLimit));
-          localBlend *= factor;
+          const cornerScale = Math.min(1, (minLeg - 3.5) / 5.0);
+          const minTurnCos = Math.min(0.08, cornerCosLimit - 0.05);
+          const t = Math.max(0, Math.min(1, (cosAng - minTurnCos) / Math.max(0.05, cornerCosLimit - minTurnCos)));
+          const factor = cornerMinFactor + (1 - cornerMinFactor) * t;
+          localBlend *= 1 - (1 - factor) * cornerScale;
         }
       }
 
@@ -496,10 +500,19 @@ export function buildGaussianSmoothedPoints(pts, smoothness) {
       const mag = Math.hypot(shiftX, shiftY);
       const scale = mag > maxShift ? (maxShift / mag) : 1;
 
+      let outPressure = curr.pressure;
+      if (curr.pointerType === 'pen' &&
+          Number.isFinite(prev.pressure) &&
+          Number.isFinite(curr.pressure) &&
+          Number.isFinite(next.pressure)) {
+        const gp = 0.25 * prev.pressure + 0.50 * curr.pressure + 0.25 * next.pressure;
+        outPressure = curr.pressure + (gp - curr.pressure) * (localBlend * 0.45);
+      }
+
       out[i] = {
         x: curr.x + shiftX * scale,
         y: curr.y + shiftY * scale,
-        pressure: curr.pressure,
+        pressure: outPressure,
         tiltX: curr.tiltX,
         tiltY: curr.tiltY,
         speed: curr.speed,

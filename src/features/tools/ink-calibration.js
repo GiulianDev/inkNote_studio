@@ -106,7 +106,7 @@ export function normalizePenPressure(rawPressure, {
 } = {}) {
   const sens = _clamp(Number.isFinite(sensitivity) ? sensitivity : DEFAULT_PRESSURE_SENSITIVITY, 0, 100);
   const userGain = Math.pow(2.2, (sens - 50) / 50); // 0 -> ~0.45x, 50 -> 1.0x, 100 -> 2.2x
-  const platformBaseGain = platform === 'ios' ? 1.45 : (platform === 'android' ? 1.12 : 1.0);
+  const platformBaseGain = platform === 'ios' ? 1.48 : (platform === 'android' ? 1.12 : 1.0);
   const totalGain = platformBaseGain * userGain;
 
   const raw = Number.isFinite(rawPressure) ? rawPressure : 0;
@@ -303,7 +303,7 @@ export function samplePressureCurve(params, steps = 28) {
     const pNorm = x === 0
       ? 0
       : normalizePenPressure(x, {
-          platform: 'desktop',
+          platform: (params && params.platform) || 'desktop',
           sensitivity: derived.sensitivity != null ? derived.sensitivity : DEFAULT_PRESSURE_SENSITIVITY
         });
     const mul = derived.lightMul + Math.pow(pNorm, derived.curve) * range;
@@ -360,19 +360,21 @@ export function getStabilizerParams(smoothing = 0.5, scale = 1.0, platform = 'de
   if (s <= 0.65) {
     mode = 'gaussian';
     const u = s / 0.65;
-    liveBlend = 0.03 + u * 0.21;
-    maxLiveShift = (0.25 + u * 1.10) / vpScale;
-    minCutoff = 120.0 * Math.pow(24.0 / 120.0, u);
-    beta = 0.22 - u * 0.12;
+    const platBlendScale = plat === 'ios' ? 0.72 : (plat === 'android' ? 0.90 : 1.0);
+    const platShiftScale = plat === 'ios' ? 0.82 : 1.0;
+    liveBlend = (0.05 + u * 0.27) * platBlendScale;
+    maxLiveShift = ((0.30 + u * 1.15) * platShiftScale) / vpScale;
+    minCutoff = 120.0 * Math.pow(14.0 / 120.0, u);
+    beta = 0.18 - u * 0.148;
     dCutoff = 20.0 - u * 12.0;
-    baseDeadzone = 0.04 + u * 0.30;
+    baseDeadzone = 0.03 + u * 0.31;
   } else {
     mode = 'strong';
     const w = (s - 0.65) / 0.35;
-    liveBlend = 0.24 + w * 0.38;
-    maxLiveShift = (1.35 + w * 7.5) / vpScale;
-    minCutoff = 24.0 * Math.pow(2.4 / 24.0, w);
-    beta = 0.10 - w * 0.075;
+    liveBlend = 0.32 + w * 0.34;
+    maxLiveShift = (1.45 + w * 7.5) / vpScale;
+    minCutoff = 14.0 * Math.pow(1.6 / 14.0, w);
+    beta = 0.032 - w * 0.024;
     dCutoff = 8.0 - w * 5.0;
     baseDeadzone = 0.34 + w * 0.72;
   }

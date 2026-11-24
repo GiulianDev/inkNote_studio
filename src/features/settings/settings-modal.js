@@ -176,7 +176,7 @@ function _renderPressureCurveSvg() {
   if (!pathEl || !areaEl) return;
 
   const params = getPressureParams();
-  const pts = samplePressureCurve(params, 28);
+  const pts = samplePressureCurve({ ...params, platform: _pressureTestState.platform }, 28);
   const left = 12, right = 208, bottom = 78, top = 12;
   const w = right - left;
   const h = bottom - top;

@@ -745,6 +745,10 @@ body.dark .ui-dock-value {
   cursor: pointer;
 }
 
+.ui-dock-range--wide {
+  width: calc(var(--dock-range-w, 60px) * 1.9);
+}
+
 .ui-dock-btn {
   display: inline-flex;
   align-items: center;
@@ -1166,6 +1170,10 @@ body.dark .ui-cp-sv-area {
 
   .ui-dock-range {
     width: calc(var(--dock-range-w, 60px) * 0.85);
+  }
+
+  .ui-dock-range--wide {
+    width: calc(var(--dock-range-w, 60px) * 1.45);
   }
 }
 

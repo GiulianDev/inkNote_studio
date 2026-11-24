@@ -165,34 +165,35 @@ describe('ink-calibration: multi-tier stabilizer & stationary tail trimming', ()
   it('transitions continuously across tier boundaries without sudden parameter cliffs', () => {
     const tBypass = getStabilizerParams(0, 1.0);
     const tLow1 = getStabilizerParams(0.01, 1.0);
-    const tEdge1A = getStabilizerParams(0.30, 1.0);
-    const tEdge1B = getStabilizerParams(0.3001, 1.0);
-    const tEdge2A = getStabilizerParams(0.70, 1.0);
-    const tEdge2B = getStabilizerParams(0.7001, 1.0);
+    const tLow30 = getStabilizerParams(0.30, 1.0);
+    const tMidA = getStabilizerParams(0.65, 1.0);
+    const tMidB = getStabilizerParams(0.6501, 1.0);
 
     assert.equal(tBypass.mode, 'bypass');
-    assert.equal(tLow1.mode, 'geometric');
-    assert.equal(tEdge1B.mode, 'balanced');
-    assert.equal(tEdge2B.mode, 'calligraphy');
+    assert.equal(tLow1.mode, 'gaussian');
+    assert.equal(tLow30.mode, 'gaussian');
+    assert.equal(tMidA.mode, 'gaussian');
+    assert.equal(tMidB.mode, 'strong');
 
     assert.ok(tLow1.deadzone < 0.05, 'slider=1 deadzone must start near zero instead of jumping');
-    assert.ok(Math.abs(tEdge1A.minCutoff - tEdge1B.minCutoff) < 0.1, 'tier 1->2 minCutoff must be continuous');
-    assert.ok(Math.abs(tEdge2A.minCutoff - tEdge2B.minCutoff) < 0.1, 'tier 2->3 minCutoff must be continuous');
-    assert.ok(Math.abs(tEdge1A.deadzone - tEdge1B.deadzone) < 0.02);
-    assert.ok(Math.abs(tEdge2A.deadzone - tEdge2B.deadzone) < 0.02);
+    assert.ok(Math.abs(tMidA.minCutoff - tMidB.minCutoff) < 0.1, 'gaussian->strong minCutoff must be continuous');
+    assert.ok(Math.abs(tMidA.beta - tMidB.beta) < 0.01, 'gaussian->strong beta must be continuous');
+    assert.ok(Math.abs(tMidA.liveBlend - tMidB.liveBlend) < 0.01, 'gaussian->strong liveBlend must be continuous');
+    assert.ok(Math.abs(tMidA.deadzone - tMidB.deadzone) < 0.02);
   });
 
   it('provides Surface Go 1 step budgeting and loop-free clamped Hermite rounding', () => {
     // Low smoothing / tiny segments use 1 step to minimize CPU/GPU arc+polygon work
     assert.equal(computeSegmentSteps(12, 0), 1);
     assert.equal(computeSegmentSteps(2.0, 0.85), 1);
-    assert.equal(computeSegmentSteps(5.0, 0.20), 1);
+    assert.equal(computeSegmentSteps(4.0, 0.20), 1);
+    assert.ok(computeSegmentSteps(6.0, 0.20) >= 2, 'low smoothing unlocks gentle rounding on 5-14px handwriting segments');
     assert.ok(computeSegmentSteps(18, 0.25) >= 2);
     assert.ok(computeSegmentSteps(25, 0.80) === 4);
 
     assert.equal(computeCurveWeight(0), 0);
-    assert.ok(computeCurveWeight(0.01) > 0.1 && computeCurveWeight(0.30) > 0.65);
-    assert.equal(computeCurveWeight(0.85), 1);
+    assert.ok(computeCurveWeight(0.01) > 0.02 && computeCurveWeight(0.30) >= 0.18 && computeCurveWeight(0.30) < 0.30);
+    assert.ok(computeCurveWeight(0.85) > 0.75 && computeCurveWeight(0.85) < 1);
 
     // Uneven segment lengths (20px followed by 2px) must not loop/overshoot wildly
     const p0 = { x: 0, y: 0 };
@@ -229,6 +230,24 @@ describe('ink-calibration: multi-tier stabilizer & stationary tail trimming', ()
     const avgDev = (arr) => arr.slice(1, -1).reduce((s, p) => s + Math.abs(p.y - 100), 0) / (arr.length - 2);
     assert.ok(avgDev(midPts) < avgDev(zigzag) * 0.7, 'medium smoothing must attenuate micro-wobble');
     assert.ok(avgDev(highPts) < avgDev(midPts) * 0.5, 'high smoothing must strongly flatten micro-wobble');
+
+    // Low smoothing (20%) rounds short micro-tremor (3px steps) while keeping real 90deg corners sharp
+    const fineTremor = [];
+    for (let i = 0; i <= 14; i++) {
+      fineTremor.push({ x: i * 3, y: 100 + (i % 2 === 0 ? 1.5 : -1.5), pressure: 0.5 });
+    }
+    const lowTremorSmoothed = buildRelaxedPoints(fineTremor, 0.20);
+    assert.ok(avgDev(lowTremorSmoothed) < avgDev(fineTremor) * 0.65, 'low smoothing must visibly round short-step hand tremor');
+
+    const sharpL = [
+      { x: 0, y: 0, pressure: 0.5 },
+      { x: 0, y: 20, pressure: 0.5 },
+      { x: 0, y: 40, pressure: 0.5 },
+      { x: 20, y: 40, pressure: 0.5 },
+      { x: 40, y: 40, pressure: 0.5 }
+    ];
+    const sharpSmoothed = buildRelaxedPoints(sharpL, 0.20);
+    assert.ok(Math.hypot(sharpSmoothed[2].x - 0, sharpSmoothed[2].y - 40) < 0.6, 'authentic L corner with 20px legs must stay sharp at low smoothing');
   });
 
   it('scales hold tolerance inversely with zoom & trims long stationary hold jitter completely', () => {
