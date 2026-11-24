@@ -3,10 +3,11 @@
 // ============================================================
 
 import { state, viewport } from '../../core/state.js';
-import { showToast } from '../../core/utils.js';
+import { showToast, showStatusBadge } from '../../core/utils.js';
 import { setTool } from '../toolbar/toolbar.js';
-import { flushAutoSave } from '../persistence/autosave.js';
+import { forceSave } from '../persistence/autosave.js';
 import { flushHistory, handleHistoryKeyboard } from '../history/history.js';
+import { createManualSaveRunner } from './manual-save.js';
 import { toggleFullscreen } from '../editor/export-pdf.js';
 import { applyPinchTransform } from '../viewport/transform.js';
 import { resetZoom } from '../editor/pages.js';
@@ -54,6 +55,13 @@ function _zoomByFactor(factor) {
 export function setupKeyboardShortcuts() {
   document.addEventListener('keydown', handleHistoryKeyboard);
 
+  const runManualSave = createManualSaveRunner({
+    flushHistory,
+    forceSave,
+    showToast,
+    showStatusBadge
+  });
+
   document.addEventListener('keydown', (e) => {
     const target = e.target;
     if (target && target.matches && target.matches('input, textarea, select, [contenteditable="true"]')) return;
@@ -79,8 +87,7 @@ export function setupKeyboardShortcuts() {
 
     if (ctrl && key === 's') {
       e.preventDefault();
-      flushHistory(); flushAutoSave();
-      showToast('Salvato', '💾');
+      void runManualSave();
       return;
     }
     if (ctrl && !e.altKey && !e.shiftKey) {
