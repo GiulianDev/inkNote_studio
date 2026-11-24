@@ -276,6 +276,8 @@ export function getStabilizerParams(smoothing = 0.5, scale = 1.0) {
       beta: 0,
       dCutoff: Infinity,
       deadzone: 0.01,
+      restDeadzone: 0.01,
+      restCutoff: Infinity,
       pressureNewWeight: 0.80
     };
   }
@@ -309,13 +311,21 @@ export function getStabilizerParams(smoothing = 0.5, scale = 1.0) {
     baseDeadzone = 1.05 + w * 0.55;
   }
 
+  const deadzone = Math.min(2.6, baseDeadzone / vpScale);
+  // Durante una pausa/hold con punta ferma (es. Apple Pencil su iPad per snap forme),
+  // attiva una soglia minima anti-tremolio senza penalizzare i movimenti di scrittura.
+  const restDeadzone = Math.min(2.6, Math.max(deadzone, 1.35 / vpScale));
+  const restCutoff = Math.min(minCutoff, 3.8);
+
   return {
     mode,
     s,
     minCutoff,
     beta,
     dCutoff,
-    deadzone: Math.min(2.6, baseDeadzone / vpScale),
+    deadzone,
+    restDeadzone,
+    restCutoff,
     pressureNewWeight: 0.78 - s * 0.24
   };
 }
@@ -429,14 +439,18 @@ export function createStrokeStabilizer(initialPoint = null) {
       lastDy = lastDy + (dyRaw - lastDy) * dAlpha;
 
       const speedPerSec = Math.hypot(lastDx, lastDy);
-      const cutoff = cfg.minCutoff + cfg.beta * speedPerSec;
+      const distRaw = Math.hypot(rawPoint.x - lastAcceptX, rawPoint.y - lastAcceptY);
+      const isResting = distRaw < cfg.restDeadzone;
+      const baseCutoff = cfg.minCutoff + cfg.beta * speedPerSec;
+      const cutoff = isResting ? Math.min(baseCutoff, cfg.restCutoff) : baseCutoff;
       const alpha = _lowPassAlpha(cutoff, dtSec);
 
       lastFiltX = lastFiltX + (rawPoint.x - lastFiltX) * alpha;
       lastFiltY = lastFiltY + (rawPoint.y - lastFiltY) * alpha;
 
+      const effectiveDeadzone = isResting ? cfg.restDeadzone : cfg.deadzone;
       const dist = Math.hypot(lastFiltX - lastAcceptX, lastFiltY - lastAcceptY);
-      if (dist < cfg.deadzone) {
+      if (dist < effectiveDeadzone) {
         return {
           accepted: false,
           x: lastFiltX,
@@ -486,7 +500,7 @@ export function trimStationaryTail(points, maxClusterRadius = 5.5) {
   if (!Array.isArray(points) || points.length < 6) return points;
   const n = points.length;
   const tip = points[n - 1];
-  const minKeep = Math.max(4, Math.ceil(n * 0.45));
+  const minKeep = 4;
 
   let cutIdx = n - 1;
   while (cutIdx > minKeep) {

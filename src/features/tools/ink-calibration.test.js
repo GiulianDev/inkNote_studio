@@ -85,20 +85,22 @@ describe('ink-calibration: cross-device pressure normalization & curve', () => {
 });
 
 describe('ink-calibration: multi-tier stabilizer & stationary tail trimming', () => {
-  it('suppresses stationary micro-tremor jitter when smoothing > 0', () => {
-    const stab = createStrokeStabilizer({ x: 100, y: 100, pressure: 0.4, timeStamp: 1000 });
-    let acceptedCount = 0;
-    for (let i = 1; i <= 15; i++) {
-      // ±0.9px iPad jitter around (100, 100)
-      const jx = (i % 2 === 0 ? 0.9 : -0.9);
-      const jy = (i % 3 === 0 ? 0.7 : -0.7);
-      const res = stab.filterPoint(
-        { x: 100 + jx, y: 100 + jy, pressure: 0.4, timeStamp: 1000 + i * 8 },
-        { smoothing: 0.65, scale: 1.0 }
-      );
-      if (res.accepted) acceptedCount++;
+  it('suppresses stationary micro-tremor jitter when smoothing > 0 across low, medium and high levels (iPad 120Hz hold)', () => {
+    for (const smoothing of [0.01, 0.15, 0.50, 0.65, 0.85]) {
+      const stab = createStrokeStabilizer({ x: 100, y: 100, pressure: 0.4, timeStamp: 1000 });
+      let acceptedCount = 0;
+      for (let i = 1; i <= 40; i++) {
+        // ±1.1px iPad 120Hz stationary tremor around (100, 100)
+        const jx = (i % 2 === 0 ? 1.05 : -1.05);
+        const jy = (i % 3 === 0 ? 0.75 : -0.75);
+        const res = stab.filterPoint(
+          { x: 100 + jx, y: 100 + jy, pressure: 0.4, timeStamp: 1000 + i * 8.33 },
+          { smoothing, scale: 1.0 }
+        );
+        if (res.accepted) acceptedCount++;
+      }
+      assert.equal(acceptedCount, 0, `stationary iPad hold tremor must not draw jitter lines at smoothing=${smoothing}`);
     }
-    assert.equal(acceptedCount, 0, 'stationary micro-tremors should be absorbed by deadzone/One Euro');
   });
 
   it('tracks fast strokes closely and reduces high-frequency wobble compared to smoothing=0', () => {
@@ -226,19 +228,18 @@ describe('ink-calibration: multi-tier stabilizer & stationary tail trimming', ()
     assert.ok(avgDev(highPts) < avgDev(midPts) * 0.5, 'high smoothing must strongly flatten micro-wobble');
   });
 
-  it('scales hold tolerance inversely with zoom & trims trailing stationary jitter', () => {
+  it('scales hold tolerance inversely with zoom & trims long stationary hold jitter completely', () => {
     assert.ok(getHoldMoveTolerancePx(0.5) > getHoldMoveTolerancePx(1.5));
 
     const pts = [];
     for (let i = 0; i < 12; i++) pts.push({ x: 10 + i * 12, y: 100, pressure: 0.5 });
-    // Add stationary jitter hook at the end around (142, 100)
-    pts.push({ x: 141, y: 98, pressure: 0.5 });
-    pts.push({ x: 143, y: 102, pressure: 0.5 });
-    pts.push({ x: 140, y: 99, pressure: 0.5 });
-    pts.push({ x: 142, y: 101, pressure: 0.5 });
+    // Simulate long 320ms+ iPad 120Hz hold (36 jitter samples clustered around (142, 100))
+    for (let j = 0; j < 36; j++) {
+      pts.push({ x: 142 + (j % 2 === 0 ? 1.5 : -1.5), y: 100 + (j % 3 === 0 ? 1.8 : -1.8), pressure: 0.5 });
+    }
 
     const trimmed = trimStationaryTail(pts, 5.5);
-    assert.ok(trimmed.length < pts.length, 'trailing stationary jitter cluster should be trimmed');
+    assert.ok(trimmed.length <= 13, `entire stationary hold cluster should be trimmed (got len ${trimmed.length})`);
     assert.ok(trimmed[trimmed.length - 1].x >= 130);
   });
 
