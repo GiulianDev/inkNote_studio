@@ -16,6 +16,7 @@ import {
   closeAllFloatingMenus,
   closeFloatingMenuById
 } from '../../components/floating-menu.js';
+import { syncSendMenuAuthState } from '../toolbar/toolbar.js';
 
 const AVATAR_PALETTE = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
@@ -103,6 +104,7 @@ function _updateAuthUI() {
     nameId: 'editorAuthDropdownName',
     emailId: 'editorAuthDropdownEmail'
   });
+  syncSendMenuAuthState();
 }
 
 export function closeAllAuthDropdowns() {

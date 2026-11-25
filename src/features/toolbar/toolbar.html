@@ -89,9 +89,14 @@
   <div id="headerRight" class="relative z-10 flex items-center space-x-1 shrink-0">
     <button id="toolbarMenuBtn" type="button"
       class="dock-icon-btn inline-flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95"
-      title="Menu e azioni" aria-label="Menu e azioni">
-      <svg class="ui-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+      title="Esporta e condividi" aria-label="Esporta e condividi">
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="18" cy="5" r="3"/>
+        <circle cx="6" cy="12" r="3"/>
+        <circle cx="18" cy="19" r="3"/>
+        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
       </svg>
     </button>
     <button id="openSettingsBtnHeader"
@@ -492,6 +497,19 @@
       <option value="stroke">Tratto intero</option>
       <option value="point">Raggio puntuale</option>
     </select>
+
+    <div class="ui-dock-divider"></div>
+
+    <button id="clearPageBtn" type="button" class="ui-dock-btn ui-dock-btn--danger text-dock-btn" title="Pulisci tutta la pagina corrente">
+      <svg class="ui-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6h18"/>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        <line x1="10" x2="10" y1="11" y2="17"/>
+        <line x1="14" x2="14" y1="11" y2="17"/>
+      </svg>
+      <span>Pulisci pagina</span>
+    </button>
   </div>
 </ink-tool-dock>
 
@@ -530,28 +548,11 @@
 </div>
 
 <!-- ============================================================
-     MENU ⋯ (azioni rare) — usa componente globale <ink-menu> / .ui-menu
+     MENU CONDIVISIONE & EXPORT — usa componente globale <ink-menu> / .ui-menu
      ============================================================ -->
 <ink-menu id="toolbarMenuPanel" class="ui-menu hidden">
   <div class="ui-menu-section">
-    <div class="ui-menu-section-title">Questo quaderno</div>
-    <button id="addPageBtn" type="button" class="ui-menu-item" role="menuitem">
-      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
-        <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
-        <path d="M9 15h6"/>
-        <path d="M12 12v6"/>
-      </svg>
-      <span>Nuova pagina</span>
-    </button>
-    <button id="clearPageBtn" type="button" class="ui-menu-item" role="menuitem">
-      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>
-        <path d="M22 21H7"/>
-        <path d="m5 11 9 9"/>
-      </svg>
-      <span>Pulisci pagina</span>
-    </button>
+    <div class="ui-menu-section-title">Esporta e condividi</div>
     <button id="exportPdfFromMenu" type="button" class="ui-menu-item" role="menuitem">
       <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -572,52 +573,17 @@
       </svg>
       <span>Esporta quaderno (.inknote)</span>
     </button>
-    <button id="sendNotebookFromMenu" type="button" class="ui-menu-item ui-menu-item--accent" role="menuitem">
+    <button id="sendNotebookFromMenu" type="button" class="ui-menu-item ui-menu-item--auth-locked" role="menuitem"
+            title="Accedi con Google per inviare il quaderno a un amico">
       <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
         <path d="m21.854 2.147-10.94 10.939"/>
       </svg>
-      <span>Invia a un amico</span>
-    </button>
-  </div>
-
-  <div class="ui-menu-section">
-    <div class="ui-menu-section-title">Input (globale)</div>
-    <!--
-      "Scrittura con il dito":
-        OFF (default) → 1 dito fa pan, penna scrive, 2 dita pinch
-        ON            → 1 dito scrive,  2 dita fanno pan+pinch
-      L'id resta palmRejectionCheck per non toccare i binding esistenti.
-    -->
-    <label class="ui-menu-item"
-           title="Se attivo: 1 dito disegna, 2 dita muovono e zoomano">
-      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/>
-        <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/>
-        <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/>
-        <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
-      </svg>
-      <span>Scrittura con il dito</span>
-      <input type="checkbox" id="palmRejectionCheck" class="ui-menu-toggle-input">
-    </label>
-  </div>
-
-  <div class="ui-menu-section">
-    <button id="themeToggleFromMenu" type="button" class="ui-menu-item" role="menuitem">
-      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
-      </svg>
-      <span>Tema chiaro / scuro</span>
-    </button>
-    <button id="openSettingsFromMenu" type="button" class="ui-menu-item" role="menuitem">
-      <svg class="ui-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-        <circle cx="12" cy="12" r="3"/>
-      </svg>
-      <span>Impostazioni complete…</span>
+      <span class="ui-menu-item-body">
+        <span class="ui-menu-item-title">Invia a un amico</span>
+        <span id="sendNotebookAuthHint" class="ui-menu-item-hint">Accedi per attivare questa voce</span>
+      </span>
     </button>
   </div>
 </ink-menu>

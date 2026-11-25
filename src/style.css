@@ -588,6 +588,50 @@ body.dark #undoRedoContainer.undo-redo-dragging {
     color: #94a3b8;
   }
 
+  .ui-menu-item--auth-locked {
+    opacity: 0.62;
+    color: #64748b;
+  }
+
+  body.dark .ui-menu-item--auth-locked {
+    color: #94a3b8;
+  }
+
+  .ui-menu-item--auth-locked:hover {
+    opacity: 0.92;
+    background-color: #f1f5f9;
+    color: #334155;
+  }
+
+  body.dark .ui-menu-item--auth-locked:hover {
+    background-color: #1e293b;
+    color: #e2e8f0;
+  }
+
+  .ui-menu-item-body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .ui-menu-item-title {
+    display: block;
+    line-height: 1.2;
+  }
+
+  .ui-menu-item-hint {
+    display: block;
+    font-size: 0.65rem;
+    font-weight: 400;
+    line-height: 1.2;
+    color: #64748b;
+  }
+
+  body.dark .ui-menu-item-hint {
+    color: #94a3b8;
+  }
+
   .ui-menu-item--divider {
     border-top: 1px solid #f1f5f9;
   }

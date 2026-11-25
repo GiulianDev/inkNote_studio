@@ -87,6 +87,8 @@ export function openSettingsModal() {
   if (autoHideEl) autoHideEl.checked = !!s.autoHideDock;
   const libTextEl = document.getElementById('settingLibraryShowTextBelow');
   if (libTextEl) libTextEl.checked = !!s.libraryShowTextBelow;
+  const fingerEl = document.getElementById('palmRejectionCheck');
+  if (fingerEl) fingerEl.checked = s.palmRejection === false;
 
   _setValue('pressureSensitivitySlider', s.pressureSensitivity);
   _setValue('pressureLightSlider',       s.pressureLight);
@@ -144,6 +146,8 @@ export function confirmSettings() {
   const autoHideDock = autoHideEl ? !!autoHideEl.checked : !!s.autoHideDock;
   const libTextEl    = document.getElementById('settingLibraryShowTextBelow');
   const libraryShowTextBelow = libTextEl ? !!libTextEl.checked : !!s.libraryShowTextBelow;
+  const fingerEl     = document.getElementById('palmRejectionCheck');
+  const palmRejection = fingerEl ? !fingerEl.checked : s.palmRejection;
 
   const pressureSensitivity = _getIntValue('pressureSensitivitySlider', s.pressureSensitivity);
   const pressureLight       = _getIntValue('pressureLightSlider', s.pressureLight);
@@ -157,6 +161,7 @@ export function confirmSettings() {
     dockSize,
     autoHideDock,
     libraryShowTextBelow,
+    palmRejection,
     pressureSensitivity,
     pressureLight,
     pressureHeavy,
@@ -246,6 +251,11 @@ function _bindAll() {
   document.getElementById('settingLibraryShowTextBelow')
     ?.addEventListener('change', (e) => {
       updateSettings({ libraryShowTextBelow: !!e.target.checked }, { persist: false });
+    });
+
+  document.getElementById('palmRejectionCheck')
+    ?.addEventListener('change', (e) => {
+      updateSettings({ palmRejection: !e.target.checked }, { persist: false });
     });
 
   [

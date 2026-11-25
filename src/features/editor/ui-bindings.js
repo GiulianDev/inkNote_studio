@@ -4,33 +4,26 @@
 // Chiamato una volta sola da main.js dopo il load.
 //
 // NOTA: gli elementi della toolbar v2 (mainbar, dock, popover
-// Foglio, menu ⋯) sono gestiti internamente da
+// Foglio, menu Condivisione/Export) sono gestiti internamente da
 // features/toolbar/toolbar.js. Qui restano solo i bind
 // "editor-specifici" e gli header/menu actions.
-//
-// NOTA finger writing: il checkbox #palmRejectionCheck nel menu ⋯
-// ora si chiama "Scrittura con il dito". La semantica è INVERTITA
-// rispetto al vecchio "palm rejection": checked = finger writing ON.
 // ============================================================
 
-import { state } from '../../core/state.js';
+import { state, authState } from '../../core/state.js';
 import { showToast } from '../../core/utils.js';
-import { updateSettings, getSettings } from '../../core/app-settings.js';
+import { signInWithGoogle } from '../../services/firebase.js';
 import {
   setMainMenu, setTool, selectColor, updateStrokeWidth, updateSmoothing,
-  toggleTheme, toggleCompactMode, initCompactFullscreenSync,
+  toggleCompactMode, initCompactFullscreenSync,
   applySnapTogglesToUI, applyEraserLevelToUI,
-  updateOpacity, closeToolbarMenu, closeAllEditorMenus
+  closeToolbarMenu, closeAllEditorMenus
 } from '../toolbar/toolbar.js';
 import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../settings/settings-modal.js';
 import { exportToPDF } from './export-pdf.js';
 import { undo, redo } from '../history/history.js';
 import { returnToLibrary, updateCurrentNotebookTitle } from './editor.js';
-import {
-  addNewPage, clearCurrentPage, changeBackgroundPattern, resetZoom
-} from './pages.js';
-import { toggleFingerWriting } from '../viewport/gestures.js';
+import { clearCurrentPage, resetZoom } from './pages.js';
 import {
   clearSelection, deleteSelectedStrokes,
   copySelection, cutSelection, duplicateSelection,
@@ -48,8 +41,7 @@ import { getCurrentNotebook } from '../persistence/session.js';
 import { forceSave } from '../persistence/autosave.js';
 import { exportNotebooks } from '../backup/backup-export.js';
 import { showProgressDialog } from '../backup/backup-progress.js';
-import { openSharingModal } from '../sharing/sharing-ui.js';
-import { closeAllAuthDropdowns } from '../library/library-auth.js';
+import { openSharingModal, handleGoogleAuthError } from '../sharing/sharing-ui.js';
 
 async function _flushCurrentNotebookForAction() {
   if (state.pendingShape) finalizePendingShape();
@@ -104,6 +96,18 @@ async function _handleExportCurrentNotebook() {
 
 async function _handleSendCurrentNotebook() {
   closeAllEditorMenus();
+  if (!authState.user) {
+    if (authState.loading) return;
+    try {
+      const user = await signInWithGoogle();
+      if (!user) return;
+      showToast(`Benvenuto, ${user.displayName || user.email}!`, '👋');
+    } catch (err) {
+      await handleGoogleAuthError(err);
+      return;
+    }
+  }
+
   let nb;
   try {
     nb = await _flushCurrentNotebookForAction();
@@ -153,37 +157,21 @@ export function bindEditorUI() {
   document.getElementById('editorAuthDropdownSendBtn')
     ?.addEventListener('click', _handleSendCurrentNotebook);
 
-  // --- Menu ⋯: voci ---
-  document.getElementById('addPageBtn')
-    ?.addEventListener('click', () => { addNewPage(); closeToolbarMenu(); });
-  document.getElementById('clearPageBtn')
-    ?.addEventListener('click', () => { clearCurrentPage(); closeToolbarMenu(); });
+  // --- Menu Esporta e condividi ---
   document.getElementById('exportPdfFromMenu')
     ?.addEventListener('click', () => { closeToolbarMenu(); exportToPDF(); });
   document.getElementById('exportNotebookFromMenu')
     ?.addEventListener('click', _handleExportCurrentNotebook);
   document.getElementById('sendNotebookFromMenu')
     ?.addEventListener('click', _handleSendCurrentNotebook);
-  document.getElementById('themeToggleFromMenu')
-    ?.addEventListener('click', () => { toggleTheme(); closeToolbarMenu(); });
-  document.getElementById('openSettingsFromMenu')
-    ?.addEventListener('click', () => { closeToolbarMenu(); _openEditorSettings(); });
 
-  // --- Menu ⋯: Scrittura con il dito (globale) ---
-  // Semantica INVERTITA rispetto al vecchio "palm rejection":
-  //   checked = finger writing ON = palmRejection OFF
-  document.getElementById('palmRejectionCheck')
-    ?.addEventListener('change', (e) => {
-      const fingerWriting = e.target.checked;
-      updateSettings({ palmRejection: !fingerWriting });
-      toggleFingerWriting(fingerWriting);
-    });
-
-  // --- Dock Gomma: eraser mode ---
+  // --- Dock Gomma: eraser mode + pulisci pagina ---
   document.getElementById('eraserModeSelect')
     ?.addEventListener('change', (e) => {
       updateToolbarSettings({ eraserMode: e.target.value });
     });
+  document.getElementById('clearPageBtn')
+    ?.addEventListener('click', () => clearCurrentPage());
 
   // --- Zoom badge ---
   document.getElementById('resetZoomBtn')
@@ -242,17 +230,10 @@ export function bindEditorUI() {
   initCompactFullscreenSync();
 
   // --- Sincronizza controlli con lo stato corrente ---
-  applyFingerWritingToUI();
   applyEraserModeToUI();
   applySnapTogglesToUI();
   applyEraserLevelToUI();
   initUndoRedoDrag();
-}
-
-function applyFingerWritingToUI() {
-  const check = document.getElementById('palmRejectionCheck');
-  // checked = finger writing ON (cioè palmRejection === false)
-  if (check) check.checked = getSettings().palmRejection === false;
 }
 
 function applyEraserModeToUI() {

@@ -37,7 +37,6 @@ import {
   initToolbarSettings, resetToolbarSettings,
   getToolbarSettings, getToolbarSettingsForSave
 } from '../toolbar/toolbar-settings.js';
-import { getSettings } from '../../core/app-settings.js';
 import {
   pushEditorBackState,
   popEditorBackStateIfActive
@@ -414,9 +413,6 @@ function applyToolbarControlsToUI() {
 
   const eraserModeSel = document.getElementById('eraserModeSelect');
   if (eraserModeSel) eraserModeSel.value = s.eraserMode;
-
-  const fingerWritingCheck = document.getElementById('palmRejectionCheck');
-  if (fingerWritingCheck) fingerWritingCheck.checked = getSettings().palmRejection === false;
 
   applySnapTogglesToUI();
   applyEraserLevelToUI();

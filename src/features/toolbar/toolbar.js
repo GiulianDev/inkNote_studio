@@ -23,7 +23,7 @@
 import './toolbar.css';
 import toolbarHtml from './toolbar.html?raw';
 
-import { state } from '../../core/state.js';
+import { state, authState } from '../../core/state.js';
 import { showToast, hexToRgbA, on } from '../../core/utils.js';
 import {
   updateSettings, getSettings, onSettingsChanged, MAIN_MENU_IDS, WRITING_TOOL_IDS
@@ -1309,6 +1309,20 @@ export function applyBgPatternToUI() {
 
 let _toolbarMenuCtrl = null;
 
+export function syncSendMenuAuthState() {
+  const btn = document.getElementById('sendNotebookFromMenu');
+  if (!btn) return;
+  const hint = document.getElementById('sendNotebookAuthHint');
+  const loggedIn = !!authState.user;
+
+  btn.classList.toggle('ui-menu-item--accent', loggedIn);
+  btn.classList.toggle('ui-menu-item--auth-locked', !loggedIn);
+  btn.title = loggedIn
+    ? 'Invia questo quaderno a un amico'
+    : 'Accedi con Google per attivare questa voce';
+  if (hint) hint.classList.toggle('hidden', loggedIn);
+}
+
 function _setupMenuOverflow() {
   const btn = document.getElementById('toolbarMenuBtn');
   const panel = document.getElementById('toolbarMenuPanel');
@@ -1323,6 +1337,7 @@ function _setupMenuOverflow() {
     bindTriggerClick: true,
     onOpen: _renderOverflowMenu
   });
+  syncSendMenuAuthState();
 }
 
 export function closeAllEditorMenus({ keep = null } = {}) {
@@ -1334,6 +1349,8 @@ export function closeToolbarMenu() {
 }
 
 function _renderOverflowMenu() {
+  syncSendMenuAuthState();
+
   const panel = document.getElementById('toolbarMenuPanel');
   if (!panel) return;
 
@@ -1368,9 +1385,7 @@ function _renderOverflowMenu() {
     section.appendChild(btn);
   });
 
-  const lastSection = panel.querySelector('.ui-menu-section:last-of-type');
-  if (lastSection) panel.insertBefore(section, lastSection);
-  else panel.appendChild(section);
+  panel.appendChild(section);
 }
 
 function _tryShowMenu(menu) {
