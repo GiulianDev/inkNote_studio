@@ -262,7 +262,8 @@ export function initPlatform({
   targetState,
   windowObj = typeof window !== 'undefined' ? window : null,
   documentObj = typeof document !== 'undefined' ? document : null,
-  navigatorObj = typeof navigator !== 'undefined' ? navigator : null
+  navigatorObj = typeof navigator !== 'undefined' ? navigator : null,
+  log = typeof window !== 'undefined' && windowObj === window
 } = {}) {
   if (_activeCleanup) {
     _activeCleanup();
@@ -285,6 +286,10 @@ export function initPlatform({
       : 'mouse';
   }
   applyPlatformToDOM(targetState.platform, documentObj);
+
+  if (log) {
+    console.info('[platform]', { ...targetState.platform });
+  }
 
   const cleanups = [];
 
