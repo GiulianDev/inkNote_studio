@@ -11,8 +11,7 @@ import { createManualSaveRunner } from './manual-save.js';
 import { toggleAppFullscreen } from '../../core/fullscreen.js';
 import { applyPinchTransform } from '../viewport/transform.js';
 import { resetZoom } from '../editor/pages.js';
-import { closeSettingsModal } from '../settings/settings-modal.js';
-import { closeNewNotebookModal } from '../library/library.js';
+import { isAnyModalOpen } from '../../components/modal.js';
 import {
   clearSelection, hasLassoSelection, hasLassoClipboard,
   deleteSelection, copySelection, cutSelection, pasteSelection, duplicateSelection,
@@ -25,11 +24,7 @@ import {
 function _isEditorInteractive() {
   const lib = document.getElementById('libraryView');
   if (lib && !lib.classList.contains('hidden')) return false;
-  const settings = document.getElementById('settingsModal');
-  if (settings && !settings.classList.contains('hidden')) return false;
-  const newNb = document.getElementById('newNotebookModal');
-  if (newNb && !newNb.classList.contains('hidden')) return false;
-  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return false;
+  if (isAnyModalOpen()) return false;
   return true;
 }
 
@@ -70,10 +65,6 @@ export function setupKeyboardShortcuts() {
     const key = e.key.toLowerCase();
 
     if (key === 'escape') {
-      const settings = document.getElementById('settingsModal');
-      if (settings && !settings.classList.contains('hidden')) { closeSettingsModal(); return; }
-      const newNb = document.getElementById('newNotebookModal');
-      if (newNb && !newNb.classList.contains('hidden')) { closeNewNotebookModal(); return; }
       if (_isEditorInteractive()) {
         if (isSelectionStylePopoverOpen()) { hideSelectionStylePopover(); return; }
         if (state.editingTextBoxId) { commitActiveTextBox(); return; }

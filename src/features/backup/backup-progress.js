@@ -1,6 +1,9 @@
 /**
  * Dialog di progresso modale. Riusato per export, import e apertura/aggiornamento quaderni.
  */
+
+import { openModalOverlay } from '../../components/modal.js';
+
 export function showProgressDialog(title = 'Elaborazione...') {
   const overlay = document.createElement('div');
   overlay.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4';
@@ -13,16 +16,25 @@ export function showProgressDialog(title = 'Elaborazione...') {
       <p class="text-xs text-slate-500 mt-2" id="progressLabel">Preparazione...</p>
     </div>
   `;
-  document.body.appendChild(overlay);
 
   const titleEl = overlay.querySelector('#progressTitle');
   const bar = overlay.querySelector('#progressBar');
   const label = overlay.querySelector('#progressLabel');
   titleEl.textContent = title;
 
+  const modalCtrl = openModalOverlay(overlay, {
+    id: 'progressDialog',
+    closeOnEscape: false,
+    closeOnBackdrop: false,
+    closeOnBack: false,
+    ariaBusy: true,
+    ariaLabel: title
+  });
+
   return {
     setTitle(newTitle) {
       titleEl.textContent = newTitle;
+      overlay.setAttribute('aria-label', newTitle);
     },
     update({ done = 0, total = 0, label: text } = {}) {
       if (total > 0) {
@@ -35,7 +47,7 @@ export function showProgressDialog(title = 'Elaborazione...') {
       }
     },
     close() {
-      try { document.body.removeChild(overlay); } catch (e) {}
+      modalCtrl.close('programmatic');
     }
   };
 }

@@ -9,6 +9,7 @@ import { emit } from '../../core/utils.js';
 import { scheduleSave } from '../persistence/autosave.js';
 import { packStroke } from '../persistence/serialization.js';
 import { normalizeTextBoxes, resetTextToolState } from '../tools/text.js';
+import { isAnyModalOpen } from '../../components/modal.js';
 
 const MAX_HISTORY_STEPS = 20;
 const MAX_CACHED_PAGES = 6;
@@ -349,11 +350,7 @@ export function handleHistoryKeyboard(e) {
   if (!e.key) return;
   const lib = document.getElementById('libraryView');
   if (lib && !lib.classList.contains('hidden')) return;
-  const settings = document.getElementById('settingsModal');
-  if (settings && !settings.classList.contains('hidden')) return;
-  const newNb = document.getElementById('newNotebookModal');
-  if (newNb && !newNb.classList.contains('hidden')) return;
-  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+  if (isAnyModalOpen()) return;
 
   const isCtrl = e.ctrlKey || e.metaKey;
   if (!isCtrl) return;

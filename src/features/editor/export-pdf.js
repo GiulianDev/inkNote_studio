@@ -38,6 +38,7 @@ import {
   escapeHtml,
   showToast
 } from '../../core/utils.js';
+import { openModalOverlay } from '../../components/modal.js';
 
 const PDF_WIDTH = 595.28;   // A4 width in pt
 const PDF_HEIGHT = 841.89;  // A4 height in pt
@@ -564,24 +565,16 @@ export function exportToPDF() {
   });
   updateHint();
 
-  const close = () => {
-    if (isExporting) return;
-    document.removeEventListener('keydown', onKeyDown, true);
-    overlay.remove();
-  };
-
-  const onKeyDown = (e) => {
-    if (e.key === 'Escape' && !isExporting) {
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    }
-  };
-
-  document.addEventListener('keydown', onKeyDown, true);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay && !isExporting) close();
+  const modalCtrl = openModalOverlay(overlay, {
+    id: 'exportPdfModal',
+    ariaLabel: 'Esporta PDF',
+    canClose: () => !isExporting
   });
+
+  const close = () => {
+    modalCtrl.close('cancel');
+  };
+
   closeBtn.addEventListener('click', close);
   cancelBtn.addEventListener('click', close);
 
@@ -644,6 +637,4 @@ export function exportToPDF() {
       progressBox.classList.add('hidden');
     }
   });
-
-  document.body.appendChild(overlay);
 }

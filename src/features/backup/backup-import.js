@@ -12,6 +12,7 @@ import {
   saveFolderToDB
 } from '../../services/db.js';
 import { showToast, escapeHtml } from '../../core/utils.js';
+import { openModalOverlay } from '../../components/modal.js';
 
 async function _resolveImportedFolderId(nb, folderById, folderByParentName) {
   if (Array.isArray(nb.folderPath) && nb.folderPath.length > 0) {
@@ -266,11 +267,22 @@ function showConflictDialog(conflicts) {
         </div>
       </div>
     `;
-    document.body.appendChild(overlay);
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    const modalCtrl = openModalOverlay(overlay, {
+      id: 'conflictDialog',
+      ariaLabel: 'Conflitti rilevati',
+      onClose: () => finish(null)
+    });
 
     const cleanup = (result) => {
-      try { document.body.removeChild(overlay); } catch (e) {}
-      resolve(result);
+      finish(result);
+      modalCtrl.close(result === null ? 'cancel' : 'confirm');
     };
 
     overlay.querySelector('[data-action="cancel"]')

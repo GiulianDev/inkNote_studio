@@ -43,6 +43,7 @@ import {
   formatFirestoreErrorMessage
 } from './sharing-helpers.js';
 import { closeAllEditorMenus } from '../toolbar/toolbar.js';
+import { openModalOverlay } from '../../components/modal.js';
 
 const NOTIF_PREF_KEY = 'inknote_browser_notifications';
 const PENDING_INVITE_KEY = 'inknote_pending_invite_handle';
@@ -436,29 +437,13 @@ export async function openSharingModal({
   const overlay = document.createElement('div');
   overlay.id = 'sharingModal';
   overlay.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 library-modal';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', isSendMode ? 'Invia quaderno' : 'Ricevuti e Amici');
 
+  let modalCtrl = null;
   const cleanup = () => {
     if (_activeModalState?.overlay !== overlay) return;
-    document.removeEventListener('keydown', onKeyDown, true);
-    overlay.remove();
     _activeModalState = null;
+    modalCtrl?.close('programmatic');
   };
-
-  const onKeyDown = (e) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      cleanup();
-    }
-  };
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) cleanup();
-  });
-  document.addEventListener('keydown', onKeyDown, true);
 
   const renderSignedOutBody = () => `
     <div class="p-6 text-center space-y-4">
@@ -1325,7 +1310,15 @@ export async function openSharingModal({
 
   _activeModalState = { overlay, render, close: cleanup };
   render();
-  document.body.appendChild(overlay);
+  modalCtrl = openModalOverlay(overlay, {
+    id: 'sharingModal',
+    ariaLabel: isSendMode ? 'Invia quaderno' : 'Ricevuti e Amici',
+    onClose: () => {
+      if (_activeModalState?.overlay === overlay) {
+        _activeModalState = null;
+      }
+    }
+  });
   if (autoScanContacts && authState.user && isFirestoreReady() && isGoogleLinkedUser(authState.user)) {
     overlay.querySelector('[data-action="scan-google-contacts"]')?.click();
   }

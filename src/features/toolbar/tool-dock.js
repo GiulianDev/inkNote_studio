@@ -1,5 +1,5 @@
 /**
- * @module components/tool-dock
+ * @module features/toolbar/tool-dock
  *
  * Componente globale riutilizzabile per i dock contestuali dei tool
  * (`<ink-tool-dock>` / `.ui-dock`):

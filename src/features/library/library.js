@@ -43,6 +43,7 @@ import {
   initAppFullscreenSync,
   toggleAppFullscreen
 } from '../../core/fullscreen.js';
+import { registerModal, isAnyModalOpen } from '../../components/modal.js';
 
 const COVER_COLOR_ACTIVE_CLASSES = ['ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'];
 
@@ -59,6 +60,18 @@ let _searchQuery = '';
 let _cachedFolders = [];
 let _cachedNotebooks = [];
 let _dndController = null;
+let _newNotebookModalCtrl = null;
+
+function _ensureNewNotebookModalCtrl() {
+  if (_newNotebookModalCtrl) return _newNotebookModalCtrl;
+  const modal = document.getElementById('newNotebookModal');
+  if (!modal) return null;
+  _newNotebookModalCtrl = registerModal(modal, {
+    id: 'newNotebookModal',
+    initialFocus: '#modalNbTitle'
+  });
+  return _newNotebookModalCtrl;
+}
 
 // ============================================================
 // CONTROLLI & BREADCRUMBS
@@ -1233,15 +1246,15 @@ function _populateModalFolderSelect(folders, targetFolderId) {
 
 async function _openNewNotebookModal() {
   closeAllAuthDropdowns();
+  const ctrl = _ensureNewNotebookModalCtrl();
   const modal = document.getElementById('newNotebookModal');
-  if (!modal) return;
+  if (!modal || !ctrl) return;
 
   selectedCoverColor = '#4f46e5';
   _setActiveCoverColorBtn(document.querySelector('#coverColorOptions button'));
   _populateModalFolderSelect(_cachedFolders, _currentFolderId);
 
-  modal.classList.remove('hidden');
-  modal.classList.add('flex');
+  ctrl.open();
   const body = modal.querySelector('.overflow-y-auto');
   if (body) body.scrollTop = 0;
 
@@ -1253,10 +1266,8 @@ async function _openNewNotebookModal() {
 }
 
 export function closeNewNotebookModal() {
-  const modal = document.getElementById('newNotebookModal');
-  if (!modal) return;
-  modal.classList.add('hidden');
-  modal.classList.remove('flex');
+  const ctrl = _ensureNewNotebookModalCtrl();
+  ctrl?.close('programmatic');
 }
 
 function _selectCoverColor(btn) {
@@ -1484,9 +1495,11 @@ export function bindLibraryUI() {
     syncScrollShadow();
   }
 
+  _ensureNewNotebookModalCtrl();
+
   document.addEventListener('click', (e) => {
     if (!_selectionMode) return;
-    if (document.querySelector('.library-modal')) return;
+    if (isAnyModalOpen()) return;
     if (e.target.closest('.notebook-card, .folder-card, #libraryHeader')) return;
     _exitSelectionMode();
   });
@@ -1507,7 +1520,7 @@ export function bindLibraryUI() {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && _selectionMode && !document.querySelector('.library-modal')) {
+    if (e.key === 'Escape' && _selectionMode && !isAnyModalOpen()) {
       _exitSelectionMode();
     }
   });

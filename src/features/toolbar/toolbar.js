@@ -67,7 +67,7 @@ import {
   closeAllFloatingMenus,
   registerExternalMenuCloser
 } from '../../components/floating-menu.js';
-import '../../components/tool-dock.js';
+import './tool-dock.js';
 
 let _mounted = false;
 let _hintShownThisSession = false;

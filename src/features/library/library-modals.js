@@ -3,6 +3,7 @@
 // ============================================================
 
 import { escapeHtml } from '../../core/utils.js';
+import { openModalOverlay } from '../../components/modal.js';
 
 export const FOLDER_COLORS = [
   { color: '#6366f1', label: 'Indigo' },
@@ -97,16 +98,31 @@ export function openFolderEditorModal({
       </div>
     `;
 
-    let closed = false;
-    const cleanup = (result) => {
-      if (closed) return;
-      closed = true;
-      document.removeEventListener('keydown', onKeyDown, true);
-      overlay.remove();
+    const nameInput = overlay.querySelector('#folderModalNameInput');
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
       resolve(result);
     };
 
-    const nameInput = overlay.querySelector('#folderModalNameInput');
+    const modalCtrl = openModalOverlay(overlay, {
+      id: 'folderEditorModal',
+      ariaLabel: modalTitle,
+      onOpen: () => {
+        setTimeout(() => {
+          nameInput?.focus();
+          nameInput?.select();
+        }, 20);
+      },
+      onClose: () => finish(null)
+    });
+
+    const cleanup = (result) => {
+      finish(result);
+      modalCtrl.close(result === null ? 'cancel' : 'confirm');
+    };
+
     const submit = () => {
       const name = (nameInput?.value || '').trim();
       if (!name) {
@@ -116,20 +132,11 @@ export function openFolderEditorModal({
       cleanup({ name, color: chosenColor });
     };
 
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        cleanup(null);
-      } else if (e.key === 'Enter' && document.activeElement === nameInput) {
+    nameInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
         e.preventDefault();
         submit();
       }
-    };
-
-    document.addEventListener('keydown', onKeyDown, true);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) cleanup(null);
     });
 
     overlay.querySelectorAll('[data-folder-color]').forEach(btn => {
@@ -146,12 +153,6 @@ export function openFolderEditorModal({
 
     overlay.querySelector('[data-modal-cancel]')?.addEventListener('click', () => cleanup(null));
     overlay.querySelector('[data-modal-save]')?.addEventListener('click', submit);
-
-    document.body.appendChild(overlay);
-    setTimeout(() => {
-      nameInput?.focus();
-      nameInput?.select();
-    }, 20);
   });
 }
 
@@ -242,27 +243,23 @@ export function openMoveItemsModal({
       </div>
     `;
 
-    let closed = false;
-    const cleanup = (result) => {
-      if (closed) return;
-      closed = true;
-      document.removeEventListener('keydown', onKeyDown, true);
-      overlay.remove();
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
       resolve(result);
     };
 
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        cleanup(undefined);
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown, true);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) cleanup(undefined);
+    const modalCtrl = openModalOverlay(overlay, {
+      id: 'moveItemsModal',
+      ariaLabel: title,
+      onClose: () => finish(undefined)
     });
+
+    const cleanup = (result) => {
+      finish(result);
+      modalCtrl.close(result === undefined ? 'cancel' : 'confirm');
+    };
 
     const listEl = overlay.querySelector('#moveModalFolderList');
 
@@ -296,7 +293,5 @@ export function openMoveItemsModal({
 
     overlay.querySelector('[data-modal-cancel]')?.addEventListener('click', () => cleanup(undefined));
     overlay.querySelector('[data-modal-confirm]')?.addEventListener('click', () => cleanup(selectedId));
-
-    document.body.appendChild(overlay);
   });
 }

@@ -2,6 +2,8 @@
 // COSTANTI, HELPER PURI, EVENT BUS, NOTIFICHE UI
 // ============================================================
 
+import { openModalOverlay } from '../components/modal.js';
+
 export const PAGE_WIDTH  = 794;
 export const PAGE_HEIGHT = 1123;
 export const PULL_THRESHOLD = 80;
@@ -190,31 +192,26 @@ export function showConfirmDialog({
       });
     }
 
-    let closed = false;
-    const close = (confirmed) => {
-      if (closed) return;
-      closed = true;
+    let settled = false;
+    const finish = (confirmed) => {
+      if (settled) return;
+      settled = true;
       const checked = !!(checkboxEl && checkboxEl.checked);
-      document.removeEventListener('keydown', onKeyDown, true);
-      overlay.remove();
       resolve(hasCheckbox ? { confirmed, checked } : confirmed);
     };
 
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        close(false);
-      }
+    const modalCtrl = openModalOverlay(overlay, {
+      id: 'confirmDialog',
+      ariaLabel: title,
+      onClose: () => finish(false)
+    });
+
+    const close = (confirmed) => {
+      finish(confirmed);
+      modalCtrl.close(confirmed ? 'confirm' : 'cancel');
     };
 
-    document.addEventListener('keydown', onKeyDown, true);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close(false);
-    });
     overlay.querySelector('[data-confirm-cancel]')?.addEventListener('click', () => close(false));
     okBtn?.addEventListener('click', () => close(true));
-
-    document.body.appendChild(overlay);
   });
 }

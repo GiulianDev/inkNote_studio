@@ -52,10 +52,10 @@ import {
   initEditorHandlers, returnToLibrary, isEditorActive
 } from './features/editor/editor.js';
 import { bindEditorUI } from './features/editor/ui-bindings.js';
-import { mountSettingsModal, closeSettingsModal } from './features/settings/settings-modal.js';
+import { mountSettingsModal } from './features/settings/settings-modal.js';
 import { mountPagesSidebar } from './features/pages-sidebar/pages-sidebar.js';
 import {
-  renderLibraryView, bindLibraryUI, closeNewNotebookModal,
+  renderLibraryView, bindLibraryUI,
   getCurrentFolderId, setCurrentFolderId, getParentFolderId,
   isSelectionModeActive, exitSelectionMode,
   hasActiveLibrarySearch, clearLibrarySearch
@@ -68,6 +68,7 @@ import { showToast } from './core/utils.js';
 import { getSettings, updateSettings } from './core/app-settings.js';
 import { initBackNavigation } from './core/back-navigation.js';
 import { setupSystemMenuSuppression } from './core/system-menu-guard.js';
+import { closeTopModal } from './components/modal.js';
 
 window.addEventListener('load', async () => {
   // 0. Piattaforma e listener input runtime (OS, device, hybrid, DPR, lastPointerType).
@@ -163,26 +164,11 @@ window.addEventListener('load', async () => {
 });
 
 function _dismissTopTransientUI() {
-  const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
-  if (dialogs.length > 0) {
-    const topDialog = dialogs[dialogs.length - 1];
-    const cancelBtn = topDialog.querySelector('[data-confirm-cancel], [data-modal-cancel]');
-    if (cancelBtn) {
-      cancelBtn.click();
-      return 'dialog';
-    }
-  }
-
-  const settingsModal = document.getElementById('settingsModal');
-  if (settingsModal && !settingsModal.classList.contains('hidden')) {
-    closeSettingsModal();
-    return 'settings-modal';
-  }
-
-  const newNbModal = document.getElementById('newNotebookModal');
-  if (newNbModal && !newNbModal.classList.contains('hidden')) {
-    closeNewNotebookModal();
-    return 'new-notebook-modal';
+  const modalDismiss = closeTopModal('back');
+  if (modalDismiss) {
+    return modalDismiss.closed
+      ? `modal:${modalDismiss.id}`
+      : `modal-locked:${modalDismiss.id}`;
   }
 
   const authDropdown = document.getElementById('authDropdown');

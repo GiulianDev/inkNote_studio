@@ -29,20 +29,41 @@ import {
   computeDirectionalNibFactor
 } from '../tools/ink-calibration.js';
 import { closeAllEditorMenus } from '../toolbar/toolbar.js';
+import { registerModal } from '../../components/modal.js';
 
 import settingsHtml from './settings-modal.html?raw';
 
 let _mounted = false;
 let _isOpen  = false;
+let _settingsModalCtrl = null;
 /** @type {typeof DEFAULT_SETTINGS|null} */
 let _draftSnapshot = null;
 
+function _ensureModalController() {
+  if (_settingsModalCtrl) return _settingsModalCtrl;
+  const modal = document.getElementById('settingsModal');
+  if (!modal) return null;
+  _settingsModalCtrl = registerModal(modal, {
+    id: 'settingsModal',
+    onClose: () => {
+      if (_draftSnapshot) {
+        updateSettings(_draftSnapshot, { persist: true });
+      }
+      _draftSnapshot = null;
+      _isOpen = false;
+    }
+  });
+  return _settingsModalCtrl;
+}
+
 export function mountSettingsModal() {
   if (_mounted || document.getElementById('settingsModal')) {
+    _ensureModalController();
     _mounted = true;
     return;
   }
   document.body.insertAdjacentHTML('beforeend', settingsHtml);
+  _ensureModalController();
   _bindAll();
   _mounted = true;
 }
@@ -86,10 +107,10 @@ export function openSettingsModal() {
   _renderPressureCurveSvg();
   _redrawPressureTest();
 
+  const ctrl = _ensureModalController();
   const modal = document.getElementById('settingsModal');
-  if (!modal) return;
-  modal.classList.remove('hidden');
-  modal.classList.add('flex');
+  if (!modal || !ctrl) return;
+  ctrl.open();
   const body = modal.querySelector('.overflow-y-auto');
   if (body) body.scrollTop = 0;
   requestAnimationFrame(() => {
@@ -99,17 +120,19 @@ export function openSettingsModal() {
 }
 
 export function closeSettingsModal({ cancel = true } = {}) {
+  if (!cancel) {
+    _draftSnapshot = null;
+  }
+  const ctrl = _ensureModalController();
+  if (ctrl && ctrl.isOpen()) {
+    ctrl.close(cancel ? 'programmatic' : 'confirm');
+    return;
+  }
   if (cancel && _draftSnapshot) {
     updateSettings(_draftSnapshot, { persist: true });
   }
-
   _draftSnapshot = null;
   _isOpen = false;
-
-  const modal = document.getElementById('settingsModal');
-  if (!modal) return;
-  modal.classList.add('hidden');
-  modal.classList.remove('flex');
 }
 
 export function confirmSettings() {
@@ -141,8 +164,6 @@ export function confirmSettings() {
     pressureSpeedWeight
   }, { persist: true });
 
-  _draftSnapshot = null;
-  _isOpen = false;
   closeSettingsModal({ cancel: false });
   showToast('Impostazioni salvate', '⚙️');
 }
@@ -267,22 +288,6 @@ function _bindAll() {
     canvas.addEventListener('pointercancel', _onPressureTestUp);
     canvas.addEventListener('contextmenu',   (e) => e.preventDefault());
   }
-
-  const modal = document.getElementById('settingsModal');
-  let backdropDown = false;
-
-  modal?.addEventListener('pointerdown', (e) => {
-    backdropDown = (e.target === e.currentTarget);
-  });
-
-  modal?.addEventListener('pointerup', (e) => {
-    if (backdropDown && e.target === e.currentTarget) {
-      closeSettingsModal();
-    }
-    backdropDown = false;
-  });
-
-  modal?.addEventListener('pointercancel', () => { backdropDown = false; });
 
   onSettingsChanged(({ changed }) => {
     if (!_isOpen) return;
