@@ -19,11 +19,8 @@ import {
 } from './shapes.js';
 import {
   cloneInkParams,
-  createStrokeStabilizer,
-  detectInkPlatform
+  createStrokeStabilizer
 } from './ink-calibration.js';
-
-const _inkPlatform = detectInkPlatform();
 import { finalizeScribble } from './scribble.js';
 import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../persistence/autosave.js';
@@ -61,7 +58,7 @@ export function beginInkStroke(point) {
     _pendingInitialPressure: hasSyntheticInitial,
     _syntheticPointCount: hasSyntheticInitial ? 1 : 0,
     _needsOverlayRebase: false,
-    _stabilizer: createStrokeStabilizer(initialPt, { platform: _inkPlatform }),
+    _stabilizer: createStrokeStabilizer(initialPt, { platform: state.platform.family }),
     _drawnIdx: 0,
     _lastSnapCheck: 0,
     points: [{

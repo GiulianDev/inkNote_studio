@@ -29,13 +29,7 @@ import {
   GESTURE_BLOCK_COOLDOWN_MS
 } from './palm-rejection.js';
 
-// Rilevamento iPadOS / iOS WebKit (iPadOS 13+ si dichiara MacIntel + maxTouchPoints > 1)
-const _isIOS = typeof navigator !== 'undefined' && (
-  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-);
-
-const PINCH_MAX_INITIAL_DIST = _isIOS
+const PINCH_MAX_INITIAL_DIST = state.platform.isIOS
   ? PINCH_MAX_INITIAL_DIST_IOS
   : PINCH_MAX_INITIAL_DIST_DEFAULT;
 
@@ -68,7 +62,7 @@ const MOMENTUM_SPEED_BOOST_MAX = 2.8;
 // STATO MODULO
 // ============================================================
 
-const _palmTracker = createPalmRejectionTracker({ isIOS: _isIOS });
+const _palmTracker = createPalmRejectionTracker({ isIOS: state.platform.isIOS });
 
 let _panStartTime = 0;
 let _gestureStartTime = 0;
@@ -286,7 +280,7 @@ export function setupViewportGestures() {
   viewportEl.addEventListener('gesturestart', preventNativeGesture, { passive: false });
   viewportEl.addEventListener('gesturechange', preventNativeGesture, { passive: false });
   viewportEl.addEventListener('gestureend', preventNativeGesture, { passive: false });
-  if (_isIOS) {
+  if (state.platform.isIOS) {
     viewportEl.addEventListener('touchmove', preventNativeGesture, { passive: false });
   }
 
@@ -483,7 +477,7 @@ export function setupViewportGestures() {
     const ptr = viewport.activePointers.get(e.pointerId);
     if (!ptr) return;
 
-    if (state.palmRejection && !_panCommitted && !_pinchCommitted && isPalmContact(e, _isIOS)) {
+    if (state.palmRejection && !_panCommitted && !_pinchCommitted && isPalmContact(e, state.platform.isIOS)) {
       _palmTracker.blockGesturesUntil(now + GESTURE_BLOCK_COOLDOWN_MS);
       _cancelCurrentGesture(false);
       _clearTouchPointers(viewportEl);

@@ -290,10 +290,19 @@ body.dark .page-thumb.active .page-thumb-number { color: #818cf8; }
 .page-thumb.active .page-thumb-drag-handle { opacity: 0.9; }
 .page-thumb-delete:hover { background: #e11d48; }
 
-/* Su touch/stylus o dispositivi con puntatore impreciso: maniglia e delete sempre accessibili */
+/* Su touch/stylus o dispositivi ibridi in uso touch/penna: maniglia e delete sempre accessibili */
 @media (hover: none), (pointer: coarse) {
   .page-thumb-drag-handle { opacity: 0.85; }
   .page-thumb-delete { opacity: 0.85; }
+}
+
+body.plat-mobile .page-thumb-drag-handle,
+body.plat-mobile .page-thumb-delete,
+body[data-last-pointer="touch"] .page-thumb-drag-handle,
+body[data-last-pointer="touch"] .page-thumb-delete,
+body[data-last-pointer="pen"] .page-thumb-drag-handle,
+body[data-last-pointer="pen"] .page-thumb-delete {
+  opacity: 0.85;
 }
 
 /* --- Classi hcg-sortable --- */

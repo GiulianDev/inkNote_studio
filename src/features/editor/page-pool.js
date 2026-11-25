@@ -16,11 +16,11 @@ const POOL_SIZE = 5;
 const POOL_RADIUS = 2;
 const MAX_RENDER_DPR = 4;
 const MAX_ZOOM_DPR_BOOST = 1.3;
-const _isIOS = typeof navigator !== 'undefined' && (
-  /iPad|iPhone|iPod/.test(navigator.userAgent || '') ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-);
-const BASE_OVERLAY_DPR = Math.min(window.devicePixelRatio || 1, _isIOS ? 2 : 1.5);
+
+function _getBaseOverlayDpr() {
+  const deviceDpr = state.platform.dpr || window.devicePixelRatio || 1;
+  return Math.min(deviceDpr, state.platform.isIOS ? 2 : 1.5);
+}
 
 class PageSlot {
   constructor() {
@@ -200,7 +200,7 @@ function isPageVisible(page, cachedVpRect = null) {
 }
 
 function getTargetDpr(page, cachedVpRect = null) {
-  const deviceDpr = window.devicePixelRatio || 1;
+  const deviceDpr = state.platform.dpr || window.devicePixelRatio || 1;
   const { viewport } = window.__inknoteViewport || {};
   const scale = (viewport && viewport.scale) || 1;
   const zoom = Math.max(1, scale);
@@ -213,7 +213,7 @@ function _resizeSlot(slot, page, cachedVpRect = null, opts = {}) {
   const dpr = getTargetDpr(page, cachedVpRect || opts.vpRect || null);
   const newW = Math.floor(PAGE_WIDTH * dpr);
   const newH = Math.floor(PAGE_HEIGHT * dpr);
-  const oDpr = Math.min(dpr, BASE_OVERLAY_DPR);
+  const oDpr = Math.min(dpr, _getBaseOverlayDpr());
   const oW = Math.floor(PAGE_WIDTH * oDpr);
   const oH = Math.floor(PAGE_HEIGHT * oDpr);
 

@@ -22,9 +22,12 @@
  *   dell'editor e vengono scritti dai tool e dalle gesture.
  *
  * @see core/types.js  — typedef di Point, Stroke, PageData, Snapshot
+ * @see core/platform.js — state.platform (rilevamento e input runtime)
  * @see core/app-settings.js
  * @see features/toolbar/toolbar-settings.js
  */
+
+import { createInitialPlatformState } from './platform.js';
 
 /**
  * @typedef {Object} Point
@@ -80,6 +83,10 @@ export const state = {
   pages: [],
   /** @type {number} */
   activePageIndex: 0,
+
+  // --- Piattaforma e input runtime (vedi core/platform.js) ---
+  /** @type {ReturnType<typeof createInitialPlatformState>} */
+  platform: createInitialPlatformState(),
 
   // --- Impostazioni globali (snapshot read-only, vedi core/app-settings.js) ---
   /** @type {import('../core/app-settings.js').DEFAULT_SETTINGS|null} */

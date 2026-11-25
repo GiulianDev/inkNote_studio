@@ -21,7 +21,6 @@ import {
 } from '../../core/app-settings.js';
 import { computeStrokeWidth, renderPencilPreviewStroke } from '../render/render.js';
 import {
-  detectInkPlatform,
   normalizePenPressure,
   createStrokeStabilizer,
   samplePressureCurve,
@@ -77,7 +76,7 @@ export function openSettingsModal() {
 
   const platformBadge = document.getElementById('inkPlatformBadge');
   if (platformBadge) {
-    const plat = _pressureTestState.platform;
+    const plat = state.platform.family;
     platformBadge.textContent = plat === 'ios'
       ? 'Profilo iPad / Apple Pencil'
       : (plat === 'android' ? 'Profilo Android' : 'Profilo Desktop / Surface');
@@ -176,7 +175,7 @@ function _renderPressureCurveSvg() {
   if (!pathEl || !areaEl) return;
 
   const params = getPressureParams();
-  const pts = samplePressureCurve({ ...params, platform: _pressureTestState.platform }, 28);
+  const pts = samplePressureCurve({ ...params, platform: state.platform.family }, 28);
   const left = 12, right = 208, bottom = 78, top = 12;
   const w = right - left;
   const h = bottom - top;
@@ -297,7 +296,6 @@ function _bindAll() {
 // PRESSURE TEST CANVAS
 // ------------------------------------------------------------
 const _pressureTestState = {
-  platform: detectInkPlatform(),
   strokes: [],
   current: null
 };
@@ -312,7 +310,7 @@ function _onPressureTestDown(e) {
   const params = getPressureParams();
   const rawPressure = e.pressure || 0;
   const normP = normalizePenPressure(rawPressure, {
-    platform: _pressureTestState.platform,
+    platform: state.platform.family,
     sensitivity: params.sensitivity,
     isDrawing: false,
     lastValidPressure: 0
@@ -333,7 +331,7 @@ function _onPressureTestDown(e) {
   _pressureTestState.current = {
     tool,
     size: state.strokeWidth || 4,
-    _stabilizer: createStrokeStabilizer(firstPt, { platform: _pressureTestState.platform }),
+    _stabilizer: createStrokeStabilizer(firstPt, { platform: state.platform.family }),
     _lastRawValidPressure: rawPressure > 0 ? normP : 0,
     _pendingInitialPressure: rawPressure <= 0,
     points: [firstPt]
@@ -358,7 +356,7 @@ function _onPressureTestMove(e) {
     const rawPressure = ev.pressure || 0;
     const isFallback = rawPressure <= 0;
     const normP = normalizePenPressure(rawPressure, {
-      platform: _pressureTestState.platform,
+      platform: state.platform.family,
       sensitivity: params.sensitivity,
       isDrawing: true,
       lastValidPressure: cur._lastRawValidPressure
@@ -463,7 +461,7 @@ function _redrawPressureTest() {
     const widths = pts.map((pt, idx) => {
       const pNorm = pt.rawPressure > 0
         ? normalizePenPressure(pt.rawPressure, {
-            platform: _pressureTestState.platform,
+            platform: state.platform.family,
             sensitivity: params.sensitivity,
             isDrawing: idx > 0,
             lastValidPressure: lastValid

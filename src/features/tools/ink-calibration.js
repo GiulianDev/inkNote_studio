@@ -9,6 +9,8 @@
  *   5. Pulizia micro-tremolio finale (tail jitter) prima del riconoscimento forme/linee
  */
 
+import { detectPlatformInfo } from '../../core/platform.js';
+
 export const DEFAULT_PRESSURE_SENSITIVITY = 50;
 export const DEFAULT_PRESSURE_SPEED_WEIGHT = 20;
 export const TILT_DEADZONE_DEG = 24;
@@ -31,16 +33,10 @@ function _clamp01(val) {
 
 /**
  * Rileva la piattaforma di input penna (`'ios' | 'android' | 'desktop'`).
+ * Wrapper retrocompatibile sopra `core/platform.js::detectPlatformInfo`.
  */
 export function detectInkPlatform(nav = typeof navigator !== 'undefined' ? navigator : null) {
-  if (!nav) return 'desktop';
-  const ua = nav.userAgent || '';
-  if (/iPad|iPhone|iPod/.test(ua) ||
-      (nav.platform === 'MacIntel' && (nav.maxTouchPoints || 0) > 1)) {
-    return 'ios';
-  }
-  if (/Android/i.test(ua)) return 'android';
-  return 'desktop';
+  return detectPlatformInfo({ navigatorObj: nav, windowObj: null, documentObj: null }).family;
 }
 
 /**

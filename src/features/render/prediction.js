@@ -8,11 +8,10 @@
 import { state } from '../../core/state.js';
 import { getPressureParams } from '../../core/app-settings.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, sliderToBaseSize, getEffectiveColor, isPaperDark } from '../../core/utils.js';
-import { detectInkPlatform, computePredictionWidth } from '../tools/ink-calibration.js';
+import { computePredictionWidth } from '../tools/ink-calibration.js';
 
 const PREDICTION_ALPHA = 0.40;
 const PREDICTION_DPR = 1;
-const _predPlatform = detectInkPlatform();
 
 export function ensurePredictionCanvas(pageData) {
   if (pageData._predCanvas) return;
@@ -93,7 +92,7 @@ export function drawPredictions(pageData, events, rect) {
     lastPoint: last,
     predictedEvents: events,
     inkParams: stroke.inkParams || pressureParams,
-    platform: _predPlatform,
+    platform: state.platform.family,
     sensitivity: pressureParams.sensitivity
   });
   const inkDark = isPaperDark(state.isDarkMode, state.paperColor);

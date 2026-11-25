@@ -11,7 +11,6 @@ import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../c
 import { checkForScribble } from './scribble.js';
 import { trySnapLineDuringDraw, trySnapGeometricShapeDuringDraw } from './shapes.js';
 import {
-  detectInkPlatform,
   normalizePenPressure,
   createStrokeStabilizer,
   getHoldMoveTolerancePx,
@@ -23,8 +22,6 @@ const MAX_POOL_SIZE = 2000;
 
 // Hold-to-snap stile GoodNotes SOLO per forme geometriche (cerchi, ellissi, rettangoli, triangoli)
 const HOLD_SNAP_DELAY_MS = 320;
-
-const _platform = detectInkPlatform();
 
 let _lastValidPenPressure = 0;
 
@@ -170,7 +167,7 @@ export function getCanvasCoords(e, canvas, fallbackPointerType = null) {
     const rawP = Number.isFinite(e.pressure) ? e.pressure : 0;
     const isFallback = rawP <= 0;
     const norm = normalizePenPressure(rawP, {
-      platform: _platform,
+      platform: state.platform.family,
       sensitivity: sens,
       isDrawing: state.isDrawing,
       lastValidPressure: state.isDrawing ? _lastValidPenPressure : 0
@@ -228,7 +225,7 @@ function _processPointerPoint(rawPoint, pageData) {
 
   if (!stroke._stabilizer) {
     const firstPt = stroke.points[0] || rawPoint;
-    stroke._stabilizer = createStrokeStabilizer(firstPt, { platform: _platform });
+    stroke._stabilizer = createStrokeStabilizer(firstPt, { platform: state.platform.family });
   }
 
   // iPadOS Apple Pencil a volte emette pressure=0 sul pointerdown iniziale prima

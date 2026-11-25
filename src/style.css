@@ -2487,7 +2487,7 @@ body.dark .dnd-drag-handle.is-list:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* Su schermi touch/tablet i comandi delle card restano sempre raggiungibili */
+/* Su schermi touch/tablet o dispositivi ibridi in uso touch/penna i comandi delle card restano raggiungibili */
 @media (hover: none), (pointer: coarse) {
   .folder-actions,
   .favorite-nb-btn,
@@ -2496,6 +2496,24 @@ body.dark .dnd-drag-handle.is-list:hover {
   .dnd-drag-handle.is-folder {
     opacity: 0.88;
   }
+}
+
+body.plat-mobile .folder-actions,
+body.plat-mobile .favorite-nb-btn,
+body.plat-mobile .delete-nb-btn,
+body.plat-mobile .dnd-drag-handle.is-notebook,
+body.plat-mobile .dnd-drag-handle.is-folder,
+body[data-last-pointer="touch"] .folder-actions,
+body[data-last-pointer="touch"] .favorite-nb-btn,
+body[data-last-pointer="touch"] .delete-nb-btn,
+body[data-last-pointer="touch"] .dnd-drag-handle.is-notebook,
+body[data-last-pointer="touch"] .dnd-drag-handle.is-folder,
+body[data-last-pointer="pen"] .folder-actions,
+body[data-last-pointer="pen"] .favorite-nb-btn,
+body[data-last-pointer="pen"] .delete-nb-btn,
+body[data-last-pointer="pen"] .dnd-drag-handle.is-notebook,
+body[data-last-pointer="pen"] .dnd-drag-handle.is-folder {
+  opacity: 0.88;
 }
 
 /* --- Drag & Drop Libreria (Android-style merge + collection drop) --- */

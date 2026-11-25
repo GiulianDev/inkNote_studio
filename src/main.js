@@ -27,6 +27,7 @@
  */
 
 import { initDB } from './services/db.js';
+import { initPlatform } from './core/platform.js';
 import { initSettings, onSettingsChanged } from './core/app-settings.js';
 import { initToolbarSettings, onToolbarSettingsChanged } from './features/toolbar/toolbar-settings.js';
 import { state } from './core/state.js';
@@ -69,6 +70,9 @@ import { initBackNavigation } from './core/back-navigation.js';
 import { setupSystemMenuSuppression } from './core/system-menu-guard.js';
 
 window.addEventListener('load', async () => {
+  // 0. Piattaforma e listener input runtime (OS, device, hybrid, DPR, lastPointerType).
+  initPlatform({ targetState: state });
+
   // 1. Componenti grafiche. Devono esistere PRIMA di initSettings():
   //    lo store applica tema/dock al DOM e cerca gli elementi della toolbar.
   //    Ordine: toolbar → settings modal → pages sidebar.

@@ -24,6 +24,7 @@ import {
   getDocFromServer
 } from 'firebase/firestore';
 import appletConfig from '../../firebase-applet-config.json';
+import { state } from '../core/state.js';
 import {
   hasOAuthScope,
   resolveEffectiveFirestoreDatabaseId
@@ -171,15 +172,11 @@ export function isGoogleLinkedUser(user = auth?.currentUser) {
   return user.providerData.some(p => p?.providerId === 'google.com');
 }
 
-function _isMobile() {
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
-
 export async function signInWithGoogle() {
   if (!auth || !googleProvider) {
     throw new Error('Firebase Auth non configurato');
   }
-  if (_isMobile()) {
+  if (state.platform.isMobile) {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       return result.user;
@@ -297,7 +294,7 @@ export async function requestGoogleContactsAccessToken({ forceRefresh = false } 
     };
     return cred.accessToken;
   } catch (err) {
-    if (_isMobile() && (err?.code === 'auth/popup-blocked' || err?.code === 'auth/operation-not-supported-in-this-environment')) {
+    if (state.platform.isMobile && (err?.code === 'auth/popup-blocked' || err?.code === 'auth/operation-not-supported-in-this-environment')) {
       sessionStorage.setItem(CONTACTS_REDIRECT_KEY, '1');
       await reauthenticateWithRedirect(auth.currentUser, contactsProvider);
       return null;
