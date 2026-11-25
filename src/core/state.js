@@ -138,12 +138,6 @@ export const state = {
   snapGreekLetters: true,
   /** @type {boolean} riconoscimento forme/simboli (true se almeno una categoria è attiva) */
   snapShapes: true,
-  /**
-   * @deprecated Usare snapLines / snapShapes.
-   * Alias mantenuto per retrocompatibilità: true se almeno uno dei due è ON.
-   * Verrà rimosso in una versione futura.
-   */
-  autoShapeEnabled: true,
   /** @type {number} 0..1 (frazione dello slider 0..100) */
   smoothing: 0.5,
   /** @type {'ruled'|'grid'|'dots'|'blank'} */

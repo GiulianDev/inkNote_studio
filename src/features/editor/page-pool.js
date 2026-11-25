@@ -7,7 +7,7 @@
  * @see features/tools/dispatcher.js — forceAssign su pointerdown orfano
  */
 
-import { state } from '../../core/state.js';
+import { state, viewport } from '../../core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT } from '../../core/utils.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
 import { hasLassoSelection } from '../tools/lazo.js';
@@ -40,7 +40,6 @@ class PageSlot {
 class PageRendererPool {
   constructor() {
     this.slots = Array.from({ length: POOL_SIZE }, () => new PageSlot());
-    this._lru = this.slots.slice();
   }
 
   _clearSlotCanvas(slot) {
@@ -83,7 +82,6 @@ class PageRendererPool {
       slot.dpr = 0;
       slot.overlayDpr = 0;
     }
-    this._lru = this.slots.slice();
   }
 
   _slotFor(pageIndex) {
@@ -201,8 +199,7 @@ function isPageVisible(page, cachedVpRect = null) {
 
 function getTargetDpr(page, cachedVpRect = null) {
   const deviceDpr = state.platform.dpr || window.devicePixelRatio || 1;
-  const { viewport } = window.__inknoteViewport || {};
-  const scale = (viewport && viewport.scale) || 1;
+  const scale = viewport?.scale || 1;
   const zoom = Math.max(1, scale);
   const extra = Math.min(zoom, MAX_ZOOM_DPR_BOOST);
   const highDpr = Math.min(deviceDpr * extra, MAX_RENDER_DPR);
@@ -250,10 +247,6 @@ function _resizeSlot(slot, page, cachedVpRect = null, opts = {}) {
   if (page.index === state.activePageIndex && hasLassoSelection()) {
     redrawSelectionOverlay(page);
   }
-}
-
-export function setViewportRef(viewport) {
-  window.__inknoteViewport = { viewport };
 }
 
 export const pagePool = new PageRendererPool();

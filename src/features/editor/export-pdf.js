@@ -43,11 +43,6 @@ const PDF_WIDTH = 595.28;   // A4 width in pt
 const PDF_HEIGHT = 841.89;  // A4 height in pt
 const EXPORT_DPR = 2;
 
-export function toggleFullscreen() {
-  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
-  else document.exitFullscreen();
-}
-
 function _rgbFromHex(hex, fallbackHex = '#000000') {
   const parsed = parseHexRgb(hex) || parseHexRgb(fallbackHex) || { r: 0, g: 0, b: 0 };
   return rgb(parsed.r / 255, parsed.g / 255, parsed.b / 255);

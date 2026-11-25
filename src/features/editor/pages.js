@@ -28,11 +28,9 @@ import { refreshPageCounter } from '../toolbar/toolbar.js';
 import {
   applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
-import { pagePool, setViewportRef } from './page-pool.js';
+import { pagePool } from './page-pool.js';
 import { unpackStrokes } from '../persistence/serialization.js';
 import { attachLazyStrokes } from '../persistence/lazy-strokes.js';
-
-setViewportRef(viewport);
 
 let _resolutionRefreshTimer = null;
 let _viewportResizeObserver = null;

@@ -11,7 +11,7 @@ import {
   loadAllFoldersFromDB,
   saveFolderToDB
 } from '../../services/db.js';
-import { showToast } from '../../core/utils.js';
+import { showToast, escapeHtml } from '../../core/utils.js';
 
 async function _resolveImportedFolderId(nb, folderById, folderByParentName) {
   if (Array.isArray(nb.folderPath) && nb.folderPath.length > 0) {
@@ -311,9 +311,4 @@ function formatDate(iso) {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit'
   });
-}
-
-function escapeHtml(str) {
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

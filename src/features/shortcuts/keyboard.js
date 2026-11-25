@@ -8,7 +8,7 @@ import { setTool } from '../toolbar/toolbar.js';
 import { forceSave } from '../persistence/autosave.js';
 import { flushHistory, handleHistoryKeyboard } from '../history/history.js';
 import { createManualSaveRunner } from './manual-save.js';
-import { toggleFullscreen } from '../editor/export-pdf.js';
+import { toggleAppFullscreen } from '../../core/fullscreen.js';
 import { applyPinchTransform } from '../viewport/transform.js';
 import { resetZoom } from '../editor/pages.js';
 import { closeSettingsModal } from '../settings/settings-modal.js';
@@ -131,7 +131,7 @@ export function setupKeyboardShortcuts() {
     if (key === 'e') { setTool('eraser'); return; }
     if (key === 'x') { setTool('pencil'); return; }
 
-    if (key === 'f') { e.preventDefault(); toggleFullscreen(); return; }
+    if (key === 'f') { e.preventDefault(); toggleAppFullscreen(); return; }
     if (key === '+' || key === '=') {
       e.preventDefault();
       _zoomByFactor(1.2);

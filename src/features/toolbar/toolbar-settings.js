@@ -138,7 +138,6 @@ function _syncRuntime() {
     state.snapMathSymbols ||
     state.snapGreekLetters
   );
-  state.autoShapeEnabled = state.snapLines || state.snapShapes;
   state.activeTool   = _activeTool;
   // Colori foglio (null = default del tema, gestito in render.js)
   state.paperColor   = _current.paperColor   || null;
