@@ -172,3 +172,59 @@ export function computeSelectionStylePopoverPosition({
 
   return { left, top, placement };
 }
+
+/**
+ * Calcola le coordinate (left, top) della barra flottante di selezione lazo
+ * sopra la selezione (preferito) o sotto se lo spazio superiore è ostruito
+ * dall'header/toolbar, mantenendola sempre entro i margini della viewport.
+ *
+ * @param {{
+ *   selectionRect: { left: number, top: number, right: number, bottom: number },
+ *   menuWidth: number,
+ *   menuHeight: number,
+ *   viewportWidth: number,
+ *   viewportHeight: number,
+ *   minTop?: number,
+ *   gap?: number,
+ *   bottomGap?: number,
+ *   margin?: number
+ * }} params
+ * @returns {{ left: number, top: number, placement: 'top'|'bottom' }}
+ */
+export function computeSelectionMenuPosition({
+  selectionRect,
+  menuWidth,
+  menuHeight,
+  viewportWidth,
+  viewportHeight,
+  minTop = 64,
+  gap = 12,
+  bottomGap = 18,
+  margin = 12
+}) {
+  const mw = Math.max(1, menuWidth || 360);
+  const mh = Math.max(1, menuHeight || 44);
+  const vw = Math.max(mw + margin * 2, viewportWidth || 1024);
+  const vh = Math.max(mh + margin * 2, viewportHeight || 768);
+
+  const safeMinTop = Math.max(margin, minTop);
+  const maxTop = Math.max(safeMinTop, vh - mh - margin);
+
+  const centerX = (selectionRect.left + selectionRect.right) / 2;
+  const maxLeft = Math.max(margin, vw - mw - margin);
+  const left = Math.round(Math.max(margin, Math.min(maxLeft, centerX - mw / 2)));
+
+  const aboveTop = selectionRect.top - mh - gap;
+  const belowTop = selectionRect.bottom + bottomGap;
+
+  let placement = 'top';
+  let top = aboveTop;
+  if (aboveTop < safeMinTop && belowTop + mh <= vh - margin) {
+    placement = 'bottom';
+    top = belowTop;
+  }
+
+  top = Math.round(Math.max(safeMinTop, Math.min(maxTop, top)));
+
+  return { left, top, placement };
+}

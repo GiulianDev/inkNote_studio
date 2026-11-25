@@ -8,7 +8,8 @@ import {
   isStrokeStyleCapable,
   resolveSelectionStrokeStyle,
   applyStyleToStrokes,
-  computeSelectionStylePopoverPosition
+  computeSelectionStylePopoverPosition,
+  computeSelectionMenuPosition
 } from './selection-style.js';
 
 describe('selection-style helpers', () => {
@@ -117,5 +118,41 @@ describe('selection-style helpers', () => {
     assert.equal(flipped.placement, 'bottom');
     assert.equal(flipped.top, 106);
     assert.equal(flipped.left, 8);
+  });
+
+  it('positions selection menu above bbox, flips below top toolbar, and clamps edges', () => {
+    const above = computeSelectionMenuPosition({
+      selectionRect: { left: 300, top: 260, right: 500, bottom: 360 },
+      menuWidth: 360,
+      menuHeight: 48,
+      viewportWidth: 1280,
+      viewportHeight: 800,
+      minTop: 124
+    });
+    assert.equal(above.placement, 'top');
+    assert.equal(above.top, 200);
+    assert.equal(above.left, 220);
+
+    const flipped = computeSelectionMenuPosition({
+      selectionRect: { left: 10, top: 130, right: 120, bottom: 210 },
+      menuWidth: 360,
+      menuHeight: 48,
+      viewportWidth: 1280,
+      viewportHeight: 800,
+      minTop: 124
+    });
+    assert.equal(flipped.placement, 'bottom');
+    assert.equal(flipped.top, 228);
+    assert.equal(flipped.left, 12);
+
+    const clampedRight = computeSelectionMenuPosition({
+      selectionRect: { left: 1180, top: 300, right: 1260, bottom: 380 },
+      menuWidth: 360,
+      menuHeight: 48,
+      viewportWidth: 1280,
+      viewportHeight: 800,
+      minTop: 124
+    });
+    assert.equal(clampedRight.left, 908);
   });
 });

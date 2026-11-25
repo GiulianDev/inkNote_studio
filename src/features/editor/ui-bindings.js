@@ -32,7 +32,9 @@ import {
   changeSelectionStyle,
   toggleSelectionStylePopover,
   hideSelectionStylePopover,
-  isSelectionStylePopoverOpen
+  isSelectionStylePopoverOpen,
+  hasLassoSelection,
+  updateSelectionMenuPosition
 } from '../tools/lazo.js';
 import { registerExternalMenuCloser } from '../../components/floating-menu.js';
 import { finalizePendingShape } from '../tools/shapes.js';
@@ -176,6 +178,15 @@ export function bindEditorUI() {
     ?.addEventListener('click', resetZoom);
 
   // --- Selection menu ---
+  const selMenu = document.getElementById('selectionMenu');
+  selMenu?.addEventListener('pointerdown', (e) => {
+    const styleBtn = document.getElementById('selectionStyleBtn');
+    if (isSelectionStylePopoverOpen() && !styleBtn?.contains(e.target)) {
+      hideSelectionStylePopover();
+    }
+    e.stopPropagation();
+  });
+
   const selColor = document.getElementById('selectionColorPicker');
   selColor?.addEventListener('input', (e) => previewSelectionColor(e.target.value));
   selColor?.addEventListener('change', (e) => changeSelectionColor(e.target.value));
@@ -219,6 +230,10 @@ export function bindEditorUI() {
     ?.addEventListener('click', deleteSelectedStrokes);
   document.getElementById('clearSelectionBtn')
     ?.addEventListener('click', clearSelection);
+
+  window.addEventListener('resize', () => {
+    if (hasLassoSelection()) updateSelectionMenuPosition();
+  });
 
   // --- Undo / Redo ---
   document.getElementById('undoBtn')?.addEventListener('click', undo);

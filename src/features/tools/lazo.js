@@ -41,12 +41,12 @@ import {
   resolveSelectionStrokeStyle,
   applyStyleToStrokes,
   computeSelectionStylePopoverPosition,
+  computeSelectionMenuPosition,
   isValidSelectionStrokeStyle
 } from './selection-style.js';
 
 let _clipboard = null; // { strokes: [], textBoxes: [], sourcePageId: string|null, pasteCount: number }
 
-let _cachedMenuWidth = 0;
 let _menuInteractingHidden = false;
 
 let _lassoRaf = null;
@@ -636,6 +636,26 @@ export function isSelectionStylePopoverOpen() {
   return !!(popover && !popover.classList.contains('hidden'));
 }
 
+function _getEditorTopObstructionBottom() {
+  let maxBottom = 0;
+  const header = document.getElementById('mainHeader');
+  if (header) {
+    const r = header.getBoundingClientRect();
+    if (r.height > 0 && r.bottom > maxBottom) {
+      maxBottom = r.bottom;
+    }
+  }
+  if (!document.body.classList.contains('dock-auto-hidden')) {
+    document.querySelectorAll('.ui-dock:not(.hidden)').forEach(dock => {
+      const r = dock.getBoundingClientRect();
+      if (r.height > 0 && r.width > 0 && r.top < 180 && r.bottom > maxBottom) {
+        maxBottom = r.bottom;
+      }
+    });
+  }
+  return Math.max(12, Math.round(maxBottom + 8));
+}
+
 export function repositionSelectionStylePopover() {
   const popover = document.getElementById('selectionStylePopover');
   const trigger = document.getElementById('selectionStyleBtn');
@@ -647,7 +667,8 @@ export function repositionSelectionStylePopover() {
     popoverWidth: popover.offsetWidth || 204,
     popoverHeight: popover.offsetHeight || 42,
     viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight
+    viewportHeight: window.innerHeight,
+    minTop: _getEditorTopObstructionBottom()
   });
   popover.style.left = `${pos.left}px`;
   popover.style.top = `${pos.top}px`;
@@ -909,7 +930,6 @@ function showSelectionMenu() {
     if (widthValue) widthValue.innerText = first.size || 3;
     _syncSelectionStyleUI();
   }
-  _cachedMenuWidth = menu.offsetWidth || 360;
   updateSelectionMenuPosition();
 }
 
@@ -924,7 +944,6 @@ function _setSelectionMenuInteracting(interacting) {
     _menuInteractingHidden = false;
     if (hasLassoSelection()) {
       menu.classList.remove('hidden');
-      if (!_cachedMenuWidth) _cachedMenuWidth = menu.offsetWidth || 360;
       updateSelectionMenuPosition();
     }
   }
@@ -932,7 +951,6 @@ function _setSelectionMenuInteracting(interacting) {
 
 function hideSelectionMenu() {
   _menuInteractingHidden = false;
-  _cachedMenuWidth = 0;
   hideSelectionStylePopover();
   document.getElementById('selectionMenu')?.classList.add('hidden');
 }
@@ -946,13 +964,22 @@ export function updateSelectionMenuPosition() {
   const rect = getCanvasRect(current.canvas);
   if (!rect || rect.width <= 0) return;
   const scaleRatio = rect.width / PAGE_WIDTH;
-  const screenX = rect.left + (bbox.minX + bbox.width / 2) * scaleRatio;
-  const screenY = rect.top + bbox.minY * scaleRatio - 52;
-  const menuWidth = _cachedMenuWidth || menu.offsetWidth || 360;
-  if (!_cachedMenuWidth && menuWidth) _cachedMenuWidth = menuWidth;
-  const x = Math.round(Math.max(16, Math.min(window.innerWidth - menuWidth - 16, screenX - menuWidth / 2)));
-  const y = Math.round(Math.max(64, screenY));
-  menu.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  const selectionRect = {
+    left: rect.left + bbox.minX * scaleRatio,
+    right: rect.left + bbox.maxX * scaleRatio,
+    top: rect.top + bbox.minY * scaleRatio,
+    bottom: rect.top + bbox.maxY * scaleRatio
+  };
+  const pos = computeSelectionMenuPosition({
+    selectionRect,
+    menuWidth: menu.offsetWidth || 360,
+    menuHeight: menu.offsetHeight || 46,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    minTop: _getEditorTopObstructionBottom()
+  });
+  menu.dataset.placement = pos.placement;
+  menu.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0)`;
   if (isSelectionStylePopoverOpen()) {
     repositionSelectionStylePopover();
   }

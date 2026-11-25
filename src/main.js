@@ -4,7 +4,8 @@
  * COMPOSITION ROOT. Unico entry point dell'app.
  *
  * Ordine di boot (non modificare — l'ordine conta):
- *   1. mountToolbar() + mountSettingsModal() + mountPagesSidebar()  → markup nel DOM
+ *   1. mountLibraryPage() + mountNotebookPage()
+ *      + mountToolbar() + mountSettingsModal() + mountPagesSidebar() → markup nel DOM
  *   2. initSettings()                          → applica tema/dock al body
  *   3. initToolbarSettings(null)               → default toolbar (no notebook)
  *   4. initDB()                                → apre IndexedDB
@@ -13,11 +14,13 @@
  *   7. renderLibraryView() + setupViewportGestures() + setupKeyboardShortcuts()
  *
  * NOTA ordine mount:
- *   - mountToolbar()        → crea #mainHeader (necessario per
+ *   - mountLibraryPage()    → crea #libraryView + #newNotebookModal
+ *   - mountNotebookPage()   → crea #toolbarMount, #viewport, lazo bar, zoom, undo/redo
+ *   - mountToolbar()        → riempie #toolbarMount e crea #mainHeader (necessario per
  *                             pages-sidebar che misura l'header)
  *   - mountSettingsModal()  → crea il modale impostazioni
  *   - mountPagesSidebar()   → sidebar pagine (dipende dall'header)
- *   Tutti e tre PRIMA di initSettings().
+ *   Tutti prima di initSettings().
  *
  * Subscription attive:
  *   - settings:changed → ridisegna pagine se cambia tema
@@ -52,6 +55,8 @@ import {
   initEditorHandlers, returnToLibrary, isEditorActive
 } from './features/editor/editor.js';
 import { bindEditorUI } from './features/editor/ui-bindings.js';
+import { mountLibraryPage } from './pages/library-page.js';
+import { mountNotebookPage } from './pages/notebook-page.js';
 import { mountSettingsModal } from './features/settings/settings-modal.js';
 import { mountPagesSidebar } from './features/pages-sidebar/pages-sidebar.js';
 import {
@@ -75,10 +80,12 @@ window.addEventListener('load', async () => {
   // 0. Piattaforma e listener input runtime (OS, device, hybrid, DPR, lastPointerType).
   initPlatform({ targetState: state });
 
-  // 1. Componenti grafiche. Devono esistere PRIMA di initSettings():
+  // 1. Pagine e componenti grafiche. Devono esistere PRIMA di initSettings():
   //    lo store applica tema/dock al DOM e cerca gli elementi della toolbar.
-  //    Ordine: toolbar → settings modal → pages sidebar.
+  //    Ordine: pagine (library + notebook) → toolbar → settings modal → pages sidebar.
   //    La sidebar misura #mainHeader al mount, quindi va DOPO la toolbar.
+  mountLibraryPage();
+  mountNotebookPage();
   mountToolbar();
   mountSettingsModal();
   mountPagesSidebar();
