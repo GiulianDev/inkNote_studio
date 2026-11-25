@@ -12,10 +12,11 @@ import {
   handleGoogleAuthError
 } from '../sharing/sharing-ui.js';
 import {
-  createFloatingMenu,
-  closeAllFloatingMenus,
-  closeFloatingMenuById
-} from '../../components/floating-menu.js';
+  initUserMenu,
+  toggleUserMenuForTrigger,
+  closeUserMenu,
+  syncUserMenuUser
+} from '../../components/user-menu.js';
 import { syncSendMenuAuthState } from '../toolbar/toolbar.js';
 
 const AVATAR_PALETTE = [
@@ -56,68 +57,42 @@ function _renderAvatarHtml(user, size) {
   return `<span class="flex items-center justify-center w-full h-full text-white font-bold" style="background-color: ${bg}; font-size: ${Math.round(size * 0.4)}px;">${escapeHtml(initials)}</span>`;
 }
 
-function _syncTargetAuthDOM({ btnId, contentId, dropdownId, avatarId, nameId, emailId }) {
+function _syncTriggerButtonDOM(btnId, contentId) {
   const btn = document.getElementById(btnId);
   const content = document.getElementById(contentId);
-  const dropdown = document.getElementById(dropdownId);
   if (!btn || !content) return;
 
   if (authState.user) {
     btn.title = 'Profilo';
+    btn.setAttribute('aria-haspopup', 'menu');
     content.className = 'flex items-center justify-center w-full h-full';
     content.innerHTML = _renderAvatarHtml(authState.user, 40);
-
-    const dAvatar = document.getElementById(avatarId);
-    const dName = document.getElementById(nameId);
-    const dEmail = document.getElementById(emailId);
-    if (dAvatar) {
-      dAvatar.className = 'w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0';
-      dAvatar.innerHTML = _renderAvatarHtml(authState.user, 40);
-    }
-    if (dName) dName.textContent = authState.user.displayName || 'Utente';
-    if (dEmail) dEmail.textContent = authState.user.email || '';
   } else {
     btn.title = 'Accedi con Google';
+    btn.removeAttribute('aria-haspopup');
+    btn.setAttribute('aria-expanded', 'false');
     content.className = 'flex items-center justify-center w-full h-full text-base';
     content.innerHTML = GUEST_ICON_SVG;
-    if (dropdown) dropdown.classList.add('hidden');
   }
 }
 
-let _authMenuCtrl = null;
-let _editorAuthMenuCtrl = null;
-
 function _updateAuthUI() {
-  _syncTargetAuthDOM({
-    btnId: 'authBtn',
-    contentId: 'authBtnContent',
-    dropdownId: 'authDropdown',
-    avatarId: 'authDropdownAvatar',
-    nameId: 'authDropdownName',
-    emailId: 'authDropdownEmail'
-  });
-  _syncTargetAuthDOM({
-    btnId: 'editorAuthBtn',
-    contentId: 'editorAuthBtnContent',
-    dropdownId: 'editorAuthDropdown',
-    avatarId: 'editorAuthDropdownAvatar',
-    nameId: 'editorAuthDropdownName',
-    emailId: 'editorAuthDropdownEmail'
-  });
+  _syncTriggerButtonDOM('authBtn', 'authBtnContent');
+  _syncTriggerButtonDOM('editorAuthBtn', 'editorAuthBtnContent');
+  const avatarHtml = authState.user ? _renderAvatarHtml(authState.user, 40) : '';
+  syncUserMenuUser(authState.user, avatarHtml);
   syncSendMenuAuthState();
 }
 
 export function closeAllAuthDropdowns() {
-  closeFloatingMenuById('authDropdown');
-  closeFloatingMenuById('editorAuthDropdown');
+  closeUserMenu();
 }
 
-async function _handleAuthClick(dropdownId = 'authDropdown') {
+async function _handleAuthClick(triggerId) {
   if (authState.loading) return;
 
   if (authState.user) {
-    const ctrl = dropdownId === 'editorAuthDropdown' ? _editorAuthMenuCtrl : _authMenuCtrl;
-    ctrl?.toggle();
+    toggleUserMenuForTrigger(document.getElementById(triggerId));
     return;
   }
 
@@ -153,57 +128,21 @@ export function bindLibraryAuth() {
     void initSharingSession(user);
   });
 
-  const authPanel = document.getElementById('authDropdown');
-  const authBtn = document.getElementById('authBtn');
-  if (authPanel && authBtn) {
-    _authMenuCtrl = createFloatingMenu({
-      id: 'authDropdown',
-      panel: authPanel,
-      trigger: authBtn,
-      align: 'end',
-      gap: 8
-    });
-  }
-
-  const editorAuthPanel = document.getElementById('editorAuthDropdown');
-  const editorAuthBtn = document.getElementById('editorAuthBtn');
-  if (editorAuthPanel && editorAuthBtn) {
-    _editorAuthMenuCtrl = createFloatingMenu({
-      id: 'editorAuthDropdown',
-      panel: editorAuthPanel,
-      trigger: editorAuthBtn,
-      align: 'end',
-      gap: 8
-    });
-  }
+  initUserMenu({
+    onOpenSharing: () => openSharingModal({ initialTab: 'inbox' }),
+    onCopyInvite: () => { void copyMyInviteLink(); },
+    onLogout: _handleLogout
+  });
 
   document.getElementById('authBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    void _handleAuthClick('authDropdown');
+    void _handleAuthClick('authBtn');
   });
-  document.getElementById('authDropdownSharingBtn')?.addEventListener('click', () => {
-    closeAllFloatingMenus();
-    openSharingModal({ initialTab: 'inbox' });
-  });
-  document.getElementById('authDropdownCopyInviteBtn')?.addEventListener('click', () => {
-    closeAllFloatingMenus();
-    void copyMyInviteLink();
-  });
-  document.getElementById('authLogoutBtn')?.addEventListener('click', _handleLogout);
 
   document.getElementById('editorAuthBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    void _handleAuthClick('editorAuthDropdown');
+    void _handleAuthClick('editorAuthBtn');
   });
-  document.getElementById('editorAuthDropdownSharingBtn')?.addEventListener('click', () => {
-    closeAllFloatingMenus();
-    openSharingModal({ initialTab: 'inbox' });
-  });
-  document.getElementById('editorAuthDropdownCopyInviteBtn')?.addEventListener('click', () => {
-    closeAllFloatingMenus();
-    void copyMyInviteLink();
-  });
-  document.getElementById('editorAuthLogoutBtn')?.addEventListener('click', _handleLogout);
 
   _updateAuthUI();
 }

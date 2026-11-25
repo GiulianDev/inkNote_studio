@@ -62,6 +62,7 @@ import {
 } from './features/library/library.js';
 import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
 import { closeAllAuthDropdowns } from './features/library/library-auth.js';
+import { isUserMenuOpen } from './components/user-menu.js';
 import { terminateWorker } from './features/backup/serialization-cloud.js';
 import { handleRedirectResult } from './services/firebase.js';
 import { showToast } from './core/utils.js';
@@ -171,16 +172,9 @@ function _dismissTopTransientUI() {
       : `modal-locked:${modalDismiss.id}`;
   }
 
-  const authDropdown = document.getElementById('authDropdown');
-  if (authDropdown && !authDropdown.classList.contains('hidden')) {
+  if (isUserMenuOpen()) {
     closeAllAuthDropdowns();
-    return 'auth-dropdown';
-  }
-
-  const editorAuthDropdown = document.getElementById('editorAuthDropdown');
-  if (editorAuthDropdown && !editorAuthDropdown.classList.contains('hidden')) {
-    closeAllAuthDropdowns();
-    return 'editor-auth-dropdown';
+    return 'user-auth-menu';
   }
 
   if (isEditorActive()) {

@@ -154,8 +154,6 @@ export function bindEditorUI() {
     ?.addEventListener('click', toggleCompactMode);
   document.getElementById('openSettingsBtnHeader')
     ?.addEventListener('click', _openEditorSettings);
-  document.getElementById('editorAuthDropdownSendBtn')
-    ?.addEventListener('click', _handleSendCurrentNotebook);
 
   // --- Menu Esporta e condividi ---
   document.getElementById('exportPdfFromMenu')

@@ -44,6 +44,7 @@ import {
 } from './sharing-helpers.js';
 import { closeAllEditorMenus } from '../toolbar/toolbar.js';
 import { openModalOverlay } from '../../components/modal.js';
+import { syncUserMenuSharing } from '../../components/user-menu.js';
 
 const NOTIF_PREF_KEY = 'inknote_browser_notifications';
 const PENDING_INVITE_KEY = 'inknote_pending_invite_handle';
@@ -167,25 +168,13 @@ function _renderMiniAvatar(user, sizePx = 36) {
 function _syncSharingBadgesUI() {
   const count = _incomingTransfers.length;
   const targets = [
-    {
-      badgeId: 'authInboxBadge',
-      btnId: 'authBtn',
-      dropdownBadgeId: 'authDropdownInboxBadge',
-      handleId: 'authDropdownHandle'
-    },
-    {
-      badgeId: 'editorAuthInboxBadge',
-      btnId: 'editorAuthBtn',
-      dropdownBadgeId: 'editorAuthDropdownInboxBadge',
-      handleId: 'editorAuthDropdownHandle'
-    }
+    { badgeId: 'authInboxBadge', btnId: 'authBtn' },
+    { badgeId: 'editorAuthInboxBadge', btnId: 'editorAuthBtn' }
   ];
 
   for (const t of targets) {
     const badge = document.getElementById(t.badgeId);
     const btn = document.getElementById(t.btnId);
-    const dropdownBadge = document.getElementById(t.dropdownBadgeId);
-    const handleEl = document.getElementById(t.handleId);
 
     if (badge) {
       badge.textContent = count > 99 ? '99+' : String(count);
@@ -200,15 +189,12 @@ function _syncSharingBadgesUI() {
         btn.title = 'Profilo';
       }
     }
-    if (dropdownBadge) {
-      dropdownBadge.textContent = count > 99 ? '99+' : String(count);
-      dropdownBadge.classList.toggle('hidden', count === 0);
-    }
-    if (handleEl) {
-      handleEl.textContent = _profile?.handle ? `@${_profile.handle}` : '';
-      handleEl.classList.toggle('hidden', !_profile?.handle);
-    }
   }
+
+  syncUserMenuSharing({
+    unreadCount: count,
+    handle: _profile?.handle || ''
+  });
 }
 
 export function getUnreadTransfersCount() {
