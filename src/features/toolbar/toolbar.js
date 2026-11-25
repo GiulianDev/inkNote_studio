@@ -1418,8 +1418,14 @@ function _setupDockButtons() {
 
   document.getElementById('opacityBtn')
     ?.addEventListener('click', (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      showColorPickerPopover(e.currentTarget);
+      const popover = document.getElementById('colorPickerPopover');
+      if (popover && !popover.classList.contains('hidden') && _colorPopoverTrigger === e.currentTarget) {
+        hideColorPickerPopover();
+      } else {
+        showColorPickerPopover(e.currentTarget);
+      }
     });
 
   // Stile tratto
@@ -1640,6 +1646,7 @@ let _popoverHsv = { h: 0, s: 0, v: 0 };
 let _popoverInitialColor = null;
 let _pendingRecentColor = null;
 let _pendingRecentTool = null;
+let _colorPopoverTrigger = null;
 
 function _renderPopoverRecentSwatches(recent = getToolbarSettings().recentColors || []) {
   const section = document.getElementById('popoverRecentSection');
@@ -1770,16 +1777,27 @@ export function showColorPickerPopover(triggerEl = null) {
   const trigger = triggerEl || document.getElementById('customColorPicker');
   if (!popover || !trigger) return;
 
+  const wasOpen = !popover.classList.contains('hidden');
   closeAllEditorMenus({ keep: 'colorPopover' });
-  const conf = _getWritingToolConfigForPalette();
-  _popoverInitialColor = normalizeHexColor(conf.color, '#000000');
-  _pendingRecentColor = null;
-  _pendingRecentTool = null;
 
-  _populatePopoverForActiveTool();
+  if (!wasOpen) {
+    const conf = _getWritingToolConfigForPalette();
+    _popoverInitialColor = normalizeHexColor(conf.color, '#000000');
+    _pendingRecentColor = null;
+    _pendingRecentTool = null;
+    _populatePopoverForActiveTool();
+  }
 
+  _colorPopoverTrigger = trigger;
   popover.classList.remove('hidden');
-  document.getElementById('customColorPicker')?.setAttribute('aria-expanded', 'true');
+  document.getElementById('customColorPicker')?.setAttribute(
+    'aria-expanded',
+    trigger.id === 'customColorPicker' ? 'true' : 'false'
+  );
+  document.getElementById('opacityBtn')?.setAttribute(
+    'aria-expanded',
+    trigger.id === 'opacityBtn' ? 'true' : 'false'
+  );
 
   const r = trigger.getBoundingClientRect();
   const mw = popover.offsetWidth || 256;
@@ -1797,7 +1815,9 @@ export function hideColorPickerPopover() {
   const popover = document.getElementById('colorPickerPopover');
   const wasOpen = popover && !popover.classList.contains('hidden');
   if (popover) popover.classList.add('hidden');
+  _colorPopoverTrigger = null;
   document.getElementById('customColorPicker')?.setAttribute('aria-expanded', 'false');
+  document.getElementById('opacityBtn')?.setAttribute('aria-expanded', 'false');
   if (wasOpen) {
     _commitPendingRecentColor();
   }
@@ -1806,13 +1826,14 @@ export function hideColorPickerPopover() {
 
 function _setupColorPopover() {
   const trigger = document.getElementById('customColorPicker');
+  const opacityBtn = document.getElementById('opacityBtn');
   const popover = document.getElementById('colorPickerPopover');
   if (!trigger || !popover) return;
 
   trigger.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!popover.classList.contains('hidden')) {
+    if (!popover.classList.contains('hidden') && _colorPopoverTrigger === trigger) {
       hideColorPickerPopover();
     } else {
       showColorPickerPopover(trigger);
@@ -1914,7 +1935,7 @@ function _setupColorPopover() {
 
   document.addEventListener('pointerdown', (e) => {
     if (popover.classList.contains('hidden')) return;
-    if (popover.contains(e.target) || trigger.contains(e.target)) return;
+    if (popover.contains(e.target) || trigger.contains(e.target) || opacityBtn?.contains(e.target)) return;
     hideColorPickerPopover();
   });
 }
