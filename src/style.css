@@ -30,6 +30,8 @@ textarea,
 }
 
 html, body {
+  max-width: 100%;
+  overflow: hidden;
   overscroll-behavior: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -41,7 +43,6 @@ body {
   color: #0f172a;
   background-color: #f1f5f9; /* slate-100, coerente con #libraryView */
   font-family: Inter, system-ui, -apple-system, sans-serif;
-  overflow: hidden;
 }
 
 body.dark {
@@ -51,7 +52,7 @@ body.dark {
 
 #viewport {
   cursor: crosshair;
-  width: 100vw;
+  width: 100%;
   height: calc(100vh - 84px);
   height: calc(100dvh - 84px);
   position: relative;
@@ -169,7 +170,7 @@ body.handed-left #zoomBadge {
 body.compact-mode #viewport {
   height: 100vh;
   height: 100dvh;
-  width: 100vw;
+  width: 100%;
 }
 
 @media print {
@@ -1234,6 +1235,9 @@ body.dark .ui-cp-sv-area {
 /* Sblocca lo scroll touch verticale in libreria su iPadOS/tablet
    neutralizzando la regola globale `* { touch-action: none }` */
 #libraryView {
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
@@ -1258,6 +1262,8 @@ body.dark .ui-cp-sv-area {
 .notebook-card,
 .folder-card {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -1668,6 +1674,14 @@ body.dark .folder-card.is-selected .folder-shell {
 }
 
 /* --- Barra superiore fissa + transizione stato selezione --- */
+#libraryTopBarWrap {
+  overflow-x: clip;
+}
+
+#libraryHeader {
+  min-width: 0;
+}
+
 #libraryTopBarWrap.is-scrolled {
   box-shadow: 0 6px 20px -10px rgba(15, 23, 42, 0.16);
 }
@@ -1892,15 +1906,44 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
   display: grid;
   align-items: center;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .lib-actions-layer {
   grid-area: 1 / 1;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 0.375rem;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 419px) {
+  .lib-actions-layer {
+    gap: 0.25rem;
+  }
+
+  .lib-bar-btn {
+    height: 2.125rem;
+  }
+
+  .lib-bar-btn--secondary,
+  .lib-bar-btn--icon,
+  #authBtn {
+    width: 2.125rem;
+    height: 2.125rem;
+  }
+
+  .lib-bar-btn--primary,
+  .lib-bar-btn--danger {
+    padding: 0 0.5rem;
+  }
 }
 
 @keyframes libItemInRight {
@@ -2183,7 +2226,7 @@ body.dark .folder-card:hover .folder-back {
 .folder-peek-nb,
 .folder-peek-sub {
   position: relative;
-  width: 44%;
+  width: 40%;
   aspect-ratio: 3 / 4;
   flex-shrink: 0;
   border: 1px solid rgba(255, 255, 255, 0.30);

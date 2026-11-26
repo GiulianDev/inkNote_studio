@@ -103,8 +103,8 @@ function _syncLibraryControlsToUI() {
   const grid = document.getElementById('notebooksGrid');
   if (grid) {
     grid.className = viewMode === 'list'
-      ? 'flex flex-col gap-1.5'
-      : 'grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4';
+      ? 'flex flex-col gap-1.5 min-w-0'
+      : 'grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4 min-w-0';
   }
 
   const searchInput = document.getElementById('librarySearchInput');
@@ -144,7 +144,7 @@ function _renderBreadcrumbs(folderMap, query, onlyFavorites) {
 
   if (isSearching) {
     parts.push(`<span class="text-slate-400">›</span>`);
-    parts.push(`<span class="px-2 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">Ricerca: "${escapeHtml(query)}"</span>`);
+    parts.push(`<span class="px-2 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 max-w-full truncate inline-block align-bottom">Ricerca: "${escapeHtml(query)}"</span>`);
   } else if (onlyFavorites && _currentFolderId === null) {
     parts.push(`<span class="text-slate-400">›</span>`);
     parts.push(`<span class="px-2 py-1 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">★ Preferiti</span>`);

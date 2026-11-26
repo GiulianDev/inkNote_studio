@@ -18,9 +18,9 @@
     <div id="notebookPageMount" class="contents"></div>
 
     <!-- Elementi globali trasversali -->
-    <div id="toastNotification" role="status" aria-live="polite" class="fixed top-24 right-6 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs flex items-center gap-2 transform translate-y-2 opacity-0 pointer-events-none transition-all duration-300 z-[200] font-medium">
-        <span id="toastIcon">ℹ️</span>
-        <span id="toastMessage">Messaggio</span>
+    <div id="toastNotification" role="status" aria-live="polite" class="fixed top-24 right-3 sm:right-6 max-w-[calc(100vw-1.5rem)] bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs flex items-center gap-2 transform translate-y-2 opacity-0 pointer-events-none transition-all duration-300 z-[200] font-medium">
+        <span id="toastIcon" class="shrink-0">ℹ️</span>
+        <span id="toastMessage" class="min-w-0 break-words">Messaggio</span>
     </div>
 
     <input type="file" id="importFileInput" accept=".inknote,application/json,application/octet-stream" hidden>
