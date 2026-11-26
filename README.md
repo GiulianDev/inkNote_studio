@@ -1,12 +1,14 @@
-
 # InkNote Studio
 
-App di note-taking con canvas per penna/stylus, in stile GoodNotes.
-Vanilla JS + ES Modules, bundlata con Vite. Predisposta per essere
-compilata come eseguibile desktop con Tauri.
+**InkNote Studio** è un'app web di note-taking a mano libera su canvas pensata per penna e stylus (Surface Pen, Apple Pencil e stilo Android), in stile GoodNotes. È sviluppata in Vanilla JS + ES Modules con Tailwind CSS, bundlata con Vite, funziona interamente in locale sul browser (IndexedDB) ed è predisposta anche per l'esecuzione desktop/offline.
 
-# online version
-[Link all'app funzionante](https://inknote-studio.web.app/)
+### Funzionalità principali
+- **Scrittura e inchiostro**: penna, matita, stilografica ed evidenziatore con supporto a pressione, inclinazione, stili di tratto personalizzati, levigatura adattiva, palm rejection e profili calibrati per Desktop/Surface, iPadOS e Android.
+- **Forme, testo e lazo**: riconoscimento rapido di linee dritte, cerchi, rettangoli, triangoli e frecce, caselle di testo formattabili, gomma per tratto o precisa e selezione lazo mista (inchiostro + testo) per spostare, ridimensionare, ruotare o cambiare stile.
+- **Libreria, export e condivisione**: gestione di quaderni multipagina e raccolte con ricerca e preferiti, esportazione in **PDF** e backup `.inknote`, più accesso Google opzionale per inviare quaderni agli amici.
+
+## Versione online
+[Apri InkNote Studio](https://inknote-studio.web.app/)
 
 ## Prerequisiti
 

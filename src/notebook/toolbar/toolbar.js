@@ -25,6 +25,7 @@ import toolbarHtml from './toolbar.html?raw';
 
 import { state, authState } from '../../shared/core/state.js';
 import { showToast, hexToRgbA, on } from '../../shared/core/utils.js';
+import { computeFloatingMenuPosition, getVisualViewportRect } from '../../shared/components/floating-menu-position.js';
 import {
   updateSettings, getSettings, onSettingsChanged, MAIN_MENU_IDS, WRITING_TOOL_IDS
 } from '../../shared/core/app-settings.js';
@@ -1549,16 +1550,27 @@ export function showColorPickerPopover(triggerEl = null) {
     trigger.id === 'opacityBtn' ? 'true' : 'false'
   );
 
+  repositionColorPickerPopover();
+}
+
+export function repositionColorPickerPopover() {
+  const popover = document.getElementById('colorPickerPopover');
+  if (!popover || popover.classList.contains('hidden')) return;
+  const trigger = _colorPopoverTrigger || document.getElementById('customColorPicker');
+  if (!trigger) return;
   const r = trigger.getBoundingClientRect();
-  const mw = popover.offsetWidth || 256;
-  const mh = popover.offsetHeight || 340;
-  let left = r.left + r.width / 2 - mw / 2;
-  let top = r.bottom + 8;
-  if (top + mh > window.innerHeight - 8) top = r.top - mh - 8;
-  left = Math.max(8, Math.min(window.innerWidth - mw - 8, left));
-  top = Math.max(8, Math.min(window.innerHeight - mh - 8, top));
-  popover.style.left = `${left}px`;
-  popover.style.top = `${top}px`;
+  if (!r || (r.width === 0 && r.height === 0)) return;
+  const pos = computeFloatingMenuPosition({
+    triggerRect: r,
+    menuWidth: popover.offsetWidth || 256,
+    menuHeight: popover.offsetHeight || 340,
+    viewportRect: getVisualViewportRect(),
+    align: 'center',
+    gap: 8,
+    margin: 8
+  });
+  popover.style.left = `${pos.left}px`;
+  popover.style.top = `${pos.top}px`;
 }
 
 export function hideColorPickerPopover() {

@@ -37,6 +37,8 @@ import { markPageDirty } from '../../shared/persistence/session.js';
 import { packStrokes, unpackStrokes } from '../../shared/persistence/serialization.js';
 import { pagePool } from '../editor/page-pool.js';
 import { getCanvasCoords, getCanvasRect } from './tool-shared.js';
+import { getVisualViewportRect } from '../../shared/components/floating-menu-position.js';
+import { getEditorTopObstructionBottom } from '../../shared/components/floating-menu.js';
 import {
   resolveSelectionStrokeStyle,
   applyStyleToStrokes,
@@ -696,26 +698,6 @@ export function isSelectionStylePopoverOpen() {
   return !!(popover && !popover.classList.contains('hidden'));
 }
 
-function _getEditorTopObstructionBottom() {
-  let maxBottom = 0;
-  const header = document.getElementById('mainHeader');
-  if (header) {
-    const r = header.getBoundingClientRect();
-    if (r.height > 0 && r.bottom > maxBottom) {
-      maxBottom = r.bottom;
-    }
-  }
-  if (!document.body.classList.contains('dock-auto-hidden')) {
-    document.querySelectorAll('.ui-dock:not(.hidden)').forEach(dock => {
-      const r = dock.getBoundingClientRect();
-      if (r.height > 0 && r.width > 0 && r.top < 180 && r.bottom > maxBottom) {
-        maxBottom = r.bottom;
-      }
-    });
-  }
-  return Math.max(12, Math.round(maxBottom + 8));
-}
-
 export function repositionSelectionStylePopover() {
   const popover = document.getElementById('selectionStylePopover');
   const trigger = document.getElementById('selectionStyleBtn');
@@ -726,9 +708,8 @@ export function repositionSelectionStylePopover() {
     triggerRect,
     popoverWidth: popover.offsetWidth || 204,
     popoverHeight: popover.offsetHeight || 42,
-    viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight,
-    minTop: _getEditorTopObstructionBottom()
+    viewportRect: getVisualViewportRect(),
+    minTop: getEditorTopObstructionBottom()
   });
   popover.style.left = `${pos.left}px`;
   popover.style.top = `${pos.top}px`;
@@ -1059,9 +1040,8 @@ export function updateSelectionMenuPosition() {
     selectionRect,
     menuWidth: menu.offsetWidth || 360,
     menuHeight: menu.offsetHeight || 46,
-    viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight,
-    minTop: _getEditorTopObstructionBottom()
+    viewportRect: getVisualViewportRect(),
+    minTop: getEditorTopObstructionBottom()
   });
   menu.dataset.placement = pos.placement;
   menu.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0)`;

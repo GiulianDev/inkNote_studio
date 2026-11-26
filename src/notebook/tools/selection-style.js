@@ -6,6 +6,8 @@
  * punteggiato, tratto-punto) sugli stroke selezionati dal tool lazo.
  */
 
+import { computeAnchoredPosition } from '../../shared/components/floating-menu-position.js';
+
 export const SELECTION_STYLE_CAPABLE_TOOLS = ['pen', 'pencil', 'marker'];
 export const SELECTION_STROKE_STYLES = ['solid', 'dashed', 'dashed-large', 'dotted', 'dash-dot'];
 
@@ -243,6 +245,9 @@ export function computeSelectionStylePopoverPosition({
   triggerRect,
   popoverWidth,
   popoverHeight,
+  viewportRect = null,
+  viewportLeft = 0,
+  viewportTop = 0,
   viewportWidth,
   viewportHeight,
   gap = 8,
@@ -251,51 +256,39 @@ export function computeSelectionStylePopoverPosition({
 }) {
   const pw = Math.max(1, popoverWidth || 200);
   const ph = Math.max(1, popoverHeight || 44);
-  const vw = Math.max(pw + margin * 2, viewportWidth || 1024);
-  const vh = Math.max(ph + margin * 2, viewportHeight || 768);
+  const vpW = viewportRect ? viewportRect.width : (viewportWidth || 1024);
+  const vpH = viewportRect ? viewportRect.height : (viewportHeight || 768);
 
-  const centerX = triggerRect.left + triggerRect.width / 2;
-  const maxLeft = Math.max(margin, vw - pw - margin);
-  const left = Math.round(Math.max(margin, Math.min(maxLeft, centerX - pw / 2)));
-
-  const aboveTop = triggerRect.top - ph - gap;
-  const belowTop = triggerRect.bottom + gap;
-
-  let placement = 'top';
-  let top = aboveTop;
-  if (aboveTop < minTop && belowTop + ph <= vh - margin) {
-    placement = 'bottom';
-    top = belowTop;
-  }
-
-  const maxTop = Math.max(margin, vh - ph - margin);
-  top = Math.round(Math.max(margin, Math.min(maxTop, top)));
-
-  return { left, top, placement };
+  return computeAnchoredPosition({
+    triggerRect,
+    menuWidth: pw,
+    menuHeight: ph,
+    viewportRect: viewportRect ? { ...viewportRect, width: Math.max(pw + margin * 2, vpW), height: Math.max(ph + margin * 2, vpH) } : null,
+    viewportLeft,
+    viewportTop,
+    viewportWidth: Math.max(pw + margin * 2, vpW),
+    viewportHeight: Math.max(ph + margin * 2, vpH),
+    align: 'center',
+    preferAbove: true,
+    gap,
+    bottomGap: gap,
+    margin,
+    minTop
+  });
 }
 
 /**
  * Calcola le coordinate (left, top) della barra flottante di selezione lazo
  * sopra la selezione (preferito) o sotto se lo spazio superiore è ostruito
  * dall'header/toolbar, mantenendola sempre entro i margini della viewport.
- *
- * @param {{
- *   selectionRect: { left: number, top: number, right: number, bottom: number },
- *   menuWidth: number,
- *   menuHeight: number,
- *   viewportWidth: number,
- *   viewportHeight: number,
- *   minTop?: number,
- *   gap?: number,
- *   bottomGap?: number,
- *   margin?: number
- * }} params
- * @returns {{ left: number, top: number, placement: 'top'|'bottom' }}
  */
 export function computeSelectionMenuPosition({
   selectionRect,
   menuWidth,
   menuHeight,
+  viewportRect = null,
+  viewportLeft = 0,
+  viewportTop = 0,
   viewportWidth,
   viewportHeight,
   minTop = 64,
@@ -305,27 +298,23 @@ export function computeSelectionMenuPosition({
 }) {
   const mw = Math.max(1, menuWidth || 360);
   const mh = Math.max(1, menuHeight || 44);
-  const vw = Math.max(mw + margin * 2, viewportWidth || 1024);
-  const vh = Math.max(mh + margin * 2, viewportHeight || 768);
+  const vpW = viewportRect ? viewportRect.width : (viewportWidth || 1024);
+  const vpH = viewportRect ? viewportRect.height : (viewportHeight || 768);
 
-  const safeMinTop = Math.max(margin, minTop);
-  const maxTop = Math.max(safeMinTop, vh - mh - margin);
-
-  const centerX = (selectionRect.left + selectionRect.right) / 2;
-  const maxLeft = Math.max(margin, vw - mw - margin);
-  const left = Math.round(Math.max(margin, Math.min(maxLeft, centerX - mw / 2)));
-
-  const aboveTop = selectionRect.top - mh - gap;
-  const belowTop = selectionRect.bottom + bottomGap;
-
-  let placement = 'top';
-  let top = aboveTop;
-  if (aboveTop < safeMinTop && belowTop + mh <= vh - margin) {
-    placement = 'bottom';
-    top = belowTop;
-  }
-
-  top = Math.round(Math.max(safeMinTop, Math.min(maxTop, top)));
-
-  return { left, top, placement };
+  return computeAnchoredPosition({
+    triggerRect: selectionRect,
+    menuWidth: mw,
+    menuHeight: mh,
+    viewportRect: viewportRect ? { ...viewportRect, width: Math.max(mw + margin * 2, vpW), height: Math.max(mh + margin * 2, vpH) } : null,
+    viewportLeft,
+    viewportTop,
+    viewportWidth: Math.max(mw + margin * 2, vpW),
+    viewportHeight: Math.max(mh + margin * 2, vpH),
+    align: 'center',
+    preferAbove: true,
+    gap,
+    bottomGap,
+    margin,
+    minTop
+  });
 }

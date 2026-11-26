@@ -16,7 +16,7 @@ import {
   setMainMenu, setTool, selectColor, updateStrokeWidth, updateSmoothing,
   toggleCompactMode, initCompactFullscreenSync,
   applySnapTogglesToUI, applyEraserLevelToUI,
-  closeToolbarMenu, closeAllEditorMenus
+  closeToolbarMenu, closeAllEditorMenus, repositionColorPickerPopover
 } from '../toolbar/toolbar.js';
 import { updateToolbarSettings, getToolbarSettings } from '../toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../../shared/settings/settings-modal.js';
@@ -37,9 +37,10 @@ import {
   hasLassoSelection,
   updateSelectionMenuPosition
 } from '../tools/lazo.js';
-import { registerExternalMenuCloser } from '../../shared/components/floating-menu.js';
+import { registerExternalMenuCloser, subscribeViewportChanges } from '../../shared/components/floating-menu.js';
+import { clampBoxToViewportRect, getVisualViewportRect } from '../../shared/components/floating-menu-position.js';
 import { finalizePendingShape } from '../tools/shapes.js';
-import { commitActiveTextBox, editTextBoxById } from '../tools/text.js';
+import { commitActiveTextBox, editTextBoxById, updateTextSelectionMenuPosition } from '../tools/text.js';
 import { getCurrentNotebook } from '../../shared/persistence/session.js';
 import { forceSave } from '../../shared/persistence/autosave.js';
 import { exportNotebooks } from '../../shared/backup/backup-export.js';
@@ -246,8 +247,10 @@ export function bindEditorUI() {
   document.getElementById('clearSelectionBtn')
     ?.addEventListener('click', clearSelection);
 
-  window.addEventListener('resize', () => {
+  subscribeViewportChanges(() => {
     if (hasLassoSelection()) updateSelectionMenuPosition();
+    if (state.selectedTextBoxId && !state.editingTextBoxId) updateTextSelectionMenuPosition();
+    repositionColorPickerPopover();
   });
 
   // --- Undo / Redo ---
@@ -285,25 +288,35 @@ function initUndoRedoDrag() {
   const clampToViewport = (x, y) => {
     const w = el.offsetWidth || 100;
     const h = el.offsetHeight || 56;
-    const maxX = window.innerWidth - w - UNDO_REDO_MARGIN;
-    const maxY = window.innerHeight - h - UNDO_REDO_MARGIN;
-    return {
-      x: Math.max(UNDO_REDO_MARGIN, Math.min(maxX, x)),
-      y: Math.max(UNDO_REDO_MARGIN, Math.min(maxY, y))
-    };
+    return clampBoxToViewportRect({
+      x,
+      y,
+      width: w,
+      height: h,
+      viewportRect: getVisualViewportRect(),
+      margin: UNDO_REDO_MARGIN
+    });
   };
 
+  let preferredPos = { x: 16, y: 140 };
   try {
     const raw = localStorage.getItem(UNDO_REDO_POS_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
       if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
+        preferredPos = { x: saved.x, y: saved.y };
         const pos = clampToViewport(saved.x, saved.y);
         el.style.left = `${pos.x}px`;
         el.style.top = `${pos.y}px`;
       }
     }
   } catch {}
+
+  subscribeViewportChanges(() => {
+    const pos = clampToViewport(preferredPos.x, preferredPos.y);
+    el.style.left = `${pos.x}px`;
+    el.style.top = `${pos.y}px`;
+  });
 
   let pressTimer = null;
   let dragging = false;
@@ -360,10 +373,11 @@ function initUndoRedoDrag() {
 
       try {
         const rect = el.getBoundingClientRect();
-        localStorage.setItem(UNDO_REDO_POS_KEY, JSON.stringify({
+        preferredPos = {
           x: Math.round(rect.left),
           y: Math.round(rect.top)
-        }));
+        };
+        localStorage.setItem(UNDO_REDO_POS_KEY, JSON.stringify(preferredPos));
       } catch {}
 
       setTimeout(() => { skipNextClick = false; }, 50);

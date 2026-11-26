@@ -10,7 +10,7 @@
  *     accidentali sul canvas sottostante) e attributi ARIA.
  */
 
-import { computeFloatingMenuPosition } from './floating-menu-position.js';
+import { computeFloatingMenuPosition, getVisualViewportRect } from './floating-menu-position.js';
 
 export class InkMenuElement extends HTMLElement {
   connectedCallback() {
@@ -53,11 +53,17 @@ function _bindGlobalListenersOnce() {
   if (_globalListenersBound || typeof window === 'undefined') return;
   _globalListenersBound = true;
 
-  window.addEventListener('resize', () => {
+  const repositionAllOpen = () => {
     for (const ctrl of _controllers) {
       if (ctrl.isOpen()) ctrl.reposition();
     }
-  });
+  };
+
+  window.addEventListener('resize', repositionAllOpen);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', repositionAllOpen);
+    window.visualViewport.addEventListener('scroll', repositionAllOpen);
+  }
 
   document.addEventListener('pointerdown', (e) => {
     for (const ctrl of _controllers) {
@@ -90,6 +96,59 @@ function _bindGlobalListenersOnce() {
 export function registerExternalMenuCloser(id, closeFn) {
   if (!id || typeof closeFn !== 'function') return;
   _externalClosers.set(id, closeFn);
+}
+
+/**
+ * Calcola la coordinata Y minima sicura sotto header e dock superiori visibili
+ * nell'editor, così i menu contestuali non si sovrappongono alla barra strumenti.
+ *
+ * @returns {number}
+ */
+export function getEditorTopObstructionBottom() {
+  if (typeof document === 'undefined') return 56;
+  let maxBottom = 0;
+  const header = document.getElementById('mainHeader');
+  if (header) {
+    const r = header.getBoundingClientRect();
+    if (r.height > 0 && r.bottom > maxBottom) {
+      maxBottom = r.bottom;
+    }
+  }
+  if (!document.body.classList.contains('dock-auto-hidden')) {
+    document.querySelectorAll('.ui-dock:not(.hidden)').forEach(dock => {
+      const r = dock.getBoundingClientRect();
+      if (r.height > 0 && r.width > 0 && r.top < 180 && r.bottom > maxBottom) {
+        maxBottom = r.bottom;
+      }
+    });
+  }
+  return Math.max(12, Math.round(maxBottom + 8));
+}
+
+/**
+ * Sottoscrive un listener unificato ai cambi di dimensione/scroll di `window`
+ * e `window.visualViewport` (inclusa comparsa tastiera virtuale / zoom su iPadOS).
+ *
+ * @param {() => void} handler
+ * @returns {() => void} funzione di unsubscribe
+ */
+export function subscribeViewportChanges(handler) {
+  if (typeof window === 'undefined' || typeof handler !== 'function') {
+    return () => {};
+  }
+  window.addEventListener('resize', handler);
+  const vv = window.visualViewport;
+  if (vv) {
+    vv.addEventListener('resize', handler);
+    vv.addEventListener('scroll', handler);
+  }
+  return () => {
+    window.removeEventListener('resize', handler);
+    if (vv) {
+      vv.removeEventListener('resize', handler);
+      vv.removeEventListener('scroll', handler);
+    }
+  };
 }
 
 /**
@@ -205,8 +264,7 @@ export function createFloatingMenu({
       triggerRect,
       menuWidth: panel.offsetWidth || 256,
       menuHeight: panel.offsetHeight || 240,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
+      viewportRect: getVisualViewportRect(),
       align,
       gap,
       margin

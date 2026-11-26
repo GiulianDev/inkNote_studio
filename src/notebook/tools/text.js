@@ -25,6 +25,8 @@ import { pushHistory } from '../history/history.js';
 import { scheduleSave } from '../../shared/persistence/autosave.js';
 import { markPageDirty } from '../../shared/persistence/session.js';
 import { pagePool } from '../editor/page-pool.js';
+import { computeAnchoredPosition, getVisualViewportRect } from '../../shared/components/floating-menu-position.js';
+import { getEditorTopObstructionBottom } from '../../shared/components/floating-menu.js';
 
 const DEFAULT_BOX_WIDTH = 260;
 const MIN_BOX_WIDTH = 80;
@@ -281,13 +283,31 @@ export function updateTextSelectionMenuPosition() {
   if (!rect || rect.width <= 0) return;
   const scaleRatio = rect.width / PAGE_WIDTH;
   const w = Math.max(MIN_BOX_WIDTH, tb.width || DEFAULT_BOX_WIDTH);
-  const screenX = rect.left + (tb.x + w / 2) * scaleRatio;
-  const screenY = rect.top + tb.y * scaleRatio - 48;
+  const h = Math.max(24, tb.height || 32);
+  const triggerRect = {
+    left: rect.left + tb.x * scaleRatio,
+    right: rect.left + (tb.x + w) * scaleRatio,
+    top: rect.top + tb.y * scaleRatio,
+    bottom: rect.top + (tb.y + h) * scaleRatio,
+    width: w * scaleRatio
+  };
   const menuW = _cachedTextMenuW || _selectionMenuEl.offsetWidth || 180;
   if (!_cachedTextMenuW && menuW) _cachedTextMenuW = menuW;
-  const x = Math.round(Math.max(12, Math.min(window.innerWidth - menuW - 12, screenX - menuW / 2)));
-  const y = Math.round(Math.max(64, screenY));
-  _selectionMenuEl.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  const menuH = _selectionMenuEl.offsetHeight || 38;
+  const pos = computeAnchoredPosition({
+    triggerRect,
+    menuWidth: menuW,
+    menuHeight: menuH,
+    viewportRect: getVisualViewportRect(),
+    align: 'center',
+    preferAbove: true,
+    gap: 10,
+    bottomGap: 14,
+    margin: 12,
+    minTop: getEditorTopObstructionBottom()
+  });
+  _selectionMenuEl.dataset.placement = pos.placement;
+  _selectionMenuEl.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0)`;
 }
 
 // ============================================================

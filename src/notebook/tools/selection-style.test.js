@@ -160,6 +160,17 @@ describe('selection-style helpers', () => {
       minTop: 124
     });
     assert.equal(clampedRight.left, 908);
+
+    // iPad visualViewport con tastiera aperta / zoom (offsetLeft=60, offsetTop=40, height=340)
+    const vvMenu = computeSelectionMenuPosition({
+      selectionRect: { left: 180, top: 350, right: 380, bottom: 420 },
+      menuWidth: 320,
+      menuHeight: 46,
+      viewportRect: { left: 60, top: 40, width: 700, height: 340 },
+      minTop: 110
+    });
+    assert.equal(vvMenu.left, 120);
+    assert.equal(vvMenu.top, 292);
   });
 
   it('resolves contextual menu mode across none, ink, single/multi text, and mixed selections', () => {

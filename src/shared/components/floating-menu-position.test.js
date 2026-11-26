@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeFloatingMenuPosition } from './floating-menu-position.js';
+import {
+  computeFloatingMenuPosition,
+  computeAnchoredPosition,
+  clampBoxToViewportRect,
+  getVisualViewportRect
+} from './floating-menu-position.js';
 
 test('align="end" aligns menu right edge with trigger right edge below trigger', () => {
   const pos = computeFloatingMenuPosition({
@@ -98,3 +103,74 @@ test('clamps vertically inside viewport when neither below nor above fits withou
 
   assert.deepEqual(pos, { left: 100, top: 72 });
 });
+
+test('getVisualViewportRect prefers visualViewport dimensions/offsets and falls back cleanly', () => {
+  const withVV = getVisualViewportRect({
+    innerWidth: 1024,
+    innerHeight: 768,
+    visualViewport: { offsetLeft: 40, offsetTop: 20, width: 900, height: 380 }
+  });
+  assert.deepEqual(withVV, { left: 40, top: 20, width: 900, height: 380, right: 940, bottom: 400 });
+
+  const fallback = getVisualViewportRect({
+    innerWidth: 1280,
+    innerHeight: 800,
+    visualViewport: null
+  });
+  assert.deepEqual(fallback, { left: 0, top: 0, width: 1280, height: 800, right: 1280, bottom: 800 });
+});
+
+test('clampBoxToViewportRect keeps draggable dock inside shrunk visualViewport (iPad keyboard)', () => {
+  const clamped = clampBoxToViewportRect({
+    x: 920,
+    y: 620,
+    width: 112,
+    height: 56,
+    viewportRect: { left: 0, top: 0, width: 1024, height: 390 },
+    margin: 8
+  });
+  assert.deepEqual(clamped, { x: 904, y: 326 });
+
+  const shiftedZoom = clampBoxToViewportRect({
+    x: 10,
+    y: 12,
+    width: 112,
+    height: 56,
+    viewportRect: { left: 80, top: 100, width: 500, height: 300 },
+    margin: 8
+  });
+  assert.deepEqual(shiftedZoom, { x: 88, y: 108 });
+});
+
+test('computeAnchoredPosition with preferAbove flips below top obstruction and clamps inside visualViewport', () => {
+  // Vicino alla toolbar superiore: non entra sopra minTop=128, quindi ribalta sotto
+  const flipped = computeAnchoredPosition({
+    triggerRect: { left: 240, right: 440, top: 135, bottom: 175, width: 200 },
+    menuWidth: 180,
+    menuHeight: 38,
+    viewportRect: { left: 0, top: 0, width: 1024, height: 768 },
+    align: 'center',
+    preferAbove: true,
+    gap: 10,
+    bottomGap: 14,
+    margin: 12,
+    minTop: 128
+  });
+  assert.deepEqual(flipped, { left: 250, top: 189, placement: 'bottom' });
+
+  // Sotto la tastiera aperta: viene clampato sopra al bordo inferiore visibile
+  const clampedAboveKeyboard = computeAnchoredPosition({
+    triggerRect: { left: 30, right: 230, top: 420, bottom: 460, width: 200 },
+    menuWidth: 180,
+    menuHeight: 38,
+    viewportRect: { left: 50, top: 0, width: 700, height: 390 },
+    align: 'center',
+    preferAbove: true,
+    gap: 10,
+    bottomGap: 14,
+    margin: 12,
+    minTop: 120
+  });
+  assert.deepEqual(clampedAboveKeyboard, { left: 62, top: 340, placement: 'top' });
+});
+
