@@ -2,22 +2,20 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.1.0",
-  "builtAt": "2026-11-26T11:32:00.000Z",
+  "version": "0.1.1",
+  "builtAt": "2026-11-26T11:40:27.159Z",
   "date": "2026-11-26",
   "currentNotes": [
-    "Popup release e cronologia aggiornamenti accessibile da icona o titolo della Libreria, con incremento automatico della versione ad ogni `npm run build` e tasto **Segnala bug**.",
     "Menu contestuale del lazo adattivo: mostra solo i controlli pertinenti per inchiostro, solo testo (colore, dimensione font `A- / px / A+`, modifica rapida) o selezione mista (colore unificato).",
     "Corretto il riquadro blu di selezione del lazo dopo duplicazione e incolla."
   ],
   "notesSourceVersion": "0.1.1",
-  "hasExactChangelog": false,
+  "hasExactChangelog": true,
   "releases": [
     {
       "version": "0.1.1",
       "date": "2026-11-26",
       "items": [
-        "Popup release e cronologia aggiornamenti accessibile da icona o titolo della Libreria, con incremento automatico della versione ad ogni `npm run build` e tasto **Segnala bug**.",
         "Menu contestuale del lazo adattivo: mostra solo i controlli pertinenti per inchiostro, solo testo (colore, dimensione font `A- / px / A+`, modifica rapida) o selezione mista (colore unificato).",
         "Corretto il riquadro blu di selezione del lazo dopo duplicazione e incolla."
       ]
