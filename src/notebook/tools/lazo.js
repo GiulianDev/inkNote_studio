@@ -42,7 +42,13 @@ import {
   applyStyleToStrokes,
   computeSelectionStylePopoverPosition,
   computeSelectionMenuPosition,
-  isValidSelectionStrokeStyle
+  isValidSelectionStrokeStyle,
+  resolveSelectionMenuMode,
+  resolveSelectionColor,
+  resolveSelectionFontSize,
+  computeSteppedSelectionFontSize,
+  TEXT_FONT_SIZE_MIN,
+  TEXT_FONT_SIZE_MAX
 } from './selection-style.js';
 
 let _clipboard = null; // { strokes: [], textBoxes: [], sourcePageId: string|null, pasteCount: number }
@@ -537,13 +543,19 @@ export function endResizeSelection(pageData, wasMoved = false) {
 }
 
 export function previewSelectionColor(newColor) {
-  if (state.selectedStrokes.length === 0) return;
+  if (!hasLassoSelection()) return;
   for (let i = 0; i < state.selectedStrokes.length; i++) {
     const s = state.selectedStrokes[i];
     s.color = newColor;
     setNonEnumerable(s, '_styleCache', null);
     invalidateStrokePacked(s);
     invalidateStrokeBitmap(s);
+  }
+  if (Array.isArray(state.selectedTextBoxes)) {
+    for (let i = 0; i < state.selectedTextBoxes.length; i++) {
+      const tb = state.selectedTextBoxes[i];
+      if (tb) tb.color = newColor;
+    }
   }
   const current = state.pages[state.activePageIndex];
   if (current && current.canvas) {
@@ -552,7 +564,7 @@ export function previewSelectionColor(newColor) {
 }
 
 export function changeSelectionColor(newColor) {
-  if (state.selectedStrokes.length === 0) return;
+  if (!hasLassoSelection()) return;
   previewSelectionColor(newColor);
   const current = state.pages[state.activePageIndex];
   if (current) markPageDirty(current.pageId);
@@ -587,6 +599,54 @@ export function changeSelectionWidth(newWidth) {
   scheduleSave();
   pushHistory();
   showToast('Spessore aggiornato', '📏');
+}
+
+function _syncSelectionFontSizeUI() {
+  const info = resolveSelectionFontSize(state.selectedTextBoxes);
+  const label = document.getElementById('selectionFontSizeValue');
+  if (label) {
+    label.textContent = info.isMixed ? `~${info.fontSize}px` : `${info.fontSize}px`;
+  }
+  const decBtn = document.getElementById('selectionFontDecBtn');
+  const incBtn = document.getElementById('selectionFontIncBtn');
+  if (decBtn) decBtn.disabled = !info.isMixed && info.fontSize <= TEXT_FONT_SIZE_MIN;
+  if (incBtn) incBtn.disabled = !info.isMixed && info.fontSize >= TEXT_FONT_SIZE_MAX;
+}
+
+export function stepSelectionFontSize(delta) {
+  if (!Array.isArray(state.selectedTextBoxes) || state.selectedTextBoxes.length === 0) return false;
+  const info = resolveSelectionFontSize(state.selectedTextBoxes);
+  const nextSize = computeSteppedSelectionFontSize(info.fontSize, delta);
+
+  const current = state.pages[state.activePageIndex];
+  const mCtx = _measureCtx(current);
+  let changed = false;
+
+  for (let i = 0; i < state.selectedTextBoxes.length; i++) {
+    const tb = state.selectedTextBoxes[i];
+    if (!tb) continue;
+    if (tb.fontSize !== nextSize) changed = true;
+    tb.fontSize = nextSize;
+    tb._layoutCache = null;
+    const layout = layoutTextBox(mCtx, tb);
+    const w = Math.max(80, tb.width || 240);
+    const h = Math.max(24, tb.height || layout.height || 32);
+    tb.x = Math.max(8, Math.min(PAGE_WIDTH - w - 8, tb.x));
+    tb.y = Math.max(8, Math.min(PAGE_HEIGHT - h - 8, tb.y));
+  }
+
+  _syncSelectionFontSizeUI();
+  if (current && current.canvas) {
+    redrawSelectionOverlay(current);
+  }
+  updateSelectionMenuPosition();
+
+  if (changed) {
+    if (current) markPageDirty(current.pageId);
+    scheduleSave();
+    pushHistory();
+  }
+  return true;
 }
 
 const _STYLE_SVG_ATTRS = {
@@ -850,7 +910,7 @@ function _pasteItemsIntoPage(pageData, items, dx, dy) {
       pts[j].x = Math.max(0, Math.min(PAGE_WIDTH, pts[j].x + clampedDx));
       pts[j].y = Math.max(0, Math.min(PAGE_HEIGHT, pts[j].y + clampedDy));
     }
-    invalidateStrokePacked(s);
+    invalidateStrokeBBox(s);
     pageData.strokes.push(s);
   }
   for (let i = 0; i < clonedTexts.length; i++) {
@@ -915,21 +975,46 @@ function showSelectionMenu() {
   _menuInteractingHidden = false;
   menu.classList.remove('hidden');
 
-  const hasStrokes = state.selectedStrokes.length > 0;
+  const menuState = resolveSelectionMenuMode(state.selectedStrokes, state.selectedTextBoxes);
+  menu.dataset.selectionMode = menuState.mode;
+
   menu.querySelectorAll('[data-selection-ink-only]').forEach(el => {
-    el.classList.toggle('hidden', !hasStrokes);
+    el.classList.toggle('hidden', !menuState.showInkControls);
+  });
+  menu.querySelectorAll('[data-selection-text-only]').forEach(el => {
+    el.classList.toggle('hidden', !menuState.showTextControls);
+  });
+  menu.querySelectorAll('[data-selection-single-text-only]').forEach(el => {
+    el.classList.toggle('hidden', !menuState.showSingleTextEdit);
   });
 
-  if (hasStrokes) {
+  if (!menuState.showInkControls) {
+    hideSelectionStylePopover();
+  }
+
+  const colorInfo = resolveSelectionColor(state.selectedStrokes, state.selectedTextBoxes);
+  const colorControl = document.getElementById('selectionColorControl');
+  const colorPicker = document.getElementById('selectionColorPicker');
+  const colorTitle = menuState.mode === 'text'
+    ? 'Colore testo selezionato'
+    : (menuState.mode === 'mixed' ? 'Colore selezione' : 'Colore tratti selezionati');
+  if (colorControl) colorControl.title = colorTitle;
+  if (colorPicker) {
+    colorPicker.value = colorInfo.color;
+    colorPicker.setAttribute('aria-label', colorTitle);
+  }
+
+  if (menuState.showInkControls) {
     const first = state.selectedStrokes[0];
-    const colorPicker = document.getElementById('selectionColorPicker');
     const widthSlider = document.getElementById('selectionWidthSlider');
     const widthValue = document.getElementById('selectionWidthValue');
-    if (colorPicker && first.color) colorPicker.value = first.color;
     if (widthSlider) widthSlider.value = first.size || 3;
     if (widthValue) widthValue.innerText = first.size || 3;
     _syncSelectionStyleUI();
+  } else if (menuState.showTextControls) {
+    _syncSelectionFontSizeUI();
   }
+
   updateSelectionMenuPosition();
 }
 

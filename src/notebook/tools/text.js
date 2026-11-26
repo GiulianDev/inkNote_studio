@@ -611,6 +611,18 @@ export function editSelectedTextBox() {
   _openEditorForBox(found.pageData, found.textBox);
 }
 
+export function editTextBoxById(boxId) {
+  if (!boxId) return false;
+  if (state.editingTextBoxId === boxId) {
+    _editorTextarea?.focus({ preventScroll: true });
+    return true;
+  }
+  const found = _findBoxById(boxId);
+  if (!found) return false;
+  _openEditorForBox(found.pageData, found.textBox);
+  return true;
+}
+
 export function deleteSelectedTextBox() {
   const targetId = state.editingTextBoxId || state.selectedTextBoxId;
   if (!targetId) return false;

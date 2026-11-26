@@ -9,7 +9,13 @@ import {
   resolveSelectionStrokeStyle,
   applyStyleToStrokes,
   computeSelectionStylePopoverPosition,
-  computeSelectionMenuPosition
+  computeSelectionMenuPosition,
+  resolveSelectionMenuMode,
+  resolveSelectionColor,
+  resolveSelectionFontSize,
+  computeSteppedSelectionFontSize,
+  TEXT_FONT_SIZE_MIN,
+  TEXT_FONT_SIZE_MAX
 } from './selection-style.js';
 
 describe('selection-style helpers', () => {
@@ -154,5 +160,81 @@ describe('selection-style helpers', () => {
       minTop: 124
     });
     assert.equal(clampedRight.left, 908);
+  });
+
+  it('resolves contextual menu mode across none, ink, single/multi text, and mixed selections', () => {
+    assert.deepEqual(resolveSelectionMenuMode([], []), {
+      mode: 'none',
+      hasStrokes: false,
+      hasText: false,
+      showColor: false,
+      showInkControls: false,
+      showTextControls: false,
+      showSingleTextEdit: false
+    });
+
+    assert.deepEqual(resolveSelectionMenuMode([{ tool: 'pen' }], []), {
+      mode: 'ink',
+      hasStrokes: true,
+      hasText: false,
+      showColor: true,
+      showInkControls: true,
+      showTextControls: false,
+      showSingleTextEdit: false
+    });
+
+    assert.deepEqual(resolveSelectionMenuMode([], [{ id: 'tb1' }]), {
+      mode: 'text',
+      hasStrokes: false,
+      hasText: true,
+      showColor: true,
+      showInkControls: false,
+      showTextControls: true,
+      showSingleTextEdit: true
+    });
+
+    assert.deepEqual(resolveSelectionMenuMode([], [{ id: 'tb1' }, { id: 'tb2' }]), {
+      mode: 'text',
+      hasStrokes: false,
+      hasText: true,
+      showColor: true,
+      showInkControls: false,
+      showTextControls: true,
+      showSingleTextEdit: false
+    });
+
+    assert.deepEqual(resolveSelectionMenuMode([{ tool: 'pen' }], [{ id: 'tb1' }]), {
+      mode: 'mixed',
+      hasStrokes: true,
+      hasText: true,
+      showColor: true,
+      showInkControls: false,
+      showTextControls: false,
+      showSingleTextEdit: false
+    });
+  });
+
+  it('resolves unified color and clamps/steps text font size cleanly', () => {
+    assert.deepEqual(resolveSelectionColor([], [{ color: '#2563EB' }]), {
+      color: '#2563eb',
+      isMixed: false
+    });
+    assert.deepEqual(resolveSelectionColor([{ color: '#000' }], [{ color: '#e11d48' }]), {
+      color: '#000000',
+      isMixed: true
+    });
+
+    assert.deepEqual(resolveSelectionFontSize([{ fontSize: 24 }, { fontSize: 24 }]), {
+      fontSize: 24,
+      isMixed: false
+    });
+    assert.deepEqual(resolveSelectionFontSize([{ fontSize: 16 }, { fontSize: 32 }]), {
+      fontSize: 16,
+      isMixed: true
+    });
+
+    assert.equal(computeSteppedSelectionFontSize(18, 2), 20);
+    assert.equal(computeSteppedSelectionFontSize(TEXT_FONT_SIZE_MIN, -4), TEXT_FONT_SIZE_MIN);
+    assert.equal(computeSteppedSelectionFontSize(TEXT_FONT_SIZE_MAX, 4), TEXT_FONT_SIZE_MAX);
   });
 });

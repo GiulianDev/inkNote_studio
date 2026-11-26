@@ -16,12 +16,12 @@
 
     <!-- Barra flottante selezione lazo -->
     <div id="selectionMenu" class="floating-selector-bar floating-selector-bar--lasso fixed hidden z-[42]" role="toolbar" aria-label="Azioni selezione">
-        <div class="selector-bar-group" data-selection-ink-only>
-            <label class="selector-color-control" title="Colore tratti selezionati">
-                <input type="color" id="selectionColorPicker" value="#000000" class="selector-color-input" aria-label="Colore tratti selezionati">
+        <div class="selector-bar-group">
+            <label id="selectionColorControl" class="selector-color-control" title="Colore selezione">
+                <input type="color" id="selectionColorPicker" value="#000000" class="selector-color-input" aria-label="Colore selezione">
             </label>
 
-            <div class="selector-width-control" title="Spessore tratti selezionati">
+            <div class="selector-width-control" data-selection-ink-only title="Spessore tratti selezionati">
                 <svg class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0 pointer-events-none" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                     <circle cx="8" cy="8" r="3.5"/>
                 </svg>
@@ -39,9 +39,20 @@
                     <svg class="w-3 h-3 opacity-70 pointer-events-none shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
             </div>
+
+            <div id="selectionFontSizeControl" class="selector-font-size-control hidden" data-selection-text-only title="Dimensione testo">
+                <button id="selectionFontDecBtn" type="button" class="selector-icon-btn selector-font-step-btn" title="Riduci dimensione testo" aria-label="Riduci dimensione testo">A-</button>
+                <span id="selectionFontSizeValue" class="selector-font-size-value">18px</span>
+                <button id="selectionFontIncBtn" type="button" class="selector-icon-btn selector-font-step-btn" title="Aumenta dimensione testo" aria-label="Aumenta dimensione testo">A+</button>
+            </div>
+
+            <button id="selectionEditTextBtn" type="button" class="selector-icon-btn primary hidden" data-selection-single-text-only title="Modifica testo" aria-label="Modifica testo">
+                <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                <span>Modifica</span>
+            </button>
         </div>
 
-        <div class="selector-bar-divider" data-selection-ink-only></div>
+        <div class="selector-bar-divider"></div>
 
         <div class="selector-bar-group">
             <button id="copySelectionBtn" type="button" class="selector-icon-btn" title="Copia selezione (Ctrl+C)" aria-label="Copia selezione">

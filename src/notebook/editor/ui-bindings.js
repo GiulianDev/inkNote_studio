@@ -29,6 +29,7 @@ import {
   copySelection, cutSelection, duplicateSelection,
   previewSelectionColor, changeSelectionColor,
   previewSelectionWidth, changeSelectionWidth,
+  stepSelectionFontSize,
   changeSelectionStyle,
   toggleSelectionStylePopover,
   hideSelectionStylePopover,
@@ -38,7 +39,7 @@ import {
 } from '../tools/lazo.js';
 import { registerExternalMenuCloser } from '../../shared/components/floating-menu.js';
 import { finalizePendingShape } from '../tools/shapes.js';
-import { commitActiveTextBox } from '../tools/text.js';
+import { commitActiveTextBox, editTextBoxById } from '../tools/text.js';
 import { getCurrentNotebook } from '../../shared/persistence/session.js';
 import { forceSave } from '../../shared/persistence/autosave.js';
 import { exportNotebooks } from '../../shared/backup/backup-export.js';
@@ -194,6 +195,20 @@ export function bindEditorUI() {
   const selWidth = document.getElementById('selectionWidthSlider');
   selWidth?.addEventListener('input', (e) => previewSelectionWidth(e.target.value));
   selWidth?.addEventListener('change', (e) => changeSelectionWidth(e.target.value));
+
+  document.getElementById('selectionFontDecBtn')
+    ?.addEventListener('click', () => stepSelectionFontSize(-2));
+  document.getElementById('selectionFontIncBtn')
+    ?.addEventListener('click', () => stepSelectionFontSize(2));
+  document.getElementById('selectionEditTextBtn')
+    ?.addEventListener('click', () => {
+      const targetBoxId = Array.isArray(state.selectedTextBoxes) && state.selectedTextBoxes.length === 1
+        ? state.selectedTextBoxes[0]?.id
+        : null;
+      if (!targetBoxId) return;
+      setTool('text');
+      editTextBoxById(targetBoxId);
+    });
 
   const selStyleBtn = document.getElementById('selectionStyleBtn');
   const selStylePopover = document.getElementById('selectionStylePopover');

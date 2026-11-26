@@ -122,6 +122,107 @@ export function applyStyleToStrokes(strokes, newStyle, { onInvalidate } = {}) {
   };
 }
 
+export const TEXT_FONT_SIZE_MIN = 10;
+export const TEXT_FONT_SIZE_MAX = 72;
+export const TEXT_FONT_SIZE_DEFAULT = 18;
+
+export function clampSelectionFontSize(size) {
+  const num = Number(size);
+  if (!Number.isFinite(num)) return TEXT_FONT_SIZE_DEFAULT;
+  return Math.max(TEXT_FONT_SIZE_MIN, Math.min(TEXT_FONT_SIZE_MAX, Math.round(num)));
+}
+
+/**
+ * Determina la modalità contestuale della barra lazo in base agli elementi selezionati:
+ * - `'ink'`: solo tratti (mostra colore, spessore, stile)
+ * - `'text'`: solo caselle di testo (mostra colore, dimensione font, e Modifica se 1 sola)
+ * - `'mixed'`: tratti + testo insieme (Opzione A: solo colore unificato + azioni)
+ * - `'none'`: selezione vuota
+ */
+export function resolveSelectionMenuMode(strokes, textBoxes) {
+  const strokeCount = Array.isArray(strokes) ? strokes.length : 0;
+  const textCount = Array.isArray(textBoxes) ? textBoxes.length : 0;
+  const hasStrokes = strokeCount > 0;
+  const hasText = textCount > 0;
+
+  let mode = 'none';
+  if (hasStrokes && hasText) mode = 'mixed';
+  else if (hasStrokes) mode = 'ink';
+  else if (hasText) mode = 'text';
+
+  return {
+    mode,
+    hasStrokes,
+    hasText,
+    showColor: mode !== 'none',
+    showInkControls: mode === 'ink',
+    showTextControls: mode === 'text',
+    showSingleTextEdit: mode === 'text' && textCount === 1
+  };
+}
+
+function _normalizeHexColor(color) {
+  if (typeof color !== 'string') return null;
+  const c = color.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(c)) return c;
+  if (/^#[0-9a-f]{3}$/.test(c)) {
+    return `#${c[1]}${c[1]}${c[2]}${c[2]}${c[3]}${c[3]}`;
+  }
+  return null;
+}
+
+export function resolveSelectionColor(strokes, textBoxes) {
+  let firstColor = null;
+  let isMixed = false;
+
+  const inspect = (list) => {
+    if (!Array.isArray(list)) return;
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      if (!item) continue;
+      const hex = _normalizeHexColor(item.color) || '#000000';
+      if (firstColor === null) {
+        firstColor = hex;
+      } else if (hex !== firstColor) {
+        isMixed = true;
+      }
+    }
+  };
+
+  inspect(strokes);
+  inspect(textBoxes);
+
+  return {
+    color: firstColor || '#000000',
+    isMixed
+  };
+}
+
+export function resolveSelectionFontSize(textBoxes) {
+  if (!Array.isArray(textBoxes) || textBoxes.length === 0) {
+    return { fontSize: TEXT_FONT_SIZE_DEFAULT, isMixed: false };
+  }
+  let firstSize = null;
+  let isMixed = false;
+  for (let i = 0; i < textBoxes.length; i++) {
+    const tb = textBoxes[i];
+    if (!tb) continue;
+    const sz = clampSelectionFontSize(tb.fontSize ?? TEXT_FONT_SIZE_DEFAULT);
+    if (firstSize === null) firstSize = sz;
+    else if (sz !== firstSize) isMixed = true;
+  }
+  return {
+    fontSize: firstSize ?? TEXT_FONT_SIZE_DEFAULT,
+    isMixed
+  };
+}
+
+export function computeSteppedSelectionFontSize(currentSize, delta) {
+  const base = clampSelectionFontSize(currentSize);
+  const d = Number(delta) || 0;
+  return clampSelectionFontSize(base + d);
+}
+
 /**
  * Calcola le coordinate (left, top) del popover stile sopra (preferito) o sotto
  * il pulsante trigger nella barra selezione, mantenendolo dentro i margini viewport.

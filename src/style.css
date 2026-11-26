@@ -2750,6 +2750,10 @@ body.dark .floating-selector-bar {
   gap: 4px;
 }
 
+.floating-selector-bar .hidden {
+  display: none !important;
+}
+
 .selector-bar-divider {
   width: 1px;
   height: 20px;
@@ -2826,7 +2830,8 @@ body.dark .selector-color-input {
   border-radius: 9999px;
 }
 
-.selector-width-control {
+.selector-width-control,
+.selector-font-size-control {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2837,7 +2842,13 @@ body.dark .selector-color-input {
   border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
-body.dark .selector-width-control {
+.selector-font-size-control {
+  gap: 2px;
+  padding: 0 4px;
+}
+
+body.dark .selector-width-control,
+body.dark .selector-font-size-control {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.08);
 }
@@ -2853,7 +2864,8 @@ body.dark .selector-width-slider {
   accent-color: #818cf8;
 }
 
-.selector-width-value {
+.selector-width-value,
+.selector-font-size-value {
   min-width: 1.5rem;
   text-align: center;
   font-size: 11px;
@@ -2862,8 +2874,28 @@ body.dark .selector-width-slider {
   color: #334155;
 }
 
-body.dark .selector-width-value {
+.selector-font-size-value {
+  min-width: 2.35rem;
+}
+
+body.dark .selector-width-value,
+body.dark .selector-font-size-value {
   color: #e2e8f0;
+}
+
+.selector-font-step-btn {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 5px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.selector-font-step-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .selector-icon-btn {

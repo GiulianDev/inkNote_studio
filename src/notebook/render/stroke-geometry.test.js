@@ -185,4 +185,45 @@ describe('stroke-geometry: broad-phase polygon & selection bbox', () => {
     assert.equal(clampDirtyRect({ minX: 800, maxX: 900, minY: 10, maxY: 50 }, 794, 1123), null);
     assert.equal(clampDirtyRect(null, 794, 1123), null);
   });
+
+  it('recomputes selection bbox after in-place coordinate shift when invalidateStrokeBBox is called', () => {
+    const stroke = {
+      tool: 'pen',
+      color: '#000000',
+      size: 3,
+      points: [
+        { x: 100, y: 120 },
+        { x: 180, y: 200 }
+      ]
+    };
+
+    // Populate _bbox at original position (e.g. offset clamping before shift)
+    const originalBox = getSelectionBBoxFromItems([stroke], [], 0);
+    assert.deepEqual(originalBox, {
+      minX: 100,
+      maxX: 180,
+      minY: 120,
+      maxY: 200,
+      width: 80,
+      height: 80
+    });
+
+    // Mutate points in-place keeping length identical (as _pasteItemsIntoPage does)
+    for (const pt of stroke.points) {
+      pt.x += 20;
+      pt.y += 20;
+    }
+    invalidateStrokeBBox(stroke);
+
+    const shiftedBox = getSelectionBBoxFromItems([stroke], [], 0);
+    assert.deepEqual(shiftedBox, {
+      minX: 120,
+      maxX: 200,
+      minY: 140,
+      maxY: 220,
+      width: 80,
+      height: 80
+    });
+  });
 });
+
