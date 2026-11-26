@@ -31,6 +31,7 @@
 
 import { initDB } from './shared/services/db.js';
 import { initPlatform } from './shared/core/platform.js';
+import { initDeviceProfile } from './notebook/platform/profiles/index.js';
 import { initSettings, onSettingsChanged } from './shared/core/app-settings.js';
 import { initToolbarSettings, onToolbarSettingsChanged } from './notebook/toolbar/toolbar-settings.js';
 import { state } from './shared/core/state.js';
@@ -80,6 +81,7 @@ import { closeTopModal } from './shared/components/modal.js';
 window.addEventListener('load', async () => {
   // 0. Piattaforma e listener input runtime (OS, device, hybrid, DPR, lastPointerType).
   initPlatform({ targetState: state });
+  initDeviceProfile(state.platform);
 
   // 1. Pagine e componenti grafiche. Devono esistere PRIMA di initSettings():
   //    lo store applica tema/dock al DOM e cerca gli elementi della toolbar.

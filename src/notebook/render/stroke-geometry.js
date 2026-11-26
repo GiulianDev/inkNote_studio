@@ -5,6 +5,8 @@
  * per tratti (strokes), selezione lazo e hit-testing broad-phase.
  */
 
+import { getDeviceProfile } from '../platform/profiles/index.js';
+
 export function setNonEnumerable(obj, key, value) {
   if (!obj || typeof obj !== 'object') return;
   const desc = Object.getOwnPropertyDescriptor(obj, key);
@@ -286,15 +288,7 @@ export function computeSegmentSteps(segLen, smoothness) {
  */
 export function computePlatformSegmentSteps(segLen, smoothness, platform = 'desktop') {
   const base = computeSegmentSteps(segLen, smoothness);
-  if (base <= 1) return 1;
-  const s = smoothness == null ? 0.5 : smoothness;
-  if (platform === 'desktop') {
-    return segLen <= 34 ? Math.min(base, 3) : base;
-  }
-  if (s > 0.70 && segLen > 34) {
-    return 5;
-  }
-  return base;
+  return getDeviceProfile(platform).rendering.adjustSegmentSteps(base, segLen, smoothness);
 }
 
 /**

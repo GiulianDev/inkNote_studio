@@ -5,6 +5,7 @@
  */
 
 import { state, viewport } from '../../shared/core/state.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 import { SHAPE_CAPABLE_TOOLS, showToast, isPaperDark, emit } from '../../shared/core/utils.js';
 import {
   clearOverlay, renderPendingShapeOnOverlay,
@@ -106,9 +107,24 @@ export function moveInkStroke(pageData, e) {
   if (!state.currentStroke) return;
   const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
   const events = (coalesced && coalesced.length > 0) ? coalesced : [e];
+  const minDist = getDeviceProfile(state.platform?.family).input.dedupCoalescedMinDistPx || 0;
 
   const points = [];
-  for (const ev of events) points.push(getCanvasCoords(ev, pageData.canvas, e.pointerType));
+  for (const ev of events) {
+    const pt = getCanvasCoords(ev, pageData.canvas, e.pointerType);
+    if (minDist > 0 && points.length > 0) {
+      const prev = points[points.length - 1];
+      const d = Math.hypot(pt.x - prev.x, pt.y - prev.y);
+      if (d < minDist) {
+        if (!pt._pressureFallback && prev._pressureFallback) {
+          points[points.length - 1] = pt;
+        }
+        continue;
+      }
+    }
+    points.push(pt);
+  }
+  if (points.length === 0) return;
   pushPointsToBatch(points);
   scheduleFlush(pageData);
 

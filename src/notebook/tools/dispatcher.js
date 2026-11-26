@@ -12,9 +12,10 @@
  */
 
 import { state, viewport } from '../../shared/core/state.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 import {
   getCanvasCoords, invalidateStrokeRect, resetPointPool,
-  forceFlushNow, cancelFlush, isPenEraser, resetLastValidPenPressure
+  pushPointsToBatch, forceFlushNow, cancelFlush, isPenEraser, resetLastValidPenPressure
 } from './tool-shared.js';
 import {
   updateEraserCursor, hideEraserCursor, shouldShowEraserCursor,
@@ -242,8 +243,9 @@ export function handlePointerMove(e, pageData) {
   if (!isTextToolGesture && !isLassoTouchGesture && palmCheck && !isPenLike) return;
   if (viewport.isPanning || viewport.isPinching) return;
 
-  // Fix A.1: ignora hover durante stroke attivo
-  if (state.isDrawing && e.pointerType === 'pen' && e.buttons === 0 && !(e.pressure > 0)) return;
+  // Fix A.1: ignora hover durante stroke attivo secondo il profilo dispositivo
+  const profile = getDeviceProfile(state.platform?.family);
+  if (state.isDrawing && profile.input.shouldIgnoreUnpressedPenMove(e, state)) return;
 
   if (!state.isDrawing && e.pointerType !== 'touch') {
     if (state.activeTool === 'lasso') {
@@ -298,6 +300,28 @@ export function handlePointerUp(e, pageData) {
   setDockDrawingHidden(false);
 
   if (!shouldShowEraserCursor(e)) hideEraserCursor();
+
+  const profile = getDeviceProfile(state.platform?.family);
+  if (profile.input.capturePointerUpEndpoint &&
+      state.isDrawing &&
+      state.currentStroke &&
+      !state.pendingShape &&
+      !state.scribbleMode &&
+      !_gestureUsedEraser &&
+      !state._penEraserActive &&
+      !state.isResizingSelection &&
+      !state.isDraggingSelection &&
+      state.activeTool !== 'lasso' &&
+      state.activeTool !== 'eraser' &&
+      Number.isFinite(e.clientX) &&
+      Number.isFinite(e.clientY)) {
+    const upPt = getCanvasCoords(e, pageData.canvas, e.pointerType);
+    const pts = state.currentStroke.points;
+    const lastPt = pts && pts.length > 0 ? pts[pts.length - 1] : null;
+    if (!lastPt || Math.hypot(upPt.x - lastPt.x, upPt.y - lastPt.y) > 0.5) {
+      pushPointsToBatch([upPt]);
+    }
+  }
 
   state._penEraserActive = false;
   forceFlushNow(pageData);

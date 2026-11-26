@@ -43,6 +43,7 @@ import {
   computeTiltNorm,
   LEGACY_PRESSURE_PARAMS
 } from '../tools/ink-calibration.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 
 const SCRIBBLE_ERASE_COLOR  = 'rgba(220, 38, 38, 0.6)';
 const SCRIBBLE_TARGET_COLOR = 'rgba(239, 68, 68, 0.75)';
@@ -1064,6 +1065,10 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     return;
   }
 
+  const profile = getDeviceProfile(state.platform?.family);
+  const minRenderWidth = profile.pressure.minRenderWidthPx;
+  const alwaysJoinThin = Boolean(profile.rendering.alwaysJoinThinSegments);
+  const jointThreshold = profile.rendering.jointMinWidthThresholdPx;
   const smoothness = _getStrokeSmoothness(stroke);
   const renderPts = buildGaussianSmoothedPoints(pts, smoothness);
   const baseSize = sliderToBaseSize(stroke.size);
@@ -1073,7 +1078,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     const pt = renderPts[i];
     const wRaw = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
       getTiltNorm(pt), getSpeedNorm(pt), getTaper(i, n, stroke.tool, true), baseSize, inkParams);
-    widths[i] = Math.max(0.25, wRaw * getPointNibFactor(renderPts, i, stroke.tool));
+    widths[i] = Math.max(minRenderWidth, wRaw * getPointNibFactor(renderPts, i, stroke.tool));
   }
 
   if (stroke.tool === 'pencil' && !overrideColor) {
@@ -1135,7 +1140,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
           const sdy = _ptB.y - _ptA.y;
           const sLen = fastHypot(sdx, sdy);
           addTaperedSegmentPolygon(targetCtx, _ptA, _ptB, wa, wb);
-          const needJoint = s === 0 || (wa > 1.8 && prevLen > 0.01 && sLen > 0.01 &&
+          const needJoint = s === 0 || alwaysJoinThin || (wa > jointThreshold && prevLen > 0.01 && sLen > 0.01 &&
             ((prevDx * sdx + prevDy * sdy) / (prevLen * sLen) < 0.99));
           if (needJoint) {
             buf[cIdx++] = _ptA.x;
@@ -1373,6 +1378,11 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
     return;
   }
 
+  const profile = getDeviceProfile(state.platform?.family);
+  const minRenderWidth = profile.pressure.minRenderWidthPx;
+  const alwaysJoinThin = Boolean(profile.rendering.alwaysJoinThinSegments);
+  const jointThreshold = profile.rendering.jointMinWidthThresholdPx;
+
   setupStrokeStyle(ctx, stroke, inkDark);
   const unified = canUnifyFillIncremental(stroke.tool);
 
@@ -1387,10 +1397,10 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const p1 = pts[i - 1];
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
-      const w1 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
+      const w1 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
         getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, n, stroke.tool, false), baseSize, inkParams) *
         getPointNibFactor(pts, i - 1, stroke.tool));
-      const w2 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
+      const w2 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
         getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, n, stroke.tool, false), baseSize, inkParams) *
         getPointNibFactor(pts, i, stroke.tool));
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
@@ -1421,7 +1431,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
         const sdy = _ptB.y - _ptA.y;
         const sLen = fastHypot(sdx, sdy);
         addTaperedSegmentPolygon(ctx, _ptA, _ptB, wa, wb);
-        const needJoint = s === 0 || (wa > 1.8 && prevLen > 0.01 && sLen > 0.01 &&
+        const needJoint = s === 0 || alwaysJoinThin || (wa > jointThreshold && prevLen > 0.01 && sLen > 0.01 &&
           ((prevDx * sdx + prevDy * sdy) / (prevLen * sLen) < 0.99));
         if (needJoint) {
           buf[cIdx++] = _ptA.x;
@@ -1452,7 +1462,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
 
     if (n >= 2) {
       const tipP2 = pts[n - 1];
-      const tipW2 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure,
+      const tipW2 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure,
         getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize, inkParams) *
         getPointNibFactor(pts, n - 1, stroke.tool));
       ctx.beginPath();
@@ -1465,10 +1475,10 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const p1 = pts[i - 1];
       const p2 = pts[i];
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
-      const w1 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
+      const w1 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
         getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, n, stroke.tool, false), baseSize, inkParams) *
         getPointNibFactor(pts, i - 1, stroke.tool));
-      const w2 = Math.max(0.25, computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
+      const w2 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
         getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, n, stroke.tool, false), baseSize, inkParams) *
         getPointNibFactor(pts, i, stroke.tool));
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);

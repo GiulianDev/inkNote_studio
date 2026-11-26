@@ -262,3 +262,19 @@ test('recognizes compact and fast 3-point "=>" implication arrows', () => {
   assert.equal(geom.dirY, 0);
 });
 
+test('handles 120/240Hz sub-pixel backward jitter near tip in 1-stroke arrow without premature break', () => {
+  const shaft = sampleLine(100, 200, 250, 200, 38);
+  // Simula micro-tremolio Apple Pencil attorno al 95% dell'asta (piccolo passo all'indietro di 0.8px prima della vera punta a x=252)
+  shaft.splice(35, 0, { x: shaft[34].x - 0.8, y: 200.4 });
+  shaft.push({ x: 252, y: 200 });
+
+  const wing1 = sampleLine(252, 200, 234, 186, 4).slice(1);
+  const back = sampleLine(234, 186, 252, 200, 3).slice(1);
+  const wing2 = sampleLine(252, 200, 234, 214, 4).slice(1);
+
+  const single = analyzeSingleStrokeArrow([...shaft, ...wing1, ...back, ...wing2]);
+  assert.ok(single, 'Expected 1-stroke arrow with 120Hz sub-pixel tip jitter to match');
+  assert.ok(Math.abs(single.rawTip.x - 252) <= 2, `Expected tip near x=252, got x=${single.rawTip.x}`);
+});
+
+

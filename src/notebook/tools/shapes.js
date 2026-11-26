@@ -47,6 +47,7 @@ import {
   buildStraightLinePoints
 } from './line-snap.js';
 import { trimStationaryTail, cloneInkParams } from './ink-calibration.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 
 export { scaleShapePointsFromCenter, applyAngleSnap };
 
@@ -58,7 +59,8 @@ export function trySnapLineDuringDraw(pageData, stroke) {
   if (!stroke || !Array.isArray(stroke.points) || stroke.points.length < 4) return false;
   if (state.snapLines === false) return false;
 
-  const cand = evaluateLineHoldCandidate(stroke.points);
+  const platform = state.platform?.family || 'desktop';
+  const cand = evaluateLineHoldCandidate(stroke.points, { platform });
   if (!cand) return false;
 
   const snapRes = applyAngleSnap(cand.start, cand.end, null, false);
@@ -133,7 +135,8 @@ export function trySnapGeometricShapeDuringDraw(pageData, stroke) {
 // perfettamente dritte e regolari (altrimenti usare hold-to-snap)
 // ------------------------------------------------------------
 export function trySnapToLine(stroke, cleanPts = null) {
-  const cand = evaluateUltraStraightLineCandidate(cleanPts || stroke.points);
+  const platform = state.platform?.family || 'desktop';
+  const cand = evaluateUltraStraightLineCandidate(cleanPts || stroke.points, { platform });
   if (!cand) return false;
   stroke.points = buildStraightLinePoints(cand.start, cand.end);
   _invalidateStrokeCaches(stroke);
@@ -407,7 +410,9 @@ export function detectReleaseShapeOrSymbol(stroke, pageData, extraStrokes = []) 
     return false;
   }
 
-  const pts = trimStationaryTail(stroke.points, 5.5);
+  const platform = state.platform?.family || 'desktop';
+  const rec = getDeviceProfile(platform).recognition;
+  const pts = trimStationaryTail(stroke.points, rec.releaseTailTrimRadius || 5.5);
   if (pts.length < 3) return false;
 
   // 1. Simbolo "di conseguenza" (=> / ⇒): 2 linee parallele + punta >
@@ -458,7 +463,8 @@ export function detectReleaseShapeOrSymbol(stroke, pageData, extraStrokes = []) 
   }
 
   // 5. Linea dritta al rilascio
-  if (allowLines && trySnapToLine(stroke, pts)) {
+  const lineInputPts = typeof rec.cleanLinePoints === 'function' ? stroke.points : pts;
+  if (allowLines && trySnapToLine(stroke, lineInputPts)) {
     showToast('Linea agganciata', '📏');
     triggerSnapAnimation(pageData);
     return true;
@@ -515,7 +521,8 @@ function triggerSnapAnimation(pageData) {
 // trySnapHighlighter — raddrizza mantenendo l'angolo
 // ------------------------------------------------------------
 export function trySnapHighlighter(stroke) {
-  const cand = evaluateLineHoldCandidate(stroke.points);
+  const platform = state.platform?.family || 'desktop';
+  const cand = evaluateLineHoldCandidate(stroke.points, { platform });
   if (!cand || cand.chordLen < 80) return false;
   stroke.points = buildStraightLinePoints(cand.start, cand.end);
   _invalidateStrokeCaches(stroke);

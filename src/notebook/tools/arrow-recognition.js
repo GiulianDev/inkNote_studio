@@ -787,6 +787,7 @@ export function analyzeSingleStrokeArrow(pts) {
   if (maxDist < 42) return null;
 
   const threshold = maxDist * 0.92;
+  const dropCutoff = Math.max(5, maxDist * 0.04);
   let tipIdx = -1;
   let peakDist = -1;
   const maxSearchIdx = n - 4;
@@ -796,9 +797,11 @@ export function analyzeSingleStrokeArrow(pts) {
       if (d >= peakDist) {
         peakDist = d;
         tipIdx = i;
-      } else {
+      } else if (d < peakDist - dropCutoff) {
         break;
       }
+    } else if (peakDist >= 0 && d < peakDist - dropCutoff) {
+      break;
     }
   }
   if (tipIdx < 3 || tipIdx > n - 4) return null;

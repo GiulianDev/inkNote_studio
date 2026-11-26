@@ -9,24 +9,16 @@
 
 import { perpendicularRmsDeviationSampled } from './arrow-recognition.js';
 import { trimStationaryTail } from './ink-calibration.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 
 export const LINE_ANGLE_ENGAGE_DEG  = 4;
 export const LINE_ANGLE_RELEASE_DEG = 8;
 
-const HOLD_MIN_CHORD_LEN       = 45;
-const HOLD_MIN_PATH_RATIO      = 0.93;
 const HOLD_MAX_RMS_BASE        = 2.5;
 const HOLD_MAX_RMS_FACTOR      = 0.024;
 const HOLD_MAX_COS_CONSISTENCY = 0.72;
 const SIGN_HYSTERESIS          = 2.5;
 
-const AUTO_MIN_CHORD_LEN       = 80;
-const AUTO_MIN_PATH_RATIO      = 0.988;
-const AUTO_MAX_RMS_BASE        = 1.1;
-const AUTO_MAX_RMS_FACTOR      = 0.007;
-const AUTO_MAX_PERP_BASE       = 2.2;
-const AUTO_MAX_PERP_FACTOR     = 0.014;
-const AUTO_MIN_END_COS         = 0.94;
 const AUTO_AXIS_SNAP_DEG       = 2.5;
 
 /**
@@ -149,29 +141,38 @@ function _headCos(pts, startPt, endPt, chordLen) {
  * Valutazione linea dritta durante l'hold (punta tenuta ferma ~320ms).
  * Attiva la modalità interattiva con maniglie e snap orizzontale/verticale.
  */
-export function evaluateLineHoldCandidate(rawPoints) {
-  const pts = trimStationaryTail(rawPoints, 5.5);
+export function evaluateLineHoldCandidate(rawPoints, { platform = 'desktop' } = {}) {
+  const rec = getDeviceProfile(platform).recognition;
+  const cfg = rec.lineHold;
+  const tailTrimRadius = cfg.tailTrimRadius != null ? cfg.tailTrimRadius : 5.5;
+  const pts = typeof rec.cleanLinePoints === 'function'
+    ? rec.cleanLinePoints(rawPoints, tailTrimRadius)
+    : trimStationaryTail(rawPoints, tailTrimRadius);
   if (!pts || pts.length < 4) return null;
 
   const startPt = pts[0];
   const endPt = pts[pts.length - 1];
   const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-  if (chordLen < HOLD_MIN_CHORD_LEN) return null;
+  if (chordLen < cfg.minChordLen) return null;
 
   let pathLen = 0;
   for (let i = 1; i < pts.length; i++) {
     pathLen += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   }
-  if (chordLen / Math.max(pathLen, 1) < HOLD_MIN_PATH_RATIO) return null;
+  if (chordLen / Math.max(pathLen, 1) < cfg.minPathRatio) return null;
 
   const rmsDev = perpendicularRmsDeviationSampled(pts, startPt, endPt, 3);
   if (rmsDev === null) return null;
-  if (rmsDev > Math.max(HOLD_MAX_RMS_BASE, chordLen * HOLD_MAX_RMS_FACTOR)) return null;
+  const maxRmsBase = cfg.maxRmsBase != null ? cfg.maxRmsBase : HOLD_MAX_RMS_BASE;
+  const maxRmsFactor = cfg.maxRmsFactor != null ? cfg.maxRmsFactor : HOLD_MAX_RMS_FACTOR;
+  if (rmsDev > Math.max(maxRmsBase, chordLen * maxRmsFactor)) return null;
 
-  const signChanges = _countPerpSignChanges(pts, startPt, endPt, SIGN_HYSTERESIS);
+  const signHyst = cfg.signHysteresis != null ? cfg.signHysteresis : SIGN_HYSTERESIS;
+  const signChanges = _countPerpSignChanges(pts, startPt, endPt, signHyst);
   if (signChanges > Math.max(3, Math.floor(chordLen / 80))) return null;
 
-  if (_tailCos(pts, startPt, endPt, chordLen) < HOLD_MAX_COS_CONSISTENCY) return null;
+  const minTailCos = cfg.minTailCos != null ? cfg.minTailCos : HOLD_MAX_COS_CONSISTENCY;
+  if (_tailCos(pts, startPt, endPt, chordLen) < minTailCos) return null;
 
   return {
     start: { x: startPt.x, y: startPt.y },
@@ -184,42 +185,49 @@ export function evaluateLineHoldCandidate(rawPoints) {
  * Valutazione MOLTO restrittiva per raddrizzamento automatico al rilascio
  * (solo se l'utente ha già disegnato una linea quasi da righello).
  */
-export function evaluateUltraStraightLineCandidate(rawPoints) {
-  const pts = trimStationaryTail(rawPoints, 4.5);
+export function evaluateUltraStraightLineCandidate(rawPoints, { platform = 'desktop' } = {}) {
+  const rec = getDeviceProfile(platform).recognition;
+  const cfg = rec.lineAuto;
+  const tailTrimRadius = cfg.tailTrimRadius != null ? cfg.tailTrimRadius : 4.5;
+  const pts = typeof rec.cleanLinePoints === 'function'
+    ? rec.cleanLinePoints(rawPoints, tailTrimRadius)
+    : trimStationaryTail(rawPoints, tailTrimRadius);
   if (!pts || pts.length < 6) return null;
 
   const startPt = pts[0];
   const endPt = pts[pts.length - 1];
   const chordLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-  if (chordLen < AUTO_MIN_CHORD_LEN) return null;
+  if (chordLen < cfg.minChordLen) return null;
 
   let pathLen = 0;
   for (let i = 1; i < pts.length; i++) {
     pathLen += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   }
-  if (chordLen / Math.max(pathLen, 1) < AUTO_MIN_PATH_RATIO) return null;
+  if (chordLen / Math.max(pathLen, 1) < cfg.minPathRatio) return null;
 
   const rmsDev = perpendicularRmsDeviationSampled(pts, startPt, endPt, 2);
   if (rmsDev === null) return null;
-  if (rmsDev > Math.max(AUTO_MAX_RMS_BASE, chordLen * AUTO_MAX_RMS_FACTOR)) return null;
+  if (rmsDev > Math.max(cfg.maxRmsBase, chordLen * cfg.maxRmsFactor)) return null;
 
   const maxPerp = _maxPerpDeviation(pts, startPt, endPt);
-  if (maxPerp > Math.max(AUTO_MAX_PERP_BASE, chordLen * AUTO_MAX_PERP_FACTOR)) return null;
+  if (maxPerp > Math.max(cfg.maxPerpBase, chordLen * cfg.maxPerpFactor)) return null;
 
+  const signDivisor = cfg.maxSignChangesDivisor || 110;
   const signChanges = _countPerpSignChanges(pts, startPt, endPt, 1.5);
-  if (signChanges > Math.max(2, Math.floor(chordLen / 110))) return null;
+  if (signChanges > Math.max(2, Math.floor(chordLen / signDivisor))) return null;
 
-  if (_headCos(pts, startPt, endPt, chordLen) < AUTO_MIN_END_COS) return null;
-  if (_tailCos(pts, startPt, endPt, chordLen) < AUTO_MIN_END_COS) return null;
+  if (_headCos(pts, startPt, endPt, chordLen) < cfg.minEndCos) return null;
+  if (_tailCos(pts, startPt, endPt, chordLen) < cfg.minEndCos) return null;
 
-  // Snap H/V opzionale al rilascio solo se già quasi allineata (<= 2.5°)
+  // Snap H/V opzionale al rilascio solo se già quasi allineata (<= axisSnapDeg)
   const dx = endPt.x - startPt.x;
   const dy = endPt.y - startPt.y;
   const thetaDeg = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
+  const axisSnapDeg = cfg.axisSnapDeg != null ? cfg.axisSnapDeg : AUTO_AXIS_SNAP_DEG;
   let fx = endPt.x;
   let fy = endPt.y;
-  if (thetaDeg <= AUTO_AXIS_SNAP_DEG) fy = startPt.y;
-  else if (90 - thetaDeg <= AUTO_AXIS_SNAP_DEG) fx = startPt.x;
+  if (thetaDeg <= axisSnapDeg) fy = startPt.y;
+  else if (90 - thetaDeg <= axisSnapDeg) fx = startPt.x;
 
   return {
     start: { x: startPt.x, y: startPt.y },

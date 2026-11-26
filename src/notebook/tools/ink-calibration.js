@@ -11,6 +11,7 @@
 
 import { detectPlatformInfo } from '../../shared/core/platform.js';
 import { state } from '../../shared/core/state.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 
 export const DEFAULT_PRESSURE_SENSITIVITY = 50;
 export const DEFAULT_PRESSURE_SPEED_WEIGHT = 20;
@@ -125,7 +126,8 @@ export function normalizePenPressure(rawPressure, {
 } = {}) {
   const sens = _clamp(Number.isFinite(sensitivity) ? sensitivity : DEFAULT_PRESSURE_SENSITIVITY, 0, 100);
   const userGain = Math.pow(2.2, (sens - 50) / 50); // 0 -> ~0.45x, 50 -> 1.0x, 100 -> 2.2x
-  const platformBaseGain = platform === 'ios' ? 1.48 : (platform === 'android' ? 1.12 : 1.0);
+  const profile = getDeviceProfile(platform);
+  const platformBaseGain = profile.pressure.baseGain;
   const totalGain = platformBaseGain * userGain;
 
   const raw = Number.isFinite(rawPressure) ? rawPressure : 0;
@@ -141,7 +143,7 @@ export function normalizePenPressure(rawPressure, {
   if (isDrawing && lastValidPressure > 0) {
     return _clamp(lastValidPressure, 0.02, 1.0);
   }
-  return 0.28;
+  return profile.pressure.zeroPressureFallback;
 }
 
 /**
@@ -350,7 +352,9 @@ function _lowPassAlpha(cutoffHz, dtSec) {
 export function getStabilizerParams(smoothing = 0.5, scale = 1.0, platform = 'desktop') {
   const s = _clamp01(smoothing == null ? 0.5 : smoothing);
   const vpScale = Math.max(0.25, Number.isFinite(scale) ? scale : 1.0);
-  const plat = platform === 'ios' || platform === 'android' ? platform : 'desktop';
+  const profile = getDeviceProfile(platform);
+  const plat = profile.family;
+  const stabCfg = profile.stabilizer;
 
   if (s < 0.005) {
     return {
@@ -379,8 +383,8 @@ export function getStabilizerParams(smoothing = 0.5, scale = 1.0, platform = 'de
   if (s <= 0.65) {
     mode = 'gaussian';
     const u = s / 0.65;
-    const platBlendScale = plat === 'ios' ? 0.72 : (plat === 'android' ? 0.90 : 1.0);
-    const platShiftScale = plat === 'ios' ? 0.82 : 1.0;
+    const platBlendScale = stabCfg.gaussianBlendScale;
+    const platShiftScale = stabCfg.gaussianShiftScale;
     liveBlend = (0.05 + u * 0.27) * platBlendScale;
     maxLiveShift = ((0.30 + u * 1.15) * platShiftScale) / vpScale;
     minCutoff = 120.0 * Math.pow(14.0 / 120.0, u);
@@ -398,9 +402,12 @@ export function getStabilizerParams(smoothing = 0.5, scale = 1.0, platform = 'de
     baseDeadzone = 0.34 + w * 0.72;
   }
 
-  const deadzone = Math.min(2.4, baseDeadzone / vpScale);
+  const profileMinDeadzone = typeof stabCfg.minDeadzonePx === 'function'
+    ? stabCfg.minDeadzonePx(s)
+    : (stabCfg.minDeadzonePx || 0);
+  const deadzone = Math.min(2.4, Math.max(profileMinDeadzone, baseDeadzone) / vpScale);
   // Anti-tremolio stazionario attivo solo a punta ferma (es. hold-to-snap su iPad)
-  const restDeadzone = Math.min(2.4, Math.max(deadzone, 1.38 / vpScale));
+  const restDeadzone = Math.min(2.4, Math.max(deadzone, (stabCfg.restDeadzoneMinPx || 1.38) / vpScale));
 
   return {
     mode,
@@ -421,7 +428,8 @@ export function getStabilizerParams(smoothing = 0.5, scale = 1.0, platform = 'de
  * Crea uno stabilizzatore stateful per un singolo tratto, indipendente dallo strumento.
  */
 export function createStrokeStabilizer(initialPoint = null, { platform = 'desktop' } = {}) {
-  const defaultPlatform = platform === 'ios' || platform === 'android' ? platform : 'desktop';
+  const defaultProfile = getDeviceProfile(platform);
+  const defaultPlatform = defaultProfile.family;
   let hasInit = false;
   let rawCount = 0;
   let r0x = 0, r0y = 0; // più recente
@@ -435,7 +443,7 @@ export function createStrokeStabilizer(initialPoint = null, { platform = 'deskto
   let lastAcceptY = 0;
   let lastPressure = 0.5;
   let lastTs = 0;
-  let observedDtMs = defaultPlatform === 'ios' ? 8.33 : 16.67;
+  let observedDtMs = defaultProfile.stabilizer.defaultDtMs;
 
   if (initialPoint) {
     hasInit = true;
