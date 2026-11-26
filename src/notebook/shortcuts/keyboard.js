@@ -11,7 +11,13 @@ import { createManualSaveRunner } from './manual-save.js';
 import { toggleAppFullscreen } from '../../shared/core/fullscreen.js';
 import { applyPinchTransform } from '../viewport/transform.js';
 import { resetZoom } from '../editor/pages.js';
-import { isAnyModalOpen } from '../../shared/components/modal.js';
+import { isAnyModalOpen, getTopModalId } from '../../shared/components/modal.js';
+import { shouldToggleShortcutsModalKey } from './shortcuts-catalog.js';
+import {
+  isShortcutsModalOpen,
+  openShortcutsModal,
+  closeShortcutsModal
+} from './shortcuts-modal.js';
 import {
   clearSelection, hasLassoSelection, hasLassoClipboard,
   deleteSelection, copySelection, cutSelection, pasteSelection, duplicateSelection,
@@ -59,8 +65,23 @@ export function setupKeyboardShortcuts() {
 
   document.addEventListener('keydown', (e) => {
     const target = e.target;
-    if (target && target.matches && target.matches('input, textarea, select, [contenteditable="true"]')) return;
+    if (target && (target.isContentEditable || (target.matches && target.matches('input, textarea, select, [contenteditable="true"]')))) return;
     if (!e.key) return;
+
+    if (shouldToggleShortcutsModalKey(e)) {
+      if (isShortcutsModalOpen()) {
+        e.preventDefault();
+        closeShortcutsModal();
+        return;
+      }
+      const topModalId = getTopModalId();
+      if (!isAnyModalOpen() || topModalId === 'settingsModal') {
+        e.preventDefault();
+        openShortcutsModal({ tab: topModalId === 'settingsModal' ? 'guide' : 'shortcuts' });
+        return;
+      }
+    }
+
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
 

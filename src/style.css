@@ -180,7 +180,7 @@ body.compact-mode #viewport {
   #toastNotification, #zoomBadge,
   #selectionMenu, #textSelectionMenu, .text-box-editor-wrap,
   #pullPageIndicator, #libraryView,
-  #newNotebookModal, #settingsModal, #undoRedoContainer,
+  #newNotebookModal, #settingsModal, #shortcutsModal, #undoRedoContainer,
   .ui-dock, ink-tool-dock, .context-dock,
   .ui-menu, ink-menu, .ui-menu-backdrop, #colorPickerPopover, #pagePopover {
     display: none !important;

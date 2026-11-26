@@ -69,6 +69,7 @@ import {
   registerExternalMenuCloser
 } from '../../shared/components/floating-menu.js';
 import { createHorizontalLongPressReorder } from '../../shared/components/horizontal-drag-reorder.js';
+import { openShortcutsModal } from '../shortcuts/shortcuts-modal.js';
 import './tool-dock.js';
 
 let _mounted = false;
@@ -1074,6 +1075,11 @@ function _setupMenuOverflow() {
     onOpen: _renderOverflowMenu
   });
   syncSendMenuAuthState();
+
+  document.getElementById('shortcutsFromMenu')?.addEventListener('click', () => {
+    closeToolbarMenu();
+    openShortcutsModal();
+  });
 }
 
 export function closeAllEditorMenus({ keep = null } = {}) {

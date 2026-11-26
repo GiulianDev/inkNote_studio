@@ -11,8 +11,13 @@
   <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col"
        style="max-height: 90vh;">
 
-    <div class="px-6 pt-6 pb-3 shrink-0">
+    <div class="px-6 pt-6 pb-3 shrink-0 flex items-center justify-between gap-3">
       <h3 id="settingsModalTitle" class="text-lg font-bold text-slate-900 dark:text-white">⚙️ Impostazioni</h3>
+      <button id="settingsHelpBtn"
+              type="button"
+              class="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-950/60 text-slate-600 dark:text-slate-300 hover:text-indigo-700 dark:hover:text-indigo-300 border border-slate-200 dark:border-slate-700 font-bold text-sm transition-colors shrink-0 cursor-pointer"
+              title="Guida dell'app e scorciatoie da tastiera (?)"
+              aria-label="Guida dell'app e scorciatoie da tastiera">?</button>
     </div>
 
     <div class="px-6 overflow-y-auto flex-1 custom-scrollbar"

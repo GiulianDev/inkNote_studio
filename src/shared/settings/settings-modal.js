@@ -19,6 +19,7 @@ import {
   DEFAULT_SETTINGS, getSettings, updateSettings
 } from '../core/app-settings.js';
 import { closeAllEditorMenus } from '../../notebook/toolbar/toolbar.js';
+import { openHelpModal } from '../../notebook/shortcuts/shortcuts-modal.js';
 import { registerModal } from '../components/modal.js';
 
 import settingsHtml from './settings-modal.html?raw';
@@ -248,6 +249,9 @@ function _bindAll() {
   document.getElementById('confirmSettingsBtn')?.addEventListener('click', confirmSettings);
   document.getElementById('cancelSettingsBtn') ?.addEventListener('click', () => closeSettingsModal());
   document.getElementById('resetPressureBtn')  ?.addEventListener('click', _resetPressureDefaults);
+  document.getElementById('settingsHelpBtn')   ?.addEventListener('click', () => {
+    openHelpModal({ tab: 'guide' });
+  });
 }
 
 function _resetPressureDefaults() {
