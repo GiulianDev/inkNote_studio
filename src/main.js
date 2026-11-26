@@ -29,52 +29,53 @@
  * @see core/types.js
  */
 
-import { initDB } from './services/db.js';
-import { initPlatform } from './core/platform.js';
-import { initSettings, onSettingsChanged } from './core/app-settings.js';
-import { initToolbarSettings, onToolbarSettingsChanged } from './features/toolbar/toolbar-settings.js';
-import { state } from './core/state.js';
+import { initDB } from './shared/services/db.js';
+import { initPlatform } from './shared/core/platform.js';
+import { initSettings, onSettingsChanged } from './shared/core/app-settings.js';
+import { initToolbarSettings, onToolbarSettingsChanged } from './notebook/toolbar/toolbar-settings.js';
+import { state } from './shared/core/state.js';
 import {
   centerViewport, scheduleResolutionRefresh
-} from './features/editor/pages.js';
-import { redrawPageCanvas, redrawSelectionOverlay } from './features/render/render.js';
+} from './notebook/editor/pages.js';
+import { redrawPageCanvas, redrawSelectionOverlay } from './notebook/render/render.js';
 import {
   hasLassoSelection,
   hideSelectionStylePopover,
   isSelectionStylePopoverOpen
-} from './features/tools/lazo.js';
-import { setupViewportGestures } from './features/viewport/gestures.js';
-import { setupKeyboardShortcuts } from './features/shortcuts/keyboard.js';
+} from './notebook/tools/lazo.js';
+import { setupViewportGestures } from './notebook/viewport/gestures.js';
+import { setupKeyboardShortcuts } from './notebook/shortcuts/keyboard.js';
 import {
   renderRecentColors, applyActiveToolToUI,
   applySnapTogglesToUI, applyEraserLevelToUI,
   mountToolbar, hideColorPickerPopover, hidePagePopover, closeToolbarMenu
-} from './features/toolbar/toolbar.js';
-import { flushHistory } from './features/history/history.js';
+} from './notebook/toolbar/toolbar.js';
+import { flushHistory } from './notebook/history/history.js';
 import {
   initEditorHandlers, returnToLibrary, isEditorActive
-} from './features/editor/editor.js';
-import { bindEditorUI } from './features/editor/ui-bindings.js';
-import { mountLibraryPage } from './pages/library-page.js';
-import { mountNotebookPage } from './pages/notebook-page.js';
-import { mountSettingsModal } from './features/settings/settings-modal.js';
-import { mountPagesSidebar } from './features/pages-sidebar/pages-sidebar.js';
+} from './notebook/editor/editor.js';
+import { bindEditorUI } from './notebook/editor/ui-bindings.js';
+import { mountLibraryPage } from './library/library-page.js';
+import { mountNotebookPage } from './notebook/notebook-page.js';
+import { mountSettingsModal } from './shared/settings/settings-modal.js';
+import { initSettingsPressurePreview } from './notebook/tools/pressure-preview.js';
+import { mountPagesSidebar } from './notebook/pages-sidebar/pages-sidebar.js';
 import {
   renderLibraryView, bindLibraryUI,
   getCurrentFolderId, setCurrentFolderId, getParentFolderId,
   isSelectionModeActive, exitSelectionMode,
   hasActiveLibrarySearch, clearLibrarySearch
-} from './features/library/library.js';
-import { flushAutoSave, scheduleSave } from './features/persistence/autosave.js';
-import { closeAllAuthDropdowns } from './features/library/library-auth.js';
-import { isUserMenuOpen } from './components/user-menu.js';
-import { terminateWorker } from './features/backup/serialization-cloud.js';
-import { handleRedirectResult } from './services/firebase.js';
-import { showToast } from './core/utils.js';
-import { getSettings, updateSettings } from './core/app-settings.js';
-import { initBackNavigation } from './core/back-navigation.js';
-import { setupSystemMenuSuppression } from './core/system-menu-guard.js';
-import { closeTopModal } from './components/modal.js';
+} from './library/library.js';
+import { flushAutoSave, scheduleSave } from './shared/persistence/autosave.js';
+import { closeAllAuthDropdowns } from './shared/auth/library-auth.js';
+import { isUserMenuOpen } from './shared/components/user-menu.js';
+import { terminateWorker } from './shared/backup/serialization-cloud.js';
+import { handleRedirectResult } from './shared/services/firebase.js';
+import { showToast } from './shared/core/utils.js';
+import { getSettings, updateSettings } from './shared/core/app-settings.js';
+import { initBackNavigation } from './shared/core/back-navigation.js';
+import { setupSystemMenuSuppression } from './shared/core/system-menu-guard.js';
+import { closeTopModal } from './shared/components/modal.js';
 
 window.addEventListener('load', async () => {
   // 0. Piattaforma e listener input runtime (OS, device, hybrid, DPR, lastPointerType).
@@ -114,6 +115,7 @@ window.addEventListener('load', async () => {
   // 5. Handler editor + binding UI (ora tutti gli id esistono).
   initEditorHandlers();
   bindEditorUI();
+  initSettingsPressurePreview();
   bindLibraryUI();
 
   // 6. Al cambio tema effettivo (manuale o da sistema) ridisegna le pagine.
