@@ -307,7 +307,8 @@ async function _consumeInviteHandleIfAny() {
 }
 
 export async function initSharingSession(user) {
-  const nextUid = user?.uid || null;
+  const accountUser = user && !user.isAnonymous ? user : null;
+  const nextUid = accountUser?.uid || null;
   if (_sessionUid === nextUid && (nextUid === null || _unsubInbox)) {
     return;
   }
@@ -321,7 +322,7 @@ export async function initSharingSession(user) {
   _outgoingTransfers = [];
   _syncSharingBadgesUI();
 
-  if (!user || !isFirestoreReady()) {
+  if (!accountUser || !isFirestoreReady()) {
     const fromUrl = parseInviteHandleFromUrl(window.location.search);
     if (fromUrl) {
       sessionStorage.setItem(PENDING_INVITE_KEY, fromUrl);

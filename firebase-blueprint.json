@@ -277,6 +277,128 @@
         "index",
         "data"
       ]
+    },
+    "BugReport": {
+      "title": "BugReport",
+      "description": "Write-only user bug report with device diagnostics (no PII/email).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reporterUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "isAnonymous": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 15,
+          "maxLength": 1500
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$",
+          "minLength": 5,
+          "maxLength": 32
+        },
+        "builtAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "os": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "viewportClass": {
+          "type": "string",
+          "enum": ["phone", "tablet", "desktop"],
+          "maxLength": 16
+        },
+        "viewport": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "dpr": {
+          "type": "number"
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["chiaro", "scuro"],
+          "maxLength": 16
+        },
+        "notebooksCount": {
+          "type": "integer"
+        },
+        "userAgent": {
+          "type": "string",
+          "maxLength": 320
+        },
+        "status": {
+          "type": "string",
+          "enum": ["new"],
+          "maxLength": 16
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "reporterUid",
+        "isAnonymous",
+        "description",
+        "version",
+        "builtAt",
+        "os",
+        "viewportClass",
+        "viewport",
+        "dpr",
+        "theme",
+        "notebooksCount",
+        "userAgent",
+        "status",
+        "createdAt"
+      ]
+    },
+    "BugRateLimit": {
+      "title": "BugRateLimit",
+      "description": "Per-UID server-enforced 5-minute cooldown tracker for bug reports.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "lastReportAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastReportId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "uid",
+        "lastReportAt",
+        "lastReportId"
+      ]
     }
   },
   "firestore": {
@@ -303,6 +425,14 @@
     "/transfers/{transferId}/chunks/{chunkId}": {
       "schema": { "$ref": "#/entities/NotebookTransferChunk" },
       "description": "Chunked compressed .inknote payload pieces."
+    },
+    "/bug_reports/{reportId}": {
+      "schema": { "$ref": "#/entities/BugReport" },
+      "description": "Write-only bug reports readable only from Firebase Console."
+    },
+    "/bug_rate_limits/{userId}": {
+      "schema": { "$ref": "#/entities/BugRateLimit" },
+      "description": "Server-enforced per-UID cooldown document for bug report throttling."
     }
   }
 }

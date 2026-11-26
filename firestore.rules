@@ -141,6 +141,48 @@ service cloud.firestore {
         && data.data is string && data.data.size() >= 1 && data.data.size() <= 750000;
     }
 
+    function isValidBugReport(data, reportId) {
+      return data.keys().hasAll([
+          'id', 'reporterUid', 'isAnonymous', 'description', 'version',
+          'builtAt', 'os', 'viewportClass', 'viewport', 'dpr', 'theme',
+          'notebooksCount', 'userAgent', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'reporterUid', 'isAnonymous', 'description', 'version',
+          'builtAt', 'os', 'viewportClass', 'viewport', 'dpr', 'theme',
+          'notebooksCount', 'userAgent', 'status', 'createdAt'
+        ])
+        && data.id is string && data.id == reportId && isValidId(data.id)
+        && data.reporterUid is string && data.reporterUid == request.auth.uid && isValidId(data.reporterUid)
+        && data.isAnonymous is bool
+        && (
+          ('firebase' in request.auth.token
+            && 'sign_in_provider' in request.auth.token.firebase
+            && request.auth.token.firebase.sign_in_provider == 'anonymous') == data.isAnonymous
+        )
+        && data.description is string && data.description.size() >= 15 && data.description.size() <= 1500
+        && data.version is string && data.version.size() >= 5 && data.version.size() <= 32
+        && data.version.matches('^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$')
+        && data.builtAt is string && data.builtAt.size() >= 1 && data.builtAt.size() <= 64
+        && data.os is string && data.os.size() >= 1 && data.os.size() <= 40
+        && data.viewportClass is string && data.viewportClass in ['phone', 'tablet', 'desktop']
+        && data.viewport is string && data.viewport.size() >= 3 && data.viewport.size() <= 32
+        && (data.dpr is int || data.dpr is float) && data.dpr >= 0.5 && data.dpr <= 10
+        && data.theme is string && data.theme in ['chiaro', 'scuro']
+        && data.notebooksCount is int && data.notebooksCount >= -1 && data.notebooksCount <= 100000
+        && data.userAgent is string && data.userAgent.size() <= 320
+        && data.status is string && data.status == 'new'
+        && data.createdAt is timestamp;
+    }
+
+    function isValidBugRateLimit(data, userId) {
+      return data.keys().hasAll(['uid', 'lastReportAt', 'lastReportId'])
+        && data.keys().hasOnly(['uid', 'lastReportAt', 'lastReportId'])
+        && data.uid is string && data.uid == userId && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.lastReportAt is timestamp
+        && data.lastReportId is string && isValidId(data.lastReportId);
+    }
+
     // --------------------------------------------------------
     // /users/{userId} and /users/{userId}/friends/{friendUid}
     // --------------------------------------------------------
@@ -326,6 +368,47 @@ service cloud.firestore {
           && isValidChunkId(chunkId)
           && (parentTransfer().senderUid == request.auth.uid || parentTransfer().recipientUid == request.auth.uid);
       }
+    }
+
+    // --------------------------------------------------------
+    // /bug_reports/{reportId} (write-only; read via Firebase Console only)
+    // --------------------------------------------------------
+    match /bug_reports/{reportId} {
+      allow get, list, update, delete: if false;
+
+      allow create: if isSignedIn()
+        && isValidId(reportId)
+        && isValidBugReport(incoming(), reportId)
+        && incoming().createdAt == request.time
+        && getAfter(/databases/$(database)/documents/bug_rate_limits/$(request.auth.uid)).data.lastReportAt == request.time
+        && getAfter(/databases/$(database)/documents/bug_rate_limits/$(request.auth.uid)).data.lastReportId == reportId;
+    }
+
+    // --------------------------------------------------------
+    // /bug_rate_limits/{userId} (atomic 5-minute cooldown per UID)
+    // --------------------------------------------------------
+    match /bug_rate_limits/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidBugRateLimit(incoming(), userId)
+        && incoming().lastReportAt == request.time
+        && existsAfter(/databases/$(database)/documents/bug_reports/$(incoming().lastReportId));
+
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidBugRateLimit(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().lastReportAt == request.time
+        && request.time >= existing().lastReportAt + duration.value(5, 'm')
+        && incoming().diff(existing()).affectedKeys().hasOnly(['lastReportAt', 'lastReportId'])
+        && existsAfter(/databases/$(database)/documents/bug_reports/$(incoming().lastReportId));
+
+      allow delete: if false;
     }
   }
 }
