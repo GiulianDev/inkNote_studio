@@ -2,16 +2,24 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.1.4",
-  "builtAt": "2026-11-26T19:27:29.357Z",
+  "version": "0.1.5",
+  "builtAt": "2026-11-26T19:38:49.105Z",
   "date": "2026-11-26",
   "currentNotes": [
-    "Centralizzato il calcolo di `visualViewport` e del clamping ai margini in `floating-menu-position.js` e `floating-menu.js` (rilevando anche resize/scroll della tastiera virtuale e pinch-zoom su iPadOS).",
-    "Uniformati `#textSelectionMenu`, `#selectionMenu`, `#selectionStylePopover`, `#colorPickerPopover` e il dock trascinabile `#undoRedoContainer` sull'helper condiviso con flip automatico sotto l'header/dock e ripristino della posizione salvata alla chiusura della tastiera."
+    "Risolto l'overflow orizzontale su schermi stretti e smartphone in `#libraryView` e nell'intestazione libreria: adattata la barra azioni mobile (`< 420px`), abilitato il wrap sicuro su viewport molto strette, contenuto lo slot delle transizioni normale/selezione con `overflow-x: clip` e aggiunto `overflow-x-hidden` su `#libraryView` e `html, body`.",
+    "Protetti da espansioni orizzontali i controlli filtro/ordinamento, i badge di ricerca nelle breadcrumb, le card in griglia/lista (`min-width: 0`), le miniature a ventaglio delle raccolte e i toast di notifica (`#toastNotification`) con messaggi lunghi."
   ],
-  "notesSourceVersion": "0.1.4",
+  "notesSourceVersion": "0.1.5",
   "hasExactChangelog": true,
   "releases": [
+    {
+      "version": "0.1.5",
+      "date": "2026-11-26",
+      "items": [
+        "Risolto l'overflow orizzontale su schermi stretti e smartphone in `#libraryView` e nell'intestazione libreria: adattata la barra azioni mobile (`< 420px`), abilitato il wrap sicuro su viewport molto strette, contenuto lo slot delle transizioni normale/selezione con `overflow-x: clip` e aggiunto `overflow-x-hidden` su `#libraryView` e `html, body`.",
+        "Protetti da espansioni orizzontali i controlli filtro/ordinamento, i badge di ricerca nelle breadcrumb, le card in griglia/lista (`min-width: 0`), le miniature a ventaglio delle raccolte e i toast di notifica (`#toastNotification`) con messaggi lunghi."
+      ]
+    },
     {
       "version": "0.1.4",
       "date": "2026-11-26",
