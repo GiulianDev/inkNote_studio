@@ -4,7 +4,7 @@
  * Modale "Info release & Aggiornamenti" aperta cliccando sull'icona o sul titolo
  * della Libreria. Usa esclusivamente i dati statici incorporati a build-time in
  * `RELEASE_INFO` (nessuna lettura di file esterni a runtime) e include una sezione
- * rapida per segnalare bug con diagnostica dispositivo precompilata.
+ * rapida per segnalare bug su Firestore (senza aprire client email esterni).
  */
 
 import { RELEASE_INFO } from '../core/release-info.js';
@@ -12,10 +12,18 @@ import { registerModal } from '../components/modal.js';
 import { escapeHtml, showToast } from '../core/utils.js';
 import { detectPlatformInfo } from '../core/platform.js';
 import { state } from '../core/state.js';
+import {
+  BUG_DESC_MAX_LENGTH,
+  BUG_DESC_MIN_LENGTH,
+  evaluateClientAntiSpam,
+  submitBugReport
+} from './bug-report-service.js';
 
 let _modalEl = null;
 let _modalCtrl = null;
 let _bugPanelOpen = false;
+let _bugPanelOpenedAt = 0;
+let _isSubmittingBug = false;
 let _notebookCountProvider = null;
 
 export function setReleaseNotebookCountProvider(fn) {
@@ -127,6 +135,44 @@ function _renderPreviousReleases() {
   `;
 }
 
+function _setBugStatusHint(message = '', tone = 'neutral') {
+  const hintEl = _modalEl?.querySelector('#releaseBugStatusHint');
+  if (!hintEl) return;
+  hintEl.textContent = message;
+  hintEl.classList.toggle('hidden', !message);
+  hintEl.classList.remove('text-rose-600', 'dark:text-rose-400', 'text-emerald-600', 'dark:text-emerald-400', 'text-slate-500', 'dark:text-slate-400');
+  if (tone === 'error') {
+    hintEl.classList.add('text-rose-600', 'dark:text-rose-400');
+  } else if (tone === 'success') {
+    hintEl.classList.add('text-emerald-600', 'dark:text-emerald-400');
+  } else {
+    hintEl.classList.add('text-slate-500', 'dark:text-slate-400');
+  }
+}
+
+function _syncBugFormState() {
+  if (!_modalEl) return;
+  const textarea = _modalEl.querySelector('#releaseBugDescription');
+  const counterEl = _modalEl.querySelector('#releaseBugCharCounter');
+  const submitBtn = _modalEl.querySelector('#releaseSubmitBugBtn');
+  const len = (textarea?.value || '').trim().length;
+
+  if (counterEl) {
+    counterEl.textContent = `${len}/${BUG_DESC_MAX_LENGTH} · min ${BUG_DESC_MIN_LENGTH}`;
+    counterEl.classList.toggle('text-amber-600', len > 0 && len < BUG_DESC_MIN_LENGTH);
+    counterEl.classList.toggle('dark:text-amber-400', len > 0 && len < BUG_DESC_MIN_LENGTH);
+    counterEl.classList.toggle('text-emerald-600', len >= BUG_DESC_MIN_LENGTH);
+    counterEl.classList.toggle('dark:text-emerald-400', len >= BUG_DESC_MIN_LENGTH);
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = _isSubmittingBug;
+    submitBtn.textContent = _isSubmittingBug ? 'Invio in corso...' : 'Invia segnalazione';
+    submitBtn.classList.toggle('opacity-60', _isSubmittingBug);
+    submitBtn.classList.toggle('cursor-wait', _isSubmittingBug);
+  }
+}
+
 function _syncBugPanelVisibility() {
   if (!_modalEl) return;
   const panel = _modalEl.querySelector('#releaseBugReportPanel');
@@ -134,11 +180,14 @@ function _syncBugPanelVisibility() {
   if (panel) panel.classList.toggle('hidden', !_bugPanelOpen);
   if (toggleBtn) toggleBtn.setAttribute('aria-expanded', _bugPanelOpen ? 'true' : 'false');
   if (_bugPanelOpen) {
+    _bugPanelOpenedAt = Date.now();
     const diag = _collectDiagnostics();
     const diagEl = _modalEl.querySelector('#releaseBugDiagnosticsPreview');
     if (diagEl) {
       diagEl.textContent = `v${diag.version} · ${diag.os} (${diag.viewportClass}) · ${diag.viewport} · Quaderni: ${diag.notebooksCount}`;
     }
+    _setBugStatusHint('');
+    _syncBugFormState();
     _modalEl.querySelector('#releaseBugDescription')?.focus();
   }
 }
@@ -170,12 +219,49 @@ async function _copyBugReport() {
   }
 }
 
-function _emailBugReport() {
-  const desc = _modalEl?.querySelector('#releaseBugDescription')?.value || '';
-  const diag = _collectDiagnostics();
-  const subject = encodeURIComponent(`[InkNote Studio v${diag.version}] Segnalazione bug`);
-  const body = encodeURIComponent(buildBugReportText(desc, diag));
-  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+async function _submitBugReport() {
+  if (_isSubmittingBug || !_modalEl) return;
+
+  const textarea = _modalEl.querySelector('#releaseBugDescription');
+  const honeypot = _modalEl.querySelector('#releaseBugWebsite');
+  const description = textarea?.value || '';
+  const honeypotValue = honeypot?.value || '';
+
+  const precheck = evaluateClientAntiSpam({
+    description,
+    honeypotValue,
+    panelOpenedAt: _bugPanelOpenedAt
+  });
+  if (!precheck.ok) {
+    _setBugStatusHint(precheck.message, 'error');
+    if (precheck.code === 'too_short' || precheck.code === 'too_long') {
+      textarea?.focus();
+    }
+    return;
+  }
+
+  _isSubmittingBug = true;
+  _setBugStatusHint('');
+  _syncBugFormState();
+
+  try {
+    await submitBugReport({
+      description,
+      diagnostics: _collectDiagnostics(),
+      honeypotValue,
+      panelOpenedAt: _bugPanelOpenedAt
+    });
+    if (textarea) textarea.value = '';
+    _setBugStatusHint('Segnalazione inviata con successo. Grazie!', 'success');
+    showToast('Segnalazione inviata', '✅');
+  } catch (err) {
+    const msg = err?.message || 'Invio non riuscito. Usa "Copia report".';
+    _setBugStatusHint(msg, 'error');
+    showToast(msg, '⚠️');
+  } finally {
+    _isSubmittingBug = false;
+    _syncBugFormState();
+  }
 }
 
 function _ensureModal() {
@@ -230,13 +316,19 @@ function _ensureModal() {
             <h3 class="text-xs font-bold text-rose-700 dark:text-rose-300">Segnala un problema</h3>
             <span id="releaseBugDiagnosticsPreview" class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate"></span>
           </div>
-          <textarea id="releaseBugDescription" rows="3" placeholder="Descrivi brevemente cosa stavi facendo e il problema riscontrato..." class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+          <input id="releaseBugWebsite" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" class="sr-only" placeholder="Non compilare">
+          <textarea id="releaseBugDescription" rows="3" maxlength="${BUG_DESC_MAX_LENGTH}" placeholder="Descrivi cosa stavi facendo e il problema riscontrato (min ${BUG_DESC_MIN_LENGTH} caratteri)..." class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+          <div class="flex items-center justify-between gap-2">
+            <span id="releaseBugCharCounter" class="text-[11px] font-medium tabular-nums text-slate-500 dark:text-slate-400">0/${BUG_DESC_MAX_LENGTH} · min ${BUG_DESC_MIN_LENGTH}</span>
+            <span class="text-[10px] text-slate-400 dark:text-slate-500">Diagnostica inclusa · max 1 ogni 5 min</span>
+          </div>
+          <p id="releaseBugStatusHint" class="hidden text-[11px] font-medium leading-snug" role="status"></p>
           <div class="flex items-center justify-end gap-2">
             <button id="releaseCopyBugBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
               Copia report
             </button>
-            <button id="releaseEmailBugBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-colors">
-              Invia via email
+            <button id="releaseSubmitBugBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-colors">
+              Invia segnalazione
             </button>
           </div>
         </div>
@@ -278,8 +370,12 @@ function _ensureModal() {
     _bugPanelOpen = !_bugPanelOpen;
     _syncBugPanelVisibility();
   });
+  wrapper.querySelector('#releaseBugDescription')?.addEventListener('input', () => {
+    _setBugStatusHint('');
+    _syncBugFormState();
+  });
   wrapper.querySelector('#releaseCopyBugBtn')?.addEventListener('click', _copyBugReport);
-  wrapper.querySelector('#releaseEmailBugBtn')?.addEventListener('click', _emailBugReport);
+  wrapper.querySelector('#releaseSubmitBugBtn')?.addEventListener('click', _submitBugReport);
 
   return _modalCtrl;
 }

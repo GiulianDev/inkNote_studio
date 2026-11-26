@@ -63,7 +63,7 @@ import {
 } from '../sharing/sharing-helpers.js';
 
 function _requireReady() {
-  if (!isFirestoreReady() || !auth?.currentUser) {
+  if (!isFirestoreReady() || !auth?.currentUser || auth.currentUser.isAnonymous) {
     throw new Error('Accedi con un account verificato per usare la condivisione');
   }
   return auth.currentUser;

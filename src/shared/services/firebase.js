@@ -15,6 +15,7 @@ import {
   getRedirectResult,
   reauthenticateWithPopup,
   reauthenticateWithRedirect,
+  signInAnonymously,
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
@@ -170,6 +171,17 @@ export function handleFirestoreError(error, operationType, path) {
 export function isGoogleLinkedUser(user = auth?.currentUser) {
   if (!user || !Array.isArray(user.providerData)) return false;
   return user.providerData.some(p => p?.providerId === 'google.com');
+}
+
+export async function ensureBugReportAuth() {
+  if (!auth) {
+    throw new Error('Firebase Auth non configurato');
+  }
+  if (auth.currentUser) {
+    return auth.currentUser;
+  }
+  const result = await signInAnonymously(auth);
+  return result.user;
 }
 
 export async function signInWithGoogle() {

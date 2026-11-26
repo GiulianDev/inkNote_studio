@@ -122,10 +122,11 @@ async function _handleLogout() {
  */
 export function bindLibraryAuth() {
   onAuthChange((user) => {
-    authState.user = user;
+    const accountUser = user && !user.isAnonymous ? user : null;
+    authState.user = accountUser;
     authState.loading = false;
     _updateAuthUI();
-    void initSharingSession(user);
+    void initSharingSession(accountUser);
   });
 
   initUserMenu({
