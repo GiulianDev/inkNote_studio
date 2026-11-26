@@ -67,6 +67,7 @@ import {
   closeAllFloatingMenus,
   registerExternalMenuCloser
 } from '../../shared/components/floating-menu.js';
+import { createHorizontalLongPressReorder } from '../../shared/components/horizontal-drag-reorder.js';
 import './tool-dock.js';
 
 let _mounted = false;
@@ -254,335 +255,69 @@ export function applyWritingToolsOrderToUI() {
   });
 }
 
-// --- Drag & drop sulla mainbar ---
+// --- Drag & drop su mainbar e strumenti scrittura (unificati) ---
 
 const DRAG_LONG_PRESS_MS = 450;
 const DRAG_MOVE_CANCEL_PX = 10;
 const DRAG_HIDE_THRESHOLD_PX = 40;
 
-const _drag = {
-  btn: null,
-  pointerId: null,
-  startX: 0,
-  startY: 0,
-  pressTimer: null,
-  isDragging: false,
-  skipNextClick: false,
-  outside: false
-};
+let _toolHintShownThisSession = false;
 
 function _setupMainMenuDrag() {
   const mainBar = document.getElementById('mainMenuBar');
   if (!mainBar) return;
 
-  mainBar.addEventListener('click', (e) => {
-    if (_drag.skipNextClick) {
-      e.stopPropagation();
-      e.preventDefault();
-      _drag.skipNextClick = false;
-    }
-  }, true);
-
-  mainBar.addEventListener('pointerdown', _onMenuPointerDown);
-}
-
-function _onMenuPointerDown(e) {
-  const btn = e.target.closest('.main-menu-btn');
-  if (!btn) return;
-  if (e.pointerType === 'mouse' && e.button !== 0) return;
-
-  _cancelDragPress();
-  _detachDragListeners();
-
-  _drag.btn = btn;
-  _drag.pointerId = e.pointerId;
-  _drag.startX = e.clientX;
-  _drag.startY = e.clientY;
-  _drag.isDragging = false;
-  _drag.skipNextClick = false;
-  _drag.outside = false;
-
-  document.addEventListener('pointermove', _onMenuPointerMove);
-  document.addEventListener('pointerup',   _onMenuPointerUp);
-  document.addEventListener('pointercancel', _onMenuPointerUp);
-
-  _drag.pressTimer = setTimeout(() => {
-    _drag.pressTimer = null;
-    _enterDragMode(btn);
-  }, DRAG_LONG_PRESS_MS);
-}
-
-function _cancelDragPress() {
-  if (_drag.pressTimer) {
-    clearTimeout(_drag.pressTimer);
-    _drag.pressTimer = null;
-  }
-}
-
-function _enterDragMode(btn) {
-  _drag.isDragging = true;
-  _drag.skipNextClick = true;
-  btn.classList.add('dragging');
-  document.body.classList.add('menu-dragging');
-  try { btn.setPointerCapture?.(_drag.pointerId); } catch {}
-  if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
-
-  if (!_hintShownThisSession) {
-    _hintShownThisSession = true;
-    showToast('Trascina per riordinare, giù per nascondere', '↔️');
-  }
-}
-
-function _onMenuPointerMove(e) {
-  if (!_drag.btn || e.pointerId !== _drag.pointerId) return;
-
-  if (!_drag.isDragging) {
-    const dx = e.clientX - _drag.startX;
-    const dy = e.clientY - _drag.startY;
-    if (Math.hypot(dx, dy) > DRAG_MOVE_CANCEL_PX) {
-      _cancelDragPress();
-      _detachDragListeners();
-      _drag.btn = null;
-      _drag.pointerId = null;
-    }
-    return;
-  }
-
-  e.preventDefault();
-  const mainBar = document.getElementById('mainMenuBar');
-  if (!mainBar) return;
-  const rect = mainBar.getBoundingClientRect();
-
-  const isOutside = e.clientY > rect.bottom + DRAG_HIDE_THRESHOLD_PX;
-  if (isOutside !== _drag.outside) {
-    _drag.outside = isOutside;
-    mainBar.classList.toggle('drop-outside', isOutside);
-    _drag.btn.classList.toggle('will-hide', isOutside);
-  }
-
-  if (!isOutside) {
-    _updateDragPosition(e.clientX);
-  }
-}
-
-function _updateDragPosition(clientX) {
-  const btn = _drag.btn;
-  const mainBar = document.getElementById('mainMenuBar');
-  if (!btn || !mainBar) return;
-
-  const siblings = [...mainBar.querySelectorAll('.main-menu-btn')]
-    .filter(b => b !== btn && b.style.display !== 'none');
-
-  const next = siblings.find(el => {
-    const r = el.getBoundingClientRect();
-    return clientX < r.left + r.width / 2;
-  });
-
-  if (next) {
-    mainBar.insertBefore(btn, next);
-  } else if (siblings.length > 0) {
-    const last = siblings[siblings.length - 1];
-    mainBar.insertBefore(btn, last.nextSibling);
-  }
-}
-
-function _onMenuPointerUp(e) {
-  if (!_drag.btn || e.pointerId !== _drag.pointerId) return;
-
-  const btn = _drag.btn;
-  const wasDragging = _drag.isDragging;
-  const wasOutside = _drag.outside;
-
-  _cancelDragPress();
-  _detachDragListeners();
-
-  if (wasDragging) {
-    try {
-      if (btn.hasPointerCapture?.(e.pointerId)) btn.releasePointerCapture(e.pointerId);
-    } catch {}
-    btn.classList.remove('dragging', 'will-hide');
-    document.body.classList.remove('menu-dragging');
-    document.getElementById('mainMenuBar')?.classList.remove('drop-outside');
-
-    if (wasOutside) {
+  createHorizontalLongPressReorder({
+    container: mainBar,
+    itemSelector: '.main-menu-btn',
+    bodyDragClass: 'menu-dragging',
+    longPressMs: DRAG_LONG_PRESS_MS,
+    moveCancelPx: DRAG_MOVE_CANCEL_PX,
+    dropOutsideThresholdPx: DRAG_HIDE_THRESHOLD_PX,
+    capturePointer: false,
+    onDragStart: () => {
+      if (!_hintShownThisSession) {
+        _hintShownThisSession = true;
+        showToast('Trascina per riordinare, giù per nascondere', '↔️');
+      }
+    },
+    onCommit: (orderedEls) => {
+      const newOrder = orderedEls.map(b => b.dataset.menu).filter(Boolean);
+      const current = getSettings().mainMenuOrder || [];
+      if (newOrder.join('|') === current.join('|')) return;
+      updateSettings({ mainMenuOrder: newOrder }, { persist: true });
+    },
+    onDropOutside: (btn) => {
       _tryHideMenu(btn.dataset.menu);
-    } else {
-      _commitMenuOrder();
     }
-
-    setTimeout(() => { _drag.skipNextClick = false; }, 60);
-  }
-
-  _drag.btn = null;
-  _drag.pointerId = null;
-  _drag.isDragging = false;
-  _drag.outside = false;
+  });
 }
-
-function _detachDragListeners() {
-  document.removeEventListener('pointermove', _onMenuPointerMove);
-  document.removeEventListener('pointerup',   _onMenuPointerUp);
-  document.removeEventListener('pointercancel', _onMenuPointerUp);
-}
-
-function _commitMenuOrder() {
-  const mainBar = document.getElementById('mainMenuBar');
-  if (!mainBar) return;
-  const newOrder = [...mainBar.querySelectorAll('.main-menu-btn')]
-    .map(b => b.dataset.menu)
-    .filter(m => m);
-  const current = getSettings().mainMenuOrder || [];
-  if (newOrder.join('|') === current.join('|')) return;
-  updateSettings({ mainMenuOrder: newOrder }, { persist: true });
-}
-
-// --- Drag & drop ordine strumenti scrittura (#writingToolsGroup) ---
-
-let _toolHintShownThisSession = false;
-const _toolDrag = {
-  btn: null,
-  pointerId: null,
-  startX: 0,
-  startY: 0,
-  pressTimer: null,
-  isDragging: false,
-  skipNextClick: false
-};
 
 function _setupWritingToolsDrag() {
   const group = document.getElementById('writingToolsGroup');
   if (!group) return;
 
-  group.addEventListener('click', (e) => {
-    if (_toolDrag.skipNextClick) {
-      e.stopPropagation();
-      e.preventDefault();
-      _toolDrag.skipNextClick = false;
+  createHorizontalLongPressReorder({
+    container: group,
+    itemSelector: '.dock-tool-btn',
+    bodyDragClass: 'tool-dragging',
+    longPressMs: DRAG_LONG_PRESS_MS,
+    moveCancelPx: DRAG_MOVE_CANCEL_PX,
+    capturePointer: false,
+    canDragItem: (btn) => !!btn.dataset.tool,
+    onDragStart: () => {
+      if (!_toolHintShownThisSession) {
+        _toolHintShownThisSession = true;
+        showToast('Trascina orizzontalmente per riordinare gli strumenti', '↔️');
+      }
+    },
+    onCommit: (orderedEls) => {
+      const newOrder = orderedEls.map(b => b.dataset.tool).filter(Boolean);
+      const current = getSettings().writingToolsOrder || [];
+      if (newOrder.join('|') === current.join('|')) return;
+      updateSettings({ writingToolsOrder: newOrder }, { persist: true });
     }
-  }, true);
-
-  group.addEventListener('pointerdown', _onWritingToolPointerDown);
-}
-
-function _onWritingToolPointerDown(e) {
-  const btn = e.target.closest('.dock-tool-btn');
-  if (!btn || !btn.dataset.tool) return;
-  if (e.pointerType === 'mouse' && e.button !== 0) return;
-
-  _cancelToolDragPress();
-  _detachToolDragListeners();
-
-  _toolDrag.btn = btn;
-  _toolDrag.pointerId = e.pointerId;
-  _toolDrag.startX = e.clientX;
-  _toolDrag.startY = e.clientY;
-  _toolDrag.isDragging = false;
-  _toolDrag.skipNextClick = false;
-
-  document.addEventListener('pointermove', _onWritingToolPointerMove);
-  document.addEventListener('pointerup', _onWritingToolPointerUp);
-  document.addEventListener('pointercancel', _onWritingToolPointerUp);
-
-  _toolDrag.pressTimer = setTimeout(() => {
-    _toolDrag.pressTimer = null;
-    _enterToolDragMode(btn);
-  }, DRAG_LONG_PRESS_MS);
-}
-
-function _cancelToolDragPress() {
-  if (_toolDrag.pressTimer) {
-    clearTimeout(_toolDrag.pressTimer);
-    _toolDrag.pressTimer = null;
-  }
-}
-
-function _enterToolDragMode(btn) {
-  _toolDrag.isDragging = true;
-  _toolDrag.skipNextClick = true;
-  btn.classList.add('dragging');
-  document.body.classList.add('tool-dragging');
-  if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
-
-  if (!_toolHintShownThisSession) {
-    _toolHintShownThisSession = true;
-    showToast('Trascina orizzontalmente per riordinare gli strumenti', '↔️');
-  }
-}
-
-function _onWritingToolPointerMove(e) {
-  if (!_toolDrag.btn || e.pointerId !== _toolDrag.pointerId) return;
-
-  if (!_toolDrag.isDragging) {
-    const dx = e.clientX - _toolDrag.startX;
-    const dy = e.clientY - _toolDrag.startY;
-    if (Math.hypot(dx, dy) > DRAG_MOVE_CANCEL_PX) {
-      _cancelToolDragPress();
-      _detachToolDragListeners();
-      _toolDrag.btn = null;
-      _toolDrag.pointerId = null;
-    }
-    return;
-  }
-
-  e.preventDefault();
-  _updateWritingToolDragPosition(e.clientX);
-}
-
-function _updateWritingToolDragPosition(clientX) {
-  const btn = _toolDrag.btn;
-  const group = document.getElementById('writingToolsGroup');
-  if (!btn || !group) return;
-
-  const siblings = [...group.querySelectorAll('.dock-tool-btn')].filter(b => b !== btn);
-  const next = siblings.find(el => {
-    const r = el.getBoundingClientRect();
-    return clientX < r.left + r.width / 2;
   });
-
-  if (next) {
-    group.insertBefore(btn, next);
-  } else if (siblings.length > 0) {
-    const last = siblings[siblings.length - 1];
-    group.insertBefore(btn, last.nextSibling);
-  }
-}
-
-function _onWritingToolPointerUp(e) {
-  if (!_toolDrag.btn || e.pointerId !== _toolDrag.pointerId) return;
-
-  const btn = _toolDrag.btn;
-  const wasDragging = _toolDrag.isDragging;
-
-  _cancelToolDragPress();
-  _detachToolDragListeners();
-
-  if (wasDragging) {
-    btn.classList.remove('dragging');
-    document.body.classList.remove('tool-dragging');
-    _commitWritingToolsOrder();
-    setTimeout(() => { _toolDrag.skipNextClick = false; }, 60);
-  }
-
-  _toolDrag.btn = null;
-  _toolDrag.pointerId = null;
-  _toolDrag.isDragging = false;
-}
-
-function _detachToolDragListeners() {
-  document.removeEventListener('pointermove', _onWritingToolPointerMove);
-  document.removeEventListener('pointerup', _onWritingToolPointerUp);
-  document.removeEventListener('pointercancel', _onWritingToolPointerUp);
-}
-
-function _commitWritingToolsOrder() {
-  const group = document.getElementById('writingToolsGroup');
-  if (!group) return;
-  const newOrder = [...group.querySelectorAll('.dock-tool-btn')]
-    .map(b => b.dataset.tool)
-    .filter(t => t);
-  const current = getSettings().writingToolsOrder || [];
-  if (newOrder.join('|') === current.join('|')) return;
-  updateSettings({ writingToolsOrder: newOrder }, { persist: true });
 }
 
 function _tryHideMenu(menu) {
