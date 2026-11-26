@@ -44,6 +44,8 @@ import {
   toggleAppFullscreen
 } from '../shared/core/fullscreen.js';
 import { registerModal, isAnyModalOpen } from '../shared/components/modal.js';
+import { RELEASE_INFO } from '../shared/core/release-info.js';
+import { openReleaseModal, setReleaseNotebookCountProvider } from '../shared/release/release-modal.js';
 
 const COVER_COLOR_ACTIVE_CLASSES = ['ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'];
 
@@ -250,15 +252,31 @@ function _syncHeaderModeUI() {
   }
 
   if (leadingBtn) {
-    leadingBtn.tabIndex = _selectionMode ? 0 : -1;
-    leadingBtn.setAttribute('aria-hidden', _selectionMode ? 'false' : 'true');
+    leadingBtn.tabIndex = 0;
+    leadingBtn.setAttribute('aria-hidden', 'false');
     if (_selectionMode) {
       leadingBtn.title = 'Esci dalla selezione';
       leadingBtn.setAttribute('aria-label', 'Esci dalla selezione');
     } else {
-      leadingBtn.removeAttribute('title');
-      leadingBtn.removeAttribute('aria-label');
+      leadingBtn.title = 'Info versione e novità';
+      leadingBtn.setAttribute('aria-label', 'Info versione e novità');
     }
+  }
+
+  if (titleGroup) {
+    titleGroup.tabIndex = _selectionMode ? -1 : 0;
+    if (_selectionMode) {
+      titleGroup.removeAttribute('role');
+      titleGroup.removeAttribute('title');
+    } else {
+      titleGroup.setAttribute('role', 'button');
+      titleGroup.title = 'Info versione e novità';
+    }
+  }
+
+  const versionBadge = document.getElementById('libraryVersionBadge');
+  if (versionBadge) {
+    versionBadge.textContent = `v${RELEASE_INFO.version}`;
   }
 
   if (!_selectionMode) {
@@ -1359,8 +1377,23 @@ export function bindLibraryUI() {
   document.getElementById('confirmCreateNbBtn')?.addEventListener('click', _confirmCreateNotebook);
   document.getElementById('cancelNewNbBtn')?.addEventListener('click', closeNewNotebookModal);
 
+  setReleaseNotebookCountProvider(() => _cachedNotebooks.length);
+  const versionBadge = document.getElementById('libraryVersionBadge');
+  if (versionBadge) versionBadge.textContent = `v${RELEASE_INFO.version}`;
+
   document.getElementById('libraryLeadingBtn')?.addEventListener('click', () => {
     if (_selectionMode) _exitSelectionMode();
+    else openReleaseModal();
+  });
+  const titleGroup = document.getElementById('libraryHeaderTitleGroup');
+  titleGroup?.addEventListener('click', () => {
+    if (!_selectionMode) openReleaseModal();
+  });
+  titleGroup?.addEventListener('keydown', (e) => {
+    if (!_selectionMode && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      openReleaseModal();
+    }
   });
   document.getElementById('selectionSelectAllBtn')?.addEventListener('click', _selectAll);
   document.getElementById('selectionMoveBtn')?.addEventListener('click', _handleMoveSelection);

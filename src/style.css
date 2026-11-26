@@ -1689,8 +1689,41 @@ body.dark #libraryTopBarWrap.is-scrolled {
   color: #ffffff;
   border: 1px solid transparent;
   box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3), 0 4px 6px -4px rgba(99, 102, 241, 0.2);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   transition: background-color .24s ease, color .24s ease, border-color .24s ease, box-shadow .24s ease, transform .12s ease;
+}
+
+#libraryHeader:not(.is-selection-mode) #libraryLeadingBtn:hover {
+  background-color: #4338ca;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 20px -4px rgba(79, 70, 229, 0.38), 0 4px 8px -2px rgba(79, 70, 229, 0.24);
+}
+
+#libraryHeader:not(.is-selection-mode) #libraryLeadingBtn:active {
+  transform: scale(0.95);
+}
+
+#libraryHeader:not(.is-selection-mode) #libraryHeaderTitleGroup {
+  cursor: pointer;
+  border-radius: 0.75rem;
+  transition: opacity .15s ease;
+}
+
+#libraryHeader:not(.is-selection-mode) #libraryHeaderTitleGroup:hover #libraryHeaderTitle {
+  color: #4338ca;
+}
+
+body.dark #libraryHeader:not(.is-selection-mode) #libraryHeaderTitleGroup:hover #libraryHeaderTitle {
+  color: #a5b4fc;
+}
+
+#libraryHeader.is-selection-mode #libraryHeaderTitleGroup {
+  cursor: default;
+}
+
+#libraryHeader.is-selection-mode #libraryVersionBadge {
+  display: none;
 }
 
 #libraryHeader.is-selection-mode #libraryLeadingBtn {

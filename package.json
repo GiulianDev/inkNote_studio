@@ -1,13 +1,13 @@
 {
   "name": "inknote-studio",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
-    "build": "vite build",
-    "build:singlefile": "vite build --mode singlefile",
-    "build:singlefileoffline": "vite build --mode singlefileoffline",
+    "build": "node scripts/sync-release.mjs --bump && vite build",
+    "build:singlefile": "node scripts/sync-release.mjs --bump && vite build --mode singlefile",
+    "build:singlefileoffline": "node scripts/sync-release.mjs --bump && vite build --mode singlefileoffline",
     "preview": "vite preview"
   },
   "devDependencies": {
