@@ -399,6 +399,274 @@
         "lastReportAt",
         "lastReportId"
       ]
+    },
+    "CloudFolder": {
+      "title": "CloudFolder",
+      "description": "User-owned synchronized collection/folder metadata with soft-delete tombstone.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "parentId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "maxLength": 7
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "clientCreatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "clientUpdatedAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "name",
+        "parentId",
+        "color",
+        "deleted",
+        "clientCreatedAt",
+        "clientUpdatedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CloudNotebook": {
+      "title": "CloudNotebook",
+      "description": "User-owned synchronized notebook metadata, pageOrder, and toolbarSettings (including paperColor/patternColor).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "coverColor": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "maxLength": 7
+        },
+        "pattern": {
+          "type": "string",
+          "enum": ["ruled", "grid", "dots", "blank"],
+          "maxLength": 16
+        },
+        "folderId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "isFavorite": {
+          "type": "boolean"
+        },
+        "pageOrder": {
+          "type": "array",
+          "description": "Ordered list of immutable pageId strings (max 500)."
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "lastPageIndex": {
+          "type": "integer"
+        },
+        "toolbarSettings": {
+          "type": "object",
+          "description": "Per-notebook toolbar configuration map including paperColor and patternColor."
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "clientCreatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "clientUpdatedAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "lastEditAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "title",
+        "coverColor",
+        "pattern",
+        "folderId",
+        "isFavorite",
+        "pageOrder",
+        "pageCount",
+        "lastPageIndex",
+        "toolbarSettings",
+        "deleted",
+        "clientCreatedAt",
+        "clientUpdatedAt",
+        "lastEditAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CloudPage": {
+      "title": "CloudPage",
+      "description": "Compressed binary page bundle document with SHA-256 content hash and 1 MiB chunking metadata.",
+      "type": "object",
+      "properties": {
+        "pageId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "notebookId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "hash": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "chunked": {
+          "type": "boolean"
+        },
+        "chunkCount": {
+          "type": "integer"
+        },
+        "totalBytes": {
+          "type": "integer"
+        },
+        "payload": {
+          "type": "string",
+          "format": "byte",
+          "description": "Firestore Bytes compressed page bundle (empty when chunked or deleted)."
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "clientUpdatedAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "pageId",
+        "notebookId",
+        "ownerUid",
+        "hash",
+        "chunked",
+        "chunkCount",
+        "totalBytes",
+        "payload",
+        "deleted",
+        "clientUpdatedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CloudPageChunk": {
+      "title": "CloudPageChunk",
+      "description": "Binary slice of a dense compressed page exceeding the single-document Firestore safety limit.",
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "ownerUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Firestore Bytes slice (<= 900 KB)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "index",
+        "ownerUid",
+        "data",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -433,6 +701,22 @@
     "/bug_rate_limits/{userId}": {
       "schema": { "$ref": "#/entities/BugRateLimit" },
       "description": "Server-enforced per-UID cooldown document for bug report throttling."
+    },
+    "/users/{userId}/sync_folders/{folderId}": {
+      "schema": { "$ref": "#/entities/CloudFolder" },
+      "description": "Owner-only synchronized folders/collections."
+    },
+    "/users/{userId}/sync_notebooks/{notebookId}": {
+      "schema": { "$ref": "#/entities/CloudNotebook" },
+      "description": "Owner-only synchronized notebook metadata and pageOrder."
+    },
+    "/users/{userId}/sync_notebooks/{notebookId}/pages/{pageId}": {
+      "schema": { "$ref": "#/entities/CloudPage" },
+      "description": "Owner-only compressed page documents keyed by immutable pageId."
+    },
+    "/users/{userId}/sync_notebooks/{notebookId}/pages/{pageId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/CloudPageChunk" },
+      "description": "Owner-only binary chunks for pages exceeding the 1 MiB single-doc guard."
     }
   }
 }

@@ -36,7 +36,7 @@ function _ensureMounted() {
  * @param {() => void} [handlers.onCopyInvite]
  * @param {() => void} [handlers.onLogout]
  */
-export function initUserMenu({ onOpenSharing, onCopyInvite, onLogout } = {}) {
+export function initUserMenu({ onOpenSync, onOpenSharing, onCopyInvite, onLogout } = {}) {
   const panel = _ensureMounted();
   if (!panel) return null;
 
@@ -55,6 +55,10 @@ export function initUserMenu({ onOpenSharing, onCopyInvite, onLogout } = {}) {
 
   if (!_bound) {
     _bound = true;
+    document.getElementById('userAuthMenuSyncBtn')?.addEventListener('click', () => {
+      closeAllFloatingMenus();
+      onOpenSync?.();
+    });
     document.getElementById('userAuthMenuSharingBtn')?.addEventListener('click', () => {
       closeAllFloatingMenus();
       onOpenSharing?.();
@@ -150,5 +154,12 @@ export function syncUserMenuSharing({ unreadCount = 0, handle = '' } = {}) {
   if (handleEl) {
     handleEl.textContent = handle ? `@${handle}` : '';
     handleEl.classList.toggle('hidden', !handle);
+  }
+}
+
+export function syncUserMenuCloudStatus({ subtitle = 'Manuale' } = {}) {
+  const metaEl = document.getElementById('userAuthMenuSyncMeta');
+  if (metaEl) {
+    metaEl.textContent = subtitle || 'Manuale';
   }
 }

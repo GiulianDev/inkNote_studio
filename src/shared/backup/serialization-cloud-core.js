@@ -17,7 +17,7 @@
  *   strokeCount: uint32
  *   per ogni stroke:
  *     metaLen: uint16
- *     meta: JSON UTF-8 {tool, color, size, opacity, style, rx?, ry?}
+ *     meta: JSON UTF-8 {tool, color, size, opacity, style, smoothing?, inkParams?, rx?, ry?}
  *     pointCount: uint32
  *     pointBytes: pointCount * 9
  *   → gzip di tutto
@@ -66,6 +66,9 @@ export function prepareCloudStrokePayload(raw) {
     packedBuffer: copy.buffer,
     count: safeCount
   };
+  if (Number.isFinite(s.smoothing)) {
+    out.smoothing = s.smoothing;
+  }
   if (s.inkParams && typeof s.inkParams === 'object') {
     out.inkParams = s.inkParams;
   }
@@ -269,6 +272,9 @@ export async function compressPageBundle(strokes, textBoxes = []) {
       opacity: s.opacity != null ? s.opacity : 1.0,
       style: s.style || 'solid'
     };
+    if (Number.isFinite(s.smoothing)) {
+      metaObj.smoothing = s.smoothing;
+    }
     if (s.inkParams && typeof s.inkParams === 'object') {
       metaObj.inkParams = s.inkParams;
     }
@@ -357,6 +363,9 @@ export async function decompressPageBundle(compressedBuf) {
       packed: packed,
       count: pointCount
     };
+    if (Number.isFinite(meta.smoothing)) {
+      strokeEntry.smoothing = meta.smoothing;
+    }
     if (meta.inkParams && typeof meta.inkParams === 'object') {
       strokeEntry.inkParams = meta.inkParams;
     }
@@ -386,9 +395,260 @@ export async function decompressPageBundle(compressedBuf) {
 /**
  * Decomprime Uint8Array gzip-ato in array di PackedStroke.
  * @param {ArrayBuffer} compressedBuf
- * @returns {Promise<Array<{tool, color, size, opacity, style, packed: Float32Array, count: number}>>}
+ * @returns {Promise<Array<{tool, color, size, opacity, style, smoothing?, packed: Float32Array, count: number}>>}
  */
 export async function decompressPageData(compressedBuf) {
   const bundle = await decompressPageBundle(compressedBuf);
   return bundle.strokes;
+}
+
+// ============================================================
+// GUARD LIMITE 1 MiB FIRESTORE E CHUNKING PER SINGOLA PAGINA
+// ============================================================
+
+export const FIRESTORE_DOC_HARD_LIMIT_BYTES = 1048576; // 1 MiB limite rigido Firestore
+export const FIRESTORE_PAGE_SOFT_WARNING_BYTES = 700 * 1024;
+export const FIRESTORE_PAGE_MAX_SINGLE_DOC_BYTES = 850 * 1024;
+export const FIRESTORE_PAGE_CHUNK_BYTES = 750 * 1024;
+export const FIRESTORE_PAGE_MAX_CHUNKS = 32;
+
+const BASE64_SOFT_WARNING_BYTES = 450 * 1024;
+const BASE64_MAX_SINGLE_DOC_BYTES = 560 * 1024;
+const BASE64_CHUNK_BYTES = 500 * 1024;
+
+function _toUint8Array(input) {
+  if (input instanceof Uint8Array) return input;
+  if (input instanceof ArrayBuffer) return new Uint8Array(input);
+  if (ArrayBuffer.isView(input)) {
+    return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  }
+  if (input && typeof input.toUint8Array === 'function') {
+    return input.toUint8Array();
+  }
+  return new Uint8Array(0);
+}
+
+/**
+ * Valuta la dimensione del bundle compresso rispetto ai limiti di Firestore.
+ * Supporta sia salvataggio binario `bytes` (Firestore Bytes) sia `base64`.
+ *
+ * @param {Uint8Array|ArrayBuffer} compressedBytes
+ * @param {object} [opts]
+ * @returns {{
+ *   byteLength: number,
+ *   estimatedWireBytes: number,
+ *   encoding: 'bytes'|'base64',
+ *   warningThresholdBytes: number,
+ *   singleDocLimitBytes: number,
+ *   chunkByteSize: number,
+ *   nearLimit: boolean,
+ *   exceedsSingleDoc: boolean,
+ *   utilizationRatio: number,
+ *   recommendedChunkCount: number
+ * }}
+ */
+export function measureFirestorePagePayload(compressedBytes, opts = {}) {
+  const bytes = _toUint8Array(compressedBytes);
+  const encoding = opts.encoding === 'base64' ? 'base64' : 'bytes';
+  const defaultWarn = encoding === 'base64' ? BASE64_SOFT_WARNING_BYTES : FIRESTORE_PAGE_SOFT_WARNING_BYTES;
+  const defaultMaxSingle = encoding === 'base64' ? BASE64_MAX_SINGLE_DOC_BYTES : FIRESTORE_PAGE_MAX_SINGLE_DOC_BYTES;
+  const defaultChunk = encoding === 'base64' ? BASE64_CHUNK_BYTES : FIRESTORE_PAGE_CHUNK_BYTES;
+
+  const singleDocLimitBytes = Math.max(
+    1024,
+    Math.min(
+      FIRESTORE_DOC_HARD_LIMIT_BYTES - 32 * 1024,
+      Number.isFinite(opts.maxSingleDocBytes) ? opts.maxSingleDocBytes : defaultMaxSingle
+    )
+  );
+  const warningThresholdBytes = Math.max(
+    512,
+    Math.min(
+      singleDocLimitBytes,
+      Number.isFinite(opts.warningThresholdBytes) ? opts.warningThresholdBytes : defaultWarn
+    )
+  );
+  const chunkByteSize = Math.max(
+    1024,
+    Math.min(
+      singleDocLimitBytes,
+      Number.isFinite(opts.chunkBytes) ? opts.chunkBytes : defaultChunk
+    )
+  );
+
+  const byteLength = bytes.byteLength;
+  const estimatedWireBytes = encoding === 'base64'
+    ? Math.ceil(byteLength / 3) * 4
+    : byteLength;
+  const exceedsSingleDoc = byteLength > singleDocLimitBytes;
+  const nearLimit = byteLength >= warningThresholdBytes;
+  const recommendedChunkCount = exceedsSingleDoc
+    ? Math.ceil(byteLength / chunkByteSize)
+    : 1;
+
+  return {
+    byteLength,
+    estimatedWireBytes,
+    encoding,
+    warningThresholdBytes,
+    singleDocLimitBytes,
+    chunkByteSize,
+    nearLimit,
+    exceedsSingleDoc,
+    utilizationRatio: Math.min(10, byteLength / FIRESTORE_DOC_HARD_LIMIT_BYTES),
+    recommendedChunkCount
+  };
+}
+
+/**
+ * Suddivide un bundle compresso in uno o più chunk binari sicuri per Firestore.
+ * Se il payload rientra nel limite singolo e `forceChunking` è false, restituisce
+ * un solo blocco (`chunked: false`).
+ *
+ * @param {Uint8Array|ArrayBuffer} compressedBytes
+ * @param {object} [opts]
+ * @returns {{
+ *   chunked: boolean,
+ *   totalBytes: number,
+ *   chunkCount: number,
+ *   chunks: Uint8Array[],
+ *   nearLimit: boolean,
+ *   exceedsSingleDoc: boolean,
+ *   metrics: ReturnType<typeof measureFirestorePagePayload>
+ * }}
+ */
+export function splitCompressedPageForFirestore(compressedBytes, opts = {}) {
+  const bytes = _toUint8Array(compressedBytes);
+  const metrics = measureFirestorePagePayload(bytes, opts);
+  const maxChunks = Math.max(
+    1,
+    Number.isFinite(opts.maxChunks) ? Math.floor(opts.maxChunks) : FIRESTORE_PAGE_MAX_CHUNKS
+  );
+
+  if (metrics.exceedsSingleDoc && opts.strictSingleDoc) {
+    const err = new Error(
+      `La pagina supera il limite di sicurezza Firestore per singolo documento (${metrics.byteLength} B > ${metrics.singleDocLimitBytes} B)`
+    );
+    err.code = 'FIRESTORE_PAGE_LIMIT_EXCEEDED';
+    err.byteLength = metrics.byteLength;
+    err.limitBytes = metrics.singleDocLimitBytes;
+    throw err;
+  }
+
+  if (!metrics.exceedsSingleDoc && !opts.forceChunking) {
+    return {
+      chunked: false,
+      totalBytes: bytes.byteLength,
+      chunkCount: 1,
+      chunks: [bytes],
+      nearLimit: metrics.nearLimit,
+      exceedsSingleDoc: false,
+      metrics
+    };
+  }
+
+  const chunks = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += metrics.chunkByteSize) {
+    chunks.push(bytes.subarray(offset, Math.min(offset + metrics.chunkByteSize, bytes.byteLength)));
+  }
+  if (chunks.length === 0) {
+    chunks.push(bytes);
+  }
+
+  if (chunks.length > maxChunks) {
+    const err = new Error(
+      `La pagina è troppo complessa per la sincronizzazione cloud (${chunks.length} chunk richiesti, massimo ${maxChunks})`
+    );
+    err.code = 'PAGE_PAYLOAD_TOO_LARGE';
+    err.byteLength = bytes.byteLength;
+    err.chunkCount = chunks.length;
+    err.maxChunks = maxChunks;
+    throw err;
+  }
+
+  return {
+    chunked: true,
+    totalBytes: bytes.byteLength,
+    chunkCount: chunks.length,
+    chunks,
+    nearLimit: true,
+    exceedsSingleDoc: metrics.exceedsSingleDoc,
+    metrics
+  };
+}
+
+/**
+ * Ricompone i chunk binari di una pagina salvata su Firestore nell'Uint8Array originale.
+ * Supporta sia array ordinati di Uint8Array/ArrayBuffer sia oggetti `{ index, data }`.
+ *
+ * @param {Array<Uint8Array|ArrayBuffer|{index: number, data: Uint8Array|ArrayBuffer}>} rawChunks
+ * @returns {Uint8Array}
+ */
+export function reassembleCompressedPageFromChunks(rawChunks) {
+  if (!Array.isArray(rawChunks) || rawChunks.length === 0) {
+    throw new Error('Dati pagina mancanti');
+  }
+
+  const hasIndexedObjects = rawChunks.some(
+    c => c && typeof c === 'object' && !(c instanceof Uint8Array) && !(c instanceof ArrayBuffer) && !ArrayBuffer.isView(c)
+  );
+
+  let orderedParts;
+  if (hasIndexedObjects) {
+    const sorted = rawChunks
+      .filter(c => c && typeof c === 'object' && typeof c.index === 'number' && c.data != null)
+      .slice()
+      .sort((a, b) => a.index - b.index);
+    if (sorted.length !== rawChunks.length) {
+      throw new Error('Frammenti pagina non validi o incompleti');
+    }
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i].index !== i) {
+        throw new Error(`Frammento pagina ${i} mancante`);
+      }
+    }
+    orderedParts = sorted.map(c => _toUint8Array(c.data));
+  } else {
+    orderedParts = rawChunks.map(_toUint8Array);
+  }
+
+  const totalLen = orderedParts.reduce((sum, part) => sum + part.byteLength, 0);
+  if (totalLen === 0) {
+    throw new Error('Frammenti pagina vuoti');
+  }
+
+  const out = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const part of orderedParts) {
+    out.set(part, offset);
+    offset += part.byteLength;
+  }
+  return out;
+}
+
+/**
+ * Comprime una pagina e applica il guard sul limite Firestore (con split automatico
+ * in chunk se supera la soglia di sicurezza per singolo documento).
+ *
+ * @param {Array} strokes
+ * @param {Array} [textBoxes]
+ * @param {object} [opts]
+ * @returns {Promise<{
+ *   compressed: Uint8Array,
+ *   chunked: boolean,
+ *   totalBytes: number,
+ *   chunkCount: number,
+ *   chunks: Uint8Array[],
+ *   nearLimit: boolean,
+ *   exceedsSingleDoc: boolean,
+ *   metrics: ReturnType<typeof measureFirestorePagePayload>
+ * }>}
+ */
+export async function compressPageBundleForCloud(strokes, textBoxes = [], opts = {}) {
+  const compressed = await compressPageBundle(strokes, textBoxes);
+  const split = splitCompressedPageForFirestore(compressed, opts);
+  return {
+    compressed,
+    ...split
+  };
 }

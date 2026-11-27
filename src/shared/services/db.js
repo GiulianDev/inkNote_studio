@@ -4,6 +4,7 @@
 // ============================================================
 
 import { generatePageId } from '../core/utils.js';
+import { recordLocalDeletion, clearLocalDeletion } from '../sync/sync-helpers.js';
 
 const DB_NAME = 'InkNoteStudioDB';
 const DB_VERSION = 5;
@@ -398,7 +399,10 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
       return;
     }
 
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      clearLocalDeletion('notebooks', notebook.id);
+      resolve();
+    };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
@@ -548,7 +552,7 @@ export function loadAllNotebooksFromDB() {
   });
 }
 
-export function deleteNotebookFromDB(id) {
+export function deleteNotebookFromDB(id, opts = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return resolve();
     const tx = db.transaction(['notebooks', 'pageOrders', 'pages'], 'readwrite');
@@ -563,7 +567,14 @@ export function deleteNotebookFromDB(id) {
       cursor.continue();
     };
 
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      if (opts?.fromCloudSync) {
+        clearLocalDeletion('notebooks', id);
+      } else {
+        recordLocalDeletion('notebooks', id);
+      }
+      resolve();
+    };
     tx.onerror = () => reject(tx.error);
   });
 }
@@ -607,7 +618,7 @@ export function loadAllFoldersFromDB() {
   });
 }
 
-export function saveFolderToDB(folder) {
+export function saveFolderToDB(folder, opts = {}) {
   return new Promise((resolve, reject) => {
     if (!db || !folder || !folder.id) return resolve(null);
     const now = new Date().toISOString();
@@ -619,11 +630,14 @@ export function saveFolderToDB(folder) {
         : null,
       color: folder.color || '#6366f1',
       createdAt: folder.createdAt || now,
-      updatedAt: now
+      updatedAt: (opts?.preserveUpdatedAt && folder.updatedAt) ? folder.updatedAt : now
     };
     const tx = db.transaction('folders', 'readwrite');
     tx.objectStore('folders').put(record);
-    tx.oncomplete = () => resolve(record);
+    tx.oncomplete = () => {
+      clearLocalDeletion('folders', record.id);
+      resolve(record);
+    };
     tx.onerror = () => reject(tx.error);
   });
 }
@@ -631,7 +645,8 @@ export function saveFolderToDB(folder) {
 export function deleteLibraryItemsFromDB({
   folderIds = [],
   notebookIds = [],
-  deleteFolderContents = true
+  deleteFolderContents = true,
+  fromCloudSync = false
 } = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return resolve({ deletedFolderIds: [], deletedNotebookIds: [] });
@@ -754,14 +769,26 @@ export function deleteLibraryItemsFromDB({
     }
     allNbsReq.onsuccess = () => { allNbs = allNbsReq.result || []; tryApply(); };
 
-    tx.oncomplete = () => resolve({ deletedFolderIds, deletedNotebookIds });
+    tx.oncomplete = () => {
+      const nowMs = Date.now();
+      for (const fid of deletedFolderIds) {
+        if (fromCloudSync) clearLocalDeletion('folders', fid);
+        else recordLocalDeletion('folders', fid, nowMs);
+      }
+      for (const nbId of deletedNotebookIds) {
+        if (fromCloudSync) clearLocalDeletion('notebooks', nbId);
+        else recordLocalDeletion('notebooks', nbId, nowMs);
+      }
+      resolve({ deletedFolderIds, deletedNotebookIds });
+    };
     tx.onerror = () => reject(tx.error);
   });
 }
 
-export function deleteFolderFromDB(folderId, { deleteContents = false } = {}) {
+export function deleteFolderFromDB(folderId, { deleteContents = false, fromCloudSync = false } = {}) {
   return deleteLibraryItemsFromDB({
     folderIds: folderId ? [folderId] : [],
-    deleteFolderContents: deleteContents
+    deleteFolderContents: deleteContents,
+    fromCloudSync
   });
 }

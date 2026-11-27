@@ -8,7 +8,12 @@ import {
   compressPageData,
   decompressPageData,
   compressPageBundle,
-  decompressPageBundle
+  decompressPageBundle,
+  FIRESTORE_DOC_HARD_LIMIT_BYTES,
+  measureFirestorePagePayload,
+  splitCompressedPageForFirestore,
+  reassembleCompressedPageFromChunks,
+  compressPageBundleForCloud
 } from './serialization-cloud-core.js';
 
 test('compressPageData and decompressPageData preserve stroke style', async () => {
@@ -311,6 +316,144 @@ test('compressPageData and decompressPageData roundtrip optional inkParams snaps
   assert.ok(Math.abs(restored[0].inkParams.curve - customInk.curve) < 1e-4);
   assert.ok(Math.abs(restored[0].inkParams.speedWeight - customInk.speedWeight) < 1e-4);
   assert.equal(restored[1].inkParams, undefined);
+});
+
+test('compressPageData and decompressPageData roundtrip optional per-stroke smoothing', async () => {
+  const sWithSmooth = prepareCloudStrokePayload(packStroke({
+    tool: 'pen',
+    color: '#1e293b',
+    size: 4,
+    opacity: 1,
+    style: 'solid',
+    smoothing: 0.72,
+    points: [
+      { x: 10, y: 20, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+      { x: 50, y: 70, pressure: 0.7, tiltX: 0, tiltY: 0, speed: 2, pointerType: 'pen' }
+    ]
+  }));
+  const sWithoutSmooth = prepareCloudStrokePayload(packStroke({
+    tool: 'marker',
+    color: '#2563eb',
+    size: 6,
+    opacity: 0.9,
+    style: 'solid',
+    points: [
+      { x: 25, y: 35, pressure: 0.5, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' },
+      { x: 95, y: 110, pressure: 0.6, tiltX: 0, tiltY: 0, speed: 1, pointerType: 'pen' }
+    ]
+  }));
+
+  const compressed = await compressPageData([sWithSmooth, sWithoutSmooth]);
+  const restored = await decompressPageData(compressed.buffer);
+  assert.equal(restored.length, 2);
+  assert.equal(restored[0].smoothing, 0.72);
+  assert.equal(restored[1].smoothing, undefined);
+});
+
+test('measureFirestorePagePayload flags near-limit and single-doc overflow for bytes and base64', () => {
+  const small = new Uint8Array(120 * 1024);
+  const smallMetrics = measureFirestorePagePayload(small);
+  assert.equal(smallMetrics.nearLimit, false);
+  assert.equal(smallMetrics.exceedsSingleDoc, false);
+  assert.equal(smallMetrics.recommendedChunkCount, 1);
+  assert.ok(smallMetrics.utilizationRatio < 0.2);
+
+  const near = new Uint8Array(720 * 1024);
+  const nearMetrics = measureFirestorePagePayload(near);
+  assert.equal(nearMetrics.nearLimit, true);
+  assert.equal(nearMetrics.exceedsSingleDoc, false);
+
+  const huge = new Uint8Array(920 * 1024);
+  const hugeMetrics = measureFirestorePagePayload(huge);
+  assert.equal(hugeMetrics.nearLimit, true);
+  assert.equal(hugeMetrics.exceedsSingleDoc, true);
+  assert.equal(hugeMetrics.recommendedChunkCount, 2);
+  assert.ok(hugeMetrics.singleDocLimitBytes < FIRESTORE_DOC_HARD_LIMIT_BYTES);
+
+  const b64Medium = new Uint8Array(580 * 1024);
+  const b64Metrics = measureFirestorePagePayload(b64Medium, { encoding: 'base64' });
+  assert.equal(b64Metrics.exceedsSingleDoc, true);
+  assert.ok(b64Metrics.estimatedWireBytes > b64Medium.byteLength);
+});
+
+test('splitCompressedPageForFirestore and reassembleCompressedPageFromChunks enforce limits and roundtrip', () => {
+  const data = new Uint8Array(5000);
+  for (let i = 0; i < data.length; i++) data[i] = (i * 31) & 0xff;
+
+  const single = splitCompressedPageForFirestore(data, { maxSingleDocBytes: 8192 });
+  assert.equal(single.chunked, false);
+  assert.equal(single.chunkCount, 1);
+  assert.deepEqual(reassembleCompressedPageFromChunks(single.chunks), data);
+
+  const chunked = splitCompressedPageForFirestore(data, {
+    maxSingleDocBytes: 2048,
+    chunkBytes: 1500
+  });
+  assert.equal(chunked.chunked, true);
+  assert.equal(chunked.chunkCount, 4);
+
+  // Out-of-order Firestore chunk documents still reassemble identically
+  const shuffledDocs = chunked.chunks
+    .map((chunk, index) => ({ index, data: chunk }))
+    .reverse();
+  assert.deepEqual(reassembleCompressedPageFromChunks(shuffledDocs), data);
+
+  assert.throws(
+    () => reassembleCompressedPageFromChunks([{ index: 0, data: chunked.chunks[0] }, { index: 2, data: chunked.chunks[2] }]),
+    /mancante/
+  );
+
+  assert.throws(
+    () => splitCompressedPageForFirestore(data, { maxSingleDocBytes: 2048, strictSingleDoc: true }),
+    (err) => err.code === 'FIRESTORE_PAGE_LIMIT_EXCEEDED'
+  );
+
+  assert.throws(
+    () => splitCompressedPageForFirestore(data, { maxSingleDocBytes: 2048, chunkBytes: 1024, maxChunks: 3 }),
+    (err) => err.code === 'PAGE_PAYLOAD_TOO_LARGE'
+  );
+});
+
+test('compressPageBundleForCloud supports chunked roundtrip decompression', async () => {
+  const strokes = Array.from({ length: 12 }, (_, idx) =>
+    prepareCloudStrokePayload(packStroke({
+      tool: 'pen',
+      color: '#0f172a',
+      size: 3 + (idx % 3),
+      opacity: 1,
+      style: idx % 2 === 0 ? 'solid' : 'dashed',
+      smoothing: 0.5,
+      points: Array.from({ length: 40 }, (__, p) => ({
+        x: 20 + p * 12,
+        y: 30 + idx * 25 + Math.sin(p) * 8,
+        pressure: 0.4 + (p % 5) * 0.1,
+        tiltX: 1,
+        tiltY: -1,
+        speed: 2,
+        pointerType: 'pen'
+      }))
+    }))
+  );
+  const textBoxes = [
+    { id: 'tb_cloud', x: 50, y: 80, width: 280, height: 60, text: 'Nota cloud' }
+  ];
+
+  const cloudBundle = await compressPageBundleForCloud(strokes, textBoxes, {
+    maxSingleDocBytes: 1024,
+    chunkBytes: 1024
+  });
+  assert.equal(cloudBundle.chunked, true);
+  assert.ok(cloudBundle.chunkCount >= 2);
+
+  const rebuilt = reassembleCompressedPageFromChunks(
+    cloudBundle.chunks.map((c, index) => ({ index, data: c }))
+  );
+  const restored = await decompressPageBundle(rebuilt.buffer);
+  assert.equal(restored.strokes.length, strokes.length);
+  assert.equal(restored.strokes[0].smoothing, 0.5);
+  assert.equal(restored.strokes[1].style, 'dashed');
+  assert.equal(restored.textBoxes.length, 1);
+  assert.equal(restored.textBoxes[0].text, 'Nota cloud');
 });
 
 

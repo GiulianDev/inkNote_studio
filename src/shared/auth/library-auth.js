@@ -17,6 +17,7 @@ import {
   closeUserMenu,
   syncUserMenuUser
 } from '../components/user-menu.js';
+import { openCloudSyncModal, refreshUserMenuSyncBadge } from '../sync/sync-ui.js';
 import { syncSendMenuAuthState } from '../../notebook/toolbar/toolbar.js';
 
 const AVATAR_PALETTE = [
@@ -81,6 +82,7 @@ function _updateAuthUI() {
   _syncTriggerButtonDOM('editorAuthBtn', 'editorAuthBtnContent');
   const avatarHtml = authState.user ? _renderAvatarHtml(authState.user, 40) : '';
   syncUserMenuUser(authState.user, avatarHtml);
+  refreshUserMenuSyncBadge(authState.user);
   syncSendMenuAuthState();
 }
 
@@ -130,6 +132,7 @@ export function bindLibraryAuth() {
   });
 
   initUserMenu({
+    onOpenSync: () => { void openCloudSyncModal(); },
     onOpenSharing: () => openSharingModal({ initialTab: 'inbox' }),
     onCopyInvite: () => { void copyMyInviteLink(); },
     onLogout: _handleLogout

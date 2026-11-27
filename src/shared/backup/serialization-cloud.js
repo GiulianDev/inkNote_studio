@@ -17,8 +17,17 @@
 import SerializationWorker from './serialization-cloud.worker.js?worker&inline';
 import {
   compressPageBundle, decompressPageData, decompressPageBundle as decompressPageBundleCore,
-  prepareCloudStrokePayload
+  prepareCloudStrokePayload,
+  measureFirestorePagePayload,
+  splitCompressedPageForFirestore,
+  reassembleCompressedPageFromChunks
 } from './serialization-cloud-core.js';
+
+export {
+  measureFirestorePagePayload,
+  splitCompressedPageForFirestore,
+  reassembleCompressedPageFromChunks
+};
 
 let _worker = null;
 let _workerFailed = false;
@@ -106,6 +115,24 @@ export function compressPage(strokesPacked, textBoxes = []) {
     strokes: payload,
     textBoxes: Array.isArray(textBoxes) ? textBoxes : []
   }, transfer);
+}
+
+/**
+ * Comprime una pagina tramite Web Worker (o fallback main thread) e applica
+ * il controllo/split sul limite di 1 MiB di Firestore.
+ *
+ * @param {Array} strokesPacked
+ * @param {Array} [textBoxes]
+ * @param {object} [opts]
+ * @returns {Promise<{compressed: Uint8Array, chunked: boolean, totalBytes: number, chunkCount: number, chunks: Uint8Array[], nearLimit: boolean, exceedsSingleDoc: boolean, metrics: object}>}
+ */
+export async function compressPageForCloud(strokesPacked, textBoxes = [], opts = {}) {
+  const compressed = await compressPage(strokesPacked, textBoxes);
+  const split = splitCompressedPageForFirestore(compressed, opts);
+  return {
+    compressed,
+    ...split
+  };
 }
 
 /**

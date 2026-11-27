@@ -53,6 +53,14 @@ service cloud.firestore {
       return chunkId is string && chunkId.size() >= 1 && chunkId.size() <= 3 && chunkId.matches('^[0-9]{1,3}$');
     }
 
+    function isValidSyncChunkId(chunkId) {
+      return chunkId is string && chunkId.size() >= 1 && chunkId.size() <= 2 && chunkId.matches('^[0-9]{1,2}$');
+    }
+
+    function isValidHexColor(color) {
+      return color is string && color.size() == 7 && color.matches('^#[0-9a-fA-F]{6}$');
+    }
+
     // --------------------------------------------------------
     // Validation blueprints
     // --------------------------------------------------------
@@ -183,6 +191,94 @@ service cloud.firestore {
         && data.lastReportId is string && isValidId(data.lastReportId);
     }
 
+    function isValidCloudFolder(data, userId, folderId) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'name', 'parentId', 'color',
+          'deleted', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'name', 'parentId', 'color',
+          'deleted', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == folderId && isValidId(data.id)
+        && data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 140
+        && data.parentId is string && (data.parentId == '' || (isValidId(data.parentId) && data.parentId != folderId))
+        && isValidHexColor(data.color)
+        && data.deleted is bool
+        && data.clientCreatedAt is string && data.clientCreatedAt.size() <= 40
+        && data.clientUpdatedAt is string && data.clientUpdatedAt.size() >= 1 && data.clientUpdatedAt.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCloudNotebook(data, userId, notebookId) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'title', 'coverColor', 'pattern', 'folderId',
+          'isFavorite', 'pageOrder', 'pageCount', 'lastPageIndex', 'toolbarSettings',
+          'deleted', 'clientCreatedAt', 'clientUpdatedAt', 'lastEditAt', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'title', 'coverColor', 'pattern', 'folderId',
+          'isFavorite', 'pageOrder', 'pageCount', 'lastPageIndex', 'toolbarSettings',
+          'deleted', 'clientCreatedAt', 'clientUpdatedAt', 'lastEditAt', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == notebookId && isValidId(data.id)
+        && data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && isValidHexColor(data.coverColor)
+        && data.pattern is string && data.pattern in ['ruled', 'grid', 'dots', 'blank']
+        && data.folderId is string && (data.folderId == '' || isValidId(data.folderId))
+        && data.isFavorite is bool
+        && data.pageOrder is list
+        && data.pageOrder.size() >= 0
+        && data.pageOrder.size() <= 500
+        && (data.pageOrder.size() == 0 || (data.pageOrder[0] is string && isValidId(data.pageOrder[0])))
+        && data.pageCount is int && data.pageCount >= 0 && data.pageCount <= 500
+        && data.lastPageIndex is int && data.lastPageIndex >= 0 && data.lastPageIndex <= 499
+        && data.toolbarSettings is map && data.toolbarSettings.size() <= 40
+        && data.deleted is bool
+        && data.clientCreatedAt is string && data.clientCreatedAt.size() <= 40
+        && data.clientUpdatedAt is string && data.clientUpdatedAt.size() >= 1 && data.clientUpdatedAt.size() <= 40
+        && data.lastEditAt is string && data.lastEditAt.size() >= 1 && data.lastEditAt.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCloudPage(data, userId, notebookId, pageId) {
+      return data.keys().hasAll([
+          'pageId', 'notebookId', 'ownerUid', 'hash', 'chunked', 'chunkCount',
+          'totalBytes', 'payload', 'deleted', 'clientUpdatedAt', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'pageId', 'notebookId', 'ownerUid', 'hash', 'chunked', 'chunkCount',
+          'totalBytes', 'payload', 'deleted', 'clientUpdatedAt', 'createdAt', 'updatedAt'
+        ])
+        && data.pageId is string && data.pageId == pageId && isValidId(data.pageId)
+        && data.notebookId is string && data.notebookId == notebookId && isValidId(data.notebookId)
+        && data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid)
+        && data.hash is string && (data.hash == '' || isValidSha256(data.hash))
+        && data.chunked is bool
+        && data.chunkCount is int && data.chunkCount >= 0 && data.chunkCount <= 32
+        && data.totalBytes is int && data.totalBytes >= 0 && data.totalBytes <= 30000000
+        && data.payload is bytes && data.payload.size() <= 900000
+        && (!data.chunked || data.payload.size() == 0)
+        && data.deleted is bool
+        && (!data.deleted || (data.payload.size() == 0 && data.chunkCount == 0 && data.totalBytes == 0))
+        && data.clientUpdatedAt is string && data.clientUpdatedAt.size() >= 1 && data.clientUpdatedAt.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCloudPageChunk(data, userId) {
+      return data.keys().hasAll(['index', 'ownerUid', 'data', 'updatedAt'])
+        && data.keys().hasOnly(['index', 'ownerUid', 'data', 'updatedAt'])
+        && data.index is int && data.index >= 0 && data.index < 32
+        && data.ownerUid is string && data.ownerUid == userId && data.ownerUid == request.auth.uid && isValidId(data.ownerUid)
+        && data.data is bytes && data.data.size() >= 1 && data.data.size() <= 900000
+        && data.updatedAt is timestamp;
+    }
+
     // --------------------------------------------------------
     // /users/{userId} and /users/{userId}/friends/{friendUid}
     // --------------------------------------------------------
@@ -234,6 +330,123 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/users/$(userId));
 
         allow delete: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(friendUid);
+      }
+
+      match /sync_folders/{folderId} {
+        allow get: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(folderId);
+        allow list: if isVerifiedOwner(userId) && isValidId(userId) && resource.data.ownerUid == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(folderId)
+          && isValidCloudFolder(incoming(), userId, folderId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(folderId)
+          && isValidCloudFolder(incoming(), userId, folderId)
+          && incoming().id == existing().id
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'parentId', 'color', 'deleted', 'clientCreatedAt', 'clientUpdatedAt', 'updatedAt'
+          ])
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow delete: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(folderId);
+      }
+
+      match /sync_notebooks/{notebookId} {
+        allow get: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(notebookId);
+        allow list: if isVerifiedOwner(userId) && isValidId(userId) && resource.data.ownerUid == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(notebookId)
+          && isValidCloudNotebook(incoming(), userId, notebookId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(notebookId)
+          && isValidCloudNotebook(incoming(), userId, notebookId)
+          && incoming().id == existing().id
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'coverColor', 'pattern', 'folderId', 'isFavorite',
+            'pageOrder', 'pageCount', 'lastPageIndex', 'toolbarSettings',
+            'deleted', 'clientCreatedAt', 'clientUpdatedAt', 'lastEditAt', 'updatedAt'
+          ])
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow delete: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(notebookId);
+
+        match /pages/{pageId} {
+          allow get: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(notebookId) && isValidId(pageId);
+          allow list: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(notebookId) && resource.data.ownerUid == request.auth.uid;
+
+          allow create: if isVerifiedOwner(userId)
+            && isValidId(userId)
+            && isValidId(notebookId)
+            && isValidId(pageId)
+            && isValidCloudPage(incoming(), userId, notebookId, pageId)
+            && incoming().createdAt == request.time
+            && incoming().updatedAt == request.time
+            && get(/databases/$(database)/documents/users/$(userId)/sync_notebooks/$(notebookId)).data.ownerUid == request.auth.uid;
+
+          allow update: if isVerifiedOwner(userId)
+            && isValidId(userId)
+            && isValidId(notebookId)
+            && isValidId(pageId)
+            && isValidCloudPage(incoming(), userId, notebookId, pageId)
+            && incoming().pageId == existing().pageId
+            && incoming().notebookId == existing().notebookId
+            && incoming().ownerUid == existing().ownerUid
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'hash', 'chunked', 'chunkCount', 'totalBytes', 'payload',
+              'deleted', 'clientUpdatedAt', 'updatedAt'
+            ])
+            && get(/databases/$(database)/documents/users/$(userId)/sync_notebooks/$(notebookId)).data.ownerUid == request.auth.uid;
+
+          allow delete: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(notebookId) && isValidId(pageId);
+
+          match /chunks/{chunkId} {
+            allow get: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(notebookId) && isValidId(pageId) && isValidSyncChunkId(chunkId);
+            allow list: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(notebookId) && isValidId(pageId) && resource.data.ownerUid == request.auth.uid;
+
+            allow create: if isVerifiedOwner(userId)
+              && isValidId(userId)
+              && isValidId(notebookId)
+              && isValidId(pageId)
+              && isValidSyncChunkId(chunkId)
+              && isValidCloudPageChunk(incoming(), userId)
+              && incoming().updatedAt == request.time
+              && get(/databases/$(database)/documents/users/$(userId)/sync_notebooks/$(notebookId)/pages/$(pageId)).data.ownerUid == request.auth.uid;
+
+            allow update: if isVerifiedOwner(userId)
+              && isValidId(userId)
+              && isValidId(notebookId)
+              && isValidId(pageId)
+              && isValidSyncChunkId(chunkId)
+              && isValidCloudPageChunk(incoming(), userId)
+              && incoming().ownerUid == existing().ownerUid
+              && incoming().updatedAt == request.time
+              && incoming().diff(existing()).affectedKeys().hasOnly(['index', 'data', 'updatedAt'])
+              && get(/databases/$(database)/documents/users/$(userId)/sync_notebooks/$(notebookId)/pages/$(pageId)).data.ownerUid == request.auth.uid;
+
+            allow delete: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(notebookId) && isValidId(pageId) && isValidSyncChunkId(chunkId);
+          }
+        }
       }
     }
 
