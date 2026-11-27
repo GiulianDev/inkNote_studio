@@ -2,15 +2,45 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.1.7",
-  "builtAt": "2026-11-27T14:34:05.745Z",
+  "version": "0.1.12",
+  "builtAt": "2026-11-27T15:21:32.062Z",
   "date": "2026-11-27",
   "currentNotes": [
-    "Pulito il meta tag `viewport` in `index.html` impostando `width=device-width, initial-scale=1.0` senza direttive contraddittorie (`user-scalable=no` / `maximum-scale=5.0`), preservando l'isolamento touch del canvas e prevenendo overflow su schermi mobili ridotti."
+    "Risolto errore `ResizeObserver loop completed with undelivered notifications` in libreria differendo le misurazioni di `#libraryControlsWrap` e `#libraryNotebooksScroll` su `requestAnimationFrame` e aggiornando le variabili CSS solo al cambio effettivo di valore."
   ],
-  "notesSourceVersion": "0.1.7",
+  "notesSourceVersion": "0.1.12",
   "hasExactChangelog": true,
   "releases": [
+    {
+      "version": "0.1.12",
+      "date": "2026-11-27",
+      "items": [
+        "Risolto errore `ResizeObserver loop completed with undelivered notifications` in libreria differendo le misurazioni di `#libraryControlsWrap` e `#libraryNotebooksScroll` su `requestAnimationFrame` e aggiornando le variabili CSS solo al cambio effettivo di valore."
+      ]
+    },
+    {
+      "version": "0.1.11",
+      "date": "2026-11-27",
+      "items": [
+        "Spostata la barra di ricerca e filtri della libreria (`#libraryControlsWrap`) in overlay indipendente sopra la lista quaderni (`#libraryContentStage`), animandola esclusivamente su GPU (`transform` e `opacity`) senza spingere né ridimensionare la griglia sottostante.",
+        "Ottimizzata la fluidità dello scorrimento su desktop rimuovendo i `backdrop-filter` ripetitivi dalle singole card, aggiungendo `contain: layout style paint` e sospendendo i micro-sollevamenti hover durante lo scroll attivo.",
+        "Aggiunto `AGENTS.md` con le regole fisse del progetto (conferma esplicita prima di ogni modifica e aggiornamento costante di `log.md`)."
+      ]
+    },
+    {
+      "version": "0.1.9",
+      "date": "2026-11-27",
+      "items": [
+        "Nascosta automaticamente la barra di ricerca e filtri della libreria (`#libraryControlsWrap`) sotto l'intestazione fissa quando si scorre verso il basso nella griglia/lista quaderni, con ricomparsa fluida allo scorrimento verso l'alto e protezione durante ricerca attiva, focus o drag-and-drop."
+      ]
+    },
+    {
+      "version": "0.1.8",
+      "date": "2026-11-27",
+      "items": [
+        "Confinato lo scroll della libreria alla sola sezione quaderni/raccolte (`#libraryNotebooksScroll`) mantenendo fissi header e barra controlli, con scrollbar `.custom-scrollbar` coerente al tema chiaro e scuro dell'app."
+      ]
+    },
     {
       "version": "0.1.7",
       "date": "2026-11-27",

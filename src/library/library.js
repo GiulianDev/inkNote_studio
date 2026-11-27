@@ -32,7 +32,8 @@ import {
   deepClone,
   generateDuplicateTitle,
   collectNotebookIdsInSelection,
-  collectSubtreeSummary
+  collectSubtreeSummary,
+  computeLibraryControlsVisibility
 } from './library-helpers.js';
 import { createFolderCardElement, createNotebookCardElement } from './library-cards.js';
 import {
@@ -63,6 +64,8 @@ let _cachedFolders = [];
 let _cachedNotebooks = [];
 let _dndController = null;
 let _newNotebookModalCtrl = null;
+let _lastRenderedFolderId;
+let _syncLibraryScrollState = null;
 
 function _ensureNewNotebookModalCtrl() {
   if (_newNotebookModalCtrl) return _newNotebookModalCtrl;
@@ -593,7 +596,11 @@ export function renderLibraryView() {
       }
     }
 
+    const folderChanged = _lastRenderedFolderId !== undefined && _lastRenderedFolderId !== _currentFolderId;
+    _lastRenderedFolderId = _currentFolderId;
+
     document.getElementById('libraryView')?.classList.remove('hidden');
+    _syncLibraryScrollState?.({ resetScroll: folderChanged });
   });
 }
 
@@ -1514,18 +1521,136 @@ export function bindLibraryUI() {
       },
       onDropOnCollection: _handleDndDropOnCollection,
       onDropOnBreadcrumb: _handleDndDropOnBreadcrumb,
-      onMergeNotebooks: _handleDndMergeNotebooks
-    });
+        onMergeNotebooks: _handleDndMergeNotebooks,
+        onDragStart: () => {
+          _syncLibraryScrollState?.({ forceReveal: true });
+        }
+      });
   }
 
-  const libViewEl = document.getElementById('libraryView');
+  const contentStage = document.getElementById('libraryContentStage');
+  const notebooksScrollEl = document.getElementById('libraryNotebooksScroll') || document.getElementById('libraryView');
+  const controlsWrap = document.getElementById('libraryControlsWrap');
   const topBarWrap = document.getElementById('libraryTopBarWrap');
-  if (libViewEl && topBarWrap) {
-    const syncScrollShadow = () => {
-      topBarWrap.classList.toggle('is-scrolled', libViewEl.scrollTop > 4);
+  if (notebooksScrollEl && (controlsWrap || topBarWrap)) {
+    const scrollState = {
+      prevScrollTop: notebooksScrollEl.scrollTop || 0,
+      accumulatedDelta: 0,
+      hidden: false,
+      ignoreScrollUntilMs: 0,
+      controlsHeight: controlsWrap?.offsetHeight || 0,
+      lastControlsHeight: -1,
+      lastScrollbarWidth: -1
     };
-    libViewEl.addEventListener('scroll', syncScrollShadow, { passive: true });
-    syncScrollShadow();
+    let scrollIdleTimer = null;
+    let resizeRafId = null;
+
+    const measureControlsChrome = () => {
+      if (controlsWrap) {
+        const h = controlsWrap.offsetHeight;
+        if (h > 0) {
+          scrollState.controlsHeight = h;
+          if (h !== scrollState.lastControlsHeight) {
+            scrollState.lastControlsHeight = h;
+            const host = contentStage || notebooksScrollEl;
+            host.style.setProperty('--lib-controls-h', `${h}px`);
+          }
+        }
+        const sbw = Math.max(0, notebooksScrollEl.offsetWidth - notebooksScrollEl.clientWidth);
+        if (sbw !== scrollState.lastScrollbarWidth) {
+          scrollState.lastScrollbarWidth = sbw;
+          controlsWrap.style.setProperty('--lib-scrollbar-w', `${sbw}px`);
+        }
+      }
+      return scrollState.controlsHeight;
+    };
+
+    const isControlsForceVisible = (forceReveal = false) => {
+      if (forceReveal) return true;
+      if (_searchQuery.trim().length > 0) return true;
+      if (document.body.classList.contains('library-dnd-active')) return true;
+      if (controlsWrap && controlsWrap.contains(document.activeElement)) return true;
+      return false;
+    };
+
+    const applyChromeClasses = (scrollTop) => {
+      const scrolled = scrollTop > 4;
+      if (controlsWrap) {
+        controlsWrap.classList.toggle('is-controls-hidden', scrollState.hidden);
+        controlsWrap.classList.toggle('is-scrolled', !scrollState.hidden && scrolled);
+        if (scrollState.hidden) {
+          controlsWrap.setAttribute('aria-hidden', 'true');
+        } else {
+          controlsWrap.removeAttribute('aria-hidden');
+        }
+      }
+      if (topBarWrap) {
+        topBarWrap.classList.toggle('is-scrolled', (scrollState.hidden || !controlsWrap) && scrolled);
+      }
+    };
+
+    const updateScrollState = ({ resetScroll = false, forceReveal = false } = {}) => {
+      if (resetScroll) {
+        notebooksScrollEl.scrollTop = 0;
+        scrollState.prevScrollTop = 0;
+        scrollState.accumulatedDelta = 0;
+        scrollState.ignoreScrollUntilMs = 0;
+      }
+
+      const controlsHeight = measureControlsChrome();
+      const currentScrollTop = notebooksScrollEl.scrollTop || 0;
+      const res = computeLibraryControlsVisibility({
+        scrollTop: currentScrollTop,
+        prevScrollTop: scrollState.prevScrollTop,
+        scrollHeight: notebooksScrollEl.scrollHeight,
+        clientHeight: notebooksScrollEl.clientHeight,
+        controlsHeight,
+        currentlyHidden: scrollState.hidden,
+        forceVisible: isControlsForceVisible(forceReveal),
+        accumulatedDelta: scrollState.accumulatedDelta,
+        nowMs: performance.now(),
+        ignoreScrollUntilMs: scrollState.ignoreScrollUntilMs
+      });
+
+      scrollState.hidden = res.hidden;
+      scrollState.accumulatedDelta = res.accumulatedDelta;
+      scrollState.prevScrollTop = res.prevScrollTop;
+      scrollState.ignoreScrollUntilMs = res.ignoreScrollUntilMs;
+
+      applyChromeClasses(currentScrollTop);
+    };
+
+    _syncLibraryScrollState = updateScrollState;
+
+    const scheduleResizeSync = () => {
+      if (resizeRafId !== null) return;
+      resizeRafId = requestAnimationFrame(() => {
+        resizeRafId = null;
+        updateScrollState();
+      });
+    };
+
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(scheduleResizeSync);
+      if (controlsWrap) ro.observe(controlsWrap);
+      ro.observe(notebooksScrollEl);
+    }
+
+    controlsWrap?.addEventListener('focusin', () => updateScrollState({ forceReveal: true }));
+    controlsWrap?.addEventListener('focusout', () => {
+      requestAnimationFrame(() => updateScrollState());
+    });
+
+    notebooksScrollEl.addEventListener('scroll', () => {
+      notebooksScrollEl.classList.add('is-scrolling');
+      if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
+      scrollIdleTimer = setTimeout(() => {
+        scrollIdleTimer = null;
+        notebooksScrollEl.classList.remove('is-scrolling');
+      }, 140);
+      updateScrollState();
+    }, { passive: true });
+    updateScrollState();
   }
 
   _ensureNewNotebookModalCtrl();

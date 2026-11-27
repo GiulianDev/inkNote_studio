@@ -15,7 +15,8 @@ import {
   buildFolderAncestorPath,
   collectNotebookIdsInSelection,
   collectSubtreeSummary,
-  collectFoldersForExport
+  collectFoldersForExport,
+  computeLibraryControlsVisibility
 } from './library-helpers.js';
 
 test('getFolderPath & formatFolderPathLabel build hierarchy and guard against cycles', () => {
@@ -182,3 +183,95 @@ test('collectSubtreeSummary & collectFoldersForExport include empty subfolders i
   });
   assert.deepEqual(exported.map(f => f.id), ['f_root', 'f_child', 'f_empty_sub']);
 });
+
+test('computeLibraryControlsVisibility hides on scroll down, reveals on scroll up, and prevents clamping bounce', () => {
+  const base = {
+    scrollHeight: 720,
+    clientHeight: 500,
+    controlsHeight: 108,
+    nowMs: 1000,
+    ignoreScrollUntilMs: 0
+  };
+
+  // Insufficient overflow stays visible so user is never trapped
+  const shallow = computeLibraryControlsVisibility({
+    ...base,
+    scrollHeight: 530,
+    scrollTop: 25,
+    prevScrollTop: 10,
+    currentlyHidden: false
+  });
+  assert.equal(shallow.hidden, false);
+
+  // Small scroll near top stays visible
+  const tiny = computeLibraryControlsVisibility({
+    ...base,
+    scrollTop: 20,
+    prevScrollTop: 0,
+    currentlyHidden: false
+  });
+  assert.equal(tiny.hidden, false);
+
+  // Downward scroll past thresholds hides bar and sets transition lock
+  const hideRes = computeLibraryControlsVisibility({
+    ...base,
+    scrollTop: 48,
+    prevScrollTop: 20,
+    accumulatedDelta: 10,
+    currentlyHidden: false
+  });
+  assert.equal(hideRes.hidden, true);
+  assert.equal(hideRes.changed, true);
+  assert.ok(hideRes.ignoreScrollUntilMs > 1000);
+
+  // Brief debounce lock after toggling absorbs jitter without bounce
+  const clamped = computeLibraryControlsVisibility({
+    ...base,
+    scrollTop: 20,
+    prevScrollTop: 48,
+    currentlyHidden: true,
+    nowMs: 1040,
+    ignoreScrollUntilMs: hideRes.ignoreScrollUntilMs
+  });
+  assert.equal(clamped.hidden, true);
+  assert.equal(clamped.changed, false);
+
+  // After transition lock, upward scroll beyond showDelta reveals bar
+  const revealRes = computeLibraryControlsVisibility({
+    ...base,
+    clientHeight: 608,
+    scrollTop: 55,
+    prevScrollTop: 80,
+    currentlyHidden: true,
+    nowMs: 1500,
+    ignoreScrollUntilMs: hideRes.ignoreScrollUntilMs
+  });
+  assert.equal(revealRes.hidden, false);
+  assert.equal(revealRes.changed, true);
+
+  // forceVisible immediately restores bar
+  const forced = computeLibraryControlsVisibility({
+    ...base,
+    scrollTop: 120,
+    prevScrollTop: 120,
+    currentlyHidden: true,
+    forceVisible: true,
+    nowMs: 2000
+  });
+  assert.equal(forced.hidden, false);
+  assert.equal(forced.changed, true);
+
+  // Collapsing overflow (e.g. items deleted while hidden) reveals bar
+  const noLongerOverflowing = computeLibraryControlsVisibility({
+    ...base,
+    scrollHeight: 500,
+    clientHeight: 608,
+    scrollTop: 0,
+    prevScrollTop: 40,
+    currentlyHidden: true,
+    nowMs: 2000
+  });
+  assert.equal(noLongerOverflowing.hidden, false);
+  assert.equal(noLongerOverflowing.changed, true);
+});
+

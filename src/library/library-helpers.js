@@ -379,3 +379,143 @@ export function collectFoldersForExport({
   return ordered;
 }
 
+/**
+ * Calcola la visibilità della barra controlli/ricerca della libreria allo scroll.
+ * Gestisce soglie direzionali, isteresi, protezione da feedback-loop durante
+ * il cambio altezza e blocco visibile in ricerca/focus/D&D o con poco overflow.
+ */
+export function computeLibraryControlsVisibility({
+  scrollTop = 0,
+  prevScrollTop = 0,
+  scrollHeight = 0,
+  clientHeight = 0,
+  controlsHeight = 0,
+  currentlyHidden = false,
+  forceVisible = false,
+  accumulatedDelta = 0,
+  nowMs = 0,
+  ignoreScrollUntilMs = 0,
+  hideScrollTop = 32,
+  hideDelta = 24,
+  showScrollTop = 10,
+  showDelta = 18,
+  minOverflowToHide = 48,
+  transitionLockMs = 80
+} = {}) {
+  const safeScrollTop = Math.max(0, Number(scrollTop) || 0);
+  const safePrevScrollTop = Math.max(0, Number(prevScrollTop) || 0);
+  const safeScrollHeight = Math.max(0, Number(scrollHeight) || 0);
+  const safeClientHeight = Math.max(0, Number(clientHeight) || 0);
+  const safeControlsHeight = Math.max(0, Number(controlsHeight) || 0);
+  const overflow = safeScrollHeight - safeClientHeight;
+
+  if (forceVisible) {
+    return {
+      hidden: false,
+      changed: currentlyHidden,
+      accumulatedDelta: 0,
+      prevScrollTop: safeScrollTop,
+      ignoreScrollUntilMs: currentlyHidden ? nowMs + transitionLockMs : ignoreScrollUntilMs
+    };
+  }
+
+  // Se non c'è contenuto scrollabile a sufficienza, mantieni/ripristina la barra visibile
+  if (!currentlyHidden) {
+    if (safeControlsHeight <= 0 || overflow < Math.max(minOverflowToHide, hideScrollTop + 12)) {
+      return {
+        hidden: false,
+        changed: false,
+        accumulatedDelta: 0,
+        prevScrollTop: safeScrollTop,
+        ignoreScrollUntilMs
+      };
+    }
+  } else if (overflow <= 4) {
+    return {
+      hidden: false,
+      changed: true,
+      accumulatedDelta: 0,
+      prevScrollTop: safeScrollTop,
+      ignoreScrollUntilMs: nowMs + transitionLockMs
+    };
+  }
+
+  // Assorbe eventuali clamp automatici di scrollTop durante la transizione CSS
+  if (nowMs < ignoreScrollUntilMs) {
+    return {
+      hidden: currentlyHidden,
+      changed: false,
+      accumulatedDelta: 0,
+      prevScrollTop: safeScrollTop,
+      ignoreScrollUntilMs
+    };
+  }
+
+  const delta = safeScrollTop - safePrevScrollTop;
+
+  if (safeScrollTop <= showScrollTop) {
+    if (currentlyHidden) {
+      return {
+        hidden: false,
+        changed: true,
+        accumulatedDelta: 0,
+        prevScrollTop: safeScrollTop,
+        ignoreScrollUntilMs: nowMs + transitionLockMs
+      };
+    }
+    return {
+      hidden: false,
+      changed: false,
+      accumulatedDelta: 0,
+      prevScrollTop: safeScrollTop,
+      ignoreScrollUntilMs
+    };
+  }
+
+  if (!currentlyHidden) {
+    const nextDelta = delta > 0
+      ? (accumulatedDelta > 0 ? accumulatedDelta + delta : delta)
+      : (delta < 0 ? 0 : accumulatedDelta);
+
+    if (safeScrollTop >= hideScrollTop && nextDelta >= hideDelta) {
+      return {
+        hidden: true,
+        changed: true,
+        accumulatedDelta: 0,
+        prevScrollTop: safeScrollTop,
+        ignoreScrollUntilMs: nowMs + transitionLockMs
+      };
+    }
+
+    return {
+      hidden: false,
+      changed: false,
+      accumulatedDelta: nextDelta,
+      prevScrollTop: safeScrollTop,
+      ignoreScrollUntilMs
+    };
+  }
+
+  // Attualmente nascosta: riappare scrollando verso l'alto oltre soglia
+  const nextDelta = delta < 0
+    ? (accumulatedDelta < 0 ? accumulatedDelta + delta : delta)
+    : (delta > 0 ? 0 : accumulatedDelta);
+
+  if (nextDelta <= -showDelta) {
+    return {
+      hidden: false,
+      changed: true,
+      accumulatedDelta: 0,
+      prevScrollTop: safeScrollTop,
+      ignoreScrollUntilMs: nowMs + transitionLockMs
+    };
+  }
+
+  return {
+    hidden: true,
+    changed: false,
+    accumulatedDelta: nextDelta,
+    prevScrollTop: safeScrollTop,
+    ignoreScrollUntilMs
+  };
+}

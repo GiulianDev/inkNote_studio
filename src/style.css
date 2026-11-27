@@ -1236,11 +1236,21 @@ body.dark .ui-cp-sv-area {
    neutralizzando la regola globale `* { touch-action: none }` */
 #libraryView {
   max-width: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+#libraryNotebooksScroll {
+  padding-top: calc(var(--lib-controls-h, 112px) + 8px);
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+}
+
+#libraryNotebooksScroll.is-scrolling .notebook-card:hover,
+#libraryNotebooksScroll.is-scrolling .folder-card:hover {
+  transform: none;
 }
 
 #libraryView * {
@@ -1268,6 +1278,7 @@ body.dark .ui-cp-sv-area {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  contain: layout style paint;
   transition: transform .18s ease, opacity .15s ease;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
@@ -1462,9 +1473,7 @@ body.dark .notebook-card:hover .notebook-cover {
   display: inline-flex;
   align-items: center;
   border-radius: 9999px;
-  background: rgba(15, 23, 42, 0.30);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(15, 23, 42, 0.44);
   font-weight: 600;
   border: 1px solid rgba(255, 255, 255, 0.16);
   pointer-events: none;
@@ -1554,10 +1563,8 @@ body.dark .card-path-tag {
 .dnd-drag-handle.is-notebook,
 .dnd-drag-handle.is-folder {
   position: absolute;
-  background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  color: rgba(255, 255, 255, 0.92);
+  background: rgba(15, 23, 42, 0.50);
+  color: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.18);
   display: flex;
   align-items: center;
@@ -1620,9 +1627,7 @@ body.dark .card-path-tag {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.30);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(15, 23, 42, 0.32);
   border: 2px solid rgba(255, 255, 255, 0.92);
   display: flex;
   align-items: center;
@@ -1682,12 +1687,60 @@ body.dark .folder-card.is-selected .folder-shell {
   min-width: 0;
 }
 
-#libraryTopBarWrap.is-scrolled {
+#libraryTopBarWrap.is-scrolled,
+#libraryControlsWrap.is-scrolled {
   box-shadow: 0 6px 20px -10px rgba(15, 23, 42, 0.16);
 }
 
-body.dark #libraryTopBarWrap.is-scrolled {
+body.dark #libraryTopBarWrap.is-scrolled,
+body.dark #libraryControlsWrap.is-scrolled {
   box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.65);
+}
+
+#libraryControlsWrap {
+  right: var(--lib-scrollbar-w, 0px);
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s cubic-bezier(0, 0, 0.2, 1),
+    box-shadow 0.2s ease;
+  will-change: transform, opacity;
+}
+
+#libraryControlsBar {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s cubic-bezier(0, 0, 0.2, 1) 0.03s;
+  will-change: transform, opacity;
+}
+
+#libraryControlsWrap.is-controls-hidden {
+  transform: translate3d(0, -100%, 0);
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: none !important;
+  transition:
+    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.22s cubic-bezier(0.4, 0, 1, 1),
+    box-shadow 0.18s ease;
+}
+
+#libraryControlsWrap.is-controls-hidden #libraryControlsBar {
+  transform: translate3d(0, -8px, 0);
+  opacity: 0;
+  transition:
+    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.18s cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #libraryControlsWrap,
+  #libraryControlsBar {
+    transition: none;
+  }
 }
 
 #libraryLeadingBtn {

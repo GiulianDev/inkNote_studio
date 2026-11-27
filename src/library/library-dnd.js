@@ -181,11 +181,14 @@ export function createLibraryDndController(gridEl, callbacks) {
     _scrollRaf = null;
     if (!_dragging) return;
 
-    const scrollEl = document.getElementById('libraryView');
+    const scrollEl = document.getElementById('libraryNotebooksScroll') || document.getElementById('libraryView');
     if (scrollEl) {
       const rect = scrollEl.getBoundingClientRect();
-      const topBar = document.getElementById('libraryTopBarWrap');
-      const topEdge = topBar ? Math.max(rect.top, topBar.getBoundingClientRect().bottom) : rect.top;
+      const topBar = document.getElementById('libraryControlsWrap') || document.getElementById('libraryTopBarWrap');
+      const topBarVisible = topBar && !topBar.classList.contains('is-controls-hidden');
+      const topEdge = topBarVisible
+        ? Math.max(rect.top, topBar.getBoundingClientRect().bottom)
+        : rect.top;
       let delta = 0;
       if (_lastY < topEdge + EDGE_SCROLL_ZONE_PX) {
         const ratio = Math.max(0, (topEdge + EDGE_SCROLL_ZONE_PX - _lastY) / EDGE_SCROLL_ZONE_PX);
