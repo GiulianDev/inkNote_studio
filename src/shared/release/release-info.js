@@ -3,16 +3,21 @@
 
 export const RELEASE_INFO = Object.freeze({
   "version": "0.1.7",
-  "builtAt": "2026-11-27T14:18:31.584Z",
+  "builtAt": "2026-11-27T14:34:05.745Z",
   "date": "2026-11-27",
   "currentNotes": [
-    "Rendering a nastro continuo singolo su profilo isolato `ios` (iPadOS / Apple Pencil Pro) con ridisegno completo dello stroke attivo sull'overlay, finestre tangenti stabilizzate per la stilografica, canvas scratch ampliato, DPR adattivo allo zoom (fino a 3.8x/3.0x) e prediction layer 2x.",
-    "Eliminazione delle sbavature a inizio e fine tratto su iPad: filtro anti-hover dopo contatto reale (`buttons === 0 && pressure === 0`), cattura controllata dell'estremità al `pointerup`, stabilizzazione iniziale di atterraggio e filtraggio temporale/spaziale della pressione a 120/240Hz.",
-    "Potenziamento del riconoscimento su iPadOS di linee dritte (hold e rilascio), frecce, simboli, triangoli, cerchi, ellissi orientate e rettangoli inclinati tramite pulizia non distruttiva delle estremità (`cleanIosShapePoints` / `cleanIosReleasePoints`), ricampionamento uniforme e semplificazione RDP, senza impatti su Desktop/Surface e Android."
+    "Pulito il meta tag `viewport` in `index.html` impostando `width=device-width, initial-scale=1.0` senza direttive contraddittorie (`user-scalable=no` / `maximum-scale=5.0`), preservando l'isolamento touch del canvas e prevenendo overflow su schermi mobili ridotti."
   ],
-  "notesSourceVersion": "0.1.6",
-  "hasExactChangelog": false,
+  "notesSourceVersion": "0.1.7",
+  "hasExactChangelog": true,
   "releases": [
+    {
+      "version": "0.1.7",
+      "date": "2026-11-27",
+      "items": [
+        "Pulito il meta tag `viewport` in `index.html` impostando `width=device-width, initial-scale=1.0` senza direttive contraddittorie (`user-scalable=no` / `maximum-scale=5.0`), preservando l'isolamento touch del canvas e prevenendo overflow su schermi mobili ridotti."
+      ]
+    },
     {
       "version": "0.1.6",
       "date": "2026-11-27",
