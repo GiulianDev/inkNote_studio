@@ -3,23 +3,23 @@
 
 export const RELEASE_INFO = Object.freeze({
   "version": "0.1.12",
-  "builtAt": "2026-11-27T15:21:32.062Z",
+  "builtAt": "2026-11-27T15:46:44.529Z",
   "date": "2026-11-27",
   "currentNotes": [
     "Risolto errore `ResizeObserver loop completed with undelivered notifications` in libreria differendo le misurazioni di `#libraryControlsWrap` e `#libraryNotebooksScroll` su `requestAnimationFrame` e aggiornando le variabili CSS solo al cambio effettivo di valore."
   ],
-  "notesSourceVersion": "0.1.12",
-  "hasExactChangelog": true,
+  "notesSourceVersion": "0.1.11",
+  "hasExactChangelog": false,
   "releases": [
     {
-      "version": "0.1.12",
+      "version": "0.1.11",
       "date": "2026-11-27",
       "items": [
         "Risolto errore `ResizeObserver loop completed with undelivered notifications` in libreria differendo le misurazioni di `#libraryControlsWrap` e `#libraryNotebooksScroll` su `requestAnimationFrame` e aggiornando le variabili CSS solo al cambio effettivo di valore."
       ]
     },
     {
-      "version": "0.1.11",
+      "version": "0.1.10",
       "date": "2026-11-27",
       "items": [
         "Spostata la barra di ricerca e filtri della libreria (`#libraryControlsWrap`) in overlay indipendente sopra la lista quaderni (`#libraryContentStage`), animandola esclusivamente su GPU (`transform` e `opacity`) senza spingere né ridimensionare la griglia sottostante.",
