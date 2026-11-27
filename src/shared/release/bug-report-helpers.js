@@ -5,7 +5,7 @@
  * per le segnalazioni bug (testabili anche fuori da Vite/browser).
  */
 
-import { RELEASE_INFO } from '../core/release-info.js';
+import { RELEASE_INFO } from './release-info.js';
 
 export const BUG_DESC_MIN_LENGTH = 15;
 export const BUG_DESC_MAX_LENGTH = 1500;

@@ -44,7 +44,7 @@ import {
   toggleAppFullscreen
 } from '../shared/core/fullscreen.js';
 import { registerModal, isAnyModalOpen } from '../shared/components/modal.js';
-import { RELEASE_INFO } from '../shared/core/release-info.js';
+import { RELEASE_INFO } from '../shared/release/release-info.js';
 import { openReleaseModal, setReleaseNotebookCountProvider } from '../shared/release/release-modal.js';
 
 const COVER_COLOR_ACTIVE_CLASSES = ['ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'];

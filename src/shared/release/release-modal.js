@@ -7,7 +7,7 @@
  * rapida per segnalare bug su Firestore (senza aprire client email esterni).
  */
 
-import { RELEASE_INFO } from '../core/release-info.js';
+import { RELEASE_INFO } from './release-info.js';
 import { registerModal } from '../components/modal.js';
 import { escapeHtml, showToast } from '../core/utils.js';
 import { detectPlatformInfo } from '../core/platform.js';

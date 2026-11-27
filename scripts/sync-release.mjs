@@ -87,7 +87,7 @@ export function syncReleaseFiles({
 } = {}) {
   const pkgPath = path.join(rootDir, 'package.json');
   const logPath = path.join(rootDir, 'log.md');
-  const outPath = path.join(rootDir, 'src', 'shared', 'core', 'release-info.js');
+  const outPath = path.join(rootDir, 'src', 'shared', 'release', 'release-info.js');
 
   const pkgRaw = fs.readFileSync(pkgPath, 'utf8');
   const pkg = JSON.parse(pkgRaw);
