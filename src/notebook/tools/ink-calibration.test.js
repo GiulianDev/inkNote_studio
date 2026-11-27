@@ -505,6 +505,29 @@ describe('ink-calibration: multi-tier stabilizer & stationary tail trimming', ()
       state.settings = prev;
     }
   });
+
+  it('applies dt-aware 240Hz pressure smoothing on iOS without altering desktop behavior', async () => {
+    const { buildGaussianSmoothedPoints } = await import('../render/stroke-geometry.js');
+
+    const iosStab = createStrokeStabilizer({ x: 100, y: 100, pressure: 0.2, timeStamp: 0 }, { platform: 'ios' });
+    const deskStab = createStrokeStabilizer({ x: 100, y: 100, pressure: 0.2, timeStamp: 0 }, { platform: 'desktop' });
+
+    const rIos = iosStab.filterPoint({ x: 112, y: 100, pressure: 0.8, _pressureFallback: false, timeStamp: 4.16 }, { smoothing: 0.5, scale: 1 });
+    const rDesk = deskStab.filterPoint({ x: 112, y: 100, pressure: 0.8, _pressureFallback: false, timeStamp: 16.67 }, { smoothing: 0.5, scale: 1 });
+    assert.ok(rIos.pressure < rDesk.pressure, `240Hz iOS pressure step should ease smoothly (${rIos.pressure} vs ${rDesk.pressure})`);
+
+    // Post-stroke Gaussian filter smooths pen pressure spikes stronger on ios than desktop
+    const spiked = [
+      { x: 100, y: 100, pressure: 0.25, pointerType: 'pen' },
+      { x: 110, y: 100, pressure: 0.25, pointerType: 'pen' },
+      { x: 120, y: 100, pressure: 0.90, pointerType: 'pen' },
+      { x: 130, y: 100, pressure: 0.25, pointerType: 'pen' },
+      { x: 140, y: 100, pressure: 0.25, pointerType: 'pen' }
+    ];
+    const deskOut = buildGaussianSmoothedPoints(spiked, 0.25, 'desktop');
+    const iosOut = buildGaussianSmoothedPoints(spiked, 0.25, 'ios');
+    assert.ok(iosOut[2].pressure < deskOut[2].pressure, `iOS Gaussian pressure smoothing should attenuate spikes more (${iosOut[2].pressure} vs ${deskOut[2].pressure})`);
+  });
 });
 
 

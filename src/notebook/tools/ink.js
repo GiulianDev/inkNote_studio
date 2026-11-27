@@ -57,6 +57,7 @@ export function beginInkStroke(point) {
     _holdAnchorX: point.x,
     _holdAnchorY: point.y,
     _pendingInitialPressure: hasSyntheticInitial,
+    _hasSeenRealPressure: point.pointerType === 'pen' && !hasSyntheticInitial,
     _syntheticPointCount: hasSyntheticInitial ? 1 : 0,
     _needsOverlayRebase: false,
     _stabilizer: createStrokeStabilizer(initialPt, { platform: state.platform.family }),
@@ -109,17 +110,29 @@ export function moveInkStroke(pageData, e) {
   const events = (coalesced && coalesced.length > 0) ? coalesced : [e];
   const minDist = getDeviceProfile(state.platform?.family).input.dedupCoalescedMinDistPx || 0;
 
+  const strokePts = state.currentStroke.points;
+  const lastStrokePt = strokePts && strokePts.length > 0 ? strokePts[strokePts.length - 1] : null;
   const points = [];
   for (const ev of events) {
     const pt = getCanvasCoords(ev, pageData.canvas, e.pointerType);
-    if (minDist > 0 && points.length > 0) {
-      const prev = points[points.length - 1];
-      const d = Math.hypot(pt.x - prev.x, pt.y - prev.y);
-      if (d < minDist) {
-        if (!pt._pressureFallback && prev._pressureFallback) {
-          points[points.length - 1] = pt;
+    if (pt.pointerType === 'pen' && !pt._pressureFallback) {
+      state.currentStroke._hasSeenRealPressure = true;
+    }
+    if (minDist > 0) {
+      if (points.length > 0) {
+        const prev = points[points.length - 1];
+        const d = Math.hypot(pt.x - prev.x, pt.y - prev.y);
+        if (d < minDist) {
+          if (!pt._pressureFallback && prev._pressureFallback) {
+            points[points.length - 1] = pt;
+          }
+          continue;
         }
-        continue;
+      } else if (lastStrokePt && !(state.currentStroke._pendingInitialPressure && !pt._pressureFallback)) {
+        const d = Math.hypot(pt.x - lastStrokePt.x, pt.y - lastStrokePt.y);
+        if (d < minDist) {
+          continue;
+        }
       }
     }
     points.push(pt);

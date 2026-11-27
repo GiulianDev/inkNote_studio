@@ -9,17 +9,23 @@
 
 import { state, viewport } from '../../shared/core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT } from '../../shared/core/utils.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 import { redrawPageCanvas, redrawSelectionOverlay } from '../render/render.js';
 import { hasLassoSelection } from '../tools/lazo.js';
 
 const POOL_SIZE = 5;
 const POOL_RADIUS = 2;
-const MAX_RENDER_DPR = 4;
-const MAX_ZOOM_DPR_BOOST = 1.3;
+const DEFAULT_MAX_RENDER_DPR = 4;
+const DEFAULT_MAX_ZOOM_DPR_BOOST = 1.3;
+const IOS_MAX_CANVAS_PIXELS = 13_500_000;
 
 function _getBaseOverlayDpr() {
   const deviceDpr = state.platform.dpr || window.devicePixelRatio || 1;
-  return Math.min(deviceDpr, state.platform.isIOS ? 2 : 1.5);
+  const rendering = getDeviceProfile(state.platform?.family).rendering;
+  const maxOverlay = rendering.maxOverlayDpr != null
+    ? rendering.maxOverlayDpr
+    : (state.platform.isIOS ? 2 : 1.5);
+  return Math.min(deviceDpr, maxOverlay);
 }
 
 class PageSlot {
@@ -199,10 +205,17 @@ function isPageVisible(page, cachedVpRect = null) {
 
 function getTargetDpr(page, cachedVpRect = null) {
   const deviceDpr = state.platform.dpr || window.devicePixelRatio || 1;
+  const rendering = getDeviceProfile(state.platform?.family).rendering;
+  const maxBoost = rendering.maxZoomDprBoost != null ? rendering.maxZoomDprBoost : DEFAULT_MAX_ZOOM_DPR_BOOST;
+  const maxRender = rendering.maxRenderDpr != null ? rendering.maxRenderDpr : DEFAULT_MAX_RENDER_DPR;
   const scale = viewport?.scale || 1;
   const zoom = Math.max(1, scale);
-  const extra = Math.min(zoom, MAX_ZOOM_DPR_BOOST);
-  const highDpr = Math.min(deviceDpr * extra, MAX_RENDER_DPR);
+  const extra = Math.min(zoom, maxBoost);
+  let highDpr = Math.min(deviceDpr * extra, maxRender);
+  if (state.platform?.family === 'ios') {
+    const safeMaxDpr = Math.sqrt(IOS_MAX_CANVAS_PIXELS / (PAGE_WIDTH * PAGE_HEIGHT));
+    highDpr = Math.min(highDpr, safeMaxDpr);
+  }
   return isPageVisible(page, cachedVpRect) ? highDpr : deviceDpr;
 }
 
@@ -210,7 +223,13 @@ function _resizeSlot(slot, page, cachedVpRect = null, opts = {}) {
   const dpr = getTargetDpr(page, cachedVpRect || opts.vpRect || null);
   const newW = Math.floor(PAGE_WIDTH * dpr);
   const newH = Math.floor(PAGE_HEIGHT * dpr);
-  const oDpr = Math.min(dpr, _getBaseOverlayDpr());
+  const rendering = getDeviceProfile(state.platform?.family).rendering;
+  const maxOverlay = rendering.maxOverlayDpr != null
+    ? rendering.maxOverlayDpr
+    : (state.platform.isIOS ? 2 : 1.5);
+  const oDpr = state.platform?.family === 'ios'
+    ? Math.min(dpr, maxOverlay)
+    : Math.min(dpr, _getBaseOverlayDpr());
   const oW = Math.floor(PAGE_WIDTH * oDpr);
   const oH = Math.floor(PAGE_HEIGHT * oDpr);
 

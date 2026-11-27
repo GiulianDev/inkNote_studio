@@ -7,20 +7,34 @@
 
 import { state } from '../../shared/core/state.js';
 import { PAGE_WIDTH, PAGE_HEIGHT, sliderToBaseSize, getEffectiveColor, isPaperDark } from '../../shared/core/utils.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 import { getPressureParams, computePredictionWidth } from '../tools/ink-calibration.js';
 
 const PREDICTION_ALPHA = 0.40;
-const PREDICTION_DPR = 1;
+
+function _getPredictionDpr() {
+  return getDeviceProfile(state.platform?.family).rendering.predictionDpr || 1;
+}
 
 export function ensurePredictionCanvas(pageData) {
-  if (pageData._predCanvas) return;
+  const dpr = _getPredictionDpr();
+  if (pageData._predCanvas) {
+    if (pageData._predDpr !== dpr) {
+      pageData._predCanvas.width = Math.floor(PAGE_WIDTH * dpr);
+      pageData._predCanvas.height = Math.floor(PAGE_HEIGHT * dpr);
+      pageData._predDpr = dpr;
+      pageData._lastPredBBox = null;
+    }
+    return;
+  }
   const c = document.createElement('canvas');
   c.className = 'prediction-canvas';
-  c.width = Math.floor(PAGE_WIDTH * PREDICTION_DPR);
-  c.height = Math.floor(PAGE_HEIGHT * PREDICTION_DPR);
+  c.width = Math.floor(PAGE_WIDTH * dpr);
+  c.height = Math.floor(PAGE_HEIGHT * dpr);
   pageData.wrapper.appendChild(c);
   pageData._predCanvas = c;
   pageData._predCtx = c.getContext('2d');
+  pageData._predDpr = dpr;
 }
 
 /**
@@ -38,19 +52,29 @@ export function ensurePredictionCanvas(pageData) {
  */
 export function clearPredictions(pageData, forceFull = false) {
   if (!pageData || !pageData._predCtx) return;
+  const ctx = pageData._predCtx;
   if (forceFull) {
-    pageData._predCtx.clearRect(0, 0, pageData._predCanvas.width, pageData._predCanvas.height);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, pageData._predCanvas.width, pageData._predCanvas.height);
+    ctx.restore();
     pageData._lastPredBBox = null;
     return;
   }
   if (!pageData._lastPredBBox) return;
+  const dpr = pageData._predDpr || _getPredictionDpr();
   const pad = 12;
   const b = pageData._lastPredBBox;
-  const x = Math.max(0, Math.floor(b.x - pad));
-  const y = Math.max(0, Math.floor(b.y - pad));
-  const r = Math.ceil(b.x + b.w + pad);
-  const bt = Math.ceil(b.y + b.h + pad);
-  pageData._predCtx.clearRect(x, y, Math.max(1, r - x), Math.max(1, bt - y));
+  const x = Math.max(0, Math.floor((b.x - pad) * dpr));
+  const y = Math.max(0, Math.floor((b.y - pad) * dpr));
+  const r = Math.min(pageData._predCanvas.width, Math.ceil((b.x + b.w + pad) * dpr));
+  const bt = Math.min(pageData._predCanvas.height, Math.ceil((b.y + b.h + pad) * dpr));
+  if (r > x && bt > y) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(x, y, r - x, bt - y);
+    ctx.restore();
+  }
   pageData._lastPredBBox = null;
 }
 
@@ -69,17 +93,22 @@ export function drawPredictions(pageData, events, rect) {
   if (!pageData._predCtx || !stroke) return;
   if (stroke.points.length === 0) return;
   const ctx = pageData._predCtx;
-  const dpr = PREDICTION_DPR;
+  const dpr = pageData._predDpr || _getPredictionDpr();
 
   // Cancella solo il bbox della predizione precedente (per-page)
   if (pageData._lastPredBBox) {
     const pad = 12;
     const b = pageData._lastPredBBox;
-    const cx = Math.max(0, Math.floor(b.x - pad));
-    const cy = Math.max(0, Math.floor(b.y - pad));
-    const cr = Math.ceil(b.x + b.w + pad);
-    const cb = Math.ceil(b.y + b.h + pad);
-    ctx.clearRect(cx, cy, Math.max(1, cr - cx), Math.max(1, cb - cy));
+    const cx = Math.max(0, Math.floor((b.x - pad) * dpr));
+    const cy = Math.max(0, Math.floor((b.y - pad) * dpr));
+    const cr = Math.min(pageData._predCanvas.width, Math.ceil((b.x + b.w + pad) * dpr));
+    const cb = Math.min(pageData._predCanvas.height, Math.ceil((b.y + b.h + pad) * dpr));
+    if (cr > cx && cb > cy) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(cx, cy, cr - cx, cb - cy);
+      ctx.restore();
+    }
   }
 
   const last = stroke.points[stroke.points.length - 1];

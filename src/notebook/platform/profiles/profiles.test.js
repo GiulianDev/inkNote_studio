@@ -10,7 +10,7 @@ import {
   iosProfile,
   androidProfile
 } from './index.js';
-import { cleanIosLinePoints } from './ios.js';
+import { cleanIosLinePoints, cleanIosShapePoints, cleanIosReleasePoints } from './ios.js';
 import {
   evaluateLineHoldCandidate,
   evaluateUltraStraightLineCandidate
@@ -74,8 +74,13 @@ describe('platform profiles registry & Surface/iPadOS/Android separation', () =>
     assert.equal(evaluateUltraStraightLineCandidate(hooked, { platform: 'desktop' }), null);
   });
 
-  it('prevents dropping valid mid-stroke pen moves at pressure=0 on iOS/iPadOS only', () => {
+  it('prevents dropping valid mid-stroke pen moves at pressure=0 while dropping Apple Pencil Pro hover lift-off on iOS only', () => {
     const activeState = { isDrawing: true, currentPointerId: 42 };
+    const activeRealState = {
+      isDrawing: true,
+      currentPointerId: 42,
+      currentStroke: { _hasSeenRealPressure: true }
+    };
     const zeroMoveSamePen = { pointerType: 'pen', pointerId: 42, buttons: 0, pressure: 0 };
     const zeroMoveHoverPen = { pointerType: 'pen', pointerId: 42, buttons: 0, pressure: 0 };
     const zeroMoveOtherPen = { pointerType: 'pen', pointerId: 99, buttons: 0, pressure: 0 };
@@ -84,6 +89,7 @@ describe('platform profiles registry & Surface/iPadOS/Android separation', () =>
     assert.equal(androidProfile.input.shouldIgnoreUnpressedPenMove(zeroMoveSamePen, activeState), true);
 
     assert.equal(iosProfile.input.shouldIgnoreUnpressedPenMove(zeroMoveSamePen, activeState), false);
+    assert.equal(iosProfile.input.shouldIgnoreUnpressedPenMove(zeroMoveSamePen, activeRealState), true);
     assert.equal(
       iosProfile.input.shouldIgnoreUnpressedPenMove(zeroMoveHoverPen, { isDrawing: false, currentPointerId: 42 }),
       true
@@ -91,14 +97,51 @@ describe('platform profiles registry & Surface/iPadOS/Android separation', () =>
     assert.equal(iosProfile.input.shouldIgnoreUnpressedPenMove(zeroMoveOtherPen, activeState), true);
   });
 
-  it('configures iOS thin-stroke circular joints and sub-pixel suppression cleanly', () => {
+  it('configures iOS continuous ribbon, safe pointerup filtering, and anti-smudge cleaners', () => {
     assert.equal(iosProfile.rendering.alwaysJoinThinSegments, true);
     assert.equal(iosProfile.rendering.jointMinWidthThresholdPx, 0);
+    assert.equal(iosProfile.rendering.useContinuousRibbon, true);
+    assert.equal(iosProfile.rendering.redrawActiveStrokeOnOverlay, true);
+    assert.equal(iosProfile.rendering.predictionDpr, 2);
     assert.equal(iosProfile.pressure.minRenderWidthPx, 0.45);
     assert.equal(iosProfile.input.capturePointerUpEndpoint, true);
     assert.ok(iosProfile.input.dedupCoalescedMinDistPx > 0);
     assert.equal(iosProfile.stabilizer.minDeadzonePx(0.02), 0);
     assert.ok(iosProfile.stabilizer.minDeadzonePx(0.35) > 0.3);
+
+    const prev = { x: 100, y: 100 };
+    const last = { x: 110, y: 100 };
+    // Hover pointerup (pressure=0, buttons=0) or big jump (>4px) or reversal must be rejected
+    assert.equal(
+      iosProfile.input.shouldCapturePointerUpEndpoint({ pointerType: 'pen', buttons: 0, pressure: 0 }, prev, last, { x: 112, y: 100 }),
+      false
+    );
+    assert.equal(
+      iosProfile.input.shouldCapturePointerUpEndpoint({ pointerType: 'pen', buttons: 1, pressure: 0.2 }, prev, last, { x: 118, y: 100 }),
+      false
+    );
+    assert.equal(
+      iosProfile.input.shouldCapturePointerUpEndpoint({ pointerType: 'pen', buttons: 1, pressure: 0.2 }, prev, last, { x: 108, y: 102 }),
+      false
+    );
+    // Clean forward tip within <= 4px is captured
+    assert.equal(
+      iosProfile.input.shouldCapturePointerUpEndpoint({ pointerType: 'pen', buttons: 1, pressure: 0.2 }, prev, last, { x: 112, y: 100.3 }),
+      true
+    );
+
+    const smudgeShape = [
+      { x: 94, y: 112, pressure: 0.05 },
+      ...makeLine(100, 100, 200, 100, 14, 0),
+      { x: 205, y: 108, pressure: 0.02 }
+    ];
+    const cleanedShape = cleanIosShapePoints(smudgeShape, 8);
+    assert.ok(cleanedShape.length < smudgeShape.length);
+
+    const releaseArr = makeLine(100, 100, 200, 100, 12, 0);
+    releaseArr.push({ x: 204, y: 106, pressure: 0.01 });
+    const cleanedRelease = cleanIosReleasePoints(releaseArr, 6.5);
+    assert.ok(cleanedRelease.length < releaseArr.length);
   });
 
   it('recognizes 120/240Hz iPadOS straight lines with landing/lift-off micro-hooks without mutating input', () => {

@@ -318,7 +318,11 @@ export function handlePointerUp(e, pageData) {
     const upPt = getCanvasCoords(e, pageData.canvas, e.pointerType);
     const pts = state.currentStroke.points;
     const lastPt = pts && pts.length > 0 ? pts[pts.length - 1] : null;
-    if (!lastPt || Math.hypot(upPt.x - lastPt.x, upPt.y - lastPt.y) > 0.5) {
+    const prevPt = pts && pts.length > 1 ? pts[pts.length - 2] : null;
+    const shouldCapture = typeof profile.input.shouldCapturePointerUpEndpoint === 'function'
+      ? profile.input.shouldCapturePointerUpEndpoint(e, prevPt, lastPt, upPt)
+      : (!lastPt || Math.hypot(upPt.x - lastPt.x, upPt.y - lastPt.y) > 0.5);
+    if (shouldCapture) {
       pushPointsToBatch([upPt]);
     }
   }

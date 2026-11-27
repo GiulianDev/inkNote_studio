@@ -2,8 +2,8 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.1.6",
-  "builtAt": "2026-11-26T20:49:51.085Z",
+  "version": "0.1.8",
+  "builtAt": "2026-11-27T11:37:31.430Z",
   "date": "2026-11-26",
   "currentNotes": [
     "Risolto l'overflow orizzontale su schermi stretti e smartphone in `#libraryView` e nell'intestazione libreria: adattata la barra azioni mobile (`< 420px`), abilitato il wrap sicuro su viewport molto strette, contenuto lo slot delle transizioni normale/selezione con `overflow-x: clip` e aggiunto `overflow-x-hidden` su `#libraryView` e `html, body`.",

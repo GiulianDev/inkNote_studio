@@ -4,9 +4,14 @@
 // ============================================================
 
 import { drawPredictions, clearPredictions, isPredictionSupported } from '../render/prediction.js';
-import { drawIncrementalBatch, drawScribbleSegment, clearOverlay } from '../render/render.js';
+import { drawIncrementalBatch, drawScribbleSegment, clearOverlay, renderFullStroke } from '../render/render.js';
+import { getRawStrokeBBox, setNonEnumerable } from '../render/stroke-geometry.js';
 import { state, viewport } from '../../shared/core/state.js';
-import { PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot } from '../../shared/core/utils.js';
+import {
+  PAGE_WIDTH, PAGE_HEIGHT, SHAPE_CAPABLE_TOOLS, fastHypot,
+  isPaperDark, sliderToBaseSize
+} from '../../shared/core/utils.js';
+import { getDeviceProfile } from '../platform/profiles/index.js';
 import { checkForScribble } from './scribble.js';
 import { trySnapLineDuringDraw, trySnapGeometricShapeDuringDraw } from './shapes.js';
 import {
@@ -228,6 +233,10 @@ function _processPointerPoint(rawPoint, pageData) {
     stroke._stabilizer = createStrokeStabilizer(firstPt, { platform: state.platform.family });
   }
 
+  if (rawPoint.pointerType === 'pen' && !rawPoint._pressureFallback) {
+    stroke._hasSeenRealPressure = true;
+  }
+
   // iPadOS Apple Pencil a volte emette pressure=0 sul pointerdown iniziale prima
   // del primo valore reale su pointermove: sostituisce retroattivamente il fallback 0.28
   // per evitare il pallino spesso in testa ai tratti leggeri.
@@ -277,6 +286,28 @@ function _processPointerPoint(rawPoint, pageData) {
     pointerType: rawPoint.pointerType
   };
   stroke.points.push(smoothedPoint);
+  const profile = getDeviceProfile(state.platform?.family);
+  const landingRadius = profile.input.landingStabilizePx || 0;
+  if (landingRadius > 0 && stroke.points.length === 3) {
+    const p0 = stroke.points[0];
+    const p1 = stroke.points[1];
+    const p2 = stroke.points[2];
+    const d01 = fastHypot(p1.x - p0.x, p1.y - p0.y);
+    const d12 = fastHypot(p2.x - p1.x, p2.y - p1.y);
+    if (d01 > 0.05 && d01 <= landingRadius * 1.4 && d12 >= 3.0) {
+      const dot = ((p1.x - p0.x) * (p2.x - p1.x) + (p1.y - p0.y) * (p2.y - p1.y)) / (d01 * d12);
+      if (dot < 0.35) {
+        const ux = (p2.x - p1.x) / d12;
+        const uy = (p2.y - p1.y) / d12;
+        const back = Math.min(1.0, d01 * 0.4);
+        p0.x = p1.x - ux * back;
+        p0.y = p1.y - uy * back;
+        p0.pressure = p1.pressure;
+        stroke._pathLen = fastHypot(p1.x - p0.x, p1.y - p0.y) + d12;
+        stroke._needsOverlayRebase = true;
+      }
+    }
+  }
   if (stroke._pendingInitialPressure && rawPoint.pointerType === 'pen' && rawPoint._pressureFallback) {
     stroke._syntheticPointCount = (stroke._syntheticPointCount || 1) + 1;
   }
@@ -287,7 +318,7 @@ function _processPointerPoint(rawPoint, pageData) {
   }
 
   // Aggiorna ancora "hold" solo se la punta filtrata si sposta oltre la tolleranza zoom-aware
-  const holdTol = getHoldMoveTolerancePx(viewport.scale);
+  const holdTol = getHoldMoveTolerancePx(viewport.scale, state.platform?.family);
   if (stroke._holdAnchorX === undefined) {
     stroke._holdAnchorX = smoothedPoint.x;
     stroke._holdAnchorY = smoothedPoint.y;
@@ -366,6 +397,44 @@ function _renderBatchTarget(pageData, drawnIdx) {
 
   const targetCtx = pageData.overlayCtx;
   const dpr = pageData.overlayDpr || pageData.dpr;
+  const profile = getDeviceProfile(state.platform?.family);
+  if (profile.rendering.redrawActiveStrokeOnOverlay &&
+      (stroke.tool === 'pen' || stroke.tool === 'marker') &&
+      (!stroke.style || stroke.style === 'solid') &&
+      stroke.points.length >= 2 &&
+      stroke.points.length <= 1200) {
+    const rawBBox = getRawStrokeBBox(stroke);
+    if (oc && targetCtx && rawBBox) {
+      const pad = Math.max(24, sliderToBaseSize(stroke.size) * 3.5 + 16);
+      const prevBox = stroke._prevOverlayBBox;
+      const cMinX = prevBox ? Math.min(prevBox.minX, rawBBox.minX - pad) : (rawBBox.minX - pad);
+      const cMinY = prevBox ? Math.min(prevBox.minY, rawBBox.minY - pad) : (rawBBox.minY - pad);
+      const cMaxX = prevBox ? Math.max(prevBox.maxX, rawBBox.maxX + pad) : (rawBBox.maxX + pad);
+      const cMaxY = prevBox ? Math.max(prevBox.maxY, rawBBox.maxY + pad) : (rawBBox.maxY + pad);
+      const px0 = Math.max(0, Math.floor(cMinX * dpr));
+      const py0 = Math.max(0, Math.floor(cMinY * dpr));
+      const px1 = Math.min(oc.width, Math.ceil(cMaxX * dpr));
+      const py1 = Math.min(oc.height, Math.ceil(cMaxY * dpr));
+      if (px1 > px0 && py1 > py0) {
+        targetCtx.save();
+        targetCtx.setTransform(1, 0, 0, 1, 0, 0);
+        targetCtx.clearRect(px0, py0, px1 - px0, py1 - py0);
+        targetCtx.restore();
+      }
+      setNonEnumerable(stroke, '_prevOverlayBBox', {
+        minX: rawBBox.minX - pad,
+        minY: rawBBox.minY - pad,
+        maxX: rawBBox.maxX + pad,
+        maxY: rawBBox.maxY + pad
+      });
+    }
+    targetCtx.save();
+    targetCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    renderFullStroke(targetCtx, stroke, isPaperDark(state.isDarkMode, state.paperColor), null, { opaqueStroke: true });
+    targetCtx.restore();
+    stroke._drawnIdx = stroke.points.length;
+    return;
+  }
   drawIncrementalBatch(targetCtx, stroke, drawnIdx, dpr);
   stroke._drawnIdx = stroke.points.length;
 }

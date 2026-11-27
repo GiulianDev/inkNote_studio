@@ -410,11 +410,13 @@ export function computeRelaxWeight(smoothness) {
  *   - 0.35 < s <= 0.65: 1 passata gaussiana 5-tap [1,4,6,4,1]/16, maxShift 1.30..2.10px
  *   - s > 0.65: 2 passate gaussiane 5-tap [1,4,6,4,1]/16, maxShift 2.10..6.0px
  */
-export function buildGaussianSmoothedPoints(pts, smoothness) {
+export function buildGaussianSmoothedPoints(pts, smoothness, platform = null) {
   if (!Array.isArray(pts) || pts.length < 4) return pts;
   const s = smoothness == null ? 0.5 : (smoothness < 0 ? 0 : (smoothness > 1 ? 1 : smoothness));
   if (s <= 0.005) return pts;
 
+  const profile = platform ? getDeviceProfile(platform) : null;
+  const isSmoothPressure = Boolean(profile && profile.rendering && profile.rendering.smoothPressurePass);
   const n = pts.length;
   let passes = 1;
   let useFiveTap = false;
@@ -425,7 +427,7 @@ export function buildGaussianSmoothedPoints(pts, smoothness) {
 
   if (s <= 0.35) {
     const u = s / 0.35;
-    passes = 1;
+    passes = isSmoothPressure && s >= 0.18 ? 2 : 1;
     useFiveTap = false;
     blend = 0.32 + u * 0.53;
     maxShift = 0.70 + u * 0.90;
@@ -433,7 +435,7 @@ export function buildGaussianSmoothedPoints(pts, smoothness) {
     cornerMinFactor = 0.06;
   } else if (s <= 0.65) {
     const u = (s - 0.35) / 0.30;
-    passes = 1;
+    passes = isSmoothPressure ? 2 : 1;
     useFiveTap = true;
     blend = 0.85 + u * 0.10;
     maxShift = 1.60 + u * 0.65;
@@ -499,8 +501,16 @@ export function buildGaussianSmoothedPoints(pts, smoothness) {
           Number.isFinite(prev.pressure) &&
           Number.isFinite(curr.pressure) &&
           Number.isFinite(next.pressure)) {
-        const gp = 0.25 * prev.pressure + 0.50 * curr.pressure + 0.25 * next.pressure;
-        outPressure = curr.pressure + (gp - curr.pressure) * (localBlend * 0.45);
+        let gp;
+        if (isSmoothPressure && i >= 2 && i <= n - 3 &&
+            Number.isFinite(src[i - 2].pressure) &&
+            Number.isFinite(src[i + 2].pressure)) {
+          gp = (src[i - 2].pressure + 4 * prev.pressure + 6 * curr.pressure + 4 * next.pressure + src[i + 2].pressure) * 0.0625;
+        } else {
+          gp = 0.25 * prev.pressure + 0.50 * curr.pressure + 0.25 * next.pressure;
+        }
+        const pWeight = isSmoothPressure ? Math.max(0.55, localBlend * 0.72) : (localBlend * 0.45);
+        outPressure = curr.pressure + (gp - curr.pressure) * pWeight;
       }
 
       out[i] = {
@@ -518,7 +528,7 @@ export function buildGaussianSmoothedPoints(pts, smoothness) {
   return src;
 }
 
-export function buildRelaxedPoints(pts, smoothness) {
-  return buildGaussianSmoothedPoints(pts, smoothness);
+export function buildRelaxedPoints(pts, smoothness, platform = null) {
+  return buildGaussianSmoothedPoints(pts, smoothness, platform);
 }
 

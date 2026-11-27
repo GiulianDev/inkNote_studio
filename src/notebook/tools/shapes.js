@@ -98,10 +98,12 @@ export function trySnapGeometricShapeDuringDraw(pageData, stroke) {
   const allowTriangle = state.snapTriangles !== false;
   if (!allowCircle && !allowRect && !allowTriangle) return false;
 
+  const platform = state.platform?.family || 'desktop';
   const match = detectGeometricShape(stroke.points, {
     allowCircle,
     allowRect,
-    allowTriangle
+    allowTriangle,
+    platform
   });
   if (!match) return false;
 
@@ -412,7 +414,10 @@ export function detectReleaseShapeOrSymbol(stroke, pageData, extraStrokes = []) 
 
   const platform = state.platform?.family || 'desktop';
   const rec = getDeviceProfile(platform).recognition;
-  const pts = trimStationaryTail(stroke.points, rec.releaseTailTrimRadius || 5.5);
+  const trimRadius = rec.releaseTailTrimRadius || 5.5;
+  const pts = typeof rec.cleanReleasePoints === 'function'
+    ? rec.cleanReleasePoints(stroke.points, trimRadius)
+    : trimStationaryTail(stroke.points, trimRadius);
   if (pts.length < 3) return false;
 
   // 1. Simbolo "di conseguenza" (=> / ⇒): 2 linee parallele + punta >

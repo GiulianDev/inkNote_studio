@@ -69,9 +69,10 @@ let _strokeScratchCanvas = null;
 let _strokeScratchCtx = null;
 let _scratchDirtyW = 0;
 let _scratchDirtyH = 0;
-function _getStrokeScratch(reqW, reqH) {
+function _getStrokeScratch(reqW, reqH, maxDim = 2048) {
   if (typeof document === 'undefined') return null;
-  if (reqW <= 0 || reqH <= 0 || reqW > 2048 || reqH > 2048) return null;
+  if (reqW <= 0 || reqH <= 0 || reqW > maxDim || reqH > maxDim) return null;
+  if (reqW * reqH > 10_000_000) return null;
   if (!_strokeScratchCanvas) {
     _strokeScratchCanvas = document.createElement('canvas');
     _strokeScratchCanvas.width = Math.max(256, reqW);
@@ -184,12 +185,24 @@ function getTaper(idx, n, tool, includeExit = true) {
   }
   return 1.0;
 }
-function getPointNibFactor(pts, idx, tool) {
+function getPointNibFactor(pts, idx, tool, minSpanPx = 0) {
   if (tool !== 'pen' || !pts || pts.length < 2) return 1.0;
   const n = pts.length;
-  const prev = pts[idx > 0 ? idx - 1 : 0];
-  const next = pts[idx < n - 1 ? idx + 1 : n - 1];
-  return computeDirectionalNibFactor(next.x - prev.x, next.y - prev.y, tool);
+  let i0 = idx > 0 ? idx - 1 : 0;
+  let i1 = idx < n - 1 ? idx + 1 : n - 1;
+  if (minSpanPx > 0) {
+    const minSpanSq = minSpanPx * minSpanPx;
+    let steps = 0;
+    while (steps < 3 && (i0 > 0 || i1 < n - 1)) {
+      const dx = pts[i1].x - pts[i0].x;
+      const dy = pts[i1].y - pts[i0].y;
+      if (dx * dx + dy * dy >= minSpanSq) break;
+      if (i0 > 0) i0--;
+      if (i1 < n - 1) i1++;
+      steps++;
+    }
+  }
+  return computeDirectionalNibFactor(pts[i1].x - pts[i0].x, pts[i1].y - pts[i0].y, tool);
 }
 
 // ============================================================
@@ -1069,8 +1082,10 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   const minRenderWidth = profile.pressure.minRenderWidthPx;
   const alwaysJoinThin = Boolean(profile.rendering.alwaysJoinThinSegments);
   const jointThreshold = profile.rendering.jointMinWidthThresholdPx;
+  const useContinuousRibbon = Boolean(profile.rendering.useContinuousRibbon);
+  const nibMinSpan = profile.rendering.nibTangentMinSpanPx || 0;
   const smoothness = _getStrokeSmoothness(stroke);
-  const renderPts = buildGaussianSmoothedPoints(pts, smoothness);
+  const renderPts = buildGaussianSmoothedPoints(pts, smoothness, state.platform?.family);
   const baseSize = sliderToBaseSize(stroke.size);
   const inkParams = stroke.inkParams || LEGACY_PRESSURE_PARAMS;
   const widths = new Array(n);
@@ -1078,7 +1093,7 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
     const pt = renderPts[i];
     const wRaw = computeStrokeWidth(stroke.tool, stroke.size, pt.pressure,
       getTiltNorm(pt), getSpeedNorm(pt), getTaper(i, n, stroke.tool, true), baseSize, inkParams);
-    widths[i] = Math.max(minRenderWidth, wRaw * getPointNibFactor(renderPts, i, stroke.tool));
+    widths[i] = Math.max(minRenderWidth, wRaw * getPointNibFactor(renderPts, i, stroke.tool, nibMinSpan));
   }
 
   if (stroke.tool === 'pencil' && !overrideColor) {
@@ -1101,6 +1116,10 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   const unified = overrideColor != null || canUnifyFill(stroke.tool);
   if (unified) {
     const _fillUnifiedPath = (targetCtx) => {
+      if (useContinuousRibbon) {
+        _fillContinuousInkRibbon(targetCtx, renderPts, widths, smoothness, state.platform?.family, minRenderWidth);
+        return;
+      }
       let cIdx = 0;
       let buf = _circleBuf;
       let prevDx = 0, prevDy = 0, prevLen = 0;
@@ -1198,7 +1217,8 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
       const by = pxMinY / scale;
       const bw = pxW / scale;
       const bh = pxH / scale;
-      const scratch = _getStrokeScratch(pxW + 4, pxH + 4);
+      const scratchMax = profile.rendering.scratchMaxDim || 2048;
+      const scratch = _getStrokeScratch(pxW + 4, pxH + 4, scratchMax);
       if (scratch) {
         const sctx = scratch.ctx;
         const clearW = Math.min(scratch.canvas.width, Math.max(_scratchDirtyW, pxW + 4));
@@ -1256,6 +1276,193 @@ export function renderFullStroke(ctx, stroke, forceTargetDark, overrideColor = n
   const lastW = Math.max(widths[n - 1], 0.5);
   ctx.beginPath(); ctx.arc(renderPts[n - 1].x, renderPts[n - 1].y, lastW / 2, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
+}
+
+function _fillContinuousInkRibbon(targetCtx, renderPts, widths, smoothness, platform, minRenderWidth = 0.45) {
+  const n = renderPts.length;
+  const minR = Math.max(0.2, minRenderWidth * 0.5);
+  const spine = [];
+  const pushNode = (x, y, w) => {
+    const r = Math.max(minR, w * 0.5);
+    const len = spine.length;
+    if (len > 0) {
+      const prev = spine[len - 1];
+      const dSq = (x - prev.x) * (x - prev.x) + (y - prev.y) * (y - prev.y);
+      if (dSq < 0.3025) return; // < 0.55px evita inversioni micro-tangenti
+    }
+    spine.push({ x, y, r });
+  };
+
+  pushNode(renderPts[0].x, renderPts[0].y, widths[0]);
+  for (let i = 1; i < n; i++) {
+    const p0 = renderPts[i >= 2 ? i - 2 : 0];
+    const p1 = renderPts[i - 1];
+    const p2 = renderPts[i];
+    const p3 = renderPts[i + 1 < n ? i + 1 : n - 1];
+    const w1 = widths[i - 1];
+    const w2 = widths[i];
+    const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
+    const steps = computePlatformSegmentSteps(segLen, smoothness, platform);
+    if (steps === 1) {
+      pushNode(p2.x, p2.y, w2);
+      continue;
+    }
+    prepareSegmentCurve(_segCurve, p0, p1, p2, p3, segLen, smoothness);
+    for (let s = 0; s < steps; s++) {
+      const t1 = (s + 1) / steps;
+      const wb = w1 + (w2 - w1) * t1;
+      evalSegmentCurveInto(_ptB, p1, p2, _segCurve, t1);
+      pushNode(_ptB.x, _ptB.y, wb);
+    }
+  }
+
+  // Preserva sempre la punta finale esatta senza creare micro-segmenti degeneri
+  const lastP = renderPts[n - 1];
+  const lastR = Math.max(minR, widths[n - 1] * 0.5);
+  if (spine.length >= 2) {
+    const tail = spine[spine.length - 1];
+    if (fastHypot(lastP.x - tail.x, lastP.y - tail.y) < 0.55) {
+      tail.x = lastP.x;
+      tail.y = lastP.y;
+      tail.r = lastR;
+    } else {
+      spine.push({ x: lastP.x, y: lastP.y, r: lastR });
+    }
+  }
+
+  const m = spine.length;
+  if (m < 2) {
+    const c = spine[0] || { x: renderPts[0].x, y: renderPts[0].y, r: Math.max(minR, widths[0] * 0.5) };
+    targetCtx.beginPath();
+    targetCtx.arc(c.x, c.y, Math.max(c.r, 0.45), 0, Math.PI * 2);
+    targetCtx.fill();
+    return;
+  }
+
+  const segTx = new Float64Array(m - 1);
+  const segTy = new Float64Array(m - 1);
+  for (let i = 0; i < m - 1; i++) {
+    const dx = spine[i + 1].x - spine[i].x;
+    const dy = spine[i + 1].y - spine[i].y;
+    const len = fastHypot(dx, dy) || 1;
+    segTx[i] = dx / len;
+    segTy[i] = dy / len;
+  }
+
+  const leftPts = [];
+  const rightPts = [];
+  const sharpCaps = [];
+
+  const n0x = -segTy[0];
+  const n0y = segTx[0];
+  leftPts.push({ x: spine[0].x + n0x * spine[0].r, y: spine[0].y + n0y * spine[0].r });
+  rightPts.push({ x: spine[0].x - n0x * spine[0].r, y: spine[0].y - n0y * spine[0].r });
+
+  for (let i = 1; i < m - 1; i++) {
+    const p = spine[i];
+    const r = p.r;
+    const tx0 = segTx[i - 1], ty0 = segTy[i - 1];
+    const tx1 = segTx[i], ty1 = segTy[i];
+    const nAx = -ty0, nAy = tx0;
+    const nBx = -ty1, nBy = tx1;
+    const dot = tx0 * tx1 + ty0 * ty1;
+
+    if (dot > 0.55) {
+      let mx = nAx + nBx;
+      let my = nAy + nBy;
+      const ml = fastHypot(mx, my);
+      if (ml > 1e-4) {
+        mx /= ml;
+        my /= ml;
+        const cosHalf = Math.max(0.78, mx * nAx + my * nAy);
+        const miterR = r / cosHalf;
+        leftPts.push({ x: p.x + mx * miterR, y: p.y + my * miterR });
+        rightPts.push({ x: p.x - mx * miterR, y: p.y - my * miterR });
+        continue;
+      }
+    }
+
+    const cross = tx0 * ty1 - ty0 * tx1;
+    let mx = nAx + nBx;
+    let my = nAy + nBy;
+    const ml = fastHypot(mx, my);
+    if (ml > 1e-4) { mx /= ml; my /= ml; }
+    else { mx = tx0; my = ty0; }
+
+    leftPts.push({ x: p.x + nAx * r, y: p.y + nAy * r });
+    if (cross > 0 && ml > 1e-4) {
+      leftPts.push({ x: p.x + mx * r, y: p.y + my * r });
+    }
+    leftPts.push({ x: p.x + nBx * r, y: p.y + nBy * r });
+
+    rightPts.push({ x: p.x - nAx * r, y: p.y - nAy * r });
+    if (cross <= 0 && ml > 1e-4) {
+      rightPts.push({ x: p.x - mx * r, y: p.y - my * r });
+    }
+    rightPts.push({ x: p.x - nBx * r, y: p.y - nBy * r });
+
+    if (dot <= 0.15 && r >= 1.5) {
+      sharpCaps.push(p);
+    }
+  }
+
+  const endIdx = m - 1;
+  const nLx = -segTy[m - 2];
+  const nLy = segTx[m - 2];
+  const endTx = segTx[m - 2];
+  const endTy = segTy[m - 2];
+  const endP = spine[endIdx];
+  leftPts.push({ x: endP.x + nLx * endP.r, y: endP.y + nLy * endP.r });
+  rightPts.push({ x: endP.x - nLx * endP.r, y: endP.y - nLy * endP.r });
+
+  targetCtx.beginPath();
+  targetCtx.moveTo(leftPts[0].x, leftPts[0].y);
+  for (let i = 1; i < leftPts.length; i++) {
+    targetCtx.lineTo(leftPts[i].x, leftPts[i].y);
+  }
+
+  // Semicerchio finale da +nL a -nL passando per +endT
+  const capSteps = 5;
+  for (let k = 1; k < capSteps; k++) {
+    const a = (k / capSteps) * Math.PI;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    targetCtx.lineTo(
+      endP.x + (nLx * ca + endTx * sa) * endP.r,
+      endP.y + (nLy * ca + endTy * sa) * endP.r
+    );
+  }
+
+  for (let i = rightPts.length - 1; i >= 0; i--) {
+    targetCtx.lineTo(rightPts[i].x, rightPts[i].y);
+  }
+
+  // Semicerchio iniziale da -n0 a +n0 passando per -startT
+  const startP = spine[0];
+  const startTx = segTx[0];
+  const startTy = segTy[0];
+  for (let k = 1; k < capSteps; k++) {
+    const a = (k / capSteps) * Math.PI;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    targetCtx.lineTo(
+      startP.x + (-n0x * ca - startTx * sa) * startP.r,
+      startP.y + (-n0y * ca - startTy * sa) * startP.r
+    );
+  }
+
+  targetCtx.closePath();
+  targetCtx.fill();
+
+  if (sharpCaps.length > 0) {
+    targetCtx.beginPath();
+    for (let i = 0; i < sharpCaps.length; i++) {
+      const c = sharpCaps[i];
+      targetCtx.moveTo(c.x + c.r, c.y);
+      targetCtx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+    }
+    targetCtx.fill();
+  }
 }
 
 // ============================================================
@@ -1382,6 +1589,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
   const minRenderWidth = profile.pressure.minRenderWidthPx;
   const alwaysJoinThin = Boolean(profile.rendering.alwaysJoinThinSegments);
   const jointThreshold = profile.rendering.jointMinWidthThresholdPx;
+  const nibMinSpan = profile.rendering.nibTangentMinSpanPx || 0;
 
   setupStrokeStyle(ctx, stroke, inkDark);
   const unified = canUnifyFillIncremental(stroke.tool);
@@ -1399,10 +1607,10 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
       const w1 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
         getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, n, stroke.tool, false), baseSize, inkParams) *
-        getPointNibFactor(pts, i - 1, stroke.tool));
+        getPointNibFactor(pts, i - 1, stroke.tool, nibMinSpan));
       const w2 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
         getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, n, stroke.tool, false), baseSize, inkParams) *
-        getPointNibFactor(pts, i, stroke.tool));
+        getPointNibFactor(pts, i, stroke.tool, nibMinSpan));
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const steps = computePlatformSegmentSteps(segLen, smoothness, state.platform.family);
       if (cIdx + steps * 3 > buf.length) {
@@ -1464,7 +1672,7 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const tipP2 = pts[n - 1];
       const tipW2 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, tipP2.pressure,
         getTiltNorm(tipP2), getSpeedNorm(tipP2), 1.0, baseSize, inkParams) *
-        getPointNibFactor(pts, n - 1, stroke.tool));
+        getPointNibFactor(pts, n - 1, stroke.tool, nibMinSpan));
       ctx.beginPath();
       addTaperedSegmentCircle(ctx, tipP2, tipW2);
       ctx.fill();
@@ -1477,10 +1685,10 @@ export function drawIncrementalBatch(ctx, stroke, fromIdx, dpr = 1) {
       const p3 = pts[i + 1 < n ? i + 1 : n - 1];
       const w1 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, p1.pressure,
         getTiltNorm(p1), getSpeedNorm(p1), getTaper(i - 1, n, stroke.tool, false), baseSize, inkParams) *
-        getPointNibFactor(pts, i - 1, stroke.tool));
+        getPointNibFactor(pts, i - 1, stroke.tool, nibMinSpan));
       const w2 = Math.max(minRenderWidth, computeStrokeWidth(stroke.tool, stroke.size, p2.pressure,
         getTiltNorm(p2), getSpeedNorm(p2), getTaper(i, n, stroke.tool, false), baseSize, inkParams) *
-        getPointNibFactor(pts, i, stroke.tool));
+        getPointNibFactor(pts, i, stroke.tool, nibMinSpan));
       const segLen = fastHypot(p2.x - p1.x, p2.y - p1.y);
       const steps = computePlatformSegmentSteps(segLen, smoothness, state.platform.family);
       _ptA.x = p1.x;

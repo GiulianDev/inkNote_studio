@@ -134,9 +134,13 @@ export function normalizePenPressure(rawPressure, {
   if (raw > 0) {
     const scaled = raw * totalGain;
     // Soft-knee sopra 0.80 per preservare dinamica anche con guadagno alto
-    const shaped = scaled <= 0.80
+    let shaped = scaled <= 0.80
       ? scaled
       : 0.80 + (scaled - 0.80) / (1 + (scaled - 0.80) * 1.4);
+    const gamma = profile.pressure.responseGamma;
+    if (Number.isFinite(gamma) && gamma > 0 && gamma !== 1) {
+      shaped = Math.pow(_clamp01(shaped), gamma);
+    }
     return _clamp(shaped, 0.02, 1.0);
   }
 
@@ -420,7 +424,8 @@ export function getStabilizerParams(smoothing = 0.5, scale = 1.0, platform = 'de
     dCutoff,
     deadzone,
     restDeadzone,
-    pressureNewWeight: 0.78 - s * 0.24
+    pressureNewWeight: 0.78 - s * 0.24,
+    pressureTauMs: stabCfg.pressureTauMs || 0
   };
 }
 
@@ -458,11 +463,14 @@ export function createStrokeStabilizer(initialPoint = null, { platform = 'deskto
     lastTs = initialPoint.timeStamp || 0;
   }
 
-  const _blendPressure = (rawPoint, cfg) => {
+  const _blendPressure = (rawPoint, cfg, dtMs = 16.67) => {
     if (!rawPoint || rawPoint._pressureFallback) return;
     if (Number.isFinite(rawPoint.pressure)) {
+      const w = cfg.pressureTauMs > 0
+        ? (1 - Math.exp(-Math.max(1, dtMs) / cfg.pressureTauMs))
+        : cfg.pressureNewWeight;
       lastPressure = _clamp(
-        lastPressure * (1 - cfg.pressureNewWeight) + rawPoint.pressure * cfg.pressureNewWeight,
+        lastPressure * (1 - w) + rawPoint.pressure * w,
         0.02,
         1.0
       );
@@ -518,7 +526,7 @@ export function createStrokeStabilizer(initialPoint = null, { platform = 'deskto
 
       // Fascia 0 (smoothing=0): bypass totale, zero lag
       if (cfg.mode === 'bypass') {
-        _blendPressure(rawPoint, cfg);
+        _blendPressure(rawPoint, cfg, effectiveDtMs);
         const dx = rawPoint.x - lastAcceptX;
         const dy = rawPoint.y - lastAcceptY;
         const dist = Math.hypot(dx, dy);
@@ -603,7 +611,7 @@ export function createStrokeStabilizer(initialPoint = null, { platform = 'deskto
         }
       }
 
-      _blendPressure(rawPoint, cfg);
+      _blendPressure(rawPoint, cfg, effectiveDtMs);
 
       const effectiveDeadzone = isResting ? cfg.restDeadzone : cfg.deadzone;
       const dist = Math.hypot(outX - lastAcceptX, outY - lastAcceptY);
@@ -637,9 +645,12 @@ export function createStrokeStabilizer(initialPoint = null, { platform = 'deskto
  * Calcola la tolleranza di movimento (in coordinate pagina) per considerare la penna "ferma"
  * durante l'hold-to-snap, adattandola allo zoom corrente.
  */
-export function getHoldMoveTolerancePx(scale = 1.0) {
+export function getHoldMoveTolerancePx(scale = 1.0, platform = null) {
   const s = Math.max(0.25, Number.isFinite(scale) ? scale : 1.0);
-  return Math.max(8, 10 / s);
+  const minHold = platform
+    ? (getDeviceProfile(platform).stabilizer.holdToleranceMinPx || 8)
+    : 8;
+  return Math.max(minHold, (minHold + 2) / s);
 }
 
 /**
