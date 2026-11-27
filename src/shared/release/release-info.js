@@ -2,15 +2,26 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.1.12",
-  "builtAt": "2026-11-27T15:46:44.529Z",
+  "version": "0.2.1",
+  "builtAt": "2026-11-27T23:06:45.685Z",
   "date": "2026-11-27",
   "currentNotes": [
-    "Risolto errore `ResizeObserver loop completed with undelivered notifications` in libreria differendo le misurazioni di `#libraryControlsWrap` e `#libraryNotebooksScroll` su `requestAnimationFrame` e aggiornando le variabili CSS solo al cambio effettivo di valore."
+    "Incluso il campo opzionale `smoothing` per-tratto nella serializzazione cloud/backup (`serialization-cloud-core.js`), completando l'allineamento dei metadati stroke con `serialization.js`.",
+    "Aggiunto guard sul limite di 1 MiB di Firestore per singola pagina (`measureFirestorePagePayload`, `splitCompressedPageForFirestore`, `reassembleCompressedPageFromChunks`, `compressPageBundleForCloud`) con soglia di avviso e suddivisione/ricomposizione automatica in chunk binari.",
+    "Implementata la sincronizzazione cloud manuale su Firestore (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`): schema `firebase-blueprint.json` e regole di sicurezza `firestore.rules` per `sync_folders`, `sync_notebooks`, `pages` e `chunks`, zero listener automatici in background, deduplicazione delle pagine via SHA-256, tracciamento tombstone eliminazioni locali (`db.js`), risoluzione interattiva dei conflitti e riepilogo locale dei consumi giornalieri dal menu utente (`Sincronizza Cloud`)."
   ],
-  "notesSourceVersion": "0.1.11",
+  "notesSourceVersion": "0.2.0",
   "hasExactChangelog": false,
   "releases": [
+    {
+      "version": "0.2.0",
+      "date": "2026-11-27",
+      "items": [
+        "Incluso il campo opzionale `smoothing` per-tratto nella serializzazione cloud/backup (`serialization-cloud-core.js`), completando l'allineamento dei metadati stroke con `serialization.js`.",
+        "Aggiunto guard sul limite di 1 MiB di Firestore per singola pagina (`measureFirestorePagePayload`, `splitCompressedPageForFirestore`, `reassembleCompressedPageFromChunks`, `compressPageBundleForCloud`) con soglia di avviso e suddivisione/ricomposizione automatica in chunk binari.",
+        "Implementata la sincronizzazione cloud manuale su Firestore (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`): schema `firebase-blueprint.json` e regole di sicurezza `firestore.rules` per `sync_folders`, `sync_notebooks`, `pages` e `chunks`, zero listener automatici in background, deduplicazione delle pagine via SHA-256, tracciamento tombstone eliminazioni locali (`db.js`), risoluzione interattiva dei conflitti e riepilogo locale dei consumi giornalieri dal menu utente (`Sincronizza Cloud`)."
+      ]
+    },
     {
       "version": "0.1.11",
       "date": "2026-11-27",

@@ -1,6 +1,6 @@
 # InkNote Studio — Changelog
 
-## v0.1.13 — 2026-11-27
+## v0.2.0 — 2026-11-27
 - Incluso il campo opzionale `smoothing` per-tratto nella serializzazione cloud/backup (`serialization-cloud-core.js`), completando l'allineamento dei metadati stroke con `serialization.js`.
 - Aggiunto guard sul limite di 1 MiB di Firestore per singola pagina (`measureFirestorePagePayload`, `splitCompressedPageForFirestore`, `reassembleCompressedPageFromChunks`, `compressPageBundleForCloud`) con soglia di avviso e suddivisione/ricomposizione automatica in chunk binari.
 - Implementata la sincronizzazione cloud manuale su Firestore (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`): schema `firebase-blueprint.json` e regole di sicurezza `firestore.rules` per `sync_folders`, `sync_notebooks`, `pages` e `chunks`, zero listener automatici in background, deduplicazione delle pagine via SHA-256, tracciamento tombstone eliminazioni locali (`db.js`), risoluzione interattiva dei conflitti e riepilogo locale dei consumi giornalieri dal menu utente (`Sincronizza Cloud`).
