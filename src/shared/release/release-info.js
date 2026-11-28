@@ -2,8 +2,8 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.2.9",
-  "builtAt": "2026-11-28T16:40:15.644Z",
+  "version": "0.2.10",
+  "builtAt": "2026-11-28T16:54:49.003Z",
   "date": "2026-11-28",
   "currentNotes": [
     "**Isolamento Libreria per Account & Migrazione Quaderni Guest (`db.js`, `db-scope-helpers.js`, `library-auth.js`, `sync-helpers.js`, `backup-import.js`, `sync-cloud.js`, `sharing-ui.js`, `main.js`)**: associati quaderni e raccolte locali al profilo Google autenticato (`ownerUid`) mantenendo i quaderni creati senza accesso (`ownerUid === null`) visibili da disconnessi; aggiunta richiesta interattiva al login per associare al proprio account eventuali elementi guest presenti sul dispositivo, isolamento delle tombstone per UID e protezione da collisioni ID multi-account in IndexedDB.",
@@ -12,7 +12,7 @@ export const RELEASE_INFO = Object.freeze({
     "**Disabilitazione `dev-dist/` in sviluppo (`vite.config.js`)**: impostato `devOptions.enabled: false` nella configurazione PWA per evitare la generazione della cartella temporanea `dev-dist/` durante `npm run dev`."
   ],
   "notesSourceVersion": "0.2.9",
-  "hasExactChangelog": true,
+  "hasExactChangelog": false,
   "releases": [
     {
       "version": "0.2.9",
