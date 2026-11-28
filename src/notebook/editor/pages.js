@@ -28,6 +28,7 @@ import { refreshPageCounter } from '../toolbar/toolbar.js';
 import {
   applyTransform, applyPinchTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
+import { computeDockTopClearance } from './hud-layout.js';
 import { pagePool } from './page-pool.js';
 import { unpackStrokes } from '../../shared/persistence/serialization.js';
 import { attachLazyStrokes } from '../../shared/persistence/lazy-strokes.js';
@@ -113,7 +114,7 @@ export function addNewPage() {
       const pageW = newPage.wrapper.offsetWidth || PAGE_WIDTH;
       viewport.x = vp.clientWidth / 2 - (pageLeft + pageW / 2) * viewport.scale;
     }
-    viewport.y = -pageTop * viewport.scale + 80;
+    viewport.y = -pageTop * viewport.scale + getViewportDockClearance();
     const c = clampViewport(viewport.x, viewport.y);
     viewport.x = c.x;
     viewport.y = c.y;
@@ -130,6 +131,23 @@ export function addNewPage() {
 // VIEWPORT (centratura, zoom, resize observer)
 // ============================================================
 
+export function getViewportDockClearance() {
+  const vp = document.getElementById('viewport');
+  if (!vp) return 80;
+  const vpRect = vp.getBoundingClientRect();
+  const activeDock = document.querySelector('.ui-dock:not(.hidden), #pagePopover:not(.hidden)');
+  const dockHidden = document.body.classList.contains('dock-auto-hidden') || !activeDock;
+  const dockRect = !dockHidden ? activeDock.getBoundingClientRect() : null;
+  const dockVisible = Boolean(dockRect && dockRect.height > 0 && dockRect.width > 0);
+  return computeDockTopClearance({
+    viewportTop: vpRect.top,
+    dockBottom: dockRect ? dockRect.bottom : 0,
+    dockVisible,
+    minMargin: 24,
+    dockGap: 16
+  });
+}
+
 export function centerViewport() {
   const vp = document.getElementById('viewport');
   if (!vp) return;
@@ -141,8 +159,28 @@ export function centerViewport() {
   } else {
     viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
   }
-  viewport.y = 80;
+  viewport.y = getViewportDockClearance();
   applyTransform();
+}
+
+export function zoomByFactor(factor) {
+  const newScale = Math.min(
+    Math.max(viewport.scale * factor, viewport.minScale),
+    viewport.maxScale
+  );
+  if (newScale === viewport.scale) return;
+  const vp = document.getElementById('viewport');
+  const rect = vp ? vp.getBoundingClientRect() : null;
+  const center = rect
+    ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  applyPinchTransform(
+    center,
+    { x: viewport.x, y: viewport.y, scale: viewport.scale },
+    center,
+    newScale
+  );
+  scheduleResolutionRefresh();
 }
 
 export function resetZoom() {
@@ -164,7 +202,6 @@ export function resetZoom() {
     applyTransform();
   }
   scheduleResolutionRefresh();
-  showToast('Zoom resettato', '🔍');
 }
 
 export function installViewportResizeObserver() {
@@ -487,11 +524,11 @@ export function scrollToPage(index) {
   // Centra orizzontalmente tenendo conto di zoom e padding di #canvasContainer
   const targetX = vp.clientWidth / 2 - (pageLeft + pageW / 2) * scale;
 
-  // Se la pagina entra interamente in altezza, centrala; altrimenti mostra la cima (+80px)
+  const dockClearance = getViewportDockClearance();
   const scaledH = pageH * scale;
-  const targetY = scaledH <= vp.clientHeight
-    ? vp.clientHeight / 2 - (pageTop + pageH / 2) * scale
-    : -pageTop * scale + 80;
+  const targetY = scaledH <= (vp.clientHeight - dockClearance)
+    ? dockClearance + (vp.clientHeight - dockClearance - scaledH) / 2 - pageTop * scale
+    : -pageTop * scale + dockClearance;
 
   viewport.x = targetX;
   viewport.y = targetY;

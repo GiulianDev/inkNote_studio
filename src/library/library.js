@@ -3,6 +3,7 @@
 // ============================================================
 
 import { escapeHtml, showToast, showConfirmDialog, on, generatePageId } from '../shared/core/utils.js';
+import { getEmptyStateIconSvg } from '../shared/core/ui-icons.js';
 import { getSettings, updateSettings, onSettingsChanged } from '../shared/core/app-settings.js';
 import {
   loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB, loadNotebookWithPages,
@@ -448,19 +449,19 @@ function _updateEmptyState({ isVisible, isSearching, onlyFavorites, rawQuery }) 
   const subEl = document.getElementById('emptyLibrarySubtitle');
 
   if (isSearching) {
-    if (iconEl) iconEl.textContent = '🔍';
+    if (iconEl) iconEl.innerHTML = getEmptyStateIconSvg('search');
     if (titleEl) titleEl.textContent = 'Nessun risultato trovato';
     if (subEl) subEl.textContent = `Nessuna raccolta o quaderno corrisponde a "${rawQuery}".`;
   } else if (onlyFavorites) {
-    if (iconEl) iconEl.textContent = '⭐';
+    if (iconEl) iconEl.innerHTML = getEmptyStateIconSvg('star');
     if (titleEl) titleEl.textContent = 'Nessun quaderno preferito';
     if (subEl) subEl.textContent = 'Clicca sulla stella di un quaderno per aggiungerlo ai preferiti.';
   } else if (_currentFolderId !== null) {
-    if (iconEl) iconEl.textContent = '🗂️';
+    if (iconEl) iconEl.innerHTML = getEmptyStateIconSvg('folder');
     if (titleEl) titleEl.textContent = 'Questa raccolta è vuota';
     if (subEl) subEl.textContent = 'Crea un quaderno, una sottoraccolta o trascina qui i tuoi appunti.';
   } else {
-    if (iconEl) iconEl.textContent = '📓';
+    if (iconEl) iconEl.innerHTML = getEmptyStateIconSvg('notebook');
     if (titleEl) titleEl.textContent = 'Nessun quaderno presente';
     if (subEl) subEl.textContent = 'Clicca su "Nuovo Quaderno" per iniziare a prendere appunti.';
   }
@@ -651,7 +652,7 @@ export function renderLibraryView() {
       const iconEl = document.getElementById('emptyLibraryIcon');
       const titleEl = document.getElementById('emptyLibraryTitle');
       const subEl = document.getElementById('emptyLibrarySubtitle');
-      if (iconEl) iconEl.textContent = '⚠️';
+      if (iconEl) iconEl.innerHTML = getEmptyStateIconSvg('warning');
       if (titleEl) titleEl.textContent = 'Archivio locale non accessibile';
       if (subEl) {
         subEl.textContent = err?.message || 'Impossibile accedere a IndexedDB in questo browser o profilo.';

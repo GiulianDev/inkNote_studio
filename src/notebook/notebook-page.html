@@ -10,7 +10,9 @@
     </main>
 
     <div id="pullPageIndicator" class="fixed bottom-12 left-1/2 -translate-x-1/2 hidden bg-indigo-600 text-white dark:bg-indigo-500 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl text-xs font-bold items-center gap-2 z-[44] border border-indigo-400/30 transition-all duration-200">
-        <span id="pullIcon">⬆️</span>
+        <span id="pullIcon" class="inline-flex items-center justify-center shrink-0" aria-hidden="true">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+        </span>
         <span id="pullText">Scorri in su per aggiungere una nuova pagina...</span>
     </div>
 
@@ -108,17 +110,24 @@
         </div>
     </div>
 
-    <div id="undoRedoContainer" class="fixed flex items-center gap-1.5 bg-slate-900/95 dark:bg-slate-600/95 backdrop-blur-lg p-2 rounded-2xl z-40 border border-slate-700/60 dark:border-slate-400/40 shadow-[0_12px_32px_-8px_rgba(15,23,42,0.45),0_4px_12px_-4px_rgba(15,23,42,0.25)] dark:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.75),0_4px_12px_-4px_rgba(0,0,0,0.5)]" style="top: 140px; left: 16px;">
-        <button id="undoBtn" aria-label="Annulla ultima azione" title="Annulla (Ctrl+Z)" class="group relative w-14 h-14 flex items-center justify-center rounded-xl text-slate-200 dark:text-slate-50 hover:text-white hover:bg-white/15 active:scale-95 active:bg-white/20 transition-all duration-150 disabled:text-slate-500 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:active:scale-100 disabled:cursor-not-allowed">
-            <svg class="w-7 h-7 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+    <div id="undoRedoContainer" class="hud-undo-redo fixed flex items-center z-40" style="top: 140px; left: 16px;" role="toolbar" aria-label="Annulla e ripristina">
+        <button id="undoBtn" type="button" aria-label="Annulla ultima azione" title="Annulla (Ctrl+Z)" class="hud-undo-redo-btn">
+            <svg class="w-5 h-5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
         </button>
-        <div class="w-px h-9 bg-white/15 dark:bg-white/25"></div>
-        <button id="redoBtn" aria-label="Ripristina azione annullata" title="Ripristina (Ctrl+Shift+Z / Ctrl+Y)" class="group relative w-14 h-14 flex items-center justify-center rounded-xl text-slate-200 dark:text-slate-50 hover:text-white hover:bg-white/15 active:scale-95 active:bg-white/20 transition-all duration-150 disabled:text-slate-500 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:active:scale-100 disabled:cursor-not-allowed">
-            <svg class="w-7 h-7 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg>
+        <div class="hud-undo-redo-divider" aria-hidden="true"></div>
+        <button id="redoBtn" type="button" aria-label="Ripristina azione annullata" title="Ripristina (Ctrl+Shift+Z / Ctrl+Y)" class="hud-undo-redo-btn">
+            <svg class="w-5 h-5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></svg>
         </button>
     </div>
 
-    <div id="zoomBadge" class="fixed bottom-6 left-6 bg-slate-900/90 text-white dark:bg-slate-800/90 backdrop-blur-md px-3 py-1.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 z-40">
-        🔍 Zoom: <span id="zoomText">100%</span>
-        <button id="resetZoomBtn" class="ml-1 bg-slate-700 hover:bg-slate-600 text-white px-2 py-0.5 rounded-lg text-[10px]">Reset</button>
+    <div id="zoomBadge" class="hud-zoom-bar fixed z-40 flex items-center" role="group" aria-label="Controlli zoom">
+        <button id="zoomOutBtn" type="button" class="hud-zoom-btn" title="Riduci zoom (-)" aria-label="Riduci zoom">
+            <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+        </button>
+        <button id="resetZoomBtn" type="button" class="hud-zoom-pct" title="Ripristina zoom 100% (0)" aria-label="Ripristina zoom 100%">
+            <span id="zoomText" class="tabular-nums">100%</span>
+        </button>
+        <button id="zoomInBtn" type="button" class="hud-zoom-btn" title="Aumenta zoom (+)" aria-label="Aumenta zoom">
+            <svg class="w-3.5 h-3.5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        </button>
     </div>

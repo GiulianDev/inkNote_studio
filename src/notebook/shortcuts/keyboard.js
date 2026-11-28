@@ -9,8 +9,7 @@ import { forceSave } from '../../shared/persistence/autosave.js';
 import { flushHistory, handleHistoryKeyboard } from '../history/history.js';
 import { createManualSaveRunner } from './manual-save.js';
 import { toggleAppFullscreen } from '../../shared/core/fullscreen.js';
-import { applyPinchTransform } from '../viewport/transform.js';
-import { resetZoom, scheduleResolutionRefresh } from '../editor/pages.js';
+import { resetZoom, zoomByFactor } from '../editor/pages.js';
 import { isAnyModalOpen, getTopModalId } from '../../shared/components/modal.js';
 import { shouldToggleShortcutsModalKey } from './shortcuts-catalog.js';
 import {
@@ -32,26 +31,6 @@ function _isEditorInteractive() {
   if (lib && !lib.classList.contains('hidden')) return false;
   if (isAnyModalOpen()) return false;
   return true;
-}
-
-function _zoomByFactor(factor) {
-  const newScale = Math.min(
-    Math.max(viewport.scale * factor, viewport.minScale),
-    viewport.maxScale
-  );
-  if (newScale === viewport.scale) return;
-  const vp = document.getElementById('viewport');
-  const rect = vp ? vp.getBoundingClientRect() : null;
-  const center = rect
-    ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-    : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-  applyPinchTransform(
-    center,
-    { x: viewport.x, y: viewport.y, scale: viewport.scale },
-    center,
-    newScale
-  );
-  scheduleResolutionRefresh();
 }
 
 export function setupKeyboardShortcuts() {
@@ -147,12 +126,12 @@ export function setupKeyboardShortcuts() {
     if (key === 'f') { e.preventDefault(); toggleAppFullscreen(); return; }
     if (key === '+' || key === '=') {
       e.preventDefault();
-      _zoomByFactor(1.2);
+      zoomByFactor(1.2);
       return;
     }
     if (key === '-') {
       e.preventDefault();
-      _zoomByFactor(1 / 1.2);
+      zoomByFactor(1 / 1.2);
       return;
     }
     if (key === '0') {

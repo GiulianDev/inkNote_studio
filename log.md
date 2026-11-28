@@ -1,5 +1,11 @@
 # InkNote Studio — Changelog
 
+## v0.2.6 — 2026-11-28
+- **Redesign & Drag Intuitivo Annulla / Ripristina (`notebook-page.html`, `style.css`, `ui-bindings.js`, `hud-layout.js`, `shortcuts-catalog.js`)**: uniformata la grafica di `#undoRedoContainer` allo stile `.ui-dock` in tema chiaro e scuro (senza grip laterale) con trascinamento immediato da qualsiasi punto del pannello, anche sopra i pulsanti disabilitati, oltre al fallback a pressione breve.
+- **Posizionamento adattivo HUD & Controlli Zoom (`hud-layout.js`, `ui-bindings.js`, `pages-sidebar.js`, `pages.js`, `keyboard.js`, `style.css`)**: spostati dinamicamente `#undoRedoContainer` e `#zoomBadge` quando la sidebar pagine sinistra o destra è aperta (e sotto il dock su smartphone) per evitare ogni sovrapposizione; esteso il badge zoom a controlli `− / 100% / +`.
+- **Spazio iniziale pagina sotto il dock (`editor.js`, `pages.js`, `hud-layout.js`)**: calcolato il margine superiore utile sotto `#dockWriting` all'apertura del quaderno, al centramento, al reset zoom e all'aggiunta/navigazione pagine per non nascondere il bordo superiore del primo foglio.
+- **Icone SVG uniformi (1.75px) & Toast silenziosi (`ui-icons.js`, `utils.js`, `gestures.js`, `library.js`, `library-page.html`, `settings-modal.html`, `backup-import.js`, `index.html`)**: sostituite le emoji OS con icone SVG monocromatiche coerenti in toast, indicatore pull-to-add-page, barra zoom, stati vuoti libreria, intestazioni Impostazioni e dialog conflitti; rimossi i toast superflui su apertura quaderno e reset zoom.
+
 ## v0.2.5 — 2026-11-28
 - **Salvataggio affidabile su chiusura e cambio app mobile (`main.js`, `editor.js`, `autosave.js`)**: introdotto `flushActiveEditorBeforeLeave()` su `visibilitychange` (`hidden`), `pagehide` e `beforeunload` per consolidare caselle di testo attive (`commitActiveTextBox`) e forme pendenti (`finalizePendingShape`) prima di eseguire `flushHistory()` e `flushAutoSave()`.
 - **Ripristino sync su errori parziali e lock multi-tab (`sync-cloud.js`)**: salvati `nextSyncState` e `recordDailySyncUsage` nel blocco `finally` quando sono state completate operazioni parziali prima di un errore; aggiunto mutex cross-tab tramite `navigator.locks` (`inknote_cloud_sync`).

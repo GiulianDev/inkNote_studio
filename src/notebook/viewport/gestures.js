@@ -6,6 +6,7 @@
 
 import { state, viewport } from '../../shared/core/state.js';
 import { PULL_THRESHOLD, showToast } from '../../shared/core/utils.js';
+import { getPullIndicatorIconSvg } from '../../shared/core/ui-icons.js';
 import { getScrollSensitivity } from '../../shared/core/app-settings.js';
 import { abortCurrentDrawing } from '../tools/dispatcher.js';
 import { addNewPage, scheduleResolutionRefresh } from '../editor/pages.js';
@@ -741,12 +742,12 @@ function showPullIndicator(isReady) {
     ind.classList.remove('bg-indigo-600', 'dark:bg-indigo-500');
     ind.classList.add('bg-emerald-600', 'dark:bg-emerald-500', 'scale-105');
     if (txt)  txt.innerText  = 'Rilascia per creare una nuova pagina!';
-    if (icon) icon.innerText = '✨';
+    if (icon) icon.innerHTML = getPullIndicatorIconSvg(true);
   } else {
     ind.classList.remove('bg-emerald-600', 'dark:bg-emerald-500', 'scale-105');
     ind.classList.add('bg-indigo-600', 'dark:bg-indigo-500');
     if (txt)  txt.innerText  = 'Scorri in su per aggiungere una nuova pagina...';
-    if (icon) icon.innerText = '⬆️';
+    if (icon) icon.innerHTML = getPullIndicatorIconSvg(false);
   }
 }
 

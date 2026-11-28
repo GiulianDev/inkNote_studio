@@ -327,8 +327,11 @@ function renderConflictItem(c) {
   const incomingNewer = getEditTime(c.incoming) > getEditTime(c.local);
   return `
     <li class="bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
-      <div class="font-semibold text-slate-800 dark:text-slate-200 mb-1">
-        📓 ${escapeHtml(c.incoming.title || '(senza titolo)')}
+      <div class="font-semibold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>
+        </svg>
+        <span>${escapeHtml(c.incoming.title || '(senza titolo)')}</span>
       </div>
       <div class="flex flex-col gap-0.5 text-[10px] text-slate-500">
         <div>Ultima modifica locale: <span class="text-slate-700 dark:text-slate-300">${localT}</span></div>

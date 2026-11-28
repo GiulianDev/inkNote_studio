@@ -23,7 +23,13 @@ import { openSettingsModal } from '../../shared/settings/settings-modal.js';
 import { exportToPDF } from './export-pdf.js';
 import { undo, redo } from '../history/history.js';
 import { returnToLibrary, updateCurrentNotebookTitle } from './editor.js';
-import { clearCurrentPage, resetZoom } from './pages.js';
+import { clearCurrentPage, resetZoom, zoomByFactor } from './pages.js';
+import {
+  computeSafeHudViewportRect,
+  shouldStartUndoRedoDrag,
+  resolveDefaultUndoRedoPosition
+} from './hud-layout.js';
+import { onSettingsChanged } from '../../shared/core/app-settings.js';
 import {
   clearSelection, deleteSelectedStrokes,
   copySelection, cutSelection, duplicateSelection,
@@ -175,9 +181,13 @@ export function bindEditorUI() {
   document.getElementById('clearPageBtn')
     ?.addEventListener('click', () => clearCurrentPage());
 
-  // --- Zoom badge ---
+  // --- Zoom bar (- / 100% / +) ---
+  document.getElementById('zoomOutBtn')
+    ?.addEventListener('click', () => zoomByFactor(1 / 1.2));
   document.getElementById('resetZoomBtn')
     ?.addEventListener('click', resetZoom);
+  document.getElementById('zoomInBtn')
+    ?.addEventListener('click', () => zoomByFactor(1.2));
 
   // --- Selection menu ---
   const selMenu = document.getElementById('selectionMenu');
@@ -273,31 +283,56 @@ function applyEraserModeToUI() {
 }
 
 // ============================================================
-// UNDO/REDO DRAG — spostabile con long-press
+// UNDO/REDO DRAG — immediato su maniglia o trascinamento,
+// con posizionamento adattivo rispetto a sidebar e header.
 // ============================================================
 
 const UNDO_REDO_POS_KEY = 'inknote_undo_redo_pos';
-const UNDO_REDO_DRAG_PRESS_MS = 350;
-const UNDO_REDO_MARGIN = 8;
-const UNDO_REDO_MOVE_CANCEL_PX = 8;
+const UNDO_REDO_HOLD_FALLBACK_MS = 220;
+const UNDO_REDO_MARGIN = 10;
 
 function initUndoRedoDrag() {
   const el = document.getElementById('undoRedoContainer');
   if (!el) return;
 
+  const getSafeBounds = () => {
+    const baseRect = getVisualViewportRect();
+    const sidebarEl = document.getElementById('pagesSidebar');
+    const sidebarOpen = document.body.classList.contains('pages-sidebar-open') &&
+      Boolean(sidebarEl && !sidebarEl.classList.contains('hidden'));
+    const sidebarPosition = document.body.classList.contains('pages-sidebar-right') ? 'right' : 'left';
+    const sidebarWidth = sidebarEl ? sidebarEl.getBoundingClientRect().width : 0;
+    const headerEl = document.getElementById('mainHeader');
+    const headerBottom = headerEl ? headerEl.getBoundingClientRect().bottom : 0;
+    const isCompactMode = document.body.classList.contains('compact-mode');
+
+    return computeSafeHudViewportRect({
+      viewportRect: baseRect,
+      sidebarOpen,
+      sidebarPosition,
+      sidebarWidth,
+      headerBottom,
+      isCompactMode,
+      margin: UNDO_REDO_MARGIN
+    });
+  };
+
   const clampToViewport = (x, y) => {
-    const w = el.offsetWidth || 100;
-    const h = el.offsetHeight || 56;
+    const w = el.offsetWidth || 96;
+    const h = el.offsetHeight || 50;
+    const { viewportRect, minTop } = getSafeBounds();
     return clampBoxToViewportRect({
       x,
       y,
       width: w,
       height: h,
-      viewportRect: getVisualViewportRect(),
+      viewportRect,
+      minTop,
       margin: UNDO_REDO_MARGIN
     });
   };
 
+  let hasCustomPos = false;
   let preferredPos = { x: 16, y: 140 };
   try {
     const raw = localStorage.getItem(UNDO_REDO_POS_KEY);
@@ -305,17 +340,50 @@ function initUndoRedoDrag() {
       const saved = JSON.parse(raw);
       if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
         preferredPos = { x: saved.x, y: saved.y };
-        const pos = clampToViewport(saved.x, saved.y);
-        el.style.left = `${pos.x}px`;
-        el.style.top = `${pos.y}px`;
+        hasCustomPos = true;
       }
     }
   } catch {}
 
-  subscribeViewportChanges(() => {
-    const pos = clampToViewport(preferredPos.x, preferredPos.y);
+  const applyClampedPreferredPos = () => {
+    const { viewportRect, minTop } = getSafeBounds();
+    let targetPos = preferredPos;
+    if (!hasCustomPos) {
+      const activeDock = document.querySelector('.ui-dock:not(.hidden)');
+      const dockRect = activeDock ? activeDock.getBoundingClientRect() : null;
+      const dockVisible = Boolean(
+        activeDock &&
+        dockRect &&
+        dockRect.width > 0 &&
+        dockRect.height > 0 &&
+        getComputedStyle(activeDock).display !== 'none'
+      );
+      targetPos = resolveDefaultUndoRedoPosition({
+        viewportRect,
+        dockRect,
+        dockVisible,
+        minTop,
+        containerWidth: el.offsetWidth || 96,
+        containerHeight: el.offsetHeight || 50,
+        margin: UNDO_REDO_MARGIN
+      });
+    }
+    const pos = clampToViewport(targetPos.x, targetPos.y);
     el.style.left = `${pos.x}px`;
     el.style.top = `${pos.y}px`;
+  };
+
+  applyClampedPreferredPos();
+
+  subscribeViewportChanges(applyClampedPreferredPos);
+  window.addEventListener('inknote:pages-sidebar-changed', applyClampedPreferredPos);
+  window.addEventListener('inknote:notebook-opened', () => {
+    requestAnimationFrame(applyClampedPreferredPos);
+  });
+  onSettingsChanged(({ changed }) => {
+    if (changed.includes('pagesSidebar') || changed.includes('dockSize')) {
+      requestAnimationFrame(applyClampedPreferredPos);
+    }
   });
 
   let pressTimer = null;
@@ -340,24 +408,33 @@ function initUndoRedoDrag() {
     el.classList.toggle('undo-redo-dragging', active);
   };
 
+  const beginDragging = () => {
+    if (dragging) return;
+    cancelPress();
+    dragging = true;
+    skipNextClick = true;
+    setDraggingVisual(true);
+    if (navigator.vibrate) {
+      try { navigator.vibrate(10); } catch {}
+    }
+  };
+
   const onDocumentPointerMove = (e) => {
     if (e.pointerId !== activePointerId) return;
 
-    if (!dragging) {
-      if (pressTimer) {
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        if (Math.hypot(dx, dy) > UNDO_REDO_MOVE_CANCEL_PX) {
-          cancelPress();
-          detachDocumentListeners();
-          activePointerId = null;
-        }
-      }
-      return;
-    }
-
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
+
+    if (!dragging) {
+      if (shouldStartUndoRedoDrag({
+        distancePx: Math.hypot(dx, dy)
+      })) {
+        beginDragging();
+      } else {
+        return;
+      }
+    }
+
     const pos = clampToViewport(origX + dx, origY + dy);
     el.style.left = `${pos.x}px`;
     el.style.top = `${pos.y}px`;
@@ -377,10 +454,11 @@ function initUndoRedoDrag() {
           x: Math.round(rect.left),
           y: Math.round(rect.top)
         };
+        hasCustomPos = true;
         localStorage.setItem(UNDO_REDO_POS_KEY, JSON.stringify(preferredPos));
       } catch {}
 
-      setTimeout(() => { skipNextClick = false; }, 50);
+      setTimeout(() => { skipNextClick = false; }, 60);
     }
 
     detachDocumentListeners();
@@ -415,10 +493,8 @@ function initUndoRedoDrag() {
     pressTimer = setTimeout(() => {
       pressTimer = null;
       if (activePointerId !== e.pointerId) return;
-      dragging = true;
-      skipNextClick = true;
-      setDraggingVisual(true);
-    }, UNDO_REDO_DRAG_PRESS_MS);
+      beginDragging();
+    }, UNDO_REDO_HOLD_FALLBACK_MS);
   });
 
   el.addEventListener('click', (e) => {

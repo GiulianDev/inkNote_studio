@@ -14,7 +14,7 @@ import { showProgressDialog } from '../../shared/backup/backup-progress.js';
 import {
   createNewPageDOM, scheduleResolutionRefresh, updateActivePageFromViewport,
   installViewportResizeObserver, refreshCanvasResolution, centerViewport,
-  cancelPendingPageTimers
+  cancelPendingPageTimers, getViewportDockClearance
 } from './pages.js';
 import { pagePool } from './page-pool.js';
 import { clearStrokeCache } from '../render/stroke-cache.js';
@@ -273,6 +273,11 @@ export async function openNotebook(id) {
       });
     }
 
+    document.getElementById('libraryView').classList.add('hidden');
+    window.dispatchEvent(new CustomEvent('inknote:notebook-opened', {
+      detail: { id: nb.id }
+    }));
+
     await new Promise(resolve => {
       requestAnimationFrame(() => {
         if (myToken !== _openToken) {
@@ -283,8 +288,10 @@ export async function openNotebook(id) {
         if (targetPage) {
           const vp = document.getElementById('viewport');
           viewport.scale = 1.0;
-          viewport.x = (vp.clientWidth - PAGE_WIDTH) / 2;
-          viewport.y = -targetPage.wrapper.offsetTop * viewport.scale + 20;
+          const pageLeft = targetPage.wrapper.offsetLeft;
+          const pageW = targetPage.wrapper.offsetWidth || PAGE_WIDTH;
+          viewport.x = vp.clientWidth / 2 - (pageLeft + pageW / 2) * viewport.scale;
+          viewport.y = -targetPage.wrapper.offsetTop * viewport.scale + getViewportDockClearance();
           invalidateClampCache();
           const c = clampViewport(viewport.x, viewport.y);
           viewport.x = c.x;
@@ -303,15 +310,9 @@ export async function openNotebook(id) {
 
     refreshPageCounter();
     resetHistory();
-    document.getElementById('libraryView').classList.add('hidden');
-    window.dispatchEvent(new CustomEvent('inknote:notebook-opened', {
-      detail: { id: nb.id }
-    }));
 
     if (wasUpgraded) {
       showToast(`Quaderno "${nb.title}" aggiornato al nuovo formato`, '✨');
-    } else {
-      showToast(`Quaderno "${nb.title}" aperto`, '📖');
     }
   } finally {
     if (myToken === _openToken) {

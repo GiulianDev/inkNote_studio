@@ -156,7 +156,7 @@ export function getAppGuideSections(platformInfo) {
         },
         {
           title: 'Sposta Annulla e Ripristina',
-          description: 'Tieni premuto sul pannello flottante Annulla / Ripristina per trascinarlo in qualsiasi angolo dello schermo.'
+          description: 'Trascina direttamente il pannello Annulla / Ripristina da qualsiasi punto per posizionarlo in qualsiasi angolo dello schermo.'
         }
       ]
     },

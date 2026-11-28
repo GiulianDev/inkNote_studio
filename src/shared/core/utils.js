@@ -3,6 +3,7 @@
 // ============================================================
 
 import { openModalOverlay } from '../components/modal.js';
+import { resolveToastIconHtml } from './ui-icons.js';
 
 export const PAGE_WIDTH  = 794;
 export const PAGE_HEIGHT = 1123;
@@ -121,13 +122,13 @@ export const emit = (name, detail) => _bus.dispatchEvent(new CustomEvent(name, {
 export const on   = (name, fn)     => _bus.addEventListener(name, e => fn(e.detail));
 
 // --- Notifiche UI ---
-export function showToast(msg, icon = 'ℹ️', durationMs = 2800) {
+export function showToast(msg, icon = 'info', durationMs = 2800) {
   const toast = document.getElementById('toastNotification');
   if (!toast) return;
   const msgEl  = document.getElementById('toastMessage');
   const iconEl = document.getElementById('toastIcon');
   if (msgEl)  msgEl.innerText  = msg;
-  if (iconEl) iconEl.innerText = icon;
+  if (iconEl) iconEl.innerHTML = resolveToastIconHtml(icon);
   toast.classList.remove('translate-y-2', 'opacity-0');
   toast.classList.add('translate-y-0', 'opacity-100');
   clearTimeout(toast._hideTimer);

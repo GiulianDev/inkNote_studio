@@ -246,6 +246,9 @@ export function openPagesSidebar({ silent = false } = {}) {
   _updateTabTitle();
   _syncSidebarTop();
   invalidateClampCache();
+  window.dispatchEvent(new CustomEvent('inknote:pages-sidebar-changed', {
+    detail: { open: true, position: sidebar.dataset.position || 'left' }
+  }));
 
   if (_thumbsNeedFullRebuild) {
     refreshThumbnails();
@@ -288,6 +291,9 @@ export function closePagesSidebar({ silent = false } = {}) {
   _isOpen = false;
   _updateTabTitle();
   invalidateClampCache();
+  window.dispatchEvent(new CustomEvent('inknote:pages-sidebar-changed', {
+    detail: { open: false, position: sidebar.dataset.position || 'left' }
+  }));
 
   if (!silent) {
     updateSettings(
@@ -311,6 +317,9 @@ function _applyPosition(position, { notifyResize = true } = {}) {
   document.body.classList.toggle('pages-sidebar-right', pos === 'right');
 
   if (notifyResize) invalidateClampCache();
+  window.dispatchEvent(new CustomEvent('inknote:pages-sidebar-changed', {
+    detail: { open: _isOpen, position: pos }
+  }));
 }
 
 function _updateTabTitle() {

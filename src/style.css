@@ -156,9 +156,24 @@ body.dark .page-wrapper {
    (toolbar e subbar gestite in features/toolbar/toolbar.css)
    ============================================================ */
 
+#zoomBadge {
+  bottom: 16px;
+  left: 16px;
+  right: auto;
+  transition: left 0.18s ease, right 0.18s ease, opacity 0.15s ease;
+}
+
+body.pages-sidebar-open.pages-sidebar-left #zoomBadge {
+  left: calc(var(--pages-sidebar-width, 180px) + 16px);
+}
+
 body.handed-left #zoomBadge {
   left: auto;
-  right: 1.5rem;
+  right: 16px;
+}
+
+body.handed-left.pages-sidebar-open.pages-sidebar-right #zoomBadge {
+  right: calc(var(--pages-sidebar-width, 180px) + 16px);
 }
 
 /* ============================================================
@@ -345,24 +360,198 @@ body.printing-pdf #newNotebookModal {
 }
 
 /* ============================================================
-   UNDO/REDO — stato "dragging" (long-press attivo)
-   Durante il trascinamento il pannello diventa più opaco e
-   con ombra più forte, per staccarsi ancora di più dalla carta.
+   UNDO/REDO & ZOOM HUD — coerenti con .ui-dock e tema chiaro/scuro
    ============================================================ */
+.hud-undo-redo {
+  gap: 2px;
+  padding: 4px;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.96);
+  color: #334155;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.14), 0 4px 10px -4px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: grab;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+body.dark .hud-undo-redo {
+  background: rgba(15, 23, 42, 0.95);
+  color: #e2e8f0;
+  border-color: #1e293b;
+  box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.55), 0 4px 12px -4px rgba(0, 0, 0, 0.35);
+}
+
+.hud-undo-redo-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.7rem;
+  color: #334155;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+
+.hud-undo-redo-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.hud-undo-redo-btn:active:not(:disabled) {
+  transform: scale(0.94);
+  background: #e2e8f0;
+}
+
+.hud-undo-redo-btn:disabled {
+  color: #cbd5e1;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+body.dark .hud-undo-redo-btn {
+  color: #e2e8f0;
+}
+
+body.dark .hud-undo-redo-btn:hover:not(:disabled) {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+body.dark .hud-undo-redo-btn:active:not(:disabled) {
+  background: #334155;
+}
+
+body.dark .hud-undo-redo-btn:disabled {
+  color: #475569;
+  opacity: 0.5;
+}
+
+.hud-undo-redo-divider {
+  width: 1px;
+  height: 22px;
+  background: #e2e8f0;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+body.dark .hud-undo-redo-divider {
+  background: #1e293b;
+}
+
 #undoRedoContainer.undo-redo-dragging {
+  cursor: grabbing;
+  border-color: #818cf8;
   box-shadow:
-    0 16px 40px -8px rgba(15, 23, 42, 0.55),
-    0 6px 16px -4px rgba(15, 23, 42, 0.35),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
+    0 18px 40px -8px rgba(79, 70, 229, 0.25),
+    0 8px 18px -4px rgba(15, 23, 42, 0.22);
   transform: scale(1.03);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
 body.dark #undoRedoContainer.undo-redo-dragging {
+  border-color: #6366f1;
   box-shadow:
-    0 16px 40px -8px rgba(0, 0, 0, 0.85),
-    0 6px 16px -4px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(255, 255, 255, 0.15);
+    0 18px 40px -8px rgba(0, 0, 0, 0.78),
+    0 6px 16px -4px rgba(99, 102, 241, 0.28);
+}
+
+.hud-zoom-bar {
+  gap: 2px;
+  padding: 4px;
+  border-radius: 0.875rem;
+  background: rgba(255, 255, 255, 0.96);
+  color: #334155;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 24px -6px rgba(15, 23, 42, 0.14), 0 4px 10px -4px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  touch-action: manipulation;
+}
+
+body.dark .hud-zoom-bar {
+  background: rgba(15, 23, 42, 0.95);
+  color: #e2e8f0;
+  border-color: #1e293b;
+  box-shadow: 0 14px 30px -8px rgba(0, 0, 0, 0.55), 0 4px 10px -4px rgba(0, 0, 0, 0.35);
+}
+
+.hud-zoom-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  color: #475569;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+
+.hud-zoom-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.hud-zoom-btn:active {
+  transform: scale(0.92);
+}
+
+body.dark .hud-zoom-btn {
+  color: #cbd5e1;
+}
+
+body.dark .hud-zoom-btn:hover {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+.hud-zoom-pct {
+  height: 30px;
+  min-width: 50px;
+  padding: 0 8px;
+  border-radius: 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #0f172a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.hud-zoom-pct:hover {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+body.dark .hud-zoom-pct {
+  color: #f1f5f9;
+}
+
+body.dark .hud-zoom-pct:hover {
+  background: #312e81;
+  color: #c7d2fe;
+}
+
+@media (max-width: 640px) {
+  #zoomBadge {
+    bottom: 12px;
+    left: 12px;
+  }
+  body.pages-sidebar-open.pages-sidebar-left #zoomBadge {
+    left: calc(var(--pages-sidebar-width, 140px) + 10px);
+  }
+  body.handed-left #zoomBadge {
+    right: 12px;
+  }
+  body.handed-left.pages-sidebar-open.pages-sidebar-right #zoomBadge {
+    right: calc(var(--pages-sidebar-width, 140px) + 10px);
+  }
 }
 
 /* ============================================================
