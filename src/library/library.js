@@ -72,6 +72,11 @@ let _dndController = null;
 let _newNotebookModalCtrl = null;
 let _lastRenderedFolderId;
 let _syncLibraryScrollState = null;
+let _externalLoadingActive = false;
+let _lastRenderIsEmpty = true;
+let _lastEmptyMeta = { isSearching: false, onlyFavorites: false, rawQuery: '' };
+let _loadingTitleText = 'Caricamento libreria...';
+let _loadingSubtitleText = 'Verifica account e archivio locale in corso';
 
 let _notebookHandlers = {
   openNotebook: null,
@@ -126,6 +131,73 @@ function _ensureNewNotebookModalCtrl() {
 // CONTROLLI & BREADCRUMBS
 // ============================================================
 
+function _applyGridDisplayClasses(grid, viewMode, shouldHide) {
+  if (!grid) return;
+  if (viewMode === 'list') {
+    grid.className = `${shouldHide ? 'hidden' : 'flex'} flex-col gap-1.5 min-w-0`;
+  } else {
+    grid.className = `${shouldHide ? 'hidden' : 'grid'} grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4 min-w-0`;
+  }
+}
+
+function _applyLibraryLoadingDOM() {
+  const loadingEl = document.getElementById('libraryLoadingState');
+  const titleEl = document.getElementById('libraryLoadingTitle');
+  const subEl = document.getElementById('libraryLoadingSubtitle');
+  const emptyMsg = document.getElementById('emptyLibraryMessage');
+  const grid = document.getElementById('notebooksGrid');
+  const viewMode = getSettings().libraryViewMode === 'list' ? 'list' : 'grid';
+
+  if (loadingEl) {
+    if (titleEl && _loadingTitleText) titleEl.textContent = _loadingTitleText;
+    if (subEl && _loadingSubtitleText !== undefined) subEl.textContent = _loadingSubtitleText;
+    loadingEl.classList.toggle('hidden', !_externalLoadingActive);
+    loadingEl.classList.toggle('flex', _externalLoadingActive);
+  }
+
+  if (_externalLoadingActive) {
+    _applyGridDisplayClasses(grid, viewMode, true);
+    if (emptyMsg) {
+      emptyMsg.classList.add('hidden');
+      emptyMsg.classList.remove('flex');
+    }
+  } else {
+    _applyGridDisplayClasses(grid, viewMode, _lastRenderIsEmpty);
+    _updateEmptyState({ isVisible: _lastRenderIsEmpty, ..._lastEmptyMeta });
+  }
+}
+
+export function setLibraryLoading(active, {
+  title = 'Caricamento libreria...',
+  subtitle = 'Verifica account e archivio locale in corso'
+} = {}) {
+  _externalLoadingActive = Boolean(active);
+  if (active) {
+    _loadingTitleText = title;
+    _loadingSubtitleText = subtitle;
+  }
+  _applyLibraryLoadingDOM();
+}
+
+export function resetLibraryForAccountSwitch() {
+  if (_selectionMode) _exitSelectionMode();
+  _currentFolderId = null;
+  _searchQuery = '';
+  _cachedFolders = [];
+  _cachedNotebooks = [];
+  _lastRenderedFolderId = undefined;
+  _lastRenderIsEmpty = true;
+  const searchInput = document.getElementById('librarySearchInput');
+  if (searchInput) searchInput.value = '';
+  const grid = document.getElementById('notebooksGrid');
+  if (grid) grid.innerHTML = '';
+  const emptyMsg = document.getElementById('emptyLibraryMessage');
+  if (emptyMsg) {
+    emptyMsg.classList.add('hidden');
+    emptyMsg.classList.remove('flex');
+  }
+}
+
 function _syncLibraryControlsToUI() {
   const s = getSettings();
   const sortSel = document.getElementById('librarySortSelect');
@@ -148,11 +220,7 @@ function _syncLibraryControlsToUI() {
   document.getElementById('libraryViewListBtn')?.classList.toggle('active', viewMode === 'list');
 
   const grid = document.getElementById('notebooksGrid');
-  if (grid) {
-    grid.className = viewMode === 'list'
-      ? 'flex flex-col gap-1.5 min-w-0'
-      : 'grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4 min-w-0';
-  }
+  _applyGridDisplayClasses(grid, viewMode, _externalLoadingActive || _lastRenderIsEmpty);
 
   const searchInput = document.getElementById('librarySearchInput');
   const clearBtn = document.getElementById('librarySearchClearBtn');
@@ -473,7 +541,7 @@ function _updateEmptyState({ isVisible, isSearching, onlyFavorites, rawQuery }) 
 
 export function renderLibraryView() {
   const token = ++_renderRequestToken;
-  Promise.all([loadAllNotebooksFromDB(), loadAllFoldersFromDB()]).then(([notebooks, folders]) => {
+  return Promise.all([loadAllNotebooksFromDB(), loadAllFoldersFromDB()]).then(([notebooks, folders]) => {
     if (token !== _renderRequestToken) return;
 
     _cachedNotebooks = notebooks || [];
@@ -497,14 +565,6 @@ export function renderLibraryView() {
     const rawQuery = _searchQuery.trim();
     const isSearching = rawQuery.length > 0;
 
-    _syncLibraryControlsToUI();
-    _renderBreadcrumbs(folderMap, rawQuery, onlyFavorites);
-
-    const grid = document.getElementById('notebooksGrid');
-    const emptyMsg = document.getElementById('emptyLibraryMessage');
-    if (!grid || !emptyMsg) return;
-    grid.innerHTML = '';
-
     const folderCounts = computeFolderCounts(_cachedFolders, _cachedNotebooks, folderMap);
     const previewMap = buildFolderPreviewMap(_cachedFolders, _cachedNotebooks, folderMap);
 
@@ -519,6 +579,18 @@ export function renderLibraryView() {
 
     visibleFolders.sort((a, b) => compareFolders(a, b, sortBy, sortDir, folderCounts));
     visibleNotebooks.sort((a, b) => compareNotebooks(a, b, sortBy, sortDir));
+
+    const isEmpty = visibleFolders.length === 0 && visibleNotebooks.length === 0;
+    _lastRenderIsEmpty = isEmpty;
+    _lastEmptyMeta = { isSearching, onlyFavorites, rawQuery };
+
+    _syncLibraryControlsToUI();
+    _renderBreadcrumbs(folderMap, rawQuery, onlyFavorites);
+
+    const grid = document.getElementById('notebooksGrid');
+    const emptyMsg = document.getElementById('emptyLibraryMessage');
+    if (!grid || !emptyMsg) return;
+    grid.innerHTML = '';
 
     const visibleNbIds = new Set(visibleNotebooks.map(n => n.id));
     for (const id of Array.from(selectedNotebookIds)) {
@@ -554,9 +626,8 @@ export function renderLibraryView() {
     }
 
     const showPathTags = isSearching || (onlyFavorites && _currentFolderId === null);
-    const isEmpty = visibleFolders.length === 0 && visibleNotebooks.length === 0;
 
-    _updateEmptyState({ isVisible: isEmpty, isSearching, onlyFavorites, rawQuery });
+    _applyLibraryLoadingDOM();
 
     if (!isEmpty) {
       const fragment = document.createDocumentFragment();
@@ -646,6 +717,9 @@ export function renderLibraryView() {
     console.error('[library] render failed:', err);
     _cachedNotebooks = [];
     _cachedFolders = [];
+    _lastRenderIsEmpty = true;
+    _externalLoadingActive = false;
+    _applyLibraryLoadingDOM();
     const grid = document.getElementById('notebooksGrid');
     if (grid) grid.innerHTML = '';
     const emptyMsg = document.getElementById('emptyLibraryMessage');
@@ -815,7 +889,9 @@ async function _handleDeleteFolder(folder) {
 
   if (!confirmed) return;
 
+  const progress = showProgressDialog('Eliminazione raccolta...');
   try {
+    progress.update({ done: 0, total: 0, label: `Rimozione di "${folder.name}"...` });
     if (deleteContents && subtree.nestedNotebooks.length > 0) {
       for (const nb of subtree.nestedNotebooks) {
         if (nb?.id) _closeNotebookIfOpen(nb.id);
@@ -846,6 +922,8 @@ async function _handleDeleteFolder(folder) {
   } catch (err) {
     console.error('[library] delete collection failed:', err);
     showToast('Eliminazione raccolta fallita', '❌');
+  } finally {
+    progress.close();
   }
 }
 
@@ -880,11 +958,15 @@ async function _handleMoveSelection() {
   });
   if (destId === undefined) return;
 
+  const progress = showProgressDialog('Spostamento in corso...');
   try {
+    let moved = 0;
     for (const id of nbIds) {
+      progress.update({ done: ++moved, total, label: 'Aggiornamento quaderni...' });
       await updateNotebookMetadataInDB(id, { folderId: destId });
     }
     for (const fid of fldIds) {
+      progress.update({ done: ++moved, total, label: 'Aggiornamento raccolte...' });
       const folder = _cachedFolders.find(f => f.id === fid);
       if (folder && (folder.parentId || null) !== destId) {
         await saveFolderToDB({ ...folder, parentId: destId });
@@ -905,6 +987,8 @@ async function _handleMoveSelection() {
   } catch (err) {
     console.error('[library] move selection failed:', err);
     showToast('Spostamento fallito', '❌');
+  } finally {
+    progress.close();
   }
 }
 
@@ -1016,7 +1100,9 @@ async function _handleDuplicateSelection() {
 
   const directNbIds = Array.from(selectedNotebookIds);
   const directFldIds = Array.from(selectedFolderIds);
+  const progress = showProgressDialog('Duplicazione in corso...');
   try {
+    progress.update({ done: 0, total: 0, label: 'Lettura elementi selezionati...' });
     const [allNotebooks, allFolders] = await Promise.all([
       loadAllNotebooksFromDB(),
       loadAllFoldersFromDB()
@@ -1168,6 +1254,7 @@ async function _handleDuplicateSelection() {
     console.error('[duplicate-selection] failed:', err);
     showToast('Duplicazione fallita', '❌');
   } finally {
+    progress.close();
     _isDuplicating = false;
     _updateSelectionBar();
   }
@@ -1281,7 +1368,9 @@ async function _handleDeleteSelection() {
 
   if (!confirmed) return;
 
+  const progress = showProgressDialog('Eliminazione in corso...');
   try {
+    progress.update({ done: 0, total: 0, label: 'Chiusura salvataggi e rimozione dati...' });
     for (const nbId of nbIds) {
       _closeNotebookIfOpen(nbId);
     }
@@ -1311,6 +1400,8 @@ async function _handleDeleteSelection() {
   } catch (err) {
     console.error('[delete-selection] failed:', err);
     showToast('Eliminazione fallita', '❌');
+  } finally {
+    progress.close();
   }
 }
 
@@ -1394,7 +1485,10 @@ async function _confirmCreateNotebook() {
   if (_isCreatingNotebook) return;
   _isCreatingNotebook = true;
   const confirmBtn = document.getElementById('confirmCreateNbBtn');
-  if (confirmBtn) confirmBtn.disabled = true;
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" aria-hidden="true"></span><span>Creazione...</span></span>';
+  }
 
   try {
     const title = document.getElementById('modalNbTitle')?.value.trim() || 'Nuovo Quaderno';
@@ -1430,7 +1524,10 @@ async function _confirmCreateNotebook() {
     showToast('Creazione quaderno fallita: verifica lo spazio disponibile', '❌', 5000);
   } finally {
     _isCreatingNotebook = false;
-    if (confirmBtn) confirmBtn.disabled = false;
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Crea Quaderno';
+    }
   }
 }
 
@@ -1443,7 +1540,9 @@ async function _deleteNotebook(_e, id) {
   });
   if (!confirmed) return;
 
+  const progress = showProgressDialog('Eliminazione quaderno...');
   try {
+    progress.update({ done: 0, total: 0, label: 'Rimozione dal database locale...' });
     _closeNotebookIfOpen(id);
     await waitForPendingSaves();
     await deleteNotebookFromDB(id);
@@ -1454,6 +1553,8 @@ async function _deleteNotebook(_e, id) {
   } catch (err) {
     console.error('[library] delete notebook failed:', err);
     showToast('Eliminazione quaderno fallita', '❌');
+  } finally {
+    progress.close();
   }
 }
 

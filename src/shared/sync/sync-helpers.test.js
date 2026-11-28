@@ -206,15 +206,25 @@ test('reconcileSyncSets handles upload, download, tombstones, metadata signature
 test('local tombstones, sync state, daily usage, sha256, and formatting work deterministically', async () => {
   const storage = createMemoryStorage();
 
-  recordLocalDeletion('notebooks', 'nb_1', 1700000000000, storage);
-  recordLocalDeletion('folders', 'fl_1', 1700000005000, storage);
-  let tombs = loadLocalTombstones(storage);
-  assert.equal(tombs.notebooks.nb_1, 1700000000000);
-  assert.equal(tombs.folders.fl_1, 1700000005000);
+  recordLocalDeletion('notebooks', 'nb_1', 1700000000000, 'uid_1', storage);
+  recordLocalDeletion('folders', 'fl_1', 1700000005000, 'uid_1', storage);
+  recordLocalDeletion('notebooks', 'nb_other', 1700000009000, 'uid_2', storage);
+  // Guest (empty/null uid) deletions must not write sync tombstones
+  recordLocalDeletion('notebooks', 'nb_guest', 1700000010000, '', storage);
 
-  clearLocalDeletion('notebooks', 'nb_1', storage);
-  tombs = loadLocalTombstones(storage);
-  assert.equal('nb_1' in tombs.notebooks, false);
+  let tombs1 = loadLocalTombstones('uid_1', storage);
+  const tombs2 = loadLocalTombstones('uid_2', storage);
+  const tombsGuest = loadLocalTombstones('', storage);
+  assert.equal(tombs1.notebooks.nb_1, 1700000000000);
+  assert.equal(tombs1.folders.fl_1, 1700000005000);
+  assert.equal('nb_other' in tombs1.notebooks, false);
+  assert.equal(tombs2.notebooks.nb_other, 1700000009000);
+  assert.deepEqual(tombsGuest, { folders: {}, notebooks: {} });
+
+  clearLocalDeletion('notebooks', 'nb_1', 'uid_1', storage);
+  tombs1 = loadLocalTombstones('uid_1', storage);
+  assert.equal('nb_1' in tombs1.notebooks, false);
+  assert.equal(loadLocalTombstones('uid_2', storage).notebooks.nb_other, 1700000009000);
 
   saveUserSyncState('uid_1', {
     lastSyncAt: '2026-11-27T12:00:00.000Z',

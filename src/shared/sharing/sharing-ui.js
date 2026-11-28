@@ -313,6 +313,7 @@ export async function initSharingSession(user) {
     return;
   }
 
+  const prevSessionUid = _sessionUid;
   _teardownSharingListeners();
   _sessionUid = nextUid;
   _sessionSyncError = '';
@@ -321,6 +322,10 @@ export async function initSharingSession(user) {
   _incomingTransfers = [];
   _outgoingTransfers = [];
   _syncSharingBadgesUI();
+
+  if (prevSessionUid !== nextUid && _activeModalState?.close) {
+    _activeModalState.close();
+  }
 
   if (!accountUser || !isFirestoreReady()) {
     const fromUrl = parseInviteHandleFromUrl(window.location.search);

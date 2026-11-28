@@ -11,6 +11,7 @@ import {
   loadAllFoldersFromDB,
   saveFolderToDB
 } from '../services/db.js';
+import { resolveCollisionSafeId } from '../services/db-scope-helpers.js';
 import { showToast, escapeHtml } from '../core/utils.js';
 import { openModalOverlay } from '../components/modal.js';
 import { getCurrentNotebook, waitForPendingSaves } from '../persistence/session.js';
@@ -27,7 +28,7 @@ export function registerBackupNotebookHandlers({ closeNotebookIfOpen } = {}) {
   };
 }
 
-async function _resolveImportedFolderId(nb, folderById, folderByParentName) {
+async function _resolveImportedFolderId(nb, folderById, folderByParentName, usedFolderIdsAnyOwner) {
   if (Array.isArray(nb.folderPath) && nb.folderPath.length > 0) {
     let parentId = null;
     for (const node of nb.folderPath) {
@@ -41,9 +42,8 @@ async function _resolveImportedFolderId(nb, folderById, folderByParentName) {
         : folderByParentName.get(key);
 
       if (!target) {
-        const newId = (node.id && !folderById.has(node.id))
-          ? node.id
-          : `fld_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const newId = resolveCollisionSafeId(node.id, usedFolderIdsAnyOwner, 'fld_');
+        usedFolderIdsAnyOwner?.add(newId);
         target = await saveFolderToDB({ id: newId, name, parentId, color });
         if (target) {
           folderById.set(target.id, target);
@@ -69,8 +69,12 @@ export async function importNotebooks(file, onProgress) {
     return null;
   }
 
-  const local = await loadAllNotebooksFromDB();
+  const [local, allNotebooksAnyOwner] = await Promise.all([
+    loadAllNotebooksFromDB(),
+    loadAllNotebooksFromDB({ includeAllOwners: true })
+  ]);
   const localById = new Map(local.map(n => [n.id, n]));
+  const usedNotebookIdsAnyOwner = new Set(allNotebooksAnyOwner.map(n => n.id).filter(Boolean));
 
   const conflicts = [];
   (preview || []).forEach((p, idx) => {
@@ -101,6 +105,10 @@ export async function importNotebooks(file, onProgress) {
     const localNb = localById.get(nb.id);
 
     if (!localNb) {
+      if (usedNotebookIdsAnyOwner.has(nb.id)) {
+        nb.id = `nb_${baseTs}_${renameSeq++}_${Math.random().toString(36).slice(2, 8)}`;
+      }
+      usedNotebookIdsAnyOwner.add(nb.id);
       imported.push({ nb, replaceAllPages: false });
       existingNames.add((nb.title || '').toLowerCase());
       continue;
@@ -123,11 +131,16 @@ export async function importNotebooks(file, onProgress) {
     }
     nb.title = newName;
     nb.id = `nb_${baseTs}_${renameSeq++}_${Math.random().toString(36).slice(2, 8)}`;
+    usedNotebookIdsAnyOwner.add(nb.id);
     existingNames.add(newName.toLowerCase());
     imported.push({ nb, replaceAllPages: false });
   }
 
-  const existingFolders = await loadAllFoldersFromDB();
+  const [existingFolders, allFoldersAnyOwner] = await Promise.all([
+    loadAllFoldersFromDB(),
+    loadAllFoldersFromDB({ includeAllOwners: true })
+  ]);
+  const usedFolderIdsAnyOwner = new Set(allFoldersAnyOwner.filter(f => f && f.id).map(f => f.id));
   const folderById = new Map(existingFolders.filter(f => f && f.id).map(f => [f.id, f]));
   const folderByParentName = new Map(
     existingFolders
@@ -162,9 +175,8 @@ export async function importNotebooks(file, onProgress) {
         : folderByParentName.get(key);
 
       if (!target) {
-        const newId = !folderById.has(expFld.id)
-          ? expFld.id
-          : `fld_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const newId = resolveCollisionSafeId(expFld.id, usedFolderIdsAnyOwner, 'fld_');
+        usedFolderIdsAnyOwner.add(newId);
         target = await saveFolderToDB({
           id: newId,
           name,
@@ -195,7 +207,7 @@ export async function importNotebooks(file, onProgress) {
     if (typeof nb.folderId === 'string' && exportedIdToLocalId.has(nb.folderId)) {
       nb.folderId = exportedIdToLocalId.get(nb.folderId);
     } else {
-      nb.folderId = await _resolveImportedFolderId(nb, folderById, folderByParentName);
+      nb.folderId = await _resolveImportedFolderId(nb, folderById, folderByParentName, usedFolderIdsAnyOwner);
     }
     delete nb.folderPath;
 

@@ -5,9 +5,11 @@
  *   - Mostra account connesso, riepilogo locale, ultimo sync e stima consumi odierni.
  *   - Avvia `runManualCloudSync` solo su click esplicito dell'utente.
  *   - Gestisce la risoluzione interattiva dei conflitti (Mantieni locale / Usa cloud / Mantieni entrambi / Salta).
+ *   - Layout flex vincolato al viewport (`max-h-[90dvh]`) con header/footer fissi e corpo scrollabile,
+ *     così pulsanti di chiusura/azione e conflitti restano sempre raggiungibili anche da smartphone.
  */
 
-import { escapeHtml, showToast, emit } from '../core/utils.js';
+import { escapeHtml, showToast, emit, on } from '../core/utils.js';
 import { authState } from '../core/state.js';
 import {
   isFirestoreReady,
@@ -151,6 +153,41 @@ function _formatCloudCountsText(notebooksCount, foldersCount) {
   return fl > 0 ? `${nbLabel} · ${flLabel}` : nbLabel;
 }
 
+function _updateSyncProgressInPlace(label) {
+  if (!_activeState?.bodyEl) return false;
+  const labelEl = _activeState.bodyEl.querySelector('[data-sync-progress-label]');
+  if (!labelEl) return false;
+  labelEl.textContent = label || 'Sincronizzazione in corso...';
+  return true;
+}
+
+function _requestAbortActiveSync() {
+  if (!_activeState) return;
+  if (_activeState.conflictResolve) {
+    const resolve = _activeState.conflictResolve;
+    _activeState.conflicts = null;
+    _activeState.conflictResolve = null;
+    _activeState.cancelling = true;
+    _activeState.abortController?.abort();
+    _renderModalBody();
+    resolve(null);
+    return;
+  }
+  if (!_activeState.syncing || _activeState.cancelling) return;
+  _activeState.cancelling = true;
+  _activeState.progressText = 'Annullamento sincronizzazione in corso...';
+  _activeState.abortController?.abort();
+
+  const abortBtn = _activeState.bodyEl?.querySelector('[data-sync-abort]');
+  if (abortBtn) {
+    abortBtn.disabled = true;
+    abortBtn.textContent = 'Annullamento...';
+  }
+  if (!_updateSyncProgressInPlace(_activeState.progressText)) {
+    _renderModalBody();
+  }
+}
+
 async function _checkCloudPresenceForModal(modalCtrl) {
   if (!_activeState || _activeState.modalCtrl !== modalCtrl) return;
   const user = _activeState.user;
@@ -195,7 +232,9 @@ function _renderModalBody() {
     checkingCloud,
     cloudInventory,
     cloudCheckError,
+    signingIn,
     syncing,
+    cancelling,
     progressText,
     result,
     errorInfo,
@@ -204,8 +243,10 @@ function _renderModalBody() {
   } = _activeState;
   if (!bodyEl) return;
 
+  // Consenti sempre la chiusura via X / backdrop / Escape quando non c'è un sync attivo
+  // oppure mentre è aperto il picker dei conflitti (che annulla cleanly la risoluzione).
   modalCtrl.updateOptions({
-    canClose: () => !syncing && !conflictResolve
+    canClose: () => !syncing || Boolean(conflictResolve)
   });
 
   if (conflicts && conflicts.length > 0 && conflictResolve) {
@@ -225,7 +266,7 @@ function _renderModalBody() {
   const isSignedIn = !!(user && !user.isAnonymous);
   const hasDeviceSynced = Boolean(overview?.lastSyncAt);
   const lastSyncLabel = !overview
-    ? '—'
+    ? 'Caricamento...'
     : hasDeviceSynced
       ? formatSyncTimestampIt(overview.lastSyncAt)
       : 'Mai su questo dispositivo';
@@ -290,8 +331,54 @@ function _renderModalBody() {
     }
   }
 
+  const localSummaryHtml = !overview
+    ? `
+      <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200">
+        <span class="w-3 h-3 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin inline-block" aria-hidden="true"></span>
+        <span>Lettura archivio...</span>
+      </span>
+    `
+    : `<span class="font-semibold text-slate-800 dark:text-slate-200">${overview.localNotebooksCount} quaderni · ${overview.localFoldersCount} raccolte</span>`;
+
+  const footerActionsHtml = syncing ? `
+    <button type="button" data-sync-abort ${cancelling ? 'disabled' : ''}
+      style="touch-action: manipulation;"
+      class="px-3.5 py-2 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-50 transition cursor-pointer">
+      ${cancelling ? 'Annullamento...' : 'Annulla sync'}
+    </button>
+    <button type="button" disabled
+      style="touch-action: manipulation;"
+      class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 opacity-75 text-white shadow-sm inline-flex items-center gap-2">
+      <span class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin shrink-0" aria-hidden="true"></span>
+      <span>Sincronizzazione...</span>
+    </button>
+  ` : `
+    <button type="button" data-sync-close
+      style="touch-action: manipulation;"
+      class="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
+      Chiudi
+    </button>
+    ${!firestoreAvailable ? `
+      <span class="text-xs font-semibold text-amber-600 dark:text-amber-400">Firebase non configurato</span>
+    ` : !isSignedIn ? `
+      <button type="button" data-sync-signin ${signingIn ? 'disabled' : ''}
+        style="touch-action: manipulation;"
+        class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white shadow-sm transition cursor-pointer inline-flex items-center gap-2">
+        ${signingIn ? '<span class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin shrink-0" aria-hidden="true"></span><span>Accesso...</span>' : 'Accedi con Google'}
+      </button>
+    ` : `
+      <button type="button" data-sync-start ${!overview ? 'disabled' : ''}
+        style="touch-action: manipulation;"
+        class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white shadow-sm transition cursor-pointer">
+        Avvia sincronizzazione ora
+      </button>
+    `}
+  `;
+
   bodyEl.innerHTML = `
-    <div class="space-y-4">
+    <div data-sync-scroll-body
+      class="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar p-4 sm:p-5 space-y-4"
+      style="touch-action: pan-y; -webkit-overflow-scrolling: touch;">
       <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 p-3.5">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
@@ -305,14 +392,12 @@ function _renderModalBody() {
             Solo manuale
           </span>
         </div>
-        <div class="mt-3 pt-2.5 border-t border-slate-200/80 dark:border-slate-700/70 grid grid-cols-2 gap-2 text-xs">
+        <div class="mt-3 pt-2.5 border-t border-slate-200/80 dark:border-slate-700/70 grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-xs">
           <div>
             <span class="text-slate-500 dark:text-slate-400">Archivio locale:</span>
-            <span class="font-semibold text-slate-800 dark:text-slate-200">
-              ${overview ? `${overview.localNotebooksCount} quaderni · ${overview.localFoldersCount} raccolte` : '—'}
-            </span>
+            ${localSummaryHtml}
           </div>
-          <div class="text-right">
+          <div class="sm:text-right">
             <span class="text-slate-500 dark:text-slate-400">Sync questo device:</span>
             <span class="font-semibold text-slate-800 dark:text-slate-200">${escapeHtml(lastSyncLabel)}</span>
           </div>
@@ -352,10 +437,10 @@ function _renderModalBody() {
       </div>
 
       ${syncing ? `
-        <div class="rounded-xl border border-indigo-200 dark:border-indigo-800/70 bg-indigo-50/70 dark:bg-indigo-950/30 p-3.5">
+        <div class="rounded-xl border border-indigo-200 dark:border-indigo-800/70 bg-indigo-50/70 dark:bg-indigo-950/30 p-3.5" role="status" aria-live="polite">
           <div class="flex items-center gap-2.5">
             <span class="w-4 h-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin shrink-0" aria-hidden="true"></span>
-            <p class="text-xs font-medium text-indigo-900 dark:text-indigo-200">${escapeHtml(progressText || 'Sincronizzazione in corso...')}</p>
+            <p data-sync-progress-label class="text-xs font-medium text-indigo-900 dark:text-indigo-200">${escapeHtml(progressText || 'Sincronizzazione in corso...')}</p>
           </div>
         </div>
       ` : ''}
@@ -389,34 +474,19 @@ function _renderModalBody() {
           ` : ''}
         </div>
       ` : ''}
+    </div>
 
-      <div class="flex items-center justify-end gap-2 pt-1">
-        <button type="button" data-sync-close ${syncing ? 'disabled' : ''}
-          style="touch-action: manipulation;"
-          class="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 transition cursor-pointer">
-          Chiudi
-        </button>
-        ${!firestoreAvailable ? `
-          <span class="text-xs font-semibold text-amber-600 dark:text-amber-400">Firebase non configurato</span>
-        ` : !isSignedIn ? `
-          <button type="button" data-sync-signin
-            style="touch-action: manipulation;"
-            class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition cursor-pointer">
-            Accedi con Google
-          </button>
-        ` : `
-          <button type="button" data-sync-start ${syncing ? 'disabled' : ''}
-            style="touch-action: manipulation;"
-            class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white shadow-sm transition cursor-pointer">
-            ${syncing ? 'Sincronizzazione...' : 'Avvia sincronizzazione ora'}
-          </button>
-        `}
-      </div>
+    <div data-sync-footer class="shrink-0 px-4 sm:px-5 py-3 sm:py-3.5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-end gap-2">
+      ${footerActionsHtml}
     </div>
   `;
 
   bodyEl.querySelector('[data-sync-close]')?.addEventListener('click', () => {
-    if (!_activeState?.syncing) modalCtrl.close('button');
+    modalCtrl.close('button');
+  });
+
+  bodyEl.querySelector('[data-sync-abort]')?.addEventListener('click', () => {
+    _requestAbortActiveSync();
   });
 
   bodyEl.querySelector('[data-sync-recheck]')?.addEventListener('click', () => {
@@ -424,9 +494,13 @@ function _renderModalBody() {
   });
 
   bodyEl.querySelector('[data-sync-signin]')?.addEventListener('click', async () => {
+    if (!_activeState || _activeState.signingIn) return;
+    _activeState.signingIn = true;
+    _activeState.errorInfo = null;
+    _renderModalBody();
     try {
       const signed = await signInWithGoogle();
-      if (signed && _activeState) {
+      if (signed && _activeState && _activeState.modalCtrl === modalCtrl) {
         _activeState.user = signed;
         _activeState.errorInfo = null;
         _activeState.overview = await getManualSyncOverview(signed.uid);
@@ -436,8 +510,12 @@ function _renderModalBody() {
         }
       }
     } catch (err) {
-      if (_activeState) {
+      if (_activeState && _activeState.modalCtrl === modalCtrl) {
         _activeState.errorInfo = _formatSyncError(err);
+      }
+    } finally {
+      if (_activeState && _activeState.modalCtrl === modalCtrl) {
+        _activeState.signingIn = false;
         _renderModalBody();
       }
     }
@@ -514,37 +592,42 @@ function _renderConflictPicker() {
   }).join('');
 
   bodyEl.innerHTML = `
-    <div class="space-y-3">
+    <div data-sync-scroll-body
+      class="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar p-4 sm:p-5 space-y-3"
+      style="touch-action: pan-y; -webkit-overflow-scrolling: touch;">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <p class="text-xs font-semibold text-slate-800 dark:text-slate-100">
           Trovati ${conflicts.length} ${conflicts.length === 1 ? 'elemento con conflitto' : 'elementi con conflitti'}
         </p>
         <div class="flex items-center gap-1.5">
           <button type="button" data-all-choice="keep_local"
+            style="touch-action: manipulation;"
             class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer">
             Tutti locali
           </button>
           <button type="button" data-all-choice="use_cloud"
+            style="touch-action: manipulation;"
             class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer">
             Tutti cloud
           </button>
         </div>
       </div>
-      <div class="max-h-72 overflow-y-auto custom-scrollbar space-y-2.5 pr-1">
+      <div class="space-y-2.5">
         ${rowsHtml}
       </div>
-      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-        <button type="button" data-conflict-cancel
-          style="touch-action: manipulation;"
-          class="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
-          Annulla sync
-        </button>
-        <button type="button" data-conflict-apply
-          style="touch-action: manipulation;"
-          class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer">
-          Conferma e continua
-        </button>
-      </div>
+    </div>
+
+    <div data-sync-footer class="shrink-0 px-4 sm:px-5 py-3 sm:py-3.5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-end gap-2">
+      <button type="button" data-conflict-cancel
+        style="touch-action: manipulation;"
+        class="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+        Annulla sync
+      </button>
+      <button type="button" data-conflict-apply
+        style="touch-action: manipulation;"
+        class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer">
+        Conferma e continua
+      </button>
     </div>
   `;
 
@@ -571,6 +654,8 @@ function _renderConflictPicker() {
     const resolve = _activeState.conflictResolve;
     _activeState.conflicts = null;
     _activeState.conflictResolve = null;
+    _activeState.cancelling = true;
+    _activeState.abortController?.abort();
     _renderModalBody();
     resolve(null);
   });
@@ -588,7 +673,10 @@ function _renderConflictPicker() {
 
 async function _executeSyncFromModal() {
   if (!_activeState || _activeState.syncing || isCloudSyncRunning()) return;
+  const abortController = new AbortController();
   _activeState.syncing = true;
+  _activeState.cancelling = false;
+  _activeState.abortController = abortController;
   _activeState.errorInfo = null;
   _activeState.result = null;
   _activeState.progressText = 'Preparazione sincronizzazione...';
@@ -596,13 +684,21 @@ async function _executeSyncFromModal() {
 
   try {
     const res = await runManualCloudSync({
+      signal: abortController.signal,
       onProgress: ({ label }) => {
         if (!_activeState) return;
-        _activeState.progressText = label || 'Sincronizzazione in corso...';
-        _renderModalBody();
+        const nextLabel = _activeState.cancelling
+          ? 'Annullamento sincronizzazione in corso...'
+          : (label || 'Sincronizzazione in corso...');
+        _activeState.progressText = nextLabel;
+        // Aggiorna solo il testo in-place se la vista syncing è già montata,
+        // evitando di ricreare i pulsanti del footer durante il tap.
+        if (!_updateSyncProgressInPlace(nextLabel)) {
+          _renderModalBody();
+        }
       },
       onConflicts: (conflicts) => new Promise((resolve) => {
-        if (!_activeState) {
+        if (!_activeState || abortController.signal.aborted) {
           resolve(null);
           return;
         }
@@ -632,7 +728,20 @@ async function _executeSyncFromModal() {
 
     refreshUserMenuSyncBadge();
 
-    if (!res.abortedByUser) {
+    if (res.abortedByUser) {
+      showToast('Sincronizzazione annullata', 'ℹ️');
+      const hasPartial = (
+        res.uploadedFolders +
+        res.downloadedFolders +
+        res.uploadedNotebooks +
+        res.downloadedNotebooks +
+        res.deletedCloud +
+        res.deletedLocal
+      ) > 0;
+      if (hasPartial) {
+        emit('library:refresh');
+      }
+    } else {
       emit('library:refresh');
 
       if (res.deletedOpenNotebook && res.openNotebookId) {
@@ -655,12 +764,37 @@ async function _executeSyncFromModal() {
   } finally {
     if (_activeState) {
       _activeState.syncing = false;
+      _activeState.cancelling = false;
+      _activeState.abortController = null;
       _activeState.conflicts = null;
       _activeState.conflictResolve = null;
       _renderModalBody();
     }
   }
 }
+
+async function _refreshModalOverviewFromSessionChange() {
+  if (!_activeState || _activeState.syncing || _activeState.signingIn) return;
+  const currentModalCtrl = _activeState.modalCtrl;
+  const user = authState.user && !authState.user.isAnonymous ? authState.user : null;
+  _activeState.user = user;
+  _activeState.cloudInventory = null;
+  _activeState.cloudCheckError = '';
+  _activeState.overview = await getManualSyncOverview(user?.uid || '');
+  if (!_activeState || _activeState.modalCtrl !== currentModalCtrl) return;
+  _renderModalBody();
+  if (isFirestoreReady() && user && user.emailVerified && !_activeState.overview?.lastSyncAt) {
+    void _checkCloudPresenceForModal(currentModalCtrl);
+  }
+}
+
+on('auth:changed', () => {
+  void _refreshModalOverviewFromSessionChange();
+});
+
+on('library:guest-claimed', () => {
+  void _refreshModalOverviewFromSessionChange();
+});
 
 /**
  * Apre la modale dedicata alla sincronizzazione manuale cloud.
@@ -672,10 +806,10 @@ export async function openCloudSyncModal() {
 
   const overlay = document.createElement('div');
   overlay.id = 'cloudSyncModal';
-  overlay.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[105] flex items-center justify-center p-4';
+  overlay.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[105] flex items-center justify-center p-3 sm:p-4';
   overlay.innerHTML = `
-    <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+    <div id="cloudSyncCard" class="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full max-h-[90dvh] sm:max-h-[85vh] shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden">
+      <div class="shrink-0 px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
         <div class="flex items-center gap-2.5 min-w-0">
           <div class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -691,13 +825,13 @@ export async function openCloudSyncModal() {
         </div>
         <button type="button" id="cloudSyncCloseX" aria-label="Chiudi finestra sincronizzazione"
           style="touch-action: manipulation;"
-          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
+          class="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
         </button>
       </div>
-      <div id="cloudSyncModalBody" class="p-5"></div>
+      <div id="cloudSyncModalBody" class="flex-1 min-h-0 flex flex-col overflow-hidden"></div>
     </div>
   `;
 
@@ -708,6 +842,9 @@ export async function openCloudSyncModal() {
     id: 'cloudSyncModal',
     ariaLabel: 'Sincronizzazione Cloud',
     onClose: () => {
+      if (_activeState?.abortController) {
+        _activeState.abortController.abort();
+      }
       if (_activeState?.conflictResolve) {
         _activeState.conflictResolve(null);
       }
@@ -724,7 +861,10 @@ export async function openCloudSyncModal() {
     checkingCloud: false,
     cloudInventory: null,
     cloudCheckError: '',
+    signingIn: false,
     syncing: false,
+    cancelling: false,
+    abortController: null,
     progressText: '',
     result: null,
     errorInfo: null,
@@ -734,9 +874,11 @@ export async function openCloudSyncModal() {
   };
 
   overlay.querySelector('#cloudSyncCloseX')?.addEventListener('click', () => {
-    if (!_activeState?.syncing && !_activeState?.conflictResolve) {
-      modalCtrl.close('close-x');
+    if (_activeState?.syncing && !_activeState?.conflictResolve) {
+      _requestAbortActiveSync();
+      return;
     }
+    modalCtrl.close('close-x');
   });
 
   _renderModalBody();

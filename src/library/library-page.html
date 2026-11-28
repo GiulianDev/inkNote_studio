@@ -279,7 +279,12 @@
     <!-- SEZIONE SCROLLABILE QUADERNI E RACCOLTE -->
     <div id="libraryNotebooksScroll" class="h-full w-full overflow-y-auto overflow-x-hidden custom-scrollbar px-4 sm:px-6 md:px-10 pb-6 sm:pb-10 flex flex-col">
     <div class="max-w-6xl w-full mx-auto flex-1 min-w-0">
-        <div id="notebooksGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4 min-w-0"></div>
+        <div id="libraryLoadingState" class="flex flex-col items-center justify-center py-20 text-center text-slate-500 dark:text-slate-400" role="status" aria-live="polite">
+          <span class="w-8 h-8 rounded-full border-[2.5px] border-indigo-600 dark:border-indigo-400 border-t-transparent animate-spin mb-3" aria-hidden="true"></span>
+          <p id="libraryLoadingTitle" class="font-semibold text-sm text-slate-700 dark:text-slate-200">Caricamento libreria...</p>
+          <p id="libraryLoadingSubtitle" class="text-xs text-slate-500 dark:text-slate-400 mt-1">Verifica account e archivio locale in corso</p>
+        </div>
+        <div id="notebooksGrid" class="hidden grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4 min-w-0"></div>
         <div id="emptyLibraryMessage" class="hidden flex-col items-center justify-center py-20 text-center text-slate-400">
         <span id="emptyLibraryIcon" class="mb-3 inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-800/70 text-slate-400 dark:text-slate-500" aria-hidden="true">
           <svg class="w-11 h-11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">

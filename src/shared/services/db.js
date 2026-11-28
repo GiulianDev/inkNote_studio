@@ -5,18 +5,36 @@
 
 import { generatePageId } from '../core/utils.js';
 import { recordLocalDeletion, clearLocalDeletion } from '../sync/sync-helpers.js';
+import {
+  normalizeOwnerUid,
+  getRecordOwnerUid,
+  belongsToOwner,
+  filterRecordsByOwner,
+  resolveStampedOwnerUid,
+  summarizeGuestLibraryRecords,
+  computeGuestClaimSignature
+} from './db-scope-helpers.js';
 
 const DB_NAME = 'InkNoteStudioDB';
 const DB_VERSION = 5;
 export const CURRENT_NOTEBOOK_FORMAT = 4;
 
 let db = null;
+let _activeOwnerUid = null;
 let _dbStatus = {
   ready: false,
   error: null,
   blocked: false,
   versionChanged: false
 };
+
+export function setActiveLibraryOwnerUid(uid) {
+  _activeOwnerUid = normalizeOwnerUid(uid);
+}
+
+export function getActiveLibraryOwnerUid() {
+  return _activeOwnerUid;
+}
 
 export function getDBStatus() {
   return { ..._dbStatus };
@@ -450,9 +468,28 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
       formatVersion: CURRENT_NOTEBOOK_FORMAT
     };
 
+    let savedOwnerUid = opts.ownerUid !== undefined
+      ? normalizeOwnerUid(opts.ownerUid)
+      : (Object.prototype.hasOwnProperty.call(notebook, 'ownerUid')
+          ? normalizeOwnerUid(notebook.ownerUid)
+          : _activeOwnerUid);
+
     const tx = db.transaction(['notebooks', 'pageOrders', 'pages'], 'readwrite');
     try {
-      tx.objectStore('notebooks').put(meta);
+      const nbStore = tx.objectStore('notebooks');
+      const existingNbReq = nbStore.get(notebook.id);
+      existingNbReq.onsuccess = () => {
+        const existingNb = existingNbReq.result || null;
+        const resolvedOwner = resolveStampedOwnerUid({
+          existingRecord: existingNb,
+          incomingRecord: notebook,
+          activeOwnerUid: opts.ownerUid !== undefined ? opts.ownerUid : _activeOwnerUid
+        });
+        savedOwnerUid = resolvedOwner;
+        meta.ownerUid = resolvedOwner;
+        notebook.ownerUid = resolvedOwner;
+        nbStore.put(meta);
+      };
 
       const pageOrdersStore = tx.objectStore('pageOrders');
       if (needsOrderRebuild) {
@@ -496,7 +533,9 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
     }
 
     tx.oncomplete = () => {
-      clearLocalDeletion('notebooks', notebook.id);
+      if (savedOwnerUid) {
+        clearLocalDeletion('notebooks', notebook.id, savedOwnerUid);
+      }
       resolve();
     };
     tx.onerror = () => reject(tx.error || new Error('Errore transazione salvataggio quaderno'));
@@ -504,7 +543,7 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
   });
 }
 
-export function loadNotebookWithPages(id) {
+export function loadNotebookWithPages(id, opts = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return reject(_dbUnavailableError());
     const tx = db.transaction(['notebooks', 'pageOrders', 'pages'], 'readonly');
@@ -517,6 +556,10 @@ export function loadNotebookWithPages(id) {
     tx.oncomplete = () => {
       const nb = nbReq.result;
       if (!nb) return resolve(null);
+      if (!opts?.ignoreOwner) {
+        const expectedOwner = opts?.ownerUid !== undefined ? normalizeOwnerUid(opts.ownerUid) : _activeOwnerUid;
+        if (!belongsToOwner(nb, expectedOwner)) return resolve(null);
+      }
 
       const orderRec = orderReq.result;
       const rawPages = pagesReq.result || [];
@@ -638,12 +681,20 @@ export function loadNotebookWithPages(id) {
   });
 }
 
-export function loadAllNotebooksFromDB() {
+export function loadAllNotebooksFromDB(opts = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return reject(_dbUnavailableError());
     const tx = db.transaction('notebooks', 'readonly');
     const req = tx.objectStore('notebooks').getAll();
-    req.onsuccess = () => resolve(req.result || []);
+    req.onsuccess = () => {
+      const all = req.result || [];
+      if (opts?.includeAllOwners) {
+        resolve(all);
+        return;
+      }
+      const targetUid = opts?.ownerUid !== undefined ? normalizeOwnerUid(opts.ownerUid) : _activeOwnerUid;
+      resolve(filterRecordsByOwner(all, targetUid));
+    };
     req.onerror = () => reject(req.error || new Error('Errore lettura quaderni'));
   });
 }
@@ -652,22 +703,39 @@ export function deleteNotebookFromDB(id, opts = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return reject(_dbUnavailableError());
     const tx = db.transaction(['notebooks', 'pageOrders', 'pages'], 'readwrite');
-    tx.objectStore('notebooks').delete(id);
-    tx.objectStore('pageOrders').delete(id);
-
+    const nbStore = tx.objectStore('notebooks');
+    const pageOrdersStore = tx.objectStore('pageOrders');
     const pagesStore = tx.objectStore('pages');
-    pagesStore.index('notebookId').openKeyCursor(IDBKeyRange.only(id)).onsuccess = (ev) => {
-      const cursor = ev.target.result;
-      if (!cursor) return;
-      pagesStore.delete(cursor.primaryKey);
-      cursor.continue();
+    let deletedOwnerUid = null;
+    let didDelete = false;
+
+    const getReq = nbStore.get(id);
+    getReq.onsuccess = () => {
+      const existing = getReq.result;
+      if (!existing) return;
+      const expectedOwner = opts?.ownerUid !== undefined ? normalizeOwnerUid(opts.ownerUid) : _activeOwnerUid;
+      if (!opts?.ignoreOwner && !belongsToOwner(existing, expectedOwner)) return;
+
+      deletedOwnerUid = getRecordOwnerUid(existing);
+      didDelete = true;
+      nbStore.delete(id);
+      pageOrdersStore.delete(id);
+
+      pagesStore.index('notebookId').openKeyCursor(IDBKeyRange.only(id)).onsuccess = (ev) => {
+        const cursor = ev.target.result;
+        if (!cursor) return;
+        pagesStore.delete(cursor.primaryKey);
+        cursor.continue();
+      };
     };
 
     tx.oncomplete = () => {
-      if (opts?.fromCloudSync) {
-        clearLocalDeletion('notebooks', id);
-      } else {
-        recordLocalDeletion('notebooks', id);
+      if (didDelete && deletedOwnerUid) {
+        if (opts?.fromCloudSync) {
+          clearLocalDeletion('notebooks', id, deletedOwnerUid);
+        } else {
+          recordLocalDeletion('notebooks', id, Date.now(), deletedOwnerUid);
+        }
       }
       resolve();
     };
@@ -688,7 +756,10 @@ export function updateNotebookMetadataInDB(id, patch = {}, opts = {}) {
     req.onsuccess = () => {
       const existing = req.result;
       if (!existing) return;
-      updated = { ...existing };
+      const expectedOwner = opts?.ownerUid !== undefined ? normalizeOwnerUid(opts.ownerUid) : _activeOwnerUid;
+      if (!opts?.ignoreOwner && !belongsToOwner(existing, expectedOwner)) return;
+
+      updated = { ...existing, ownerUid: getRecordOwnerUid(existing) };
       if ('title' in patch) updated.title = String(patch.title || '').trim() || existing.title;
       if ('coverColor' in patch && patch.coverColor) updated.coverColor = patch.coverColor;
       if ('folderId' in patch) {
@@ -707,13 +778,21 @@ export function updateNotebookMetadataInDB(id, patch = {}, opts = {}) {
   });
 }
 
-export function loadAllFoldersFromDB() {
+export function loadAllFoldersFromDB(opts = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return reject(_dbUnavailableError());
     if (!db.objectStoreNames.contains('folders')) return resolve([]);
     const tx = db.transaction('folders', 'readonly');
     const req = tx.objectStore('folders').getAll();
-    req.onsuccess = () => resolve(req.result || []);
+    req.onsuccess = () => {
+      const all = req.result || [];
+      if (opts?.includeAllOwners) {
+        resolve(all);
+        return;
+      }
+      const targetUid = opts?.ownerUid !== undefined ? normalizeOwnerUid(opts.ownerUid) : _activeOwnerUid;
+      resolve(filterRecordsByOwner(all, targetUid));
+    };
     req.onerror = () => reject(req.error || new Error('Errore lettura raccolte'));
   });
 }
@@ -731,13 +810,29 @@ export function saveFolderToDB(folder, opts = {}) {
         : null,
       color: folder.color || '#6366f1',
       createdAt: folder.createdAt || now,
-      updatedAt: (opts?.preserveUpdatedAt && folder.updatedAt) ? folder.updatedAt : now
+      updatedAt: (opts?.preserveUpdatedAt && folder.updatedAt) ? folder.updatedAt : now,
+      ownerUid: null
     };
+    let savedRecord = null;
     const tx = db.transaction('folders', 'readwrite');
-    tx.objectStore('folders').put(record);
+    const store = tx.objectStore('folders');
+    const existingReq = store.get(folder.id);
+    existingReq.onsuccess = () => {
+      const existing = existingReq.result || null;
+      const stampedOwnerUid = resolveStampedOwnerUid({
+        existingRecord: existing,
+        incomingRecord: folder,
+        activeOwnerUid: opts?.ownerUid !== undefined ? opts.ownerUid : _activeOwnerUid
+      });
+      record.ownerUid = stampedOwnerUid;
+      savedRecord = record;
+      store.put(record);
+    };
     tx.oncomplete = () => {
-      clearLocalDeletion('folders', record.id);
-      resolve(record);
+      if (savedRecord?.ownerUid) {
+        clearLocalDeletion('folders', savedRecord.id, savedRecord.ownerUid);
+      }
+      resolve(savedRecord);
     };
     tx.onerror = () => reject(tx.error || new Error('Errore salvataggio raccolta'));
     tx.onabort = () => reject(tx.error || new Error('Salvataggio raccolta annullato'));
@@ -748,10 +843,13 @@ export function deleteLibraryItemsFromDB({
   folderIds = [],
   notebookIds = [],
   deleteFolderContents = true,
-  fromCloudSync = false
+  fromCloudSync = false,
+  ownerUid = undefined
 } = {}) {
   return new Promise((resolve, reject) => {
     if (!db) return reject(_dbUnavailableError());
+
+    const targetOwnerUid = ownerUid !== undefined ? normalizeOwnerUid(ownerUid) : _activeOwnerUid;
 
     const stores = ['notebooks', 'pageOrders', 'pages'];
     const hasFoldersStore = db.objectStoreNames.contains('folders');
@@ -777,7 +875,11 @@ export function deleteLibraryItemsFromDB({
     const tryApply = () => {
       if (allFolders === null || allNbs === null) return;
 
-      const folderMap = new Map(allFolders.filter(f => f && f.id).map(f => [f.id, f]));
+      const scopedFolders = filterRecordsByOwner(allFolders, targetOwnerUid);
+      const scopedNbs = filterRecordsByOwner(allNbs, targetOwnerUid);
+
+      const folderMap = new Map(scopedFolders.filter(f => f && f.id).map(f => [f.id, f]));
+      const nbMap = new Map(scopedNbs.filter(n => n && n.id).map(n => [n.id, n]));
       const foldersToDelete = new Set();
 
       if (deleteFolderContents) {
@@ -790,7 +892,7 @@ export function deleteLibraryItemsFromDB({
         }
         while (queue.length > 0) {
           const cur = queue.shift();
-          for (const f of allFolders) {
+          for (const f of scopedFolders) {
             if (f && (f.parentId || null) === cur && !foldersToDelete.has(f.id)) {
               foldersToDelete.add(f.id);
               queue.push(f.id);
@@ -815,9 +917,9 @@ export function deleteLibraryItemsFromDB({
         return null;
       };
 
-      const nbsToDelete = new Set(explicitNbIds);
+      const nbsToDelete = new Set(Array.from(explicitNbIds).filter(id => nbMap.has(id)));
       if (deleteFolderContents) {
-        for (const nb of allNbs) {
+        for (const nb of scopedNbs) {
           if (nb && nb.folderId && foldersToDelete.has(nb.folderId)) {
             nbsToDelete.add(nb.id);
           }
@@ -826,7 +928,7 @@ export function deleteLibraryItemsFromDB({
 
       if (!deleteFolderContents) {
         const now = new Date().toISOString();
-        for (const f of allFolders) {
+        for (const f of scopedFolders) {
           if (!f || foldersToDelete.has(f.id)) continue;
           if (f.parentId && foldersToDelete.has(f.parentId)) {
             folderStore.put({
@@ -836,7 +938,7 @@ export function deleteLibraryItemsFromDB({
             });
           }
         }
-        for (const nb of allNbs) {
+        for (const nb of scopedNbs) {
           if (!nb || nbsToDelete.has(nb.id)) continue;
           if (nb.folderId && foldersToDelete.has(nb.folderId)) {
             nbStore.put({
@@ -872,14 +974,16 @@ export function deleteLibraryItemsFromDB({
     allNbsReq.onsuccess = () => { allNbs = allNbsReq.result || []; tryApply(); };
 
     tx.oncomplete = () => {
-      const nowMs = Date.now();
-      for (const fid of deletedFolderIds) {
-        if (fromCloudSync) clearLocalDeletion('folders', fid);
-        else recordLocalDeletion('folders', fid, nowMs);
-      }
-      for (const nbId of deletedNotebookIds) {
-        if (fromCloudSync) clearLocalDeletion('notebooks', nbId);
-        else recordLocalDeletion('notebooks', nbId, nowMs);
+      if (targetOwnerUid) {
+        const nowMs = Date.now();
+        for (const fid of deletedFolderIds) {
+          if (fromCloudSync) clearLocalDeletion('folders', fid, targetOwnerUid);
+          else recordLocalDeletion('folders', fid, nowMs, targetOwnerUid);
+        }
+        for (const nbId of deletedNotebookIds) {
+          if (fromCloudSync) clearLocalDeletion('notebooks', nbId, targetOwnerUid);
+          else recordLocalDeletion('notebooks', nbId, nowMs, targetOwnerUid);
+        }
       }
       resolve({ deletedFolderIds, deletedNotebookIds });
     };
@@ -893,5 +997,65 @@ export function deleteFolderFromDB(folderId, { deleteContents = false, fromCloud
     folderIds: folderId ? [folderId] : [],
     deleteFolderContents: deleteContents,
     fromCloudSync
+  });
+}
+
+export async function getGuestLibrarySummary() {
+  const [notebooks, folders] = await Promise.all([
+    loadAllNotebooksFromDB({ ownerUid: null }),
+    loadAllFoldersFromDB({ ownerUid: null })
+  ]);
+  const summary = summarizeGuestLibraryRecords({ notebooks, folders });
+  return {
+    ...summary,
+    signature: computeGuestClaimSignature({ notebooks, folders })
+  };
+}
+
+export function assignGuestLibraryItemsToOwner(uid) {
+  return new Promise((resolve, reject) => {
+    if (!db) return reject(_dbUnavailableError());
+    const targetUid = normalizeOwnerUid(uid);
+    if (!targetUid) {
+      return reject(new Error('Account non valido per l’associazione dei quaderni.'));
+    }
+
+    const stores = ['notebooks'];
+    const hasFoldersStore = db.objectStoreNames.contains('folders');
+    if (hasFoldersStore) stores.push('folders');
+
+    const tx = db.transaction(stores, 'readwrite');
+    const nbStore = tx.objectStore('notebooks');
+    const folderStore = hasFoldersStore ? tx.objectStore('folders') : null;
+
+    const allNbsReq = nbStore.getAll();
+    const allFoldersReq = folderStore ? folderStore.getAll() : null;
+
+    let notebooksUpdated = 0;
+    let foldersUpdated = 0;
+
+    allNbsReq.onsuccess = () => {
+      for (const nb of (allNbsReq.result || [])) {
+        if (nb && getRecordOwnerUid(nb) === null) {
+          nbStore.put({ ...nb, ownerUid: targetUid });
+          notebooksUpdated++;
+        }
+      }
+    };
+
+    if (allFoldersReq) {
+      allFoldersReq.onsuccess = () => {
+        for (const fld of (allFoldersReq.result || [])) {
+          if (fld && getRecordOwnerUid(fld) === null) {
+            folderStore.put({ ...fld, ownerUid: targetUid });
+            foldersUpdated++;
+          }
+        }
+      };
+    }
+
+    tx.oncomplete = () => resolve({ notebooksUpdated, foldersUpdated });
+    tx.onerror = () => reject(tx.error || new Error('Errore associazione quaderni all’account'));
+    tx.onabort = () => reject(tx.error || new Error('Associazione quaderni annullata'));
   });
 }

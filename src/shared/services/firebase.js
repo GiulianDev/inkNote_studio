@@ -67,6 +67,11 @@ const CONTACTS_REDIRECT_KEY = 'inknote_pending_contacts_redirect';
 const CONTACTS_TOKEN_TTL_MS = 50 * 60 * 1000;
 let _pendingContactsAccessToken = null;
 let _cachedContactsToken = null; // { uid, token, expiresAt } — solo in memoria (mai localStorage/sessionStorage)
+let _authInitialized = false;
+let _resolveInitialAuth = null;
+const _initialAuthPromise = new Promise((resolve) => {
+  _resolveInitialAuth = resolve;
+});
 
 async function _testFirestoreConnection() {
   if (!db) return;
@@ -114,15 +119,25 @@ if (activeConfig) {
         _cachedContactsToken = null;
         _pendingContactsAccessToken = null;
       }
+      if (!_authInitialized) {
+        _authInitialized = true;
+        _resolveInitialAuth?.(user || null);
+      }
     });
     void _testFirestoreConnection();
   } catch (err) {
     console.warn('[firebase] Init failed, continuing in local-only mode:', err);
     auth = null;
     db = null;
+    if (!_authInitialized) {
+      _authInitialized = true;
+      _resolveInitialAuth?.(null);
+    }
   }
 } else {
   console.warn('[firebase] Firebase config not found — running in local-only mode');
+  _authInitialized = true;
+  _resolveInitialAuth?.(null);
 }
 
 export function isFirebaseReady() {
@@ -331,4 +346,24 @@ export function onAuthChange(callback) {
     return () => {};
   }
   return onAuthStateChanged(auth, callback);
+}
+
+export function waitForInitialAuth(timeoutMs = 2500) {
+  if (!auth || _authInitialized) {
+    return Promise.resolve(auth?.currentUser || null);
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(auth?.currentUser || null);
+    }, Math.max(200, timeoutMs));
+    _initialAuthPromise.then((user) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(user || null);
+    });
+  });
 }

@@ -6,8 +6,10 @@
  */
 
 export const SYNC_TOMBSTONES_KEY = 'inknote_sync_tombstones_v1';
+export const SYNC_TOMBSTONES_KEY_PREFIX = 'inknote_sync_tombstones_v1_';
 export const SYNC_STATE_KEY_PREFIX = 'inknote_sync_state_v1_';
 export const SYNC_USAGE_KEY_PREFIX = 'inknote_sync_usage_v1_';
+export const GUEST_CLAIM_DISMISS_KEY_PREFIX = 'inknote_guest_claim_dismissed_v1_';
 
 export const SYNC_VALID_PATTERNS = ['ruled', 'grid', 'dots', 'blank'];
 export const SYNC_VALID_TOOLS = ['pen', 'pencil', 'marker', 'highlighter', 'eraser', 'lasso', 'text'];
@@ -607,11 +609,16 @@ function _getStorage(explicitStorage) {
   }
 }
 
-export function loadLocalTombstones(storage = null) {
+export function getTombstonesStorageKey(uid) {
+  return isValidCloudId(uid) ? `${SYNC_TOMBSTONES_KEY_PREFIX}${uid}` : '';
+}
+
+export function loadLocalTombstones(uid, storage = null) {
+  const key = getTombstonesStorageKey(uid);
   const ls = _getStorage(storage);
-  if (!ls) return { folders: {}, notebooks: {} };
+  if (!ls || !key) return { folders: {}, notebooks: {} };
   try {
-    const raw = ls.getItem(SYNC_TOMBSTONES_KEY);
+    const raw = ls.getItem(key);
     if (!raw) return { folders: {}, notebooks: {} };
     const parsed = JSON.parse(raw);
     return {
@@ -623,11 +630,12 @@ export function loadLocalTombstones(storage = null) {
   }
 }
 
-function _saveLocalTombstones(data, storage = null) {
+function _saveLocalTombstones(uid, data, storage = null) {
+  const key = getTombstonesStorageKey(uid);
   const ls = _getStorage(storage);
-  if (!ls) return;
+  if (!ls || !key) return;
   try {
-    ls.setItem(SYNC_TOMBSTONES_KEY, JSON.stringify({
+    ls.setItem(key, JSON.stringify({
       folders: data?.folders || {},
       notebooks: data?.notebooks || {}
     }));
@@ -636,19 +644,43 @@ function _saveLocalTombstones(data, storage = null) {
   }
 }
 
-export function recordLocalDeletion(kind, id, deletedAtMs = Date.now(), storage = null) {
-  if ((kind !== 'folders' && kind !== 'notebooks') || !isValidCloudId(id)) return;
-  const data = loadLocalTombstones(storage);
+export function recordLocalDeletion(kind, id, deletedAtMs = Date.now(), uid = '', storage = null) {
+  if ((kind !== 'folders' && kind !== 'notebooks') || !isValidCloudId(id) || !isValidCloudId(uid)) return;
+  const data = loadLocalTombstones(uid, storage);
   data[kind][id] = Number.isFinite(deletedAtMs) ? deletedAtMs : Date.now();
-  _saveLocalTombstones(data, storage);
+  _saveLocalTombstones(uid, data, storage);
 }
 
-export function clearLocalDeletion(kind, id, storage = null) {
-  if ((kind !== 'folders' && kind !== 'notebooks') || !id) return;
-  const data = loadLocalTombstones(storage);
+export function clearLocalDeletion(kind, id, uid = '', storage = null) {
+  if ((kind !== 'folders' && kind !== 'notebooks') || !id || !isValidCloudId(uid)) return;
+  const data = loadLocalTombstones(uid, storage);
   if (id in data[kind]) {
     delete data[kind][id];
-    _saveLocalTombstones(data, storage);
+    _saveLocalTombstones(uid, data, storage);
+  }
+}
+
+export function getDismissedGuestClaimSignature(uid, storage = null) {
+  const ls = _getStorage(storage);
+  if (!ls || !isValidCloudId(uid)) return '';
+  try {
+    return ls.getItem(`${GUEST_CLAIM_DISMISS_KEY_PREFIX}${uid}`) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setDismissedGuestClaimSignature(uid, signature, storage = null) {
+  const ls = _getStorage(storage);
+  if (!ls || !isValidCloudId(uid)) return;
+  try {
+    if (signature) {
+      ls.setItem(`${GUEST_CLAIM_DISMISS_KEY_PREFIX}${uid}`, String(signature));
+    } else {
+      ls.removeItem(`${GUEST_CLAIM_DISMISS_KEY_PREFIX}${uid}`);
+    }
+  } catch {
+    // ignore storage quota errors
   }
 }
 

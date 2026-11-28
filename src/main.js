@@ -69,6 +69,7 @@ import { mountPagesSidebar } from './notebook/pages-sidebar/pages-sidebar.js';
 import {
   renderLibraryView, bindLibraryUI,
   registerLibraryNotebookHandlers,
+  setLibraryLoading, resetLibraryForAccountSwitch,
   getCurrentFolderId, setCurrentFolderId, getParentFolderId,
   isSelectionModeActive, exitSelectionMode,
   hasActiveLibrarySearch, clearLibrarySearch
@@ -77,10 +78,14 @@ import { scheduleSave } from './shared/persistence/autosave.js';
 import { registerSessionAdapters, getCurrentNotebook } from './shared/persistence/session.js';
 import { registerSyncNotebookHandlers } from './shared/sync/sync-ui.js';
 import { registerBackupNotebookHandlers } from './shared/backup/backup-import.js';
-import { closeAllAuthDropdowns } from './shared/auth/library-auth.js';
+import {
+  closeAllAuthDropdowns,
+  registerAuthLifecycleHandlers,
+  waitForInitialAuthTransition
+} from './shared/auth/library-auth.js';
 import { isUserMenuOpen } from './shared/components/user-menu.js';
 import { terminateWorker } from './shared/backup/serialization-cloud.js';
-import { handleRedirectResult } from './shared/services/firebase.js';
+import { handleRedirectResult, waitForInitialAuth } from './shared/services/firebase.js';
 import { showToast, on } from './shared/core/utils.js';
 import { getSettings, updateSettings } from './shared/core/app-settings.js';
 import { initBackNavigation } from './shared/core/back-navigation.js';
@@ -99,6 +104,10 @@ window.addEventListener('load', async () => {
   //    Ordine: pagine (library + notebook) → toolbar → settings modal → pages sidebar.
   //    La sidebar misura #mainHeader al mount, quindi va DOPO la toolbar.
   mountLibraryPage();
+  setLibraryLoading(true, {
+    title: 'Caricamento libreria...',
+    subtitle: 'Verifica account e archivio locale in corso'
+  });
   mountNotebookPage();
   mountToolbar();
   mountSettingsModal();
@@ -146,6 +155,27 @@ window.addEventListener('load', async () => {
     closeNotebookIfOpen,
     getInitialNewNotebookToolbarSettings
   });
+  registerAuthLifecycleHandlers({
+    onBeforeAccountSwitch: async () => {
+      const current = getCurrentNotebook();
+      if (current || isEditorActive()) {
+        try {
+          await flushActiveEditorBeforeLeave({ deselect: true });
+        } catch (err) {
+          console.warn('[main] flush before account switch failed:', err);
+        }
+        if (current?.id) {
+          closeNotebookIfOpen(current.id);
+        }
+        document.getElementById('libraryView')?.classList.remove('hidden');
+      }
+    },
+    onResetLibrary: resetLibraryForAccountSwitch,
+    onSetLoading: setLibraryLoading,
+    onAccountChanged: async () => {
+      await renderLibraryView();
+    }
+  });
   on('help:open', (detail) => openHelpModal(detail || { tab: 'guide' }));
 
   initEditorHandlers();
@@ -181,10 +211,18 @@ window.addEventListener('load', async () => {
     scheduleSave({ markDirty: false });
   });
 
-  // 8. Vista iniziale e setup gesti / tastiera / tasto Indietro.
-  //    applyActiveToolToUI() è necessario qui perché la subscription
-  //    (punto 7) non ha catturato la init del punto 3 (registrata dopo).
-  renderLibraryView();
+  // 8. Attendi la prima risoluzione Auth + primo rendering della libreria scoped,
+  //    quindi attiva gesti / tastiera / tasto Indietro.
+  await waitForInitialAuth(2500);
+  let initialTransitionResolved = false;
+  await Promise.race([
+    waitForInitialAuthTransition().then(() => { initialTransitionResolved = true; }),
+    new Promise((resolve) => setTimeout(resolve, 1500))
+  ]);
+  if (!initialTransitionResolved) {
+    setLibraryLoading(false);
+    await renderLibraryView();
+  }
   centerViewport();
   setupSystemMenuSuppression();
   setupViewportGestures();

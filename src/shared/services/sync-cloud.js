@@ -72,6 +72,19 @@ import { broadcastTabEvent } from '../core/tab-sync.js';
 
 let _syncInFlight = null;
 
+class SyncAbortedError extends Error {
+  constructor() {
+    super('Sincronizzazione annullata dall’utente');
+    this.name = 'SyncAbortedError';
+  }
+}
+
+function _throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw new SyncAbortedError();
+  }
+}
+
 function _requireVerifiedCloudUser() {
   if (!isFirestoreReady()) {
     throw new Error('Firebase Firestore non configurato su questa installazione.');
@@ -155,9 +168,11 @@ async function _uploadNotebookToCloud({
   existingCloudNb = null,
   stats,
   onProgress,
-  progressPrefix = ''
+  progressPrefix = '',
+  signal = null
 }) {
-  const fullNb = await loadNotebookWithPages(notebookId);
+  _throwIfAborted(signal);
+  const fullNb = await loadNotebookWithPages(notebookId, { ownerUid: uid });
   if (!fullNb) {
     return null;
   }
@@ -213,6 +228,7 @@ async function _uploadNotebookToCloud({
 
   try {
     for (let i = 0; i < pages.length; i++) {
+    _throwIfAborted(signal);
     const p = pages[i];
     if (!p || !p.pageId || !pageOrderSet.has(p.pageId)) continue;
     const pageId = p.pageId;
@@ -225,6 +241,7 @@ async function _uploadNotebookToCloud({
     });
 
     const packedRes = await compressPageForCloud(p.strokes || [], p.textBoxes || []);
+    _throwIfAborted(signal);
     const hash = await sha256Uint8Array(packedRes.compressed);
     nextPageHashes[pageId] = hash;
 
@@ -289,6 +306,7 @@ async function _uploadNotebookToCloud({
 
       const prevChunkCount = existingPage?.chunked ? (existingPage.chunkCount || 0) : 0;
       for (let cIdx = 0; cIdx < packedRes.chunks.length; cIdx++) {
+        _throwIfAborted(signal);
         onProgress?.({
           stage: 'upload_chunk',
           label: `${progressPrefix}Invio frammento ${cIdx + 1}/${packedRes.chunks.length} (pag. ${i + 1} di "${sanitizedMeta.title}")...`
@@ -427,7 +445,7 @@ async function _uploadNotebookToCloud({
   }
 
   stats.uploadedNotebooks += 1;
-  clearLocalDeletion('notebooks', notebookId);
+  clearLocalDeletion('notebooks', notebookId, uid);
 
   return {
     localUpdatedMs: parseSyncTimestampMs(fullNb.updatedAt || fullNb.lastEditAt || fullNb.createdAt),
@@ -445,8 +463,10 @@ async function _downloadNotebookFromCloud({
   prevSyncEntry = null,
   stats,
   onProgress,
-  progressPrefix = ''
+  progressPrefix = '',
+  signal = null
 }) {
+  _throwIfAborted(signal);
   const nbId = cloudNb.id;
   const pagesPathLabel = `users/${uid}/sync_notebooks/${nbId}/pages`;
   const cloudPages = await _listOwnerCollectionDocs(
@@ -455,9 +475,10 @@ async function _downloadNotebookFromCloud({
     pagesPathLabel,
     stats
   );
+  _throwIfAborted(signal);
   const cloudPageMap = new Map(cloudPages.map(p => [p.pageId || p.id, p]));
 
-  const existingLocal = await loadNotebookWithPages(nbId);
+  const existingLocal = await loadNotebookWithPages(nbId, { ownerUid: uid });
   const localPageMap = new Map();
   if (existingLocal && Array.isArray(existingLocal.pages)) {
     for (const lp of existingLocal.pages) {
@@ -471,6 +492,7 @@ async function _downloadNotebookFromCloud({
   const nextPageHashes = {};
 
   for (let i = 0; i < orderedIds.length; i++) {
+    _throwIfAborted(signal);
     const pid = orderedIds[i];
     const cp = cloudPageMap.get(pid);
     if (!cp || cp.deleted) {
@@ -538,6 +560,7 @@ async function _downloadNotebookFromCloud({
 
   const localRecord = {
     id: nbId,
+    ownerUid: uid,
     title: cloudNb.title || 'Quaderno senza titolo',
     coverColor: cloudNb.coverColor || '#4f46e5',
     pattern: cloudNb.pattern || 'ruled',
@@ -554,6 +577,7 @@ async function _downloadNotebookFromCloud({
   };
 
   await saveNotebookToDB(localRecord, finalPageOrder, {
+    ownerUid: uid,
     preserveUpdatedAt: true,
     preserveLastEditAt: true,
     replaceAllPages: true,
@@ -571,8 +595,8 @@ async function _downloadNotebookFromCloud({
   };
 }
 
-async function _duplicateLocalNotebookForConflict(nbId, existingTitlesSet) {
-  const fullNb = await loadNotebookWithPages(nbId);
+async function _duplicateLocalNotebookForConflict(uid, nbId, existingTitlesSet) {
+  const fullNb = await loadNotebookWithPages(nbId, { ownerUid: uid });
   if (!fullNb) return null;
 
   const baseTitle = (fullNb.title || 'Quaderno').trim() || 'Quaderno';
@@ -597,6 +621,7 @@ async function _duplicateLocalNotebookForConflict(nbId, existingTitlesSet) {
   const copyNb = {
     ...fullNb,
     id: _generateCopiedNotebookId(),
+    ownerUid: uid,
     title: candidate,
     createdAt: nowIso,
     updatedAt: nowIso,
@@ -607,6 +632,7 @@ async function _duplicateLocalNotebookForConflict(nbId, existingTitlesSet) {
   };
 
   await saveNotebookToDB(copyNb, newOrder, {
+    ownerUid: uid,
     preserveLastEditAt: true,
     replaceAllPages: false,
     saveOrder: true
@@ -668,7 +694,7 @@ async function _markNotebookDeletedInCloud({
     handleFirestoreError(err, OperationType.UPDATE, nbPath);
   }
 
-  clearLocalDeletion('notebooks', notebookId);
+  clearLocalDeletion('notebooks', notebookId, uid);
   stats.deletedCloud += 1;
 }
 
@@ -677,11 +703,12 @@ async function _markNotebookDeletedInCloud({
  * (ZERO chiamate a Firestore).
  */
 export async function getManualSyncOverview(uid = auth?.currentUser?.uid) {
+  const ownerUid = uid || null;
   const [folders, notebooks] = await Promise.all([
-    loadAllFoldersFromDB(),
-    loadAllNotebooksFromDB()
+    loadAllFoldersFromDB({ ownerUid }),
+    loadAllNotebooksFromDB({ ownerUid })
   ]);
-  const tombstones = loadLocalTombstones();
+  const tombstones = loadLocalTombstones(uid);
   const syncState = uid
     ? loadUserSyncState(uid)
     : { lastSyncAt: null, cloudNotebooksCount: null, cloudFoldersCount: null, folders: {}, notebooks: {} };
@@ -737,7 +764,7 @@ export async function peekCloudSyncInventory() {
  * @param {(progress: {stage: string, label: string, done?: number, total?: number}) => void} [opts.onProgress]
  * @param {(conflicts: Array<object>) => Promise<Record<string, 'keep_local'|'use_cloud'|'keep_both'|'skip'>>} [opts.onConflicts]
  */
-export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
+export async function runManualCloudSync({ onProgress, onConflicts, signal = null } = {}) {
   if (_syncInFlight) {
     throw new Error('Sincronizzazione già in corso');
   }
@@ -771,22 +798,26 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
     let syncSucceeded = false;
 
     try {
+      _throwIfAborted(signal);
       onProgress?.({ stage: 'prepare', label: 'Salvataggio modifiche locali e verifica account...' });
       if (getCurrentNotebook()) {
         await forceSave();
       }
+      _throwIfAborted(signal);
 
       await ensureUserProfile(user);
+      _throwIfAborted(signal);
 
       onProgress?.({ stage: 'fetch', label: 'Controllo stato cloud su Firestore...' });
       const [localFolders, localNotebooks, cloudFolders, cloudNotebooks] = await Promise.all([
-        loadAllFoldersFromDB(),
-        loadAllNotebooksFromDB(),
+        loadAllFoldersFromDB({ ownerUid: uid }),
+        loadAllNotebooksFromDB({ ownerUid: uid }),
         _listOwnerCollectionDocs(['users', uid, 'sync_folders'], uid, `users/${uid}/sync_folders`, stats),
         _listOwnerCollectionDocs(['users', uid, 'sync_notebooks'], uid, `users/${uid}/sync_notebooks`, stats)
       ]);
+      _throwIfAborted(signal);
 
-      const tombstones = loadLocalTombstones();
+      const tombstones = loadLocalTombstones(uid);
       const prevSyncState = loadUserSyncState(uid);
       nextSyncState = {
         lastSyncAt: prevSyncState.lastSyncAt,
@@ -829,7 +860,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
       if (conflictItems.length > 0) {
         if (typeof onConflicts === 'function') {
           const resolved = await onConflicts(conflictItems);
-          if (!resolved) {
+          if (!resolved || signal?.aborted) {
             stats.abortedByUser = true;
             return stats;
           }
@@ -880,8 +911,9 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
       }
 
       for (const cf of folderDownloads) {
-        const localRec = cloudFolderToLocalRecord(cf);
-        await saveFolderToDB(localRec, { preserveUpdatedAt: true });
+        _throwIfAborted(signal);
+        const localRec = { ...cloudFolderToLocalRecord(cf), ownerUid: uid };
+        await saveFolderToDB(localRec, { preserveUpdatedAt: true, ownerUid: uid });
         nextSyncState.folders[cf.id] = {
           localUpdatedMs: parseSyncTimestampMs(localRec.updatedAt),
           cloudServerUpdatedMs: parseSyncTimestampMs(cf.updatedAt || cf.clientUpdatedAt),
@@ -892,6 +924,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
       }
 
       for (const lf of folderUploads) {
+        _throwIfAborted(signal);
         const existingCloud = cloudFolderById.get(lf.id) || null;
         const payload = sanitizeCloudFolderPayload({
           folder: lf,
@@ -923,7 +956,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
         } catch (err) {
           handleFirestoreError(err, existingCloud ? OperationType.UPDATE : OperationType.CREATE, fPath);
         }
-        clearLocalDeletion('folders', lf.id);
+        clearLocalDeletion('folders', lf.id, uid);
         nextSyncState.folders[lf.id] = {
           localUpdatedMs: parseSyncTimestampMs(lf.updatedAt || lf.createdAt),
           cloudServerUpdatedMs: 0,
@@ -936,6 +969,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
 
       const folderIdsToDeleteLocal = [];
       for (const act of resolvedFolderActions) {
+        _throwIfAborted(signal);
         if (act.action === 'delete_cloud' && act.cloud) {
           const payload = sanitizeCloudFolderPayload({
             folderId: act.id,
@@ -956,14 +990,14 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
           } catch (err) {
             handleFirestoreError(err, OperationType.UPDATE, fPath);
           }
-          clearLocalDeletion('folders', act.id);
+          clearLocalDeletion('folders', act.id, uid);
           delete nextSyncState.folders[act.id];
           stats.deletedCloud += 1;
         } else if (act.action === 'delete_local') {
           folderIdsToDeleteLocal.push(act.id);
           delete nextSyncState.folders[act.id];
         } else if (act.action === 'noop') {
-          if (act.clearTombstone) clearLocalDeletion('folders', act.id);
+          if (act.clearTombstone) clearLocalDeletion('folders', act.id, uid);
           if (act.local && act.cloud && !act.cloud.deleted) {
             nextSyncState.folders[act.id] = {
               localUpdatedMs: parseSyncTimestampMs(act.local.updatedAt || act.local.createdAt),
@@ -978,10 +1012,12 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
       }
 
       if (folderIdsToDeleteLocal.length > 0) {
+        _throwIfAborted(signal);
         await deleteLibraryItemsFromDB({
           folderIds: folderIdsToDeleteLocal,
           deleteFolderContents: false,
-          fromCloudSync: true
+          fromCloudSync: true,
+          ownerUid: uid
         });
         stats.deletedLocal += folderIdsToDeleteLocal.length;
       }
@@ -996,8 +1032,9 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
       let completedNbSteps = 0;
 
       for (const act of resolvedNotebookActions) {
+        _throwIfAborted(signal);
         if (act.action === 'noop') {
-          if (act.clearTombstone) clearLocalDeletion('notebooks', act.id);
+          if (act.clearTombstone) clearLocalDeletion('notebooks', act.id, uid);
           if (act.local && act.cloud && !act.cloud.deleted) {
             nextSyncState.notebooks[act.id] = {
               localUpdatedMs: parseSyncTimestampMs(act.local.updatedAt || act.local.lastEditAt || act.local.createdAt),
@@ -1030,7 +1067,8 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
             existingCloudNb: act.cloud || null,
             stats,
             onProgress,
-            progressPrefix: prefix
+            progressPrefix: prefix,
+            signal
           });
           if (entry) nextSyncState.notebooks[act.id] = entry;
         } else if (act.action === 'download' || act.action === 'keep_both_download') {
@@ -1039,7 +1077,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
               stage: 'duplicate',
               label: `${prefix}Salvataggio copia locale di "${act.local?.title || 'Quaderno'}"...`
             });
-            const duplicated = await _duplicateLocalNotebookForConflict(act.id, existingTitlesSet);
+            const duplicated = await _duplicateLocalNotebookForConflict(uid, act.id, existingTitlesSet);
             if (duplicated) {
               const dupEntry = await _uploadNotebookToCloud({
                 uid,
@@ -1047,7 +1085,8 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
                 existingCloudNb: null,
                 stats,
                 onProgress,
-                progressPrefix: prefix
+                progressPrefix: prefix,
+                signal
               });
               if (dupEntry) nextSyncState.notebooks[duplicated.id] = dupEntry;
             }
@@ -1065,7 +1104,8 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
             prevSyncEntry: prevSyncState.notebooks?.[act.id] || null,
             stats,
             onProgress,
-            progressPrefix: prefix
+            progressPrefix: prefix,
+            signal
           });
           nextSyncState.notebooks[act.id] = entry;
           if (stats.openNotebookId && stats.openNotebookId === act.id) {
@@ -1093,7 +1133,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
             total: nbWorkQueue.length,
             label: `${prefix}Rimozione locale "${act.local?.title || 'Quaderno'}"...`
           });
-          await deleteNotebookFromDB(act.id, { fromCloudSync: true });
+          await deleteNotebookFromDB(act.id, { fromCloudSync: true, ownerUid: uid });
           delete nextSyncState.notebooks[act.id];
           stats.deletedLocal += 1;
           if (stats.openNotebookId && stats.openNotebookId === act.id) {
@@ -1105,6 +1145,12 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
       syncSucceeded = true;
       onProgress?.({ stage: 'done', label: 'Sincronizzazione completata!' });
       return stats;
+    } catch (err) {
+      if (err instanceof SyncAbortedError) {
+        stats.abortedByUser = true;
+        return stats;
+      }
+      throw err;
     } finally {
       const hasPartialMutations = (
         stats.uploadedFolders +
@@ -1115,7 +1161,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
         stats.deletedLocal
       ) > 0;
 
-      if (uid && nextSyncState && !stats.abortedByUser && (syncSucceeded || hasPartialMutations)) {
+      if (uid && nextSyncState && (syncSucceeded || hasPartialMutations)) {
         if (syncSucceeded) {
           nextSyncState.lastSyncAt = new Date().toISOString();
           nextSyncState.cloudNotebooksCount = Object.keys(nextSyncState.notebooks || {}).length;
