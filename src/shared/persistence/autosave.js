@@ -4,8 +4,9 @@
  * AUTOSAVE — debounce 500ms + idle callback tracciabile + immediate save.
  */
 
-import { showStatusBadge } from '../core/utils.js';
+import { showStatusBadge, showToast } from '../core/utils.js';
 import { state } from '../core/state.js';
+import { isQuotaExceededError } from '../services/db.js';
 import {
   getCurrentNotebook, saveCurrentNotebook,
   markPageDirty, markPageDeleted, markOrderDirty
@@ -14,6 +15,7 @@ import {
 let _timer = null;
 let _idleId = null;
 let _idleIsRic = false;
+let _lastQuotaToastAt = 0;
 
 function _cancelScheduled() {
   if (_timer !== null) {
@@ -29,6 +31,10 @@ function _cancelScheduled() {
     _idleId = null;
     _idleIsRic = false;
   }
+}
+
+export function hasPendingSave() {
+  return _timer !== null || _idleId !== null;
 }
 
 export function scheduleSave(opts = {}) {
@@ -74,8 +80,8 @@ export function cancelPendingSave() {
 export function flushAutoSave() {
   const hadPending = _timer !== null || _idleId !== null;
   _cancelScheduled();
-  if (!hadPending) return;
-  _commitSync().catch(() => {});
+  if (!hadPending) return Promise.resolve();
+  return _commitSync().catch(() => {});
 }
 
 export function forceSave() {
@@ -100,19 +106,31 @@ function _commit() {
   }
 }
 
+function _handleSaveError(err) {
+  console.error('[autosave] save failed:', err);
+  if (isQuotaExceededError(err)) {
+    showStatusBadge('Spazio esaurito');
+    const now = Date.now();
+    if (now - _lastQuotaToastAt > 15000) {
+      _lastQuotaToastAt = now;
+      showToast('Spazio di archiviazione esaurito. Esporta un backup o libera spazio.', '⚠️', 6000);
+    }
+  } else {
+    showStatusBadge('Errore salvataggio');
+  }
+}
+
 function _commitSync() {
   if (!getCurrentNotebook()) return Promise.resolve();
   try {
     return saveCurrentNotebook()
       .then(() => showStatusBadge('Salvato'))
       .catch(err => {
-        console.error('[autosave] save failed:', err);
-        showStatusBadge('Errore salvataggio');
+        _handleSaveError(err);
         throw err;
       });
   } catch (err) {
-    console.error('[autosave] sync failed:', err);
-    showStatusBadge('Errore salvataggio');
+    _handleSaveError(err);
     return Promise.reject(err);
   }
 }

@@ -15,6 +15,7 @@ import { showToast, escapeHtml } from '../core/utils.js';
 import { openModalOverlay } from '../components/modal.js';
 import { getCurrentNotebook, waitForPendingSaves } from '../persistence/session.js';
 import { cancelPendingSave } from '../persistence/autosave.js';
+import { broadcastTabEvent } from '../core/tab-sync.js';
 
 let _backupNotebookHandlers = {
   closeNotebookIfOpen: null
@@ -224,6 +225,13 @@ export async function importNotebooks(file, onProgress) {
     );
   } else {
     showToast(`Importati con successo ${imported.length} quadern${imported.length === 1 ? 'o' : 'i'}`, '✅', 3600);
+  }
+
+  if (imported.length > 0 || createdFoldersCount > 0) {
+    broadcastTabEvent('library:mutated', {
+      source: 'backup-import',
+      overwrittenIds: imported.filter(i => i.replaceAllPages).map(i => i.nb.id)
+    });
   }
 
   return { notebooks: imported.map(item => item.nb), createdFoldersCount };

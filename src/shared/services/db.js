@@ -11,6 +11,46 @@ const DB_VERSION = 5;
 export const CURRENT_NOTEBOOK_FORMAT = 4;
 
 let db = null;
+let _dbStatus = {
+  ready: false,
+  error: null,
+  blocked: false,
+  versionChanged: false
+};
+
+export function getDBStatus() {
+  return { ..._dbStatus };
+}
+
+export function isQuotaExceededError(err) {
+  let cur = err;
+  for (let depth = 0; cur && depth < 4; depth++) {
+    const name = typeof cur.name === 'string' ? cur.name : '';
+    const msg = typeof cur.message === 'string' ? cur.message : '';
+    if (
+      name === 'QuotaExceededError' ||
+      name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      cur.code === 22 ||
+      cur.code === 1014 ||
+      /quota/i.test(name) ||
+      /quota/i.test(msg)
+    ) {
+      return true;
+    }
+    cur = cur.cause;
+  }
+  return false;
+}
+
+function _dbUnavailableError() {
+  if (_dbStatus.versionChanged) {
+    return new Error('Database aggiornato in un’altra scheda. Ricarica la pagina.');
+  }
+  if (_dbStatus.error instanceof Error) {
+    return _dbStatus.error;
+  }
+  return new Error('Database locale IndexedDB non disponibile.');
+}
 
 function _isV4PagesKeyPath(keyPath) {
   return Array.isArray(keyPath) &&
@@ -57,8 +97,37 @@ function _requestPersistentStorage() {
 }
 
 export function initDB() {
+  _dbStatus = {
+    ready: false,
+    error: null,
+    blocked: false,
+    versionChanged: false
+  };
+
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    if (typeof indexedDB === 'undefined') {
+      const err = new Error('IndexedDB non supportato in questo browser.');
+      _dbStatus.error = err;
+      reject(err);
+      return;
+    }
+
+    let request;
+    try {
+      request = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (err) {
+      const wrapped = err instanceof Error ? err : new Error(String(err || 'Impossibile aprire IndexedDB'));
+      _dbStatus.error = wrapped;
+      reject(wrapped);
+      return;
+    }
+
+    request.onblocked = () => {
+      _dbStatus.blocked = true;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('inknote:db-blocked'));
+      }
+    };
 
     request.onupgradeneeded = (e) => {
       const database = e.target.result;
@@ -239,10 +308,37 @@ export function initDB() {
 
     request.onsuccess = (e) => {
       db = e.target.result;
+      _dbStatus = {
+        ready: true,
+        error: null,
+        blocked: false,
+        versionChanged: false
+      };
+      db.onversionchange = () => {
+        try { db?.close(); } catch { /* ignore */ }
+        db = null;
+        _dbStatus.ready = false;
+        _dbStatus.versionChanged = true;
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('inknote:db-version-change'));
+        }
+      };
+      db.onclose = () => {
+        if (db === e.target.result) {
+          db = null;
+          _dbStatus.ready = false;
+        }
+      };
       _requestPersistentStorage();
       resolve(db);
     };
-    request.onerror = (e) => reject(e.target.error);
+    request.onerror = (e) => {
+      const err = e?.target?.error || new Error('Errore durante l’apertura di IndexedDB.');
+      db = null;
+      _dbStatus.ready = false;
+      _dbStatus.error = err;
+      reject(err);
+    };
   });
 }
 
@@ -261,7 +357,7 @@ export function initDB() {
  */
 export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
   return new Promise((resolve, reject) => {
-    if (!db) return resolve();
+    if (!db) return reject(_dbUnavailableError());
 
     const now = new Date().toISOString();
     if (!opts.preserveUpdatedAt || !notebook.updatedAt) {
@@ -359,7 +455,7 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
       tx.objectStore('notebooks').put(meta);
 
       const pageOrdersStore = tx.objectStore('pageOrders');
-      if (opts.saveOrder || opts.orderChanged || opts.replaceAllPages) {
+      if (needsOrderRebuild) {
         pageOrdersStore.put({ notebookId: notebook.id, order });
       }
 
@@ -403,14 +499,14 @@ export function saveNotebookToDB(notebook, dirtyPageIds = [], opts = {}) {
       clearLocalDeletion('notebooks', notebook.id);
       resolve();
     };
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error || new Error('Errore transazione salvataggio quaderno'));
+    tx.onabort = () => reject(tx.error || new Error('Transazione salvataggio quaderno annullata'));
   });
 }
 
 export function loadNotebookWithPages(id) {
   return new Promise((resolve, reject) => {
-    if (!db) return resolve(null);
+    if (!db) return reject(_dbUnavailableError());
     const tx = db.transaction(['notebooks', 'pageOrders', 'pages'], 'readonly');
     const nbReq = tx.objectStore('notebooks').get(id);
     const orderReq = tx.objectStore('pageOrders').get(id);
@@ -544,17 +640,17 @@ export function loadNotebookWithPages(id) {
 
 export function loadAllNotebooksFromDB() {
   return new Promise((resolve, reject) => {
-    if (!db) return resolve([]);
+    if (!db) return reject(_dbUnavailableError());
     const tx = db.transaction('notebooks', 'readonly');
     const req = tx.objectStore('notebooks').getAll();
     req.onsuccess = () => resolve(req.result || []);
-    req.onerror = reject;
+    req.onerror = () => reject(req.error || new Error('Errore lettura quaderni'));
   });
 }
 
 export function deleteNotebookFromDB(id, opts = {}) {
   return new Promise((resolve, reject) => {
-    if (!db) return resolve();
+    if (!db) return reject(_dbUnavailableError());
     const tx = db.transaction(['notebooks', 'pageOrders', 'pages'], 'readwrite');
     tx.objectStore('notebooks').delete(id);
     tx.objectStore('pageOrders').delete(id);
@@ -575,13 +671,15 @@ export function deleteNotebookFromDB(id, opts = {}) {
       }
       resolve();
     };
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error || new Error('Errore eliminazione quaderno'));
+    tx.onabort = () => reject(tx.error || new Error('Eliminazione quaderno annullata'));
   });
 }
 
 export function updateNotebookMetadataInDB(id, patch = {}, opts = {}) {
   return new Promise((resolve, reject) => {
-    if (!db || !id) return resolve(null);
+    if (!db) return reject(_dbUnavailableError());
+    if (!id) return resolve(null);
     const tx = db.transaction('notebooks', 'readwrite');
     const store = tx.objectStore('notebooks');
     const req = store.get(id);
@@ -604,23 +702,26 @@ export function updateNotebookMetadataInDB(id, patch = {}, opts = {}) {
     };
 
     tx.oncomplete = () => resolve(updated);
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error || new Error('Errore aggiornamento metadati'));
+    tx.onabort = () => reject(tx.error || new Error('Aggiornamento metadati annullato'));
   });
 }
 
 export function loadAllFoldersFromDB() {
   return new Promise((resolve, reject) => {
-    if (!db || !db.objectStoreNames.contains('folders')) return resolve([]);
+    if (!db) return reject(_dbUnavailableError());
+    if (!db.objectStoreNames.contains('folders')) return resolve([]);
     const tx = db.transaction('folders', 'readonly');
     const req = tx.objectStore('folders').getAll();
     req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => reject(req.error || new Error('Errore lettura raccolte'));
   });
 }
 
 export function saveFolderToDB(folder, opts = {}) {
   return new Promise((resolve, reject) => {
-    if (!db || !folder || !folder.id) return resolve(null);
+    if (!db) return reject(_dbUnavailableError());
+    if (!folder || !folder.id) return resolve(null);
     const now = new Date().toISOString();
     const record = {
       id: folder.id,
@@ -638,7 +739,8 @@ export function saveFolderToDB(folder, opts = {}) {
       clearLocalDeletion('folders', record.id);
       resolve(record);
     };
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error || new Error('Errore salvataggio raccolta'));
+    tx.onabort = () => reject(tx.error || new Error('Salvataggio raccolta annullato'));
   });
 }
 
@@ -649,7 +751,7 @@ export function deleteLibraryItemsFromDB({
   fromCloudSync = false
 } = {}) {
   return new Promise((resolve, reject) => {
-    if (!db) return resolve({ deletedFolderIds: [], deletedNotebookIds: [] });
+    if (!db) return reject(_dbUnavailableError());
 
     const stores = ['notebooks', 'pageOrders', 'pages'];
     const hasFoldersStore = db.objectStoreNames.contains('folders');
@@ -781,7 +883,8 @@ export function deleteLibraryItemsFromDB({
       }
       resolve({ deletedFolderIds, deletedNotebookIds });
     };
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error || new Error('Errore eliminazione elementi'));
+    tx.onabort = () => reject(tx.error || new Error('Eliminazione elementi annullata'));
   });
 }
 

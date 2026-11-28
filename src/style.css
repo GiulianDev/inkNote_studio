@@ -1882,6 +1882,10 @@ body.dark #libraryHeader.is-selection-mode #libraryLeadingBtn:hover {
   transition: background-color .15s ease, color .15s ease, border-color .15s ease, transform .1s ease, opacity .15s ease;
 }
 
+.lib-bar-btn.hidden {
+  display: none;
+}
+
 .lib-bar-btn:active:not(:disabled) {
   transform: scale(0.95);
 }

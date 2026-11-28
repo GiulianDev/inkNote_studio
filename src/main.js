@@ -34,7 +34,8 @@ import { initPlatform } from './shared/core/platform.js';
 import { initDeviceProfile } from './notebook/platform/profiles/index.js';
 import { initSettings, onSettingsChanged } from './shared/core/app-settings.js';
 import {
-  initToolbarSettings, onToolbarSettingsChanged, getToolbarSettingsForSave
+  initToolbarSettings, onToolbarSettingsChanged,
+  getToolbarSettingsForSave, getInitialNewNotebookToolbarSettings
 } from './notebook/toolbar/toolbar-settings.js';
 import { state } from './shared/core/state.js';
 import {
@@ -55,9 +56,9 @@ import {
   applySnapTogglesToUI, applyEraserLevelToUI,
   mountToolbar, hideColorPickerPopover, hidePagePopover, closeToolbarMenu
 } from './notebook/toolbar/toolbar.js';
-import { flushHistory } from './notebook/history/history.js';
 import {
-  initEditorHandlers, returnToLibrary, isEditorActive, openNotebook, closeNotebookIfOpen
+  initEditorHandlers, returnToLibrary, isEditorActive,
+  openNotebook, closeNotebookIfOpen, flushActiveEditorBeforeLeave
 } from './notebook/editor/editor.js';
 import { bindEditorUI } from './notebook/editor/ui-bindings.js';
 import { mountLibraryPage } from './library/library-page.js';
@@ -67,12 +68,13 @@ import { initSettingsPressurePreview } from './notebook/tools/pressure-preview.j
 import { mountPagesSidebar } from './notebook/pages-sidebar/pages-sidebar.js';
 import {
   renderLibraryView, bindLibraryUI,
+  registerLibraryNotebookHandlers,
   getCurrentFolderId, setCurrentFolderId, getParentFolderId,
   isSelectionModeActive, exitSelectionMode,
   hasActiveLibrarySearch, clearLibrarySearch
 } from './library/library.js';
-import { flushAutoSave, scheduleSave } from './shared/persistence/autosave.js';
-import { registerSessionAdapters } from './shared/persistence/session.js';
+import { scheduleSave } from './shared/persistence/autosave.js';
+import { registerSessionAdapters, getCurrentNotebook } from './shared/persistence/session.js';
 import { registerSyncNotebookHandlers } from './shared/sync/sync-ui.js';
 import { registerBackupNotebookHandlers } from './shared/backup/backup-import.js';
 import { closeAllAuthDropdowns } from './shared/auth/library-auth.js';
@@ -84,6 +86,8 @@ import { getSettings, updateSettings } from './shared/core/app-settings.js';
 import { initBackNavigation } from './shared/core/back-navigation.js';
 import { setupSystemMenuSuppression } from './shared/core/system-menu-guard.js';
 import { closeTopModal } from './shared/components/modal.js';
+import { initTabSync } from './shared/core/tab-sync.js';
+import { initPWA } from './shared/pwa/pwa.js';
 
 window.addEventListener('load', async () => {
   // 0. Piattaforma e listener input runtime (OS, device, hybrid, DPR, lastPointerType).
@@ -110,8 +114,20 @@ window.addEventListener('load', async () => {
   //    l'evento. La UI iniziale viene sincronizzata al punto 8.
   initToolbarSettings(null);
 
-  // 4. Init IndexedDB.
-  try { await initDB(); } catch (err) { console.error(err); }
+  // 4. Init IndexedDB + eventi multi-tab DB.
+  window.addEventListener('inknote:db-blocked', () => {
+    showToast('Database bloccato da un’altra scheda. Chiudi o ricarica le altre schede.', '⚠️', 6000);
+  });
+  window.addEventListener('inknote:db-version-change', () => {
+    showToast('App aggiornata in un’altra scheda. Ricarica questa pagina.', '⚠️', 7000);
+  });
+
+  try {
+    await initDB();
+  } catch (err) {
+    console.error('[main] initDB failed:', err);
+    showToast('Archivio locale non disponibile: impossibile salvare o aprire i quaderni.', '❌', 7000);
+  }
 
   // 4b. Gestisci il ritorno dal redirect Google (mobile).
   // Su desktop è no-op (nessun redirect).
@@ -121,10 +137,15 @@ window.addEventListener('load', async () => {
     console.error('[main] redirect handler failed:', err);
   }
 
-  // 5. Handler editor + binding UI (ora tutti gli id esistono).
+  // 5. Handler editor + adapter cross-layer + binding UI (ora tutti gli id esistono).
   registerSessionAdapters({ getToolbarSettingsForSave, normalizeTextBoxes });
   registerSyncNotebookHandlers({ openNotebook, closeNotebookIfOpen });
   registerBackupNotebookHandlers({ closeNotebookIfOpen });
+  registerLibraryNotebookHandlers({
+    openNotebook,
+    closeNotebookIfOpen,
+    getInitialNewNotebookToolbarSettings
+  });
   on('help:open', (detail) => openHelpModal(detail || { tab: 'guide' }));
 
   initEditorHandlers();
@@ -184,6 +205,61 @@ window.addEventListener('load', async () => {
   applySnapTogglesToUI();
   renderRecentColors();
 
+  // 9. Coordinamento multi-tab (BroadcastChannel) e supporto PWA offline/installabile.
+  initTabSync({
+    'library:mutated': (payload) => {
+      const current = getCurrentNotebook();
+      if (current && Array.isArray(payload?.overwrittenIds) && payload.overwrittenIds.includes(current.id)) {
+        closeNotebookIfOpen(current.id);
+        showToast('Quaderno sovrascritto da un’altra scheda.', 'ℹ️', 5000);
+      }
+      if (!isEditorActive()) {
+        renderLibraryView();
+      }
+    },
+    'notebook:deleted': (payload) => {
+      const deletedIds = Array.isArray(payload?.notebookIds) ? payload.notebookIds : [];
+      const current = getCurrentNotebook();
+      if (current && deletedIds.includes(current.id)) {
+        closeNotebookIfOpen(current.id);
+        showToast('Quaderno eliminato da un’altra scheda.', '⚠️', 5000);
+      }
+      if (!isEditorActive()) {
+        renderLibraryView();
+      }
+    },
+    'notebook:saved': (payload) => {
+      const current = getCurrentNotebook();
+      if (current && payload?.notebookId === current.id) {
+        showToast('Attenzione: questo quaderno è stato modificato anche in un’altra scheda.', '⚠️', 5000);
+      } else if (!isEditorActive()) {
+        renderLibraryView();
+      }
+    },
+    'cloud:sync-completed': (payload) => {
+      const current = getCurrentNotebook();
+      if (current && payload?.openNotebookId && payload.openNotebookId === current.id) {
+        if (payload.deletedOpenNotebook) {
+          closeNotebookIfOpen(current.id);
+          showToast('Quaderno rimosso dalla sincronizzazione in un’altra scheda.', '⚠️', 5000);
+        } else if (payload.updatedOpenNotebook) {
+          showToast('Quaderno aggiornato dal cloud in un’altra scheda. Riaprilo dalla libreria.', 'ℹ️', 6000);
+        }
+      }
+      if (!isEditorActive()) {
+        renderLibraryView();
+      }
+    }
+  });
+
+  initPWA({
+    installBtn: document.getElementById('pwaInstallBtn'),
+    offlineIndicator: document.getElementById('offlineStatusBadge'),
+    onUpdateAvailable: () => {
+      showToast('Nuova versione disponibile: ricarica per aggiornare.', '✨', 6000);
+    }
+  });
+
   window.addEventListener('resize', scheduleResolutionRefresh);
 });
 
@@ -239,8 +315,20 @@ function _dismissTopTransientUI() {
   return null;
 }
 
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    flushActiveEditorBeforeLeave({ deselect: false });
+  }
+});
+
+window.addEventListener('pagehide', (e) => {
+  flushActiveEditorBeforeLeave({ deselect: !e.persisted });
+  if (!e.persisted) {
+    terminateWorker();
+  }
+});
+
 window.addEventListener('beforeunload', () => {
-  flushHistory();
-  flushAutoSave();
+  flushActiveEditorBeforeLeave({ deselect: true });
   terminateWorker();
 });

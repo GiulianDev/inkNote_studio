@@ -4,6 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>InkNote Studio - Notebooks & iPad Notes</title>
+    <meta name="description" content="Prendi appunti a mano su iPad e desktop con penna vettoriale, riconoscimento forme geometriche, caselle di testo e sincronizzazione cloud.">
+    <meta property="og:title" content="InkNote Studio - Notebooks & iPad Notes">
+    <meta property="og:description" content="Prendi appunti a mano su iPad e desktop con penna vettoriale, riconoscimento forme geometriche, caselle di testo e sincronizzazione cloud.">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="InkNote">
+
+    <link rel="icon" type="image/svg+xml" href="/icon.svg">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,6 +32,11 @@
     <div id="toastNotification" role="status" aria-live="polite" class="fixed top-24 right-3 sm:right-6 max-w-[calc(100vw-1.5rem)] bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs flex items-center gap-2 transform translate-y-2 opacity-0 pointer-events-none transition-all duration-300 z-[200] font-medium">
         <span id="toastIcon" class="shrink-0">ℹ️</span>
         <span id="toastMessage" class="min-w-0 break-words">Messaggio</span>
+    </div>
+
+    <div id="offlineStatusBadge" role="status" aria-live="polite" class="hidden fixed bottom-4 right-4 z-[95] items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/95 text-slate-950 text-xs font-semibold shadow-lg pointer-events-none">
+        <span class="w-2 h-2 rounded-full bg-slate-950/75 shrink-0"></span>
+        <span>Offline — Dati salvati in locale</span>
     </div>
 
     <input type="file" id="importFileInput" accept=".inknote,application/json,application/octet-stream" hidden>

@@ -8,9 +8,8 @@ import {
   loadAllNotebooksFromDB, saveNotebookToDB, deleteNotebookFromDB, loadNotebookWithPages,
   updateNotebookMetadataInDB, loadAllFoldersFromDB, saveFolderToDB, deleteLibraryItemsFromDB
 } from '../shared/services/db.js';
-import { openNotebook, closeNotebookIfOpen } from '../notebook/editor/editor.js';
 import { waitForPendingSaves } from '../shared/persistence/session.js';
-import { getInitialNewNotebookToolbarSettings } from '../notebook/toolbar/toolbar-settings.js';
+import { broadcastTabEvent } from '../shared/core/tab-sync.js';
 import { openSettingsModal } from '../shared/settings/settings-modal.js';
 import { exportNotebooks } from '../shared/backup/backup-export.js';
 import { importNotebooks } from '../shared/backup/backup-import.js';
@@ -67,6 +66,44 @@ let _dndController = null;
 let _newNotebookModalCtrl = null;
 let _lastRenderedFolderId;
 let _syncLibraryScrollState = null;
+
+let _notebookHandlers = {
+  openNotebook: null,
+  closeNotebookIfOpen: null,
+  getInitialNewNotebookToolbarSettings: null
+};
+
+export function registerLibraryNotebookHandlers({
+  openNotebook,
+  closeNotebookIfOpen,
+  getInitialNewNotebookToolbarSettings
+} = {}) {
+  _notebookHandlers = {
+    openNotebook: typeof openNotebook === 'function' ? openNotebook : null,
+    closeNotebookIfOpen: typeof closeNotebookIfOpen === 'function' ? closeNotebookIfOpen : null,
+    getInitialNewNotebookToolbarSettings:
+      typeof getInitialNewNotebookToolbarSettings === 'function' ? getInitialNewNotebookToolbarSettings : null
+  };
+}
+
+function _openNotebook(id) {
+  if (_notebookHandlers.openNotebook) {
+    return _notebookHandlers.openNotebook(id);
+  }
+  console.warn('[library] openNotebook handler non registrato');
+  showToast('Editor non disponibile', '⚠️');
+  return undefined;
+}
+
+function _closeNotebookIfOpen(id) {
+  _notebookHandlers.closeNotebookIfOpen?.(id);
+}
+
+function _getInitialNewNotebookToolbarSettings() {
+  return _notebookHandlers.getInitialNewNotebookToolbarSettings
+    ? _notebookHandlers.getInitialNewNotebookToolbarSettings()
+    : null;
+}
 
 function _ensureNewNotebookModalCtrl() {
   if (_newNotebookModalCtrl) return _newNotebookModalCtrl;
@@ -582,7 +619,7 @@ export function renderLibraryView() {
               _toggleSelection('notebook', targetNb.id);
               return;
             }
-            openNotebook(targetNb.id);
+            _openNotebook(targetNb.id);
           },
           onToggleFavorite: _toggleNotebookFavorite,
           onDelete: _deleteNotebook
@@ -602,6 +639,27 @@ export function renderLibraryView() {
 
     document.getElementById('libraryView')?.classList.remove('hidden');
     _syncLibraryScrollState?.({ resetScroll: folderChanged });
+  }).catch((err) => {
+    if (token !== _renderRequestToken) return;
+    console.error('[library] render failed:', err);
+    _cachedNotebooks = [];
+    _cachedFolders = [];
+    const grid = document.getElementById('notebooksGrid');
+    if (grid) grid.innerHTML = '';
+    const emptyMsg = document.getElementById('emptyLibraryMessage');
+    if (emptyMsg) {
+      const iconEl = document.getElementById('emptyLibraryIcon');
+      const titleEl = document.getElementById('emptyLibraryTitle');
+      const subEl = document.getElementById('emptyLibrarySubtitle');
+      if (iconEl) iconEl.textContent = '⚠️';
+      if (titleEl) titleEl.textContent = 'Archivio locale non accessibile';
+      if (subEl) {
+        subEl.textContent = err?.message || 'Impossibile accedere a IndexedDB in questo browser o profilo.';
+      }
+      emptyMsg.classList.remove('hidden');
+      emptyMsg.classList.add('flex');
+    }
+    showToast('Errore nell’accesso al database locale', '❌', 5000);
   });
 }
 
@@ -614,6 +672,7 @@ async function _toggleNotebookFavorite(nb) {
   try {
     await updateNotebookMetadataInDB(nb.id, { isFavorite: next });
     nb.isFavorite = next;
+    broadcastTabEvent('library:mutated', { source: 'favorite', notebookId: nb.id });
     renderLibraryView();
     showToast(next ? 'Aggiunto ai preferiti' : 'Rimosso dai preferiti', next ? '⭐' : '☆');
   } catch (err) {
@@ -650,6 +709,7 @@ async function _handleCreateFolder() {
       _searchQuery = '';
       _syncLibraryControlsToUI();
     }
+    broadcastTabEvent('library:mutated', { source: 'create-folder', folderId: folder.id });
     renderLibraryView();
     showToast(`Raccolta "${folder.name}" creata`, '🗂️');
   } catch (err) {
@@ -671,6 +731,7 @@ async function _handleEditFolder(folder) {
       name: res.name,
       color: res.color
     });
+    broadcastTabEvent('library:mutated', { source: 'edit-folder', folderId: folder.id });
     renderLibraryView();
     showToast('Raccolta aggiornata', '🗂️');
   } catch (err) {
@@ -696,6 +757,7 @@ async function _handleMoveFolder(folder) {
       ...folder,
       parentId: destId
     });
+    broadcastTabEvent('library:mutated', { source: 'move-folder', folderId: folder.id });
     renderLibraryView();
     showToast('Raccolta spostata', '🗂️');
   } catch (err) {
@@ -754,7 +816,7 @@ async function _handleDeleteFolder(folder) {
   try {
     if (deleteContents && subtree.nestedNotebooks.length > 0) {
       for (const nb of subtree.nestedNotebooks) {
-        if (nb?.id) closeNotebookIfOpen(nb.id);
+        if (nb?.id) _closeNotebookIfOpen(nb.id);
       }
       await waitForPendingSaves();
     }
@@ -769,6 +831,10 @@ async function _handleDeleteFolder(folder) {
     if (_currentFolderId && deletedFolderIds.includes(_currentFolderId)) {
       _currentFolderId = folder.parentId || null;
     }
+    broadcastTabEvent('notebook:deleted', {
+      notebookIds: deletedNotebookIds,
+      folderIds: deletedFolderIds
+    });
     renderLibraryView();
     if (hasContents && deleteContents) {
       showToast('Raccolta e contenuti eliminati', '🗑️');
@@ -826,6 +892,7 @@ async function _handleMoveSelection() {
       ? (_cachedFolders.find(f => f.id === destId)?.name || 'Raccolta')
       : 'Libreria';
     _exitSelectionMode();
+    broadcastTabEvent('library:mutated', { source: 'move-selection' });
     renderLibraryView();
     showToast(
       total === 1
@@ -862,6 +929,7 @@ async function _moveDraggedItemToFolder(dragged, destId, targetLabel) {
       const nb = _cachedNotebooks.find(n => n.id === dragged.id);
       if (!nb || (nb.folderId || null) === destId) return;
       await updateNotebookMetadataInDB(dragged.id, { folderId: destId });
+      broadcastTabEvent('library:mutated', { source: 'dnd-move' });
       renderLibraryView();
       showToast(`"${nb.title}" spostato in "${targetLabel}"`, '🗂️');
     } else if (dragged.type === 'folder') {
@@ -872,6 +940,7 @@ async function _moveDraggedItemToFolder(dragged, destId, targetLabel) {
         if (excluded.has(destId)) return;
       }
       await saveFolderToDB({ ...folder, parentId: destId });
+      broadcastTabEvent('library:mutated', { source: 'dnd-move' });
       renderLibraryView();
       showToast(`"${folder.name}" spostata in "${targetLabel}"`, '🗂️');
     }
@@ -924,6 +993,7 @@ async function _handleDndMergeNotebooks(sourceNbId, targetNbId) {
     await saveFolderToDB(newFolder);
     await updateNotebookMetadataInDB(targetNb.id, { folderId: newFolder.id });
     await updateNotebookMetadataInDB(sourceNb.id, { folderId: newFolder.id });
+    broadcastTabEvent('library:mutated', { source: 'dnd-merge' });
     renderLibraryView();
     showToast(`Raccolta "${newFolder.name}" creata`, '🗂️');
   } catch (err) {
@@ -1073,6 +1143,7 @@ async function _handleDuplicateSelection() {
 
     const duplicatedFolders = oldToNewFolderId.size;
     _exitSelectionMode();
+    broadcastTabEvent('library:mutated', { source: 'duplicate-selection' });
     renderLibraryView();
 
     if (duplicatedFolders > 0 && duplicatedNbs > 0) {
@@ -1210,11 +1281,11 @@ async function _handleDeleteSelection() {
 
   try {
     for (const nbId of nbIds) {
-      closeNotebookIfOpen(nbId);
+      _closeNotebookIfOpen(nbId);
     }
     if (deleteContents && subtree.nestedNotebooks.length > 0) {
       for (const nb of subtree.nestedNotebooks) {
-        if (nb?.id) closeNotebookIfOpen(nb.id);
+        if (nb?.id) _closeNotebookIfOpen(nb.id);
       }
     }
     await waitForPendingSaves();
@@ -1226,6 +1297,10 @@ async function _handleDeleteSelection() {
     });
     const deletedCount = deletedFolderIds.length + deletedNotebookIds.length;
     _exitSelectionMode();
+    broadcastTabEvent('notebook:deleted', {
+      notebookIds: deletedNotebookIds,
+      folderIds: deletedFolderIds
+    });
     renderLibraryView();
     showToast(
       deletedCount === 1 ? 'Elemento eliminato' : `${deletedCount} elementi eliminati`,
@@ -1336,7 +1411,7 @@ async function _confirmCreateNotebook() {
       createdAt: now,
       updatedAt: now,
       lastEditAt: now,
-      toolbarSettings: getInitialNewNotebookToolbarSettings(),
+      toolbarSettings: _getInitialNewNotebookToolbarSettings(),
       pageOrder: [firstPageId],
       pages: [{ pageId: firstPageId, strokes: [], textBoxes: [] }],
       lastPageIndex: 0
@@ -1345,8 +1420,12 @@ async function _confirmCreateNotebook() {
     if (folderId !== _currentFolderId) {
       _currentFolderId = folderId;
     }
+    broadcastTabEvent('library:mutated', { source: 'create-notebook', notebookId: newNb.id });
     closeNewNotebookModal();
-    openNotebook(newNb.id);
+    _openNotebook(newNb.id);
+  } catch (err) {
+    console.error('[library] create notebook failed:', err);
+    showToast('Creazione quaderno fallita: verifica lo spazio disponibile', '❌', 5000);
   } finally {
     _isCreatingNotebook = false;
     if (confirmBtn) confirmBtn.disabled = false;
@@ -1362,12 +1441,18 @@ async function _deleteNotebook(_e, id) {
   });
   if (!confirmed) return;
 
-  closeNotebookIfOpen(id);
-  await waitForPendingSaves();
-  await deleteNotebookFromDB(id);
-  selectedNotebookIds.delete(id);
-  renderLibraryView();
-  showToast('Quaderno eliminato', '🗑️');
+  try {
+    _closeNotebookIfOpen(id);
+    await waitForPendingSaves();
+    await deleteNotebookFromDB(id);
+    selectedNotebookIds.delete(id);
+    broadcastTabEvent('notebook:deleted', { notebookIds: [id] });
+    renderLibraryView();
+    showToast('Quaderno eliminato', '🗑️');
+  } catch (err) {
+    console.error('[library] delete notebook failed:', err);
+    showToast('Eliminazione quaderno fallita', '❌');
+  }
 }
 
 // ============================================================
@@ -1702,5 +1787,5 @@ export function bindLibraryUI() {
 
 on('library:refresh', renderLibraryView);
 on('library:open-notebook', (nbId) => {
-  if (nbId) openNotebook(nbId);
+  if (nbId) _openNotebook(nbId);
 });

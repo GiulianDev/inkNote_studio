@@ -66,8 +66,21 @@ import {
   loadDailySyncUsage,
   recordDailySyncUsage
 } from '../sync/sync-helpers.js';
+import { broadcastTabEvent } from '../core/tab-sync.js';
 
 let _syncInFlight = null;
+
+async function _withCrossTabSyncLock(fn) {
+  if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
+    return navigator.locks.request('inknote_cloud_sync', { ifAvailable: true }, async (lock) => {
+      if (!lock) {
+        throw new Error('Sincronizzazione già in corso in un’altra scheda');
+      }
+      return fn();
+    });
+  }
+  return fn();
+}
 
 function _requireVerifiedCloudUser() {
   if (!isFirestoreReady()) {
@@ -705,7 +718,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
     throw new Error('Sincronizzazione già in corso');
   }
 
-  const run = (async () => {
+  const run = _withCrossTabSyncLock(async () => {
     const user = _requireVerifiedCloudUser();
     const uid = user.uid;
 
@@ -730,6 +743,9 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
       abortedByUser: false
     };
 
+    let nextSyncState = null;
+    let syncSucceeded = false;
+
     try {
       onProgress?.({ stage: 'prepare', label: 'Salvataggio modifiche locali e verifica account...' });
       if (getCurrentNotebook()) {
@@ -748,7 +764,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
 
       const tombstones = loadLocalTombstones();
       const prevSyncState = loadUserSyncState(uid);
-      const nextSyncState = {
+      nextSyncState = {
         lastSyncAt: prevSyncState.lastSyncAt,
         folders: { ...(prevSyncState.folders || {}) },
         notebooks: { ...(prevSyncState.notebooks || {}) }
@@ -1062,20 +1078,55 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
         }
       }
 
-      nextSyncState.lastSyncAt = new Date().toISOString();
-      saveUserSyncState(uid, nextSyncState);
-      recordDailySyncUsage(uid, {
-        syncCount: 1,
-        bytesUploaded: stats.bytesUploaded,
-        bytesDownloaded: stats.bytesDownloaded,
-        readsApprox: stats.readsApprox,
-        writesApprox: stats.writesApprox
-      });
-
+      syncSucceeded = true;
       onProgress?.({ stage: 'done', label: 'Sincronizzazione completata!' });
       return stats;
     } finally {
-      // Anche se fallisce parzialmente o viene annullato, non lasciamo stato bloccato
+      const hasPartialMutations = (
+        stats.uploadedFolders +
+        stats.downloadedFolders +
+        stats.uploadedNotebooks +
+        stats.downloadedNotebooks +
+        stats.deletedCloud +
+        stats.deletedLocal
+      ) > 0;
+
+      if (uid && nextSyncState && !stats.abortedByUser && (syncSucceeded || hasPartialMutations)) {
+        if (syncSucceeded) {
+          nextSyncState.lastSyncAt = new Date().toISOString();
+        }
+        try {
+          saveUserSyncState(uid, nextSyncState);
+        } catch (err) {
+          console.warn('[sync-cloud] unable to persist syncState:', err);
+        }
+      }
+
+      if (
+        uid &&
+        (syncSucceeded || stats.readsApprox > 0 || stats.writesApprox > 0 || stats.bytesUploaded > 0 || stats.bytesDownloaded > 0)
+      ) {
+        try {
+          recordDailySyncUsage(uid, {
+            syncCount: syncSucceeded ? 1 : 0,
+            bytesUploaded: stats.bytesUploaded,
+            bytesDownloaded: stats.bytesDownloaded,
+            readsApprox: stats.readsApprox,
+            writesApprox: stats.writesApprox
+          });
+        } catch (err) {
+          console.warn('[sync-cloud] unable to record daily usage:', err);
+        }
+      }
+
+      if (syncSucceeded || hasPartialMutations) {
+        broadcastTabEvent('cloud:sync-completed', {
+          updatedOpenNotebook: stats.updatedOpenNotebook,
+          deletedOpenNotebook: stats.deletedOpenNotebook,
+          openNotebookId: stats.openNotebookId,
+          partial: !syncSucceeded
+        });
+      }
     }
   })();
 

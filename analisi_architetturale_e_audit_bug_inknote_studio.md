@@ -1,12 +1,12 @@
-# Analisi Architetturale e Audit Bug — InkNote Studio (`v0.2.4`)
+# Analisi Architetturale e Audit Bug — InkNote Studio (`v0.2.5`)
 
-> **Ultimo aggiornamento**: 28 Novembre 2026 — Revisione e risoluzione delle criticità alla versione **`v0.2.4`** (`package.json`).  
+> **Ultimo aggiornamento**: 28 Novembre 2026 — Revisione architetturale, persistenza multi-tab e supporto PWA alla versione **`v0.2.5`** (`package.json`).  
 > **Stato verifiche automatiche post-fix**:
 > - `npx eslint .`: **0 errori, 0 warning** (exit code `0`).
-> - `node --test 'src/**/*.test.js'`: **197/197 passati, 0 falliti**.
-> - Verifica end-to-end in browser (Chromium): creazione quaderno, editing testo + `#undoBtn`, zoom da tastiera (`+`/`-`/`0`), ricerca in selezione multipla ed eliminazione persistente verificati con **0 errori console**.
+> - `node --test 'src/**/*.test.js'`: **206/206 passati, 0 falliti**.
+> - Verifica end-to-end in browser (Chromium): registrazione Service Worker PWA e manifest, indicatore offline/online, persistenza automatica su `visibilitychange` (`hidden`) per casella di testo non ancora confermata, avviso multi-tab `BroadcastChannel` e build `singlefile` verificati con **0 errori runtime**.
 
-Questo documento fotografa l'architettura attuale di **InkNote Studio**, traccia lo stato dei 10 bug storici e documenta la risoluzione dei bug individuati nell'audit `v0.2.2`.
+Questo documento fotografa l'architettura attuale di **InkNote Studio**, traccia lo stato dei 10 bug storici, documenta la risoluzione dei bug dell'audit `v0.2.2` e le 5 criticità architetturali risolte in `v0.2.5`.
 
 ---
 
@@ -116,4 +116,14 @@ L'applicazione è organizzata in tre domini principali orchestrati da un unico c
 * **Soluzione applicata**: Aggiornato il percorso verificato a `src/shared/release/release-info.js`; l'intera suite passa (`197/197`).
 
 #### B2. Debito tecnico residuo su file monolitici (`style.css`, `render.js`, `toolbar.js`, `library.js`, `sharing-ui.js`) — **APERTO (Non bloccante)**
-* **Osservazione**: La separazione dei layer `shared/` → `notebook/`/`library/` è pulita (`0` import residui verso l'alto), ma restano 5 file di grandi dimensioni (`style.css`, `render.js`, `toolbar.js`, `library.js`, `sharing-ui.js`). Non costituiscono bug, ma conviene modularizzarli gradualmente in interventi mirati futuri.
+* **Osservazione**: La separazione dei layer è ora completa (`0` import di produzione verso l'alto da `shared/` o `library/` verso `notebook/`), ma restano 5 file di grandi dimensioni (`style.css`, `render.js`, `toolbar.js`, `library.js`, `sharing-ui.js`). Non costituiscono bug, ma conviene modularizzarli gradualmente in interventi mirati futuri.
+
+---
+
+## 4. Criticità Architetturali Risolte (`v0.2.5`)
+
+1. **Perdita modifiche su chiusura app o cambio scheda mobile (`main.js`, `editor.js`, `autosave.js`) — RISOLTO**: Aggiunto `flushActiveEditorBeforeLeave()` collegato a `visibilitychange` (`hidden`), `pagehide` e `beforeunload`. Prima di svuotare history e autosave, consolida `state.pendingShape` (`finalizePendingShape`) e la casella di testo in modifica (`commitActiveTextBox`).
+2. **Stato sync perso su errori parziali & concorrenza multi-tab (`sync-cloud.js`) — RISOLTO**: `saveUserSyncState` e `recordDailySyncUsage` vengono eseguiti nel blocco `finally` quando risultano operazioni completate o traffico Firestore prima di un errore parziale; protetta l'esecuzione tra schede con `navigator.locks.request('inknote_cloud_sync', { ifAvailable: true })`.
+3. **Disallineamento `needsOrderRebuild` vs `pageOrders` (`db.js`) — RISOLTO**: In `saveNotebookToDB()`, la scrittura su `pageOrdersStore` viene eseguita ogniqualvolta `needsOrderRebuild` è `true` (incluso `notebook.pageOrder.length !== pages.length`), mantenendo sempre allineati `notebooks.pageCount` e `pageOrders`.
+4. **Errori silenziosi IndexedDB / Quota e coordinamento multi-tab (`db.js`, `autosave.js`, `session.js`, `library.js`, `tab-sync.js`, `main.js`) — RISOLTO**: Espliciti i reject quando `!db`, gestiti `onblocked` e `onversionchange` con notifiche UI, evidenziato `QuotaExceededError` su status badge e toast, aggiunta gestione errori in `renderLibraryView()` e introdotto `BroadcastChannel('inknote_studio_tab_sync_v1')` per sincronizzare le schede aperte su salvataggi, eliminazioni, import e sync cloud.
+5. **Disaccoppiamento `library → notebook` & PWA offline installabile (`library.js`, `vite.config.js`, `pwa.js`, `index.html`, `library-page.html`, `public/`) — RISOLTO**: Eliminati gli import diretti da `library.js` verso `editor.js` e `toolbar-settings.js` tramite `registerLibraryNotebookHandlers()` nel composition root; aggiunti manifest PWA, icone dedicata (`any`, `maskable`, `apple-touch-icon`), Service Worker Workbox per l'uso offline completo su iPad/tablet/desktop e bottone in-app di installazione preservando i profili di build `singlefile` e `singlefileoffline`.

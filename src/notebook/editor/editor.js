@@ -8,7 +8,7 @@ import {
   loadNotebookWithPages, saveNotebookToDB, CURRENT_NOTEBOOK_FORMAT
 } from '../../shared/services/db.js';
 import { setCurrentNotebook, getCurrentNotebook } from '../../shared/persistence/session.js';
-import { scheduleSave, forceSave, cancelPendingSave } from '../../shared/persistence/autosave.js';
+import { scheduleSave, forceSave, cancelPendingSave, flushAutoSave } from '../../shared/persistence/autosave.js';
 import { packStrokes, unpackStrokes } from '../../shared/persistence/serialization.js';
 import { showProgressDialog } from '../../shared/backup/backup-progress.js';
 import {
@@ -23,7 +23,7 @@ import {
   applyBgPatternToUI, applySnapTogglesToUI, applyEraserLevelToUI,
   closeAllEditorMenus
 } from '../toolbar/toolbar.js';
-import { resetHistory } from '../history/history.js';
+import { resetHistory, flushHistory } from '../history/history.js';
 import {
   setViewportChangeHandler, applyTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
@@ -367,6 +367,20 @@ export async function returnToLibrary({ fromPopstate = false } = {}) {
   });
 
   return _returningPromise;
+}
+
+export function flushActiveEditorBeforeLeave({ deselect = false } = {}) {
+  if (!getCurrentNotebook()) {
+    return flushAutoSave();
+  }
+  if (state.pendingShape) {
+    finalizePendingShape();
+  }
+  if (state.editingTextBoxId || state.selectedTextBoxId) {
+    commitActiveTextBox({ deselect });
+  }
+  flushHistory();
+  return flushAutoSave();
 }
 
 export function updateCurrentNotebookTitle(newTitle) {

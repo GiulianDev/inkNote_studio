@@ -6,6 +6,7 @@ import { state } from '../core/state.js';
 import { generatePageId } from '../core/utils.js';
 import { saveNotebookToDB } from '../services/db.js';
 import { packStrokes } from './serialization.js';
+import { broadcastTabEvent } from '../core/tab-sync.js';
 
 let _getToolbarSettingsForSave = () => (_currentNotebook?.toolbarSettings ?? null);
 let _normalizeTextBoxes = (list) => (Array.isArray(list) ? list : []);
@@ -120,6 +121,13 @@ export function saveCurrentNotebook() {
     return saveNotebookToDB(targetNb, dirtyIds, {
       deletedPageIds: deletedIds,
       orderChanged
+    }).then(() => {
+      if (dirtyIds.length > 0 || deletedIds.length > 0 || orderChanged) {
+        broadcastTabEvent('notebook:saved', {
+          notebookId: targetNb.id,
+          updatedAt: targetNb.updatedAt
+        });
+      }
     }).catch(err => {
       if (_currentNotebook === targetNb) {
         for (const id of dirtyIds) {
