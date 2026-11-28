@@ -233,6 +233,60 @@ test('formatAuthErrorMessage converts Firebase Auth popup/account codes cleanly'
   assert.match(formatAuthErrorMessage({ code: 'auth/user-mismatch' }), /account Google diverso/);
   assert.match(formatAuthErrorMessage({ code: 'auth/popup-blocked' }), /Popup bloccato/);
   assert.equal(formatAuthErrorMessage(new Error('Generic error')), '');
+  assert.match(formatAuthErrorMessage({ code: 'auth/api-key-not-valid' }), /API Key non valida/);
+  assert.match(formatAuthErrorMessage(new Error('API_KEY_INVALID')), /API Key non valida/);
+});
+
+import {
+  sanitizeFirebaseConfigValue,
+  sanitizeFirebaseConfigObject,
+  isAiStudioPreviewHost,
+  selectActiveFirebaseConfig
+} from './sharing-helpers.js';
+
+test('sanitizeFirebaseConfigValue strips accidental quotes, semicolons, and whitespace', () => {
+  assert.equal(sanitizeFirebaseConfigValue('  "AIzaSyD50_Vg5TP4NeUOtBhn7pKNB8UyD0iSLjQ"; '), 'AIzaSyD50_Vg5TP4NeUOtBhn7pKNB8UyD0iSLjQ');
+  assert.equal(sanitizeFirebaseConfigValue("'inknote-studio.firebaseapp.com';"), 'inknote-studio.firebaseapp.com');
+  assert.equal(sanitizeFirebaseConfigValue(null), '');
+});
+
+test('selectActiveFirebaseConfig uses appletConfig in AI Studio preview hosts (Option A) and sanitized envConfig externally', () => {
+  assert.equal(isAiStudioPreviewHost('ais-dev-abc-123.europe-west3.run.app'), true);
+  assert.equal(isAiStudioPreviewHost('ais-pre-abc-123.europe-west3.run.app'), true);
+  assert.equal(isAiStudioPreviewHost('localhost'), true);
+  assert.equal(isAiStudioPreviewHost('inknote-studio.web.app'), false);
+
+  const envConfig = {
+    apiKey: '"AIzaSyEnvKey";',
+    authDomain: 'inknote-studio.firebaseapp.com',
+    projectId: 'inknote-studio',
+    appId: '1:111:web:222'
+  };
+  const appletConfig = {
+    apiKey: 'AIzaSyAppletKey',
+    authDomain: 'gen-lang-client-123.firebaseapp.com',
+    projectId: 'gen-lang-client-123',
+    appId: '1:333:web:444',
+    firestoreDatabaseId: 'ai-studio-db-uuid'
+  };
+
+  const previewChoice = selectActiveFirebaseConfig({
+    envConfig,
+    appletConfig,
+    hostname: 'ais-dev-undviet7liqs4oq45mbe62-676366603759.europe-west3.run.app'
+  });
+  assert.equal(previewChoice.source, 'applet');
+  assert.equal(previewChoice.config.projectId, 'gen-lang-client-123');
+  assert.equal(previewChoice.config.apiKey, 'AIzaSyAppletKey');
+
+  const prodChoice = selectActiveFirebaseConfig({
+    envConfig,
+    appletConfig,
+    hostname: 'inknote-studio.web.app'
+  });
+  assert.equal(prodChoice.source, 'env');
+  assert.equal(prodChoice.config.projectId, 'inknote-studio');
+  assert.equal(prodChoice.config.apiKey, 'AIzaSyEnvKey');
 });
 
 test('hasOAuthScope matches exact space-delimited OAuth scopes', () => {

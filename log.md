@@ -1,5 +1,10 @@
 # InkNote Studio — Changelog
 
+## v0.2.8 — 2026-11-28
+- **Fix Sync Cloud & Chunk Transition (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`)**: rimossa l'invocazione doppia residua su `withCrossTabSyncLock` in `runManualCloudSync` (che causava `TypeError: ... is not a function`), corretto `prevChunkCount` nel passaggio di una pagina da documento singolo a chunked e normalizzato il formato errore Auth in `_formatSyncError`.
+- **Stato copia cloud su nuovo dispositivo (`sync-cloud.js`, `sync-ui.js`, `sync-helpers.js`)**: introdotto controllo leggero dei soli metadati (`peekCloudSyncInventory`) quando il dispositivo corrente non ha ancora sincronizzato (`Mai su questo dispositivo`), mostrando chiaramente se esistono già quaderni e raccolte salvati nel cloud pronti per il download.
+- **Accesso Google in preview AI Studio & sanitizzazione env (`sharing-helpers.js`, `firebase.js`)**: aggiunta sanitizzazione automatica di virgolette/punti e virgola accidentali sulle variabili `VITE_FIREBASE_*` e selezione automatica di `firebase-applet-config.json` sugli host di anteprima AI Studio (`ais-dev`/`ais-pre`/`localhost`), preservando le variabili `VITE_FIREBASE_*` per i build/deploy esterni.
+
 ## v0.2.11 — 2026-11-28
 - **Pulsante "Installa come App" nelle Impostazioni (`pwa.js`, `settings-modal.html`, `settings-modal.js`)**: aggiunta una card dedicata nel pannello Impostazioni con rilevamento automatico dello stato (prompt nativo su Chromium/Edge/Android, guida rapida iOS/iPadOS Safari, stato già installato in modalità app o istruzioni browser).
 - **Modale Impostazioni a tab e segmented control (`settings-modal.html`, `settings-modal.js`, `pressure-preview.js`, `style.css`)**: aggiunto pulsante di chiusura `×`, suddivisione in tre tab (`Aspetto`, `Input & Penna`, `Inchiostro`) e sostituzione dei `<select>` con segmented control visivi (`Tema`, `Tema Stampa / PDF`, `Mano Dominante`, `Dimensione Dock`, `Sidebar Pagine`), mantenendo sincronizzata l'anteprima curva pressione al cambio tab.

@@ -392,6 +392,7 @@ export function classifyPeopleApiError(status, payload, projectId = '') {
 
 export function formatAuthErrorMessage(err) {
   const code = typeof err?.code === 'string' ? err.code : '';
+  const msg = typeof err?.message === 'string' ? err.message : '';
   if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
     return 'Autorizzazione Google annullata.';
   }
@@ -404,7 +405,83 @@ export function formatAuthErrorMessage(err) {
   if (code === 'auth/unauthorized-domain') {
     return 'Dominio non autorizzato in Firebase Authentication.';
   }
+  if (code === 'auth/api-key-not-valid' || code === 'auth/invalid-api-key' || msg.includes('API_KEY_INVALID')) {
+    return 'Configurazione Firebase API Key non valida: verifica le variabili Firebase o firebase-applet-config.json.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Errore di rete durante l’accesso Google: verifica la connessione e riprova.';
+  }
+  if (code === 'auth/operation-not-supported-in-this-environment') {
+    return 'Accesso Google non supportato in questo contesto browser.';
+  }
   return '';
+}
+
+export function sanitizeFirebaseConfigValue(raw) {
+  if (typeof raw !== 'string') return '';
+  let val = raw.trim();
+  // Rimuove eventuali punto e virgola finali e virgolette esterne copiate da snippet JS
+  for (let i = 0; i < 3; i++) {
+    const prev = val;
+    val = val.replace(/;+$/g, '').trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1).trim();
+    }
+    if (val === prev) break;
+  }
+  return val;
+}
+
+export function sanitizeFirebaseConfigObject(rawConfig) {
+  const src = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
+  return {
+    apiKey: sanitizeFirebaseConfigValue(src.apiKey),
+    authDomain: sanitizeFirebaseConfigValue(src.authDomain),
+    projectId: sanitizeFirebaseConfigValue(src.projectId),
+    storageBucket: sanitizeFirebaseConfigValue(src.storageBucket),
+    messagingSenderId: sanitizeFirebaseConfigValue(src.messagingSenderId),
+    appId: sanitizeFirebaseConfigValue(src.appId),
+    firestoreDatabaseId: sanitizeFirebaseConfigValue(src.firestoreDatabaseId)
+  };
+}
+
+export function isAiStudioPreviewHost(hostname = '') {
+  const host = typeof hostname === 'string' ? hostname.trim().toLowerCase() : '';
+  if (!host) return false;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
+    return true;
+  }
+  return /^ais-(?:dev|pre)-[^.]+\.[^.]+\.run\.app$/i.test(host) || /^ais-(?:dev|pre)-.*\.run\.app$/i.test(host);
+}
+
+export function selectActiveFirebaseConfig({
+  envConfig = null,
+  appletConfig = null,
+  hostname = ''
+} = {}) {
+  const cleanEnv = sanitizeFirebaseConfigObject(envConfig);
+  const cleanApplet = sanitizeFirebaseConfigObject(appletConfig);
+
+  const hasEnvConfig = Boolean(cleanEnv.apiKey && cleanEnv.projectId && cleanEnv.appId);
+  const hasAppletConfig = Boolean(
+    cleanApplet.apiKey &&
+    cleanApplet.projectId &&
+    cleanApplet.appId &&
+    cleanApplet.projectId !== 'remixed-project-id'
+  );
+
+  // Opzione A: in anteprima AI Studio (ais-dev/ais-pre/localhost) usa sempre firebase-applet-config.json se valido,
+  // lasciando VITE_FIREBASE_* prioritario nei build/deploy esterni.
+  if (isAiStudioPreviewHost(hostname) && hasAppletConfig) {
+    return { config: cleanApplet, source: 'applet' };
+  }
+  if (hasEnvConfig) {
+    return { config: cleanEnv, source: 'env' };
+  }
+  if (hasAppletConfig) {
+    return { config: cleanApplet, source: 'applet' };
+  }
+  return { config: null, source: 'none' };
 }
 
 const AI_STUDIO_NAMED_DB_REGEX = /^ai-studio-.*-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -255,3 +255,58 @@ test('local tombstones, sync state, daily usage, sha256, and formatting work det
     /supera il limite di 500 pagine/
   );
 });
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { withCrossTabSyncLock, summarizeCloudInventory } from './sync-helpers.js';
+
+test('withCrossTabSyncLock returns callback result cleanly and rejects when another tab holds lock', async () => {
+  const resNoLock = await withCrossTabSyncLock(async () => ({ uploadedNotebooks: 2 }), null);
+  assert.deepEqual(resNoLock, { uploadedNotebooks: 2 });
+
+  const mockLocksGranted = {
+    request: async (_name, _opts, cb) => cb({ name: 'inknote_cloud_sync' })
+  };
+  const resGranted = await withCrossTabSyncLock(async () => ({ ok: true }), mockLocksGranted);
+  assert.deepEqual(resGranted, { ok: true });
+
+  const mockLocksBusy = {
+    request: async (_name, _opts, cb) => cb(null)
+  };
+  await assert.rejects(
+    () => withCrossTabSyncLock(async () => ({ ok: true }), mockLocksBusy),
+    /altra scheda/
+  );
+
+  // Regression guard: ensure sync-cloud.js does not invoke withCrossTabSyncLock(...)()
+  const syncCloudSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/shared/services/sync-cloud.js'),
+    'utf8'
+  );
+  assert.equal(/withCrossTabSyncLock\([\s\S]*?\)\s*\(\s*\)/.test(syncCloudSrc), false);
+});
+
+test('summarizeCloudInventory counts active vs deleted cloud items and tracks latest update', () => {
+  const tOld = '2026-11-20T08:00:00.000Z';
+  const tNew = '2026-11-28T10:30:00.000Z';
+  const summary = summarizeCloudInventory(
+    [
+      { id: 'f1', deleted: false, clientUpdatedAt: tOld },
+      { id: 'f2', deleted: true, clientUpdatedAt: tNew }
+    ],
+    [
+      { id: 'n1', deleted: false, lastEditAt: tNew },
+      { id: 'n2', deleted: true, lastEditAt: tNew }
+    ]
+  );
+
+  assert.equal(summary.hasCloudData, true);
+  assert.equal(summary.activeFoldersCount, 1);
+  assert.equal(summary.activeNotebooksCount, 1);
+  assert.equal(summary.deletedNotebooksCount, 1);
+  assert.equal(summary.latestCloudUpdatedMs, Date.parse(tNew));
+
+  const emptySummary = summarizeCloudInventory([], [{ id: 'n3', deleted: true }]);
+  assert.equal(emptySummary.hasCloudData, false);
+  assert.equal(emptySummary.activeNotebooksCount, 0);
+});

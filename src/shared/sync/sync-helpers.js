@@ -653,7 +653,13 @@ export function clearLocalDeletion(kind, id, storage = null) {
 }
 
 export function loadUserSyncState(uid, storage = null) {
-  const empty = { lastSyncAt: null, folders: {}, notebooks: {} };
+  const empty = {
+    lastSyncAt: null,
+    cloudNotebooksCount: null,
+    cloudFoldersCount: null,
+    folders: {},
+    notebooks: {}
+  };
   const ls = _getStorage(storage);
   if (!ls || !isValidCloudId(uid)) return empty;
   try {
@@ -662,6 +668,8 @@ export function loadUserSyncState(uid, storage = null) {
     const parsed = JSON.parse(raw);
     return {
       lastSyncAt: typeof parsed?.lastSyncAt === 'string' ? parsed.lastSyncAt : null,
+      cloudNotebooksCount: Number.isFinite(parsed?.cloudNotebooksCount) ? parsed.cloudNotebooksCount : null,
+      cloudFoldersCount: Number.isFinite(parsed?.cloudFoldersCount) ? parsed.cloudFoldersCount : null,
       folders: parsed?.folders && typeof parsed.folders === 'object' ? parsed.folders : {},
       notebooks: parsed?.notebooks && typeof parsed.notebooks === 'object' ? parsed.notebooks : {}
     };
@@ -676,12 +684,63 @@ export function saveUserSyncState(uid, syncState, storage = null) {
   try {
     ls.setItem(`${SYNC_STATE_KEY_PREFIX}${uid}`, JSON.stringify({
       lastSyncAt: syncState?.lastSyncAt || null,
+      cloudNotebooksCount: Number.isFinite(syncState?.cloudNotebooksCount) ? syncState.cloudNotebooksCount : null,
+      cloudFoldersCount: Number.isFinite(syncState?.cloudFoldersCount) ? syncState.cloudFoldersCount : null,
       folders: syncState?.folders || {},
       notebooks: syncState?.notebooks || {}
     }));
   } catch {
     // ignore storage quota errors
   }
+}
+
+export async function withCrossTabSyncLock(fn, locksApi = null) {
+  if (typeof fn !== 'function') {
+    throw new TypeError('withCrossTabSyncLock requires a callback function');
+  }
+  const locks = locksApi ?? (typeof navigator !== 'undefined' ? navigator.locks : null);
+  if (locks && typeof locks.request === 'function') {
+    return locks.request('inknote_cloud_sync', { ifAvailable: true }, async (lock) => {
+      if (!lock) {
+        throw new Error('Sincronizzazione già in corso in un’altra scheda');
+      }
+      return fn();
+    });
+  }
+  return fn();
+}
+
+export function summarizeCloudInventory(cloudFolders = [], cloudNotebooks = []) {
+  let activeFoldersCount = 0;
+  let activeNotebooksCount = 0;
+  let deletedNotebooksCount = 0;
+  let latestCloudUpdatedMs = 0;
+
+  for (const f of (Array.isArray(cloudFolders) ? cloudFolders : [])) {
+    if (!f) continue;
+    if (!f.deleted) activeFoldersCount++;
+    const ts = parseSyncTimestampMs(f.clientUpdatedAt || f.updatedAt || f.createdAt);
+    if (ts > latestCloudUpdatedMs) latestCloudUpdatedMs = ts;
+  }
+
+  for (const nb of (Array.isArray(cloudNotebooks) ? cloudNotebooks : [])) {
+    if (!nb) continue;
+    if (nb.deleted) {
+      deletedNotebooksCount++;
+    } else {
+      activeNotebooksCount++;
+      const ts = parseSyncTimestampMs(nb.lastEditAt || nb.clientUpdatedAt || nb.updatedAt || nb.createdAt);
+      if (ts > latestCloudUpdatedMs) latestCloudUpdatedMs = ts;
+    }
+  }
+
+  return {
+    hasCloudData: activeNotebooksCount > 0 || activeFoldersCount > 0,
+    activeNotebooksCount,
+    activeFoldersCount,
+    deletedNotebooksCount,
+    latestCloudUpdatedMs
+  };
 }
 
 export function getSyncDateKey(date = new Date()) {
