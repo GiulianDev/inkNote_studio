@@ -33,7 +33,9 @@ import { initDB } from './shared/services/db.js';
 import { initPlatform } from './shared/core/platform.js';
 import { initDeviceProfile } from './notebook/platform/profiles/index.js';
 import { initSettings, onSettingsChanged } from './shared/core/app-settings.js';
-import { initToolbarSettings, onToolbarSettingsChanged } from './notebook/toolbar/toolbar-settings.js';
+import {
+  initToolbarSettings, onToolbarSettingsChanged, getToolbarSettingsForSave
+} from './notebook/toolbar/toolbar-settings.js';
 import { state } from './shared/core/state.js';
 import {
   centerViewport, scheduleResolutionRefresh
@@ -44,8 +46,10 @@ import {
   hideSelectionStylePopover,
   isSelectionStylePopoverOpen
 } from './notebook/tools/lazo.js';
+import { normalizeTextBoxes } from './notebook/tools/text.js';
 import { setupViewportGestures } from './notebook/viewport/gestures.js';
 import { setupKeyboardShortcuts } from './notebook/shortcuts/keyboard.js';
+import { openHelpModal } from './notebook/shortcuts/shortcuts-modal.js';
 import {
   renderRecentColors, applyActiveToolToUI,
   applySnapTogglesToUI, applyEraserLevelToUI,
@@ -53,7 +57,7 @@ import {
 } from './notebook/toolbar/toolbar.js';
 import { flushHistory } from './notebook/history/history.js';
 import {
-  initEditorHandlers, returnToLibrary, isEditorActive
+  initEditorHandlers, returnToLibrary, isEditorActive, openNotebook, closeNotebookIfOpen
 } from './notebook/editor/editor.js';
 import { bindEditorUI } from './notebook/editor/ui-bindings.js';
 import { mountLibraryPage } from './library/library-page.js';
@@ -68,11 +72,13 @@ import {
   hasActiveLibrarySearch, clearLibrarySearch
 } from './library/library.js';
 import { flushAutoSave, scheduleSave } from './shared/persistence/autosave.js';
+import { registerSessionAdapters } from './shared/persistence/session.js';
+import { registerSyncNotebookHandlers } from './shared/sync/sync-ui.js';
 import { closeAllAuthDropdowns } from './shared/auth/library-auth.js';
 import { isUserMenuOpen } from './shared/components/user-menu.js';
 import { terminateWorker } from './shared/backup/serialization-cloud.js';
 import { handleRedirectResult } from './shared/services/firebase.js';
-import { showToast } from './shared/core/utils.js';
+import { showToast, on } from './shared/core/utils.js';
 import { getSettings, updateSettings } from './shared/core/app-settings.js';
 import { initBackNavigation } from './shared/core/back-navigation.js';
 import { setupSystemMenuSuppression } from './shared/core/system-menu-guard.js';
@@ -115,6 +121,10 @@ window.addEventListener('load', async () => {
   }
 
   // 5. Handler editor + binding UI (ora tutti gli id esistono).
+  registerSessionAdapters({ getToolbarSettingsForSave, normalizeTextBoxes });
+  registerSyncNotebookHandlers({ openNotebook, closeNotebookIfOpen });
+  on('help:open', (detail) => openHelpModal(detail || { tab: 'guide' }));
+
   initEditorHandlers();
   bindEditorUI();
   initSettingsPressurePreview();

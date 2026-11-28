@@ -1,7 +1,7 @@
 import { loadNotebookWithPages, loadAllFoldersFromDB } from '../services/db.js';
 import { serializeBackup } from './backup-format.js';
 import { showToast } from '../core/utils.js';
-import { buildFolderAncestorPath, collectFoldersForExport } from '../../library/library-helpers.js';
+import { buildFolderAncestorPath, collectFoldersForExport } from '../core/folder-tree.js';
 
 export async function exportNotebooks(notebookIds, onProgress, options = {}) {
   const safeNbIds = Array.isArray(notebookIds) ? notebookIds : [];

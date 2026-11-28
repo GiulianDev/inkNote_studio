@@ -6,25 +6,9 @@
  */
 
 import { getDeviceProfile } from '../platform/profiles/index.js';
+import { setNonEnumerable } from '../../shared/core/utils.js';
 
-export function setNonEnumerable(obj, key, value) {
-  if (!obj || typeof obj !== 'object') return;
-  const desc = Object.getOwnPropertyDescriptor(obj, key);
-  if (desc && desc.configurable === false) {
-    if (desc.writable) obj[key] = value;
-    return;
-  }
-  if (desc && desc.enumerable === false && desc.writable) {
-    obj[key] = value;
-    return;
-  }
-  Object.defineProperty(obj, key, {
-    value,
-    enumerable: false,
-    configurable: true,
-    writable: true
-  });
-}
+export { setNonEnumerable };
 
 /**
  * Calcola o restituisce dalla cache non-enumerabile `_bbox` il bounding box

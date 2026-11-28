@@ -18,8 +18,7 @@ import { showToast, emit } from '../core/utils.js';
 import {
   DEFAULT_SETTINGS, getSettings, updateSettings
 } from '../core/app-settings.js';
-import { closeAllEditorMenus } from '../../notebook/toolbar/toolbar.js';
-import { openHelpModal } from '../../notebook/shortcuts/shortcuts-modal.js';
+import { closeAllFloatingMenus } from '../components/floating-menu.js';
 import { registerModal } from '../components/modal.js';
 
 import settingsHtml from './settings-modal.html?raw';
@@ -60,7 +59,7 @@ export function mountSettingsModal() {
 }
 
 export function openSettingsModal() {
-  closeAllEditorMenus();
+  closeAllFloatingMenus();
   mountSettingsModal();
 
   if (!_isOpen) {
@@ -250,7 +249,7 @@ function _bindAll() {
   document.getElementById('cancelSettingsBtn') ?.addEventListener('click', () => closeSettingsModal());
   document.getElementById('resetPressureBtn')  ?.addEventListener('click', _resetPressureDefaults);
   document.getElementById('settingsHelpBtn')   ?.addEventListener('click', () => {
-    openHelpModal({ tab: 'guide' });
+    emit('help:open', { tab: 'guide' });
   });
 }
 

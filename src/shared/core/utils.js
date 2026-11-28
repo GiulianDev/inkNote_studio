@@ -16,6 +16,25 @@ export function generatePageId() {
   return 'pg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
 }
 
+export function setNonEnumerable(obj, key, value) {
+  if (!obj || typeof obj !== 'object') return;
+  const desc = Object.getOwnPropertyDescriptor(obj, key);
+  if (desc && desc.configurable === false) {
+    if (desc.writable) obj[key] = value;
+    return;
+  }
+  if (desc && desc.enumerable === false && desc.writable) {
+    obj[key] = value;
+    return;
+  }
+  Object.defineProperty(obj, key, {
+    value,
+    enumerable: false,
+    configurable: true,
+    writable: true
+  });
+}
+
 export function escapeHtml(str) {
   return String(str ?? '')
     .replace(/&/g, '&amp;')

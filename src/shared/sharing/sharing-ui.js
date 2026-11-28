@@ -42,7 +42,7 @@ import {
   formatAuthErrorMessage,
   formatFirestoreErrorMessage
 } from './sharing-helpers.js';
-import { closeAllEditorMenus } from '../../notebook/toolbar/toolbar.js';
+import { closeAllFloatingMenus } from '../components/floating-menu.js';
 import { openModalOverlay } from '../components/modal.js';
 import { syncUserMenuSharing } from '../components/user-menu.js';
 
@@ -388,7 +388,7 @@ export async function openSharingModal({
   sendNotebooks = null,
   autoScanContacts = false
 } = {}) {
-  closeAllEditorMenus();
+  closeAllFloatingMenus();
   // Se già aperto, chiudi quello precedente
   if (_activeModalState?.close) {
     _activeModalState.close();

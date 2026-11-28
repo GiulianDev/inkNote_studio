@@ -2,7 +2,7 @@
 // LIBRERIA — AUTENTICAZIONE GOOGLE & UI PROFILO
 // ============================================================
 
-import { escapeHtml, showToast } from '../core/utils.js';
+import { escapeHtml, showToast, emit } from '../core/utils.js';
 import { authState } from '../core/state.js';
 import { signInWithGoogle, signOutGoogle, onAuthChange } from '../services/firebase.js';
 import {
@@ -18,7 +18,6 @@ import {
   syncUserMenuUser
 } from '../components/user-menu.js';
 import { openCloudSyncModal, refreshUserMenuSyncBadge } from '../sync/sync-ui.js';
-import { syncSendMenuAuthState } from '../../notebook/toolbar/toolbar.js';
 
 const AVATAR_PALETTE = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
@@ -83,7 +82,7 @@ function _updateAuthUI() {
   const avatarHtml = authState.user ? _renderAvatarHtml(authState.user, 40) : '';
   syncUserMenuUser(authState.user, avatarHtml);
   refreshUserMenuSyncBadge(authState.user);
-  syncSendMenuAuthState();
+  emit('auth:changed', { user: authState.user });
 }
 
 export function closeAllAuthDropdowns() {

@@ -24,11 +24,21 @@ import {
   parseSyncTimestampMs
 } from './sync-helpers.js';
 import { openModalOverlay } from '../components/modal.js';
+import { closeAllFloatingMenus } from '../components/floating-menu.js';
 import { syncUserMenuCloudStatus } from '../components/user-menu.js';
-import { closeAllEditorMenus } from '../../notebook/toolbar/toolbar.js';
-import { openNotebook, closeNotebookIfOpen } from '../../notebook/editor/editor.js';
 
 let _activeState = null;
+let _notebookHandlers = {
+  openNotebook: null,
+  closeNotebookIfOpen: null
+};
+
+export function registerSyncNotebookHandlers({ openNotebook, closeNotebookIfOpen } = {}) {
+  _notebookHandlers = {
+    openNotebook: typeof openNotebook === 'function' ? openNotebook : null,
+    closeNotebookIfOpen: typeof closeNotebookIfOpen === 'function' ? closeNotebookIfOpen : null
+  };
+}
 
 function _formatSyncError(err) {
   const authMsg = formatAuthErrorMessage(err);
@@ -476,11 +486,11 @@ async function _executeSyncFromModal() {
       emit('library:refresh');
 
       if (res.deletedOpenNotebook && res.openNotebookId) {
-        closeNotebookIfOpen(res.openNotebookId);
+        _notebookHandlers.closeNotebookIfOpen?.(res.openNotebookId);
         document.getElementById('libraryView')?.classList.remove('hidden');
         showToast('Il quaderno aperto è stato rimosso dal cloud', 'ℹ️');
       } else if (res.updatedOpenNotebook && res.openNotebookId) {
-        await openNotebook(res.openNotebookId);
+        await _notebookHandlers.openNotebook?.(res.openNotebookId);
         showToast('Quaderno aperto aggiornato dal cloud', '☁️');
       } else {
         showToast('Sincronizzazione cloud completata', '☁️');
@@ -508,7 +518,7 @@ async function _executeSyncFromModal() {
 export async function openCloudSyncModal() {
   if (_activeState?.modalCtrl?.isOpen()) return;
 
-  closeAllEditorMenus();
+  closeAllFloatingMenus();
 
   const overlay = document.createElement('div');
   overlay.id = 'cloudSyncModal';

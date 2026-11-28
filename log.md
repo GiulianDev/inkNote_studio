@@ -1,5 +1,9 @@
 # InkNote Studio — Changelog
 
+## v0.2.2 — 2026-11-28
+- Rimossi gli import residui da `src/shared/` verso `notebook/` e `library/`: spostati gli helper puri di gerarchia cartelle in `shared/core/folder-tree.js` e `setNonEnumerable` in `shared/core/utils.js`.
+- Disaccoppiati `sharing-ui.js`, `settings-modal.js`, `library-auth.js`, `sync-ui.js` e `session.js` usando `closeAllFloatingMenus`, eventi (`auth:changed`, `help:open`) e registrazione adapter nel composition root (`main.js`).
+
 ## v0.2.0 — 2026-11-27
 - Incluso il campo opzionale `smoothing` per-tratto nella serializzazione cloud/backup (`serialization-cloud-core.js`), completando l'allineamento dei metadati stroke con `serialization.js`.
 - Aggiunto guard sul limite di 1 MiB di Firestore per singola pagina (`measureFirestorePagePayload`, `splitCompressedPageForFirestore`, `reassembleCompressedPageFromChunks`, `compressPageBundleForCloud`) con soglia di avviso e suddivisione/ricomposizione automatica in chunk binari.

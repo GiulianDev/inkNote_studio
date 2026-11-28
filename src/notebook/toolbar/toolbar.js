@@ -216,6 +216,10 @@ export function mountToolbar() {
     saveRecentColor(color, tool);
   });
 
+  on('auth:changed', () => {
+    syncSendMenuAuthState();
+  });
+
   _mounted = true;
 }
 

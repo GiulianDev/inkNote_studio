@@ -9,7 +9,7 @@
  *     undefined → default tool, style undefined → 'solid'
  */
 
-import { setNonEnumerable } from '../../notebook/render/stroke-geometry.js';
+import { setNonEnumerable } from '../core/utils.js';
 
 export const PACKED_STRIDE = 7;
 

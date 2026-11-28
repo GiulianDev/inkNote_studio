@@ -5,9 +5,19 @@
 import { state } from '../core/state.js';
 import { generatePageId } from '../core/utils.js';
 import { saveNotebookToDB } from '../services/db.js';
-import { getToolbarSettingsForSave } from '../../notebook/toolbar/toolbar-settings.js';
 import { packStrokes } from './serialization.js';
-import { normalizeTextBoxes } from '../../notebook/tools/text.js';
+
+let _getToolbarSettingsForSave = () => (_currentNotebook?.toolbarSettings ?? null);
+let _normalizeTextBoxes = (list) => (Array.isArray(list) ? list : []);
+
+export function registerSessionAdapters({ getToolbarSettingsForSave, normalizeTextBoxes } = {}) {
+  if (typeof getToolbarSettingsForSave === 'function') {
+    _getToolbarSettingsForSave = getToolbarSettingsForSave;
+  }
+  if (typeof normalizeTextBoxes === 'function') {
+    _normalizeTextBoxes = normalizeTextBoxes;
+  }
+}
 
 let _currentNotebook = null;
 const _dirtyPageIds = new Set();
@@ -48,7 +58,7 @@ export function markOrderDirty() {
 export function syncCurrentState() {
   if (!_currentNotebook) return;
   _currentNotebook.pattern = state.bgPattern;
-  _currentNotebook.toolbarSettings = getToolbarSettingsForSave();
+  _currentNotebook.toolbarSettings = _getToolbarSettingsForSave();
   _currentNotebook.lastPageIndex = state.activePageIndex;
 
   const prevById = new Map();
@@ -79,7 +89,7 @@ export function syncCurrentState() {
       nextPages.push({
         pageId: page.pageId,
         strokes: packStrokes(page.strokes),
-        textBoxes: normalizeTextBoxes(page.textBoxes || [])
+        textBoxes: _normalizeTextBoxes(page.textBoxes || [])
       });
     } else {
       nextPages.push(prevById.get(page.pageId));
