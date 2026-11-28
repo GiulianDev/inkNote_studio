@@ -64,7 +64,7 @@ describe('release-info & build sync script', () => {
   it('bumps package.json and writes static release-info.js module in an isolated temp dir', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inknote-rel-'));
     try {
-      fs.mkdirSync(path.join(tmpDir, 'src', 'shared', 'core'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'src', 'shared', 'release'), { recursive: true });
       fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'test', version: '0.1.0' }, null, 2));
       fs.writeFileSync(path.join(tmpDir, 'log.md'), '## v0.1.1 — 2026-11-26\n- Build incrementale attiva\n');
 
@@ -76,7 +76,7 @@ describe('release-info & build sync script', () => {
       const updatedPkg = JSON.parse(fs.readFileSync(path.join(tmpDir, 'package.json'), 'utf8'));
       assert.equal(updatedPkg.version, '0.1.1');
 
-      const generated = fs.readFileSync(path.join(tmpDir, 'src', 'shared', 'core', 'release-info.js'), 'utf8');
+      const generated = fs.readFileSync(path.join(tmpDir, 'src', 'shared', 'release', 'release-info.js'), 'utf8');
       assert.ok(generated.includes('Build incrementale attiva'));
       assert.ok(generated.includes('"version": "0.1.1"'));
     } finally {

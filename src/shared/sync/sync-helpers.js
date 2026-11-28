@@ -186,6 +186,19 @@ export function sanitizePageOrder(rawOrder, maxPages = SYNC_MAX_PAGES_PER_NOTEBO
   return out;
 }
 
+export function assertCloudSyncPageLimit(notebook, maxPages = SYNC_MAX_PAGES_PER_NOTEBOOK) {
+  const pagesLen = Array.isArray(notebook?.pages) ? notebook.pages.length : 0;
+  const orderLen = Array.isArray(notebook?.pageOrder) ? notebook.pageOrder.length : 0;
+  const count = Math.max(pagesLen, orderLen);
+  if (count > maxPages) {
+    const title = String(notebook?.title || 'Quaderno').trim() || 'Quaderno';
+    throw new Error(
+      `Il quaderno "${title}" ha ${count} pagine e supera il limite di ${maxPages} pagine supportato dal Cloud Sync. Dividilo in più quaderni o usa un backup .inknote.`
+    );
+  }
+  return count;
+}
+
 export function sanitizeCloudFolderPayload({
   folder = null,
   folderId = '',

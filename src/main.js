@@ -74,6 +74,7 @@ import {
 import { flushAutoSave, scheduleSave } from './shared/persistence/autosave.js';
 import { registerSessionAdapters } from './shared/persistence/session.js';
 import { registerSyncNotebookHandlers } from './shared/sync/sync-ui.js';
+import { registerBackupNotebookHandlers } from './shared/backup/backup-import.js';
 import { closeAllAuthDropdowns } from './shared/auth/library-auth.js';
 import { isUserMenuOpen } from './shared/components/user-menu.js';
 import { terminateWorker } from './shared/backup/serialization-cloud.js';
@@ -123,6 +124,7 @@ window.addEventListener('load', async () => {
   // 5. Handler editor + binding UI (ora tutti gli id esistono).
   registerSessionAdapters({ getToolbarSettingsForSave, normalizeTextBoxes });
   registerSyncNotebookHandlers({ openNotebook, closeNotebookIfOpen });
+  registerBackupNotebookHandlers({ closeNotebookIfOpen });
   on('help:open', (detail) => openHelpModal(detail || { tab: 'guide' }));
 
   initEditorHandlers();

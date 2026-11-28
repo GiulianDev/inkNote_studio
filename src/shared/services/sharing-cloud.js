@@ -512,27 +512,63 @@ export function subscribeFriends(uid, onUpdate) {
 // TRASFERIMENTI P2P (24H TTL + CHUNKING + AUTO-CLEANUP)
 // ============================================================
 
-export async function deleteTransferWithChunks(transferId) {
+const _transferDeleteInFlight = new Map();
+const _recentlyDeletedTransfers = new Map();
+
+function _isCleanupIgnorableError(err) {
+  const code = String(err?.code || '').toLowerCase();
+  const msg = String(err?.message || '').toLowerCase();
+  return (
+    code === 'not-found' ||
+    code === 'permission-denied' ||
+    msg.includes('not-found') ||
+    msg.includes('permission-denied') ||
+    msg.includes('missing or insufficient permissions')
+  );
+}
+
+export async function deleteTransferWithChunks(transferId, { idempotent = true } = {}) {
   if (!isFirestoreReady() || !transferId) return;
-  const chunksPath = `transfers/${transferId}/chunks`;
-  const transferPath = `transfers/${transferId}`;
+  const cachedAt = _recentlyDeletedTransfers.get(transferId);
+  if (cachedAt && Date.now() - cachedAt < 15000) return;
 
-  try {
-    const chunksSnap = await getDocs(collection(db, 'transfers', transferId, 'chunks'));
-    if (!chunksSnap.empty) {
-      const batch = writeBatch(db);
-      chunksSnap.forEach((chunkDoc) => batch.delete(chunkDoc.ref));
-      await batch.commit();
+  if (_transferDeleteInFlight.has(transferId)) {
+    return _transferDeleteInFlight.get(transferId);
+  }
+
+  const run = (async () => {
+    const chunksPath = `transfers/${transferId}/chunks`;
+    const transferPath = `transfers/${transferId}`;
+
+    try {
+      const chunksSnap = await getDocs(collection(db, 'transfers', transferId, 'chunks'));
+      if (!chunksSnap.empty) {
+        const batch = writeBatch(db);
+        chunksSnap.forEach((chunkDoc) => batch.delete(chunkDoc.ref));
+        await batch.commit();
+      }
+    } catch (err) {
+      if (!(idempotent && _isCleanupIgnorableError(err))) {
+        handleFirestoreError(err, OperationType.DELETE, chunksPath);
+      }
     }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, chunksPath);
-  }
 
-  try {
-    await deleteDoc(doc(db, 'transfers', transferId));
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, transferPath);
-  }
+    try {
+      await deleteDoc(doc(db, 'transfers', transferId));
+      _recentlyDeletedTransfers.set(transferId, Date.now());
+    } catch (err) {
+      if (idempotent && _isCleanupIgnorableError(err)) {
+        _recentlyDeletedTransfers.set(transferId, Date.now());
+      } else {
+        handleFirestoreError(err, OperationType.DELETE, transferPath);
+      }
+    }
+  })().finally(() => {
+    _transferDeleteInFlight.delete(transferId);
+  });
+
+  _transferDeleteInFlight.set(transferId, run);
+  return run;
 }
 
 export async function sendNotebookToFriend({ notebookId, friend, senderProfile, onProgress }) {
@@ -553,6 +589,12 @@ export async function sendNotebookToFriend({ notebookId, friend, senderProfile, 
   const fullNb = await loadNotebookWithPages(notebookId);
   if (!fullNb) {
     throw new Error('Quaderno non trovato');
+  }
+  const pageCountRaw = fullNb.pages?.length || 1;
+  if (pageCountRaw > 500) {
+    throw new Error(
+      `Il quaderno "${fullNb.title || 'Quaderno'}" ha ${pageCountRaw} pagine e supera il limite di 500 pagine per l'invio diretto.`
+    );
   }
 
   onProgress?.({ stage: 'pack', label: `Compressione "${fullNb.title || 'Quaderno'}"...` });
@@ -584,7 +626,7 @@ export async function sendNotebookToFriend({ notebookId, friend, senderProfile, 
       recipientName: String(friend.displayName || 'Amico').trim().slice(0, 80) || 'Amico',
       notebookTitle: String(fullNb.title || 'Quaderno').trim().slice(0, 140) || 'Quaderno',
       coverColor,
-      pageCount: Math.max(1, Math.min(500, fullNb.pages?.length || 1)),
+      pageCount: Math.max(1, pageCountRaw),
       byteSize: bytes.byteLength,
       chunkCount: chunks.length,
       status: 'uploading',

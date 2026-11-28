@@ -521,6 +521,7 @@ export function endResizeSelection(pageData, wasMoved = false) {
   const finalMoved = !!(wasMoved || state.selectionMoved);
 
   state.isResizingSelection = false;
+  state.isDrawing = false;
   state.resizeHandle = null;
   state.resizePivot = null;
   state.resizeAnchor = null;
@@ -1398,6 +1399,7 @@ export function endSelectionDrag(pageData, wasMoved) {
   }
 
   state.isDraggingSelection = false;
+  state.isDrawing = false;
   state.dragStartPoint = null;
   state.selectionMoved = false;
 

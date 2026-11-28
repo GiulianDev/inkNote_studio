@@ -4,6 +4,7 @@ import {
   sanitizeToolbarSettingsForCloud,
   sanitizeCloudFolderPayload,
   sanitizeCloudNotebookPayload,
+  assertCloudSyncPageLimit,
   computeFolderMetaSignature,
   computeNotebookMetaSignature,
   sortFoldersParentFirst,
@@ -246,5 +247,11 @@ test('local tombstones, sync state, daily usage, sha256, and formatting work det
   assert.notEqual(
     computeFolderMetaSignature({ id: 'f1', name: 'A', color: '#111111' }),
     computeFolderMetaSignature({ id: 'f1', name: 'B', color: '#111111' })
+  );
+
+  assert.equal(assertCloudSyncPageLimit({ title: 'Ok', pages: new Array(500) }), 500);
+  assert.throws(
+    () => assertCloudSyncPageLimit({ title: 'Troppo lungo', pages: new Array(501) }),
+    /supera il limite di 500 pagine/
   );
 });

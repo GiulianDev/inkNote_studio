@@ -26,7 +26,7 @@ import {
 } from '../tools/text.js';
 import { refreshPageCounter } from '../toolbar/toolbar.js';
 import {
-  applyTransform, clampViewport, invalidateClampCache
+  applyTransform, applyPinchTransform, clampViewport, invalidateClampCache
 } from '../viewport/transform.js';
 import { pagePool } from './page-pool.js';
 import { unpackStrokes } from '../../shared/persistence/serialization.js';
@@ -146,8 +146,24 @@ export function centerViewport() {
 }
 
 export function resetZoom() {
-  viewport.scale = 1.0;
-  applyTransform();
+  const vp = document.getElementById('viewport');
+  if (vp) {
+    const rect = vp.getBoundingClientRect();
+    const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    applyPinchTransform(
+      center,
+      { x: viewport.x, y: viewport.y, scale: viewport.scale },
+      center,
+      1.0
+    );
+  } else {
+    viewport.scale = 1.0;
+    const c = clampViewport(viewport.x, viewport.y);
+    viewport.x = c.x;
+    viewport.y = c.y;
+    applyTransform();
+  }
+  scheduleResolutionRefresh();
   showToast('Zoom resettato', '🔍');
 }
 

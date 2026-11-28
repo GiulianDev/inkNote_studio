@@ -51,6 +51,7 @@ import {
   sanitizeCloudNotebookPayload,
   sanitizeToolbarSettingsForCloud,
   sanitizePageOrder,
+  assertCloudSyncPageLimit,
   computeFolderMetaSignature,
   computeNotebookMetaSignature,
   cloudFolderToLocalRecord,
@@ -158,6 +159,8 @@ async function _uploadNotebookToCloud({
     return null;
   }
 
+  assertCloudSyncPageLimit(fullNb);
+
   const sanitizedMeta = sanitizeCloudNotebookPayload({
     notebook: fullNb,
     ownerUid: uid,
@@ -174,17 +177,26 @@ async function _uploadNotebookToCloud({
   );
   const cloudPageById = new Map(existingCloudPages.map(p => [p.pageId || p.id, p]));
 
-  // Assicuriamo prima l'esistenza del documento padre sync_notebooks se è nuovo,
-  // perché le regole Firestore su pages/chunks verificano il documento padre via get()!
+  // Se il quaderno è nuovo in cloud, creiamo prima un documento padre in stato di staging
+  // (pageOrder: [], pageCount: 0) affinché le regole Firestore su pages/chunks possano
+  // verificarne il proprietario via get(), senza esporre pageOrder finché tutte le pagine
+  // non sono state caricate con successo.
   const nbDocRef = doc(db, 'users', uid, 'sync_notebooks', notebookId);
   const nbDocPath = `users/${uid}/sync_notebooks/${notebookId}`;
+  let createdStagingParent = false;
   if (!existingCloudNb) {
     try {
       await setDoc(nbDocRef, {
         ...sanitizedMeta,
+        pageOrder: [],
+        pageCount: 0,
+        lastPageIndex: 0,
+        clientUpdatedAt: '1970-01-01T00:00:00.000Z',
+        lastEditAt: '1970-01-01T00:00:00.000Z',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
+      createdStagingParent = true;
       stats.writesApprox += 1;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, nbDocPath);
@@ -194,8 +206,10 @@ async function _uploadNotebookToCloud({
   const pageOrderSet = new Set(sanitizedMeta.pageOrder);
   const pages = Array.isArray(fullNb.pages) ? fullNb.pages : [];
   const nextPageHashes = {};
+  const uploadedNewPageIds = [];
 
-  for (let i = 0; i < pages.length; i++) {
+  try {
+    for (let i = 0; i < pages.length; i++) {
     const p = pages[i];
     if (!p || !p.pageId || !pageOrderSet.has(p.pageId)) continue;
     const pageId = p.pageId;
@@ -348,47 +362,64 @@ async function _uploadNotebookToCloud({
       }
     }
 
+    if (!existingPage) {
+      uploadedNewPageIds.push(pageId);
+    }
     stats.uploadedPages += 1;
     stats.bytesUploaded += packedRes.totalBytes;
   }
 
-  // Elimina eventuali pagine cloud rimosse dal quaderno
-  for (const [oldPid, oldPage] of cloudPageById.entries()) {
-    if (pageOrderSet.has(oldPid)) continue;
-    if (oldPage.chunked || (oldPage.chunkCount || 0) > 1) {
-      await _deleteAllChunksOfPage(uid, notebookId, oldPid, stats);
+  // Finalizza i metadati del quaderno (pageOrder/pageCount reali) solo dopo che
+  // tutte le pagine attive e relativi chunk sono stati caricati con successo.
+  try {
+    await updateDoc(nbDocRef, {
+      title: sanitizedMeta.title,
+      coverColor: sanitizedMeta.coverColor,
+      pattern: sanitizedMeta.pattern,
+      folderId: sanitizedMeta.folderId,
+      isFavorite: sanitizedMeta.isFavorite,
+      pageOrder: sanitizedMeta.pageOrder,
+      pageCount: sanitizedMeta.pageCount,
+      lastPageIndex: sanitizedMeta.lastPageIndex,
+      toolbarSettings: sanitizedMeta.toolbarSettings,
+      deleted: false,
+      clientCreatedAt: sanitizedMeta.clientCreatedAt,
+      clientUpdatedAt: sanitizedMeta.clientUpdatedAt,
+      lastEditAt: sanitizedMeta.lastEditAt,
+      updatedAt: serverTimestamp()
+    });
+    stats.writesApprox += 1;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, nbDocPath);
+  }
+  } catch (uploadErr) {
+    if (createdStagingParent) {
+      for (const pid of uploadedNewPageIds) {
+        try {
+          await _deleteAllChunksOfPage(uid, notebookId, pid, stats);
+        } catch {}
+        try {
+          await deleteDoc(doc(db, 'users', uid, 'sync_notebooks', notebookId, 'pages', pid));
+        } catch {}
+      }
+      try {
+        await deleteDoc(nbDocRef);
+      } catch {}
     }
-    const oldPagePath = `${pagesPathLabel}/${oldPid}`;
-    try {
-      await deleteDoc(doc(db, 'users', uid, 'sync_notebooks', notebookId, 'pages', oldPid));
-      stats.writesApprox += 1;
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, oldPagePath);
-    }
+    throw uploadErr;
   }
 
-  // Aggiorna i metadati finali del quaderno (se esisteva già lo aggiorniamo ora alla fine)
-  if (existingCloudNb) {
+  // Solo dopo aver aggiornato pageOrder sul documento padre eliminiamo le pagine obsolete (best-effort)
+  for (const [oldPid, oldPage] of cloudPageById.entries()) {
+    if (pageOrderSet.has(oldPid)) continue;
     try {
-      await updateDoc(nbDocRef, {
-        title: sanitizedMeta.title,
-        coverColor: sanitizedMeta.coverColor,
-        pattern: sanitizedMeta.pattern,
-        folderId: sanitizedMeta.folderId,
-        isFavorite: sanitizedMeta.isFavorite,
-        pageOrder: sanitizedMeta.pageOrder,
-        pageCount: sanitizedMeta.pageCount,
-        lastPageIndex: sanitizedMeta.lastPageIndex,
-        toolbarSettings: sanitizedMeta.toolbarSettings,
-        deleted: false,
-        clientCreatedAt: sanitizedMeta.clientCreatedAt,
-        clientUpdatedAt: sanitizedMeta.clientUpdatedAt,
-        lastEditAt: sanitizedMeta.lastEditAt,
-        updatedAt: serverTimestamp()
-      });
+      if (oldPage.chunked || (oldPage.chunkCount || 0) > 1) {
+        await _deleteAllChunksOfPage(uid, notebookId, oldPid, stats);
+      }
+      await deleteDoc(doc(db, 'users', uid, 'sync_notebooks', notebookId, 'pages', oldPid));
       stats.writesApprox += 1;
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, nbDocPath);
+    } catch (cleanupErr) {
+      console.warn('[sync-cloud] cleanup removed page skipped:', oldPid, cleanupErr);
     }
   }
 
@@ -440,8 +471,9 @@ async function _downloadNotebookFromCloud({
     const pid = orderedIds[i];
     const cp = cloudPageMap.get(pid);
     if (!cp || cp.deleted) {
-      downloadedPages.push({ pageId: pid, strokes: [], textBoxes: [] });
-      continue;
+      throw new Error(
+        `Sincronizzazione cloud incompleta per "${cloudNb.title || nbId}": pagina ${i + 1} (${pid}) mancante nel cloud. Riprova a sincronizzare dal dispositivo di origine.`
+      );
     }
 
     if (cp.hash && prevHashes[pid] === cp.hash && localPageMap.has(pid)) {

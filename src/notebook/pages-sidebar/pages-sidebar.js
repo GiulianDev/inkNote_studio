@@ -174,10 +174,17 @@ export function mountPagesSidebar() {
     if (_isOpen) _highlightActivePage(true);
   });
 
-  on('history:restore', () => {
+  on('history:restore', (detail) => {
     queueMicrotask(() => {
-      _thumbsNeedFullRebuild = true;
-      if (_isOpen) refreshThumbnails();
+      if (detail?.patternChanged) {
+        if (_isOpen) _redrawAllThumbCanvases();
+        else _thumbsNeedFullRedraw = true;
+        return;
+      }
+      const targetKey = detail?.pageId || state.pages[state.activePageIndex]?.pageId || state.activePageIndex;
+      if (targetKey == null) return;
+      if (_isOpen) _updateThumbnail(targetKey);
+      else _dirtyThumbKeys.add(targetKey);
     });
   });
 

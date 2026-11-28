@@ -8,7 +8,7 @@ import { state } from '../../shared/core/state.js';
 import { emit } from '../../shared/core/utils.js';
 import { scheduleSave } from '../../shared/persistence/autosave.js';
 import { packStroke } from '../../shared/persistence/serialization.js';
-import { normalizeTextBoxes, resetTextToolState } from '../tools/text.js';
+import { normalizeTextBoxes, resetTextToolState, commitActiveTextBox } from '../tools/text.js';
 import { isAnyModalOpen } from '../../shared/components/modal.js';
 
 const MAX_HISTORY_STEPS = 20;
@@ -278,6 +278,9 @@ export function resetHistory() {
 }
 
 export function undo() {
+  if (state.editingTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
   flushHistory();
   if (historyState.index <= 0) return;
   historyState.index--;
@@ -287,6 +290,9 @@ export function undo() {
 }
 
 export function redo() {
+  if (state.editingTextBoxId) {
+    commitActiveTextBox({ deselect: true });
+  }
   flushHistory();
   if (historyState.index >= historyState.stack.length - 1) return;
   historyState.index++;

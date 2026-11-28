@@ -9,6 +9,7 @@ import {
   updateNotebookMetadataInDB, loadAllFoldersFromDB, saveFolderToDB, deleteLibraryItemsFromDB
 } from '../shared/services/db.js';
 import { openNotebook, closeNotebookIfOpen } from '../notebook/editor/editor.js';
+import { waitForPendingSaves } from '../shared/persistence/session.js';
 import { getInitialNewNotebookToolbarSettings } from '../notebook/toolbar/toolbar-settings.js';
 import { openSettingsModal } from '../shared/settings/settings-modal.js';
 import { exportNotebooks } from '../shared/backup/backup-export.js';
@@ -751,6 +752,12 @@ async function _handleDeleteFolder(folder) {
   if (!confirmed) return;
 
   try {
+    if (deleteContents && subtree.nestedNotebooks.length > 0) {
+      for (const nb of subtree.nestedNotebooks) {
+        if (nb?.id) closeNotebookIfOpen(nb.id);
+      }
+      await waitForPendingSaves();
+    }
     const { deletedFolderIds, deletedNotebookIds } = await deleteLibraryItemsFromDB({
       folderIds: [folder.id],
       deleteFolderContents: deleteContents
@@ -758,7 +765,6 @@ async function _handleDeleteFolder(folder) {
     for (const delFldId of deletedFolderIds) selectedFolderIds.delete(delFldId);
     for (const delNbId of deletedNotebookIds) {
       selectedNotebookIds.delete(delNbId);
-      closeNotebookIfOpen(delNbId);
     }
     if (_currentFolderId && deletedFolderIds.includes(_currentFolderId)) {
       _currentFolderId = folder.parentId || null;
@@ -1203,14 +1209,21 @@ async function _handleDeleteSelection() {
   if (!confirmed) return;
 
   try {
+    for (const nbId of nbIds) {
+      closeNotebookIfOpen(nbId);
+    }
+    if (deleteContents && subtree.nestedNotebooks.length > 0) {
+      for (const nb of subtree.nestedNotebooks) {
+        if (nb?.id) closeNotebookIfOpen(nb.id);
+      }
+    }
+    await waitForPendingSaves();
+
     const { deletedFolderIds, deletedNotebookIds } = await deleteLibraryItemsFromDB({
       folderIds: fldIds,
       notebookIds: nbIds,
       deleteFolderContents: deleteContents
     });
-    for (const delNbId of deletedNotebookIds) {
-      closeNotebookIfOpen(delNbId);
-    }
     const deletedCount = deletedFolderIds.length + deletedNotebookIds.length;
     _exitSelectionMode();
     renderLibraryView();
@@ -1349,8 +1362,9 @@ async function _deleteNotebook(_e, id) {
   });
   if (!confirmed) return;
 
-  await deleteNotebookFromDB(id);
   closeNotebookIfOpen(id);
+  await waitForPendingSaves();
+  await deleteNotebookFromDB(id);
   selectedNotebookIds.delete(id);
   renderLibraryView();
   showToast('Quaderno eliminato', '🗑️');
@@ -1658,7 +1672,7 @@ export function bindLibraryUI() {
   document.addEventListener('click', (e) => {
     if (!_selectionMode) return;
     if (isAnyModalOpen()) return;
-    if (e.target.closest('.notebook-card, .folder-card, #libraryHeader')) return;
+    if (e.target.closest('.notebook-card, .folder-card, #libraryHeader, #libraryControlsWrap, #librarySelectionBar')) return;
     _exitSelectionMode();
   });
 

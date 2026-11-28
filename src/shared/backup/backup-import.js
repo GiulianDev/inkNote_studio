@@ -13,6 +13,18 @@ import {
 } from '../services/db.js';
 import { showToast, escapeHtml } from '../core/utils.js';
 import { openModalOverlay } from '../components/modal.js';
+import { getCurrentNotebook, waitForPendingSaves } from '../persistence/session.js';
+import { cancelPendingSave } from '../persistence/autosave.js';
+
+let _backupNotebookHandlers = {
+  closeNotebookIfOpen: null
+};
+
+export function registerBackupNotebookHandlers({ closeNotebookIfOpen } = {}) {
+  _backupNotebookHandlers = {
+    closeNotebookIfOpen: typeof closeNotebookIfOpen === 'function' ? closeNotebookIfOpen : null
+  };
+}
 
 async function _resolveImportedFolderId(nb, folderById, folderByParentName) {
   if (Array.isArray(nb.folderPath) && nb.folderPath.length > 0) {
@@ -174,6 +186,11 @@ export async function importNotebooks(file, onProgress) {
 
   for (const item of imported) {
     const { nb, replaceAllPages } = item;
+    if (replaceAllPages && getCurrentNotebook()?.id === nb.id) {
+      _backupNotebookHandlers.closeNotebookIfOpen?.(nb.id);
+      cancelPendingSave();
+      await waitForPendingSaves();
+    }
     if (typeof nb.folderId === 'string' && exportedIdToLocalId.has(nb.folderId)) {
       nb.folderId = exportedIdToLocalId.get(nb.folderId);
     } else {

@@ -393,13 +393,22 @@ export function setupViewportGestures() {
     _scrollAxisLocked = false;
     _scrollDecisionMade = false;
 
+    if (!state.isDrawing && !viewport.isPanning && !viewport.isPinching && viewport.activePointers.size > 0) {
+      for (const [id, ptr] of viewport.activePointers) {
+        if (ptr.fingerWriting && !isPenPointerType(ptr.pointerType)) {
+          viewport.activePointers.delete(id);
+        }
+      }
+    }
+
     const hadPointers = viewport.activePointers.size > 0;
     viewport.activePointers.set(e.pointerId, {
       x: e.clientX,
       y: e.clientY,
       pointerType: e.pointerType,
       width: e.width || 0,
-      height: e.height || 0
+      height: e.height || 0,
+      fingerWriting: !!state.fingerWriting
     });
 
     if (!hadPointers) {
@@ -678,6 +687,15 @@ export function setupViewportGestures() {
   // ----------------------------------------------------------
   // WHEEL
   // ----------------------------------------------------------
+  let _wheelResTimer = null;
+  const _scheduleWheelResolutionRefresh = () => {
+    if (_wheelResTimer !== null) clearTimeout(_wheelResTimer);
+    _wheelResTimer = setTimeout(() => {
+      _wheelResTimer = null;
+      scheduleResolutionRefresh();
+    }, 180);
+  };
+
   viewportEl.addEventListener('wheel', (e) => {
     e.preventDefault();
     _cancelMomentum();
@@ -696,6 +714,7 @@ export function setupViewportGestures() {
         pivot,
         newScale
       );
+      _scheduleWheelResolutionRefresh();
     } else {
       viewport.x -= e.deltaX;
       viewport.y -= e.deltaY;

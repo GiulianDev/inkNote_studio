@@ -145,3 +145,7 @@ export function saveCurrentNotebook() {
   _saveQueue = next.catch(() => {});
   return next;
 }
+
+export function waitForPendingSaves() {
+  return _saveQueue;
+}

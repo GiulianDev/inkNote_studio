@@ -1,8 +1,15 @@
 # InkNote Studio — Changelog
 
+## v0.2.4 — 2026-11-28
+- **Integrità Sync Cloud & P2P (C1, M4, A4)**: reso atomico l'ordine di upload su Firestore (`sync-cloud.js`) con caricamento preventivo di pagine e chunk prima dell'aggiornamento di `pageOrder`, errore esplicito su pagine mancanti in download, blocco preventivo oltre 500 pagine (`assertCloudSyncPageLimit` in `sync-helpers.js` e `sharing-cloud.js`) e gestione idempotente/deduplicata di `deleteTransferWithChunks`.
+- **Race condition Eliminazione & Import Backup (A1, A2)**: attesa di `waitForPendingSaves()` e chiusura dell'editor (`closeNotebookIfOpen`, `cancelPendingSave`) prima delle eliminazioni in libreria (`library.js`) e prima della sovrascrittura in import backup `.inknote` (`backup-import.js`, `main.js`).
+- **Viewport, Input & Editor (A3, M1, M2, M3, M5, M6)**: centrato e clampato `resetZoom()` (`pages.js`) con refresh risoluzione su `resetZoom()`, scorciatoie zoom (`keyboard.js`) e `wheel` debounced (`gestures.js`); prevenuti puntatori touch orfani in `fingerWriting` (`gestures.js`); evitata deselezione su pinch durante drag/resize lazo (`lazo.js`); consolidato il testo attivo prima di Undo/Redo da UI (`history.js`); limitato il refresh completo delle miniature su `history:restore` ai soli cambi pattern (`pages-sidebar.js`); mantenuta la selezione multipla cliccando i controlli libreria (`library.js`).
+- **Test & Audit (B1)**: allineato `release-info.test.js` al percorso `src/shared/release/release-info.js` (197/197 test passati) e aggiornato `analisi_architetturale_e_audit_bug_inknote_studio.md`.
+
 ## v0.2.2 — 2026-11-28
 - Rimossi gli import residui da `src/shared/` verso `notebook/` e `library/`: spostati gli helper puri di gerarchia cartelle in `shared/core/folder-tree.js` e `setNonEnumerable` in `shared/core/utils.js`.
 - Disaccoppiati `sharing-ui.js`, `settings-modal.js`, `library-auth.js`, `sync-ui.js` e `session.js` usando `closeAllFloatingMenus`, eventi (`auth:changed`, `help:open`) e registrazione adapter nel composition root (`main.js`).
+- Aggiornato `analisi_architetturale_e_audit_bug_inknote_studio.md` con la mappatura architetturale `v0.2.2`, la verifica dei bug storici e il catalogo aggiornato delle criticità ancora aperte.
 
 ## v0.2.0 — 2026-11-27
 - Incluso il campo opzionale `smoothing` per-tratto nella serializzazione cloud/backup (`serialization-cloud-core.js`), completando l'allineamento dei metadati stroke con `serialization.js`.

@@ -1,152 +1,119 @@
-# Analisi Architetturale e Audit Bug — InkNote Studio
+# Analisi Architetturale e Audit Bug — InkNote Studio (`v0.2.4`)
 
-Questo documento raccoglie la ricostruzione del flusso applicativo di **InkNote Studio** e l'elenco dei potenziali bug individuati durante l'analisi del codice, suddivisi per livello di gravità con relative indicazioni di intervento.
+> **Ultimo aggiornamento**: 28 Novembre 2026 — Revisione e risoluzione delle criticità alla versione **`v0.2.4`** (`package.json`).  
+> **Stato verifiche automatiche post-fix**:
+> - `npx eslint .`: **0 errori, 0 warning** (exit code `0`).
+> - `node --test 'src/**/*.test.js'`: **197/197 passati, 0 falliti**.
+> - Verifica end-to-end in browser (Chromium): creazione quaderno, editing testo + `#undoBtn`, zoom da tastiera (`+`/`-`/`0`), ricerca in selezione multipla ed eliminazione persistente verificati con **0 errori console**.
 
----
-
-## 1. Flusso Completo dell'Applicazione
-
-### 1.1 Bootstrap e Vista Libreria (`index_2.html` -> `main.js` -> `library_2.js`)
-1. All'avvio l'utente visualizza `#libraryView` (`z-50`), che copre l'intero viewport sopra l'area di lavoro dell'editor.
-2. `bindLibraryUI()` inizializza il listener di autenticazione Google (`onAuthChange` -> `updateAuthUI()`) e registra gli handler per:
-   - Creazione nuovo quaderno (`#newNotebookModal`).
-   - Importazione backup (`.inknote`).
-   - Apertura impostazioni globali.
-   - Gestione della modalità selezione multipla.
-3. `renderLibraryView()` carica tutti i quaderni da IndexedDB tramite `loadAllNotebooksFromDB()`, li ordina per `updatedAt` decrescente e popola `#notebooksGrid`.
-4. Una pressione prolungata su una card per `500 ms` (`LP_PRESS_MS`) attiva `_selectionMode` e mostra la barra contestuale `#librarySelectionBar` (Seleziona tutto, Duplica, Esporta, Elimina).
-
-### 1.2 Apertura Quaderno ed Editor (`library_2.js` -> `editor.js` -> `pages.js` / `renderer.js`)
-1. Il tap/click su una card chiama `openNotebook(nb.id)`, che recupera metadati e pagine da IndexedDB, nasconde `#libraryView`, monta la toolbar in `#toolbarMount` e renderizza le pagine dentro `#canvasContainer`.
-2. Lo stato dell'editor (pagine, tratti, caselle di testo, strumento attivo, palm rejection, scrittura con il dito) viene condiviso tra i moduli tramite `state` e `viewport`.
-
-### 1.3 Pipeline Input, Palm Rejection e Navigazione (`gestures_3.js` <-> `tools/dispatcher.js` & `transform_3.js`)
-Tutti gli eventi `pointer*` su `#viewport` vengono intercettati in fase `capture` da `setupViewportGestures()`:
-
-* **Penna / Gomma (`pointerType === 'pen' | 'eraser'`)**:
-  - Aggiorna i flag di stato (`_penInRange`, `_penDown`) e i timestamp per le finestre di grazia del palm rejection.
-  - Se era appena iniziato un pan (`< 400 ms`) o un pinch non ancora confermato, esegue il rollback della trasformazione e cancella i puntatori touch attivi, lasciando proseguire l'evento verso gli strumenti di disegno.
-* **Tocco singolo (`1 dito`)**:
-  - Se `state.palmRejection` è attivo, ignora i contatti con superficie ampia (`> 100 px` su iPadOS, `> 60 px` sugli altri dispositivi) e i tocchi che ricadono nelle finestre di grazia post-penna (`150 ms` dopo `pointerup`/`pointercancel`, `500 ms` dopo `pointerleave`).
-  - Se `state.fingerWriting` è disattivo, avvia il pan con blocco opzionale sull'asse verticale (`_scrollAxisLocked`), inerzia al rilascio (`_startMomentum` tramite `requestAnimationFrame`) e *pull-to-add-page* quando si trascina oltre il margine inferiore partendo dal fondo (`_startedAtBottom`).
-* **Doppio tocco (`2 dita`)**:
-  - Entra in `isPinching` solo se il secondo dito arriva entro la finestra temporale ammessa (`350 ms` se vicino, `300 ms` su iOS / `200 ms` altrove se lontano) e a distanza valida (`30 px` - `850 px` su iOS).
-  - Interrompe eventuali tratti in corso (`abortCurrentDrawing()`), attende la soglia di conferma del movimento (`_pinchConfirm`) e applica lo zoom attorno al baricentro tramite `applyPinchTransform()`.
-* **Transform e Clamp (`transform_3.js`)**:
-  - `clampViewport()` mantiene il foglio vincolato ai bordi del viewport sfruttando una cache calcolata a scala unitaria (`_clampCache`) per evitare reflow ad ogni frame di animazione.
-  - Al termine della gesture viene invocato `scheduleResolutionRefresh()` per ridisegnare i canvas alla risoluzione corretta.
+Questo documento fotografa l'architettura attuale di **InkNote Studio**, traccia lo stato dei 10 bug storici e documenta la risoluzione dei bug individuati nell'audit `v0.2.2`.
 
 ---
 
-## 2. Potenziali Bug Individuati
+## 1. Architettura Attuale del Progetto (`v0.2.2`)
 
-### Livello Critico (Perdita dati o blocco interazione)
+L'applicazione è organizzata in tre domini principali orchestrati da un unico composition root (`src/main.js`), senza dipendenze circolari verso l'alto da `shared/` verso `notebook/` o `library/`:
 
-#### 1. Perdita di contenuti nella duplicazione dei quaderni
-* **File**: `library_2.js` — funzione `handleDuplicateSelection()`
-* **Descrizione del problema**:
-  Durante la duplicazione, le pagine vengono ricreate copiando esclusivamente `pageId` e `strokes`:
-  ```js
-  const newPages = (src.pages || []).map(p => ({
-    pageId: generatePageId(),
-    strokes: _deepClone(p.strokes || [])
-  }));
-  ```
-  Qualsiasi altra proprietà presente sull'oggetto pagina (caselle di testo, sfondi PDF, pattern per singola pagina, immagini) o campi aggiuntivi del quaderno vengono persi nel duplicato.
-* **Soluzione consigliata**:
-  Clonare l'intero oggetto pagina sovrascrivendo solo `pageId` (`{ ..._deepClone(p), pageId: generatePageId() }`) e clonare l'intero oggetto quaderno sovrascrivendo solo identificativi, titolo e timestamp.
+### 1.1 Bootstrap & Navigazione (`src/main.js`, `src/shared/core/back-navigation.js`, `src/shared/components/modal.js`)
+1. `window.load` monta in sequenza `#libraryView` + `#newNotebookModal` (`mountLibraryPage()`), `#viewport` + overlay (`mountNotebookPage()`), la barra strumenti (`mountToolbar()`), il modale impostazioni (`mountSettingsModal()`) e la sidebar pagine (`mountPagesSidebar()`).
+2. Inizializza profilo piattaforma (`desktop`, `ios`, `android`), store globale (`initSettings()`), store toolbar (`initToolbarSettings(null)`), IndexedDB v5 (`initDB()`), redirect OAuth Firebase (`handleRedirectResult()`), adapter di sessione/sync (`registerSessionAdapters`, `registerSyncNotebookHandlers`), gesture, scorciatoie da tastiera e controller unificato del tasto Indietro (`initBackNavigation()`).
+3. Tutte le modali dell'app passano attraverso lo stack LIFO `modal.js` (`registerModal` / `openModalOverlay`), con gestione centralizzata di `Escape`, backdrop drag-safe e priorità su `popstate`.
 
----
+### 1.2 Libreria, Cartelle, Persistenza Locale e Sync/Backup (`src/library/*`, `src/shared/*`)
+* **Libreria (`src/library/library.js`, `src/library/library-helpers.js`)**: griglia/lista di quaderni e cartelle gerarchiche, ricerca, filtro preferiti, ordinamento, selezione multipla (long-press `500 ms` o bottone dedicato), drag & drop su cartelle/breadcrumb.
+* **Persistenza locale (`src/shared/services/db.js`, `session.js`, `autosave.js`, `lazy-strokes.js`)**: IndexedDB v5 (`notebooks`, `pages`, `folders`, `syncTombstones`) con packing compatto dei tratti (`serialization.js`), decompressione lazy di `page.strokes` (`attachLazyStrokes`), salvataggio differenziale per pagine sporche (`dirtyPages` / `deletedPages` / `orderDirty`) e autosave con debounce (`1200 ms`) + `requestIdleCallback`.
+* **Cloud Sync manuale (`src/shared/services/sync-cloud.js`, `src/shared/sync/*`)**: sincronizzazione manuale su Firestore (`users/{uid}/sync_folders`, `sync_notebooks`, `pages`, `chunks`), deduplicazione pagine via SHA-256, chunking per payload > ~700 KB (limite Firestore 1 MiB) e rilevazione conflitti via signature metadati/pagine. Zero listener in background.
+* **Backup `.inknote` e Condivisione P2P (`src/shared/backup/*`, `src/shared/services/sharing-cloud.js`, `firestore.rules`)**: export/import archivi `.inknote` (formato v4 con compressione GZIP/base64 e Web Worker dedicato) e invio diretto tra utenti su Firestore (`transfers/{transferId}/chunks`).
 
-#### 2. Possibile blocco permanente del touch (`_gestureBlocked`) se un puntatore resta orfano
-* **File**: `gestures_3.js` — funzioni `onPointerDown` (`count >= 3`) e `onPointerEnd`
-* **Descrizione del problema**:
-  Quando vengono rilevati 3 o più tocchi simultanei (ad esempio palmo + dita), `_gestureBlocked` viene impostato a `true` e viene resettato **unicamente** quando `viewport.activePointers.size === 0` in `onPointerEnd`. Su iPadOS/Safari il sistema operativo può sopprimere gli eventi `pointerup` o `pointercancel` di un tocco scartato dal palm rejection di sistema: se anche un solo `pointerId` rimane in `activePointers`, `size` non torna mai a `0` e **tutte le gesture touch (pan e pinch) restano bloccate** fino a un evento `window blur`.
-* **Soluzione consigliata**:
-  Svuotare `viewport.activePointers` (rilasciando le relative pointer capture) non appena `count >= 3` attiva `_gestureBlocked`, oppure introdurre un timer di pulizia di sicurezza per puntatori rimasti attivi senza eventi.
+### 1.3 Editor, Input & Rendering (`src/notebook/*`)
+* **Viewport & Gesture (`gestures.js`, `palm-rejection.js`, `transform.js`)**: listener `pointerdown`/`pointermove` in capture su `#viewport` e `pointerup`/`pointercancel` su `window`; pan ad 1 dito con asse verticale opzionale e inerzia (`requestAnimationFrame`), pinch-to-zoom a 2 dita con `_pinchConfirm`, zoom trackpad/rotellina (`wheel` + `ctrlKey`), pull-to-add-page e `clampViewport()` basato su `_clampCache`.
+* **Strumenti & Rendering (`tools/dispatcher.js`, `ink.js`, `shapes.js`, `lazo.js`, `text.js`, `render.js`, `page-pool.js`)**: disegno su overlay canvas + commit sul canvas pooled di pagina; profilo iOS dedicato con nastro continuo per Apple Pencil; riconoscimento forme geometriche/matematiche/greche; caselle di testo con editing DOM e raster/PDF vettoriale (`export-pdf.js`); history undo/redo per-pagina/ordine.
 
 ---
 
-#### 3. Stato sporco in `activePointers` quando `state.fingerWriting === true`
-* **File**: `gestures_3.js` — funzione `onPointerDown` (`count === 1`)
-* **Descrizione del problema**:
-  `viewport.activePointers.set(e.pointerId, ...)` viene eseguito **prima** del controllo `if (state.fingerWriting) return;`, ma in questo ramo non viene chiamato `setPointerCapture`. Se l'utente scrive con il dito, esce dai bordi di `#viewport` e solleva il dito, `#viewport` può non ricevere `pointerup`: il puntatore resta registrato in `activePointers`, così al tocco successivo `count` risulta pari a `2` e innesca un pinch involontario che chiama `abortCurrentDrawing()`, impedendo la scrittura.
-* **Soluzione consigliata**:
-  Rimuovere immediatamente `e.pointerId` da `viewport.activePointers` prima del `return` quando `state.fingerWriting` è attivo (oppure inserirlo solo dopo aver verificato che `state.fingerWriting` sia disattivo).
+## 2. Stato dei 10 Bug Storici dell'Audit Precedente
+
+| # | Problema storico | Stato in `v0.2.4` | Note di verifica |
+|---|------------------|-------------------|------------------|
+| 1 | Perdita contenuti nella duplicazione quaderni (`handleDuplicateSelection`) | **Risolto** | `library.js:1007-1041` clona le pagine preservando `textBoxes`, `paperColor`, `patternColor`, `bgPattern`, ecc. e rigenerando solo `pageId` e ID box testo. |
+| 2 | Blocco permanente `_gestureBlocked` se un puntatore resta orfano | **Risolto** | `gestures.js:412-417` usa cooldown temporizzato (`GESTURE_BLOCK_COOLDOWN_MS`) e chiama `_clearTouchPointers()`. |
+| 3 | Stato sporco `activePointers` quando `state.fingerWriting === true` | **Risolto** | I puntatori `fingerWriting` vengono etichettati e ripuliti preventivamente in `gestures.js` quando nessun tratto, pan o pinch è attivo, evitando falsi pinch da puntatori orfani. |
+| 4 | Impossibile passare da pan a 1 dito a pinch dopo `300 ms` | **Risolto** | Il vincolo temporale sul secondo dito è stato rimosso in `gestures.js:440-466`. |
+| 5 | `_clampCache` non invalidata al cambio quaderno o viewport | **Risolto** | `invalidateClampCache()` viene chiamata in `openNotebook`, `ResizeObserver`, sidebar (`pages-sidebar.js`), e ora anche `resetZoom()` usa `applyPinchTransform` / `clampViewport()` centrato sul viewport. |
+| 6 | Zoom via `wheel` (`ctrlKey`) lascia i canvas a bassa risoluzione | **Risolto** | `gestures.js` chiama `_scheduleWheelResolutionRefresh()` (debounced `180 ms`), mentre `keyboard.js` e `resetZoom()` (`pages.js`) invocano `scheduleResolutionRefresh()`. |
+| 7 | File `.inknote` non selezionabili su iPadOS | **Risolto** | `index.html:26` permette la selezione senza blocchi iPadOS. |
+| 8 | Tocco sullo sfondo della libreria chiude `_selectionMode` su `pointerdown` | **Risolto** | `library.js` usa `click` e include `#libraryControlsWrap` e `#librarySelectionBar` nel selettore di esclusione. |
+| 9 | Doppio tap "Crea Quaderno" e race condition in `renderLibraryView()` | **Risolto** | Introdotti `_isCreatingNotebook`, `confirmBtn.disabled`, suffisso random nell'ID e `_renderRequestToken` in `library.js`. |
+| 10 | Posizionamento iniziale `#undoRedoContainer` su viewport stretti (`left: 80px`) | **Risolto** | `notebook-page.html:111` e `ui-bindings.js:284-320` posizionano e clampano dinamicamente il dock. |
 
 ---
 
-### Livello Alto (UX compromessa in scenari reali)
+## 3. Stato dei Bug e Criticità dell'Audit `v0.2.2` (Aggiornato a `v0.2.4`)
 
-#### 4. Impossibile passare da pan a 1 dito a pinch a 2 dita dopo $300\text{ ms}$
-* **File**: `gestures_3.js` — funzione `onPointerDown` (`count === 2`)
-* **Descrizione del problema**:
-  `_firstTouchDownTime` viene memorizzato all'appoggio del primo dito e confrontato con `maxTime` (`300 ms` su iOS, `200 ms` altrove). Se l'utente scorre la pagina con un dito per più di $0.3\text{ s}$ e poi appoggia il secondo dito per zoomare senza sollevare il primo, il secondo tocco viene ignorato (`activePointers.delete`). Lo stesso accade in modalità `fingerWriting` se si scrive con un dito per più di $0.3\text{ s}$ e si appoggia il secondo dito per spostare il foglio.
-* **Soluzione consigliata**:
-  Applicare il vincolo temporale `timeSinceFirst > maxTime` solo ai tocchi fermi o a grande distanza (tipici di un palmo appoggiato durante la scrittura), consentendo invece la transizione al pinch quando il primo dito è già in pan attivo.
+### Livello Critico (Risolto)
 
----
-
-#### 5. Cache dei limiti di scroll (`_clampCache`) non invalidata al cambio quaderno o dimensione pagina
-* **File**: `transform_3.js` — funzione `_computeClampBounds()`
-* **Descrizione del problema**:
-  La chiave di cache è `${state.pages.length}|${window.innerWidth}|${window.innerHeight}`. Se l'utente chiude un quaderno di 1 pagina e ne apre un altro sempre di 1 pagina ma con dimensioni diverse (ad esempio un PDF importato o un orientamento diverso), oppure se l'altezza di `#viewport` cambia senza alterare `window.innerHeight` (es. apertura/chiusura della toolbar), `_clampCache` restituisce i limiti precedenti tagliando fuori porzioni del foglio.
-* **Soluzione consigliata**:
-  Invocare `invalidateClampCache()` all'apertura/chiusura di ogni quaderno, al cambio dimensioni pagina e al toggle della toolbar, oppure includere l'ID del quaderno corrente nella `cacheKey`.
+#### C1. Upload Cloud non atomico in `_uploadNotebookToCloud` — **RISOLTO**
+* **File**: `src/shared/services/sync-cloud.js` (`_uploadNotebookToCloud`, `_downloadNotebookFromCloud`)
+* **Soluzione applicata**:
+  1. Per i nuovi quaderni cloud (`!existingCloudNb`), viene creato un documento di staging `sync_notebooks/{id}` con `pageOrder: []` e `pageCount: 0` (per soddisfare le regole Firestore sulle sotto-collezioni `pages`), vengono caricati tutti i payload e chunk delle pagine e solo alla fine i metadati completi vengono finalizzati con `updateDoc` (con pulizia best-effort in caso di errore).
+  2. Per i quaderni esistenti, vengono caricate prima le pagine attive, poi aggiornato `pageOrder`/`pageCount` sul padre e solo infine eliminate in best-effort le pagine rimosse.
+  3. In `_downloadNotebookFromCloud`, l'assenza di una pagina dichiarata in `pageOrder` solleva ora un errore esplicito anziché sintetizzare una pagina bianca.
 
 ---
 
-#### 6. Zoom da trackpad o rotella (`wheel`) lascia i canvas a bassa risoluzione
-* **File**: `gestures_3.js` — listener `wheel` con `e.ctrlKey`
-* **Descrizione del problema**:
-  Lo zoom eseguito tramite gesture pinch su trackpad o `Ctrl + Rotella` invoca `applyPinchTransform()`, ma a differenza del pinch touch non chiama mai `scheduleResolutionRefresh()`. Di conseguenza il contenuto rimane renderizzato alla densità pixel precedente allo zoom.
-* **Soluzione consigliata**:
-  Aggiungere una chiamata debounced a `scheduleResolutionRefresh()` al termine dello zoom via `wheel`.
+### Livello Alto (Tutti Risolti)
+
+#### A1. Eliminazione quaderno/cartella in Libreria prima di chiudere l'editor e attendere i salvataggi — **RISOLTO**
+* **File**: `src/library/library.js`, `src/shared/persistence/session.js`
+* **Soluzione applicata**: Esportato `waitForPendingSaves()` da `session.js` e invocati `closeNotebookIfOpen(...)` + `await waitForPendingSaves()` **prima** di `deleteNotebookFromDB` / `deleteLibraryItemsFromDB` in `_deleteNotebook`, `_handleDeleteFolder` e `_handleDeleteSelection`.
+
+#### A2. Importazione backup `.inknote` `"overwrite"` disallineata dal quaderno aperto — **RISOLTO**
+* **File**: `src/shared/backup/backup-import.js`, `src/main.js`
+* **Soluzione applicata**: Registrato `registerBackupNotebookHandlers({ closeNotebookIfOpen })` in `main.js`; prima della sovrascrittura in `backup-import.js`, se il quaderno coincide con `getCurrentNotebook()?.id`, vengono eseguiti `closeNotebookIfOpen(nb.id)`, `cancelPendingSave()` e `await waitForPendingSaves()`.
+
+#### A3. `resetZoom()`, zoom da tastiera (`+`/`-`) e zoom `wheel` (`ctrlKey`) — **RISOLTO**
+* **File**: `src/notebook/editor/pages.js`, `src/notebook/shortcuts/keyboard.js`, `src/notebook/viewport/gestures.js`
+* **Soluzione applicata**: `resetZoom()` centra il reset attorno al centro di `#viewport` tramite `applyPinchTransform` (fallback `clampViewport()`) e chiama `scheduleResolutionRefresh()`; anche `_zoomByFactor()` in `keyboard.js` e lo zoom `wheel` (`ctrlKey`, debounced a `180 ms`) in `gestures.js` attivano `scheduleResolutionRefresh()`.
+
+#### A4. Cleanup concorrente in `deleteTransferWithChunks` — **RISOLTO**
+* **File**: `src/shared/services/sharing-cloud.js`
+* **Soluzione applicata**: Introdotta deduplica delle cancellazioni in corso (`_transferDeleteInFlight`), cache breve degli ID già eliminati (`_recentlyDeletedTransfers`, TTL `15 s`) e gestione idempotente di `not-found` / `permission-denied` durante il cleanup concorrente tra mittente e destinatario.
 
 ---
 
-### Livello Medio / Basso
+### Livello Medio (Tutti Risolti)
 
-#### 7. File `.inknote` non selezionabili nel file picker di iPadOS
-* **File**: `index_2.html` — elemento `<input type="file" id="importFileInput" accept=".inknote" hidden>`
-* **Descrizione del problema**:
-  Su iPadOS Safari, specificare esclusivamente un'estensione custom come `.inknote` senza un MIME type standard di fallback fa sì che i file risultino grigi e non selezionabili nell'app File / iCloud Drive.
-* **Soluzione consigliata**:
-  Estendere l'attributo a `accept=".inknote,application/json,application/octet-stream"` (oppure rimuovere `accept` e delegare la validazione al parser in `importNotebooks`).
+#### M1. Interruzione drag/resize lazo deseleziona gli elementi — **RISOLTO**
+* **File**: `src/notebook/tools/lazo.js`
+* **Soluzione applicata**: `endResizeSelection()` ed `endSelectionDrag()` reimpostano `state.isDrawing = false` direttamente, impedendo ad `abortCurrentDrawing()` di invocare `clearSelection()`.
 
----
+#### M2. Stato sporco in `activePointers` durante `fingerWriting` — **RISOLTO**
+* **File**: `src/notebook/viewport/gestures.js`
+* **Soluzione applicata**: I nuovi puntatori touch vengono marcati con `fingerWriting: !!state.fingerWriting` e gli eventuali puntatori orfani `fingerWriting` vengono rimossi quando `!state.isDrawing && !viewport.isPanning && !viewport.isPinching` prima di valutare `activePointers.size`.
 
-#### 8. Tocco sullo sfondo della libreria per scorrere chiude la modalità selezione
-* **File**: `library_2.js` — funzione `bindLibraryUI()`, listener globale su `document` (`pointerdown`)
-* **Descrizione del problema**:
-  Su dispositivi touch, se l'utente è in `_selectionMode` e appoggia il dito in uno spazio vuoto tra le card per scorrere la griglia, l'evento `pointerdown` chiude immediatamente la modalità selezione prima ancora che inizi lo scroll.
-* **Soluzione consigliata**:
-  Sostituire l'uscita su `pointerdown` con un controllo su `click` (tap breve senza trascinamento), verificando che il target non appartenga a una card né a `#librarySelectionBar`.
+#### M3. Pulsanti UI `#undoBtn` / `#redoBtn` con casella di testo attiva — **RISOLTO**
+* **File**: `src/notebook/history/history.js`
+* **Soluzione applicata**: `undo()` e `redo()` invocano `commitActiveTextBox({ deselect: true })` se `state.editingTextBoxId` è valorizzato prima di `flushHistory()`.
 
----
+#### M4. Troncamento silente oltre 500 pagine nel Cloud Sync e invio P2P — **RISOLTO**
+* **File**: `src/shared/sync/sync-helpers.js`, `src/shared/services/sync-cloud.js`, `src/shared/services/sharing-cloud.js`
+* **Soluzione applicata**: Introdotto `assertCloudSyncPageLimit(notebook, 500)` con test unitario dedicato; sia il sync cloud sia `sendNotebookToFriend` rifiutano preventivamente quaderni oltre 500 pagine con un errore esplicito invece di troncarli silenziosamente.
 
-#### 9. Doppio tap su "Crea Quaderno" e race condition in `renderLibraryView()`
-* **File**: `library_2.js` — funzioni `confirmCreateNotebook()` e `renderLibraryView()`
-* **Descrizione del problema**:
-  * `confirmCreateNotebook()` non disabilita il pulsante `#confirmCreateNbBtn` durante `await saveNotebookToDB(...)` e genera l'ID con `'nb_' + Date.now()` privo di suffisso casuale: un doppio tap rapido può creare due quaderni duplicati con rischio di collisione sull'ID.
-  * `renderLibraryView()` non utilizza un contatore di richiesta per scartare risposte asincrone obsolete di `loadAllNotebooksFromDB()` in caso di chiamate ravvicinate.
-* **Soluzione consigliata**:
-  Disabilitare `#confirmCreateNbBtn` durante il salvataggio, aggiungere un suffisso casuale all'ID del nuovo quaderno e introdurre un token incrementale in `renderLibraryView()`.
+#### M5. Rebuild completo delle miniature su `history:restore` — **RISOLTO**
+* **File**: `src/notebook/pages-sidebar/pages-sidebar.js`
+* **Verifica e soluzione applicata**: Le coordinate dei pattern fallback (`pages-sidebar.js:813-855`) risultavano già allineate a `render.js::getBackgroundCanvas` (`y=60`, `0..PAGE_WIDTH`). Corretto invece il listener `on('history:restore', (detail) => ...)`: rigenera tutte le miniature solo quando `detail?.patternChanged` è vero, aggiornando altrimenti esclusivamente la miniatura della pagina modificata.
+
+#### M6. Click sulla barra ricerca/filtri chiude la selezione multipla — **RISOLTO**
+* **File**: `src/library/library.js`
+* **Soluzione applicata**: Aggiunti `#libraryControlsWrap` e `#librarySelectionBar` al selettore di esclusione del listener `click` globale.
 
 ---
 
-#### 10. Posizionamento iniziale di `#undoRedoContainer` su viewport stretti
-* **File**: `index_2.html` — elemento `#undoRedoContainer` (`style="top: 140px; left: 80px;"`)
-* **Descrizione del problema**:
-  Su smartphone o finestre iPad in Split View ridotto, un offset fisso `left: 80px` abbinato a due pulsanti da $56 \times 56\text{ px}$ (`w-14 h-14`) posiziona il widget flottante quasi al centro dell'area di scrittura.
-* **Soluzione consigliata**:
-  Ridurre l'offset orizzontale iniziale (es. `left: 16px` o `left: 24px`) o calcolarlo dinamicamente in base alla larghezza del viewport.
+### Livello Basso & Debito Tecnico
 
----
+#### B1. Test automatico `release-info.test.js` rotto dopo lo spostamento di modulo — **RISOLTO**
+* **File**: `src/shared/release/release-info.test.js`
+* **Soluzione applicata**: Aggiornato il percorso verificato a `src/shared/release/release-info.js`; l'intera suite passa (`197/197`).
 
-## 3. Aree Critiche da Verificare nei Restanti Moduli
-
-Per completare la revisione sull'intera codebase, si consiglia di verificare anche:
-1. **`services/db.js` <-> `editor.js`**: gestione della concorrenza tra salvataggio automatico debounced e chiusura rapida del quaderno (`closeNotebookIfOpen`), oltre alla rimozione delle pagine orfane in IndexedDB.
-2. **`tools/dispatcher.js` <-> `text/text-editor.js`**: transizione del focus e dei puntatori tra disegno a penna, selezione lazo (`lazo.js`) e caselle di testo su iPadOS durante l'apertura/chiusura della tastiera virtuale.
-3. **`pdf/pdf-import.js` e `backup/backup-import.js`**: gestione dell'allocazione memoria con PDF multi-pagina ad alta risoluzione e retrocompatibilità dello schema `.inknote`.
+#### B2. Debito tecnico residuo su file monolitici (`style.css`, `render.js`, `toolbar.js`, `library.js`, `sharing-ui.js`) — **APERTO (Non bloccante)**
+* **Osservazione**: La separazione dei layer `shared/` → `notebook/`/`library/` è pulita (`0` import residui verso l'alto), ma restano 5 file di grandi dimensioni (`style.css`, `render.js`, `toolbar.js`, `library.js`, `sharing-ui.js`). Non costituiscono bug, ma conviene modularizzarli gradualmente in interventi mirati futuri.

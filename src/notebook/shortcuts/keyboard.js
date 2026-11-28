@@ -10,7 +10,7 @@ import { flushHistory, handleHistoryKeyboard } from '../history/history.js';
 import { createManualSaveRunner } from './manual-save.js';
 import { toggleAppFullscreen } from '../../shared/core/fullscreen.js';
 import { applyPinchTransform } from '../viewport/transform.js';
-import { resetZoom } from '../editor/pages.js';
+import { resetZoom, scheduleResolutionRefresh } from '../editor/pages.js';
 import { isAnyModalOpen, getTopModalId } from '../../shared/components/modal.js';
 import { shouldToggleShortcutsModalKey } from './shortcuts-catalog.js';
 import {
@@ -51,6 +51,7 @@ function _zoomByFactor(factor) {
     center,
     newScale
   );
+  scheduleResolutionRefresh();
 }
 
 export function setupKeyboardShortcuts() {
