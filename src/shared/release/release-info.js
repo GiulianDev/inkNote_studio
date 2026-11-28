@@ -2,17 +2,24 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.2.1",
-  "builtAt": "2026-11-27T23:06:45.685Z",
-  "date": "2026-11-27",
+  "version": "0.2.2",
+  "builtAt": "2026-11-28T10:09:56.904Z",
+  "date": "2026-11-28",
   "currentNotes": [
-    "Incluso il campo opzionale `smoothing` per-tratto nella serializzazione cloud/backup (`serialization-cloud-core.js`), completando l'allineamento dei metadati stroke con `serialization.js`.",
-    "Aggiunto guard sul limite di 1 MiB di Firestore per singola pagina (`measureFirestorePagePayload`, `splitCompressedPageForFirestore`, `reassembleCompressedPageFromChunks`, `compressPageBundleForCloud`) con soglia di avviso e suddivisione/ricomposizione automatica in chunk binari.",
-    "Implementata la sincronizzazione cloud manuale su Firestore (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`): schema `firebase-blueprint.json` e regole di sicurezza `firestore.rules` per `sync_folders`, `sync_notebooks`, `pages` e `chunks`, zero listener automatici in background, deduplicazione delle pagine via SHA-256, tracciamento tombstone eliminazioni locali (`db.js`), risoluzione interattiva dei conflitti e riepilogo locale dei consumi giornalieri dal menu utente (`Sincronizza Cloud`)."
+    "Rimossi gli import residui da `src/shared/` verso `notebook/` e `library/`: spostati gli helper puri di gerarchia cartelle in `shared/core/folder-tree.js` e `setNonEnumerable` in `shared/core/utils.js`.",
+    "Disaccoppiati `sharing-ui.js`, `settings-modal.js`, `library-auth.js`, `sync-ui.js` e `session.js` usando `closeAllFloatingMenus`, eventi (`auth:changed`, `help:open`) e registrazione adapter nel composition root (`main.js`)."
   ],
-  "notesSourceVersion": "0.2.0",
-  "hasExactChangelog": false,
+  "notesSourceVersion": "0.2.2",
+  "hasExactChangelog": true,
   "releases": [
+    {
+      "version": "0.2.2",
+      "date": "2026-11-28",
+      "items": [
+        "Rimossi gli import residui da `src/shared/` verso `notebook/` e `library/`: spostati gli helper puri di gerarchia cartelle in `shared/core/folder-tree.js` e `setNonEnumerable` in `shared/core/utils.js`.",
+        "Disaccoppiati `sharing-ui.js`, `settings-modal.js`, `library-auth.js`, `sync-ui.js` e `session.js` usando `closeAllFloatingMenus`, eventi (`auth:changed`, `help:open`) e registrazione adapter nel composition root (`main.js`)."
+      ]
+    },
     {
       "version": "0.2.0",
       "date": "2026-11-27",
