@@ -2,18 +2,39 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.2.3",
-  "builtAt": "2026-11-28T10:45:05.486Z",
+  "version": "0.2.6",
+  "builtAt": "2026-11-28T13:32:35.555Z",
   "date": "2026-11-28",
   "currentNotes": [
-    "**Integrità Sync Cloud & P2P (C1, M4, A4)**: reso atomico l'ordine di upload su Firestore (`sync-cloud.js`) con caricamento preventivo di pagine e chunk prima dell'aggiornamento di `pageOrder`, errore esplicito su pagine mancanti in download, blocco preventivo oltre 500 pagine (`assertCloudSyncPageLimit` in `sync-helpers.js` e `sharing-cloud.js`) e gestione idempotente/deduplicata di `deleteTransferWithChunks`.",
-    "**Race condition Eliminazione & Import Backup (A1, A2)**: attesa di `waitForPendingSaves()` e chiusura dell'editor (`closeNotebookIfOpen`, `cancelPendingSave`) prima delle eliminazioni in libreria (`library.js`) e prima della sovrascrittura in import backup `.inknote` (`backup-import.js`, `main.js`).",
-    "**Viewport, Input & Editor (A3, M1, M2, M3, M5, M6)**: centrato e clampato `resetZoom()` (`pages.js`) con refresh risoluzione su `resetZoom()`, scorciatoie zoom (`keyboard.js`) e `wheel` debounced (`gestures.js`); prevenuti puntatori touch orfani in `fingerWriting` (`gestures.js`); evitata deselezione su pinch durante drag/resize lazo (`lazo.js`); consolidato il testo attivo prima di Undo/Redo da UI (`history.js`); limitato il refresh completo delle miniature su `history:restore` ai soli cambi pattern (`pages-sidebar.js`); mantenuta la selezione multipla cliccando i controlli libreria (`library.js`).",
-    "**Test & Audit (B1)**: allineato `release-info.test.js` al percorso `src/shared/release/release-info.js` (197/197 test passati) e aggiornato `analisi_architetturale_e_audit_bug_inknote_studio.md`."
+    "**Redesign & Drag Intuitivo Annulla / Ripristina (`notebook-page.html`, `style.css`, `ui-bindings.js`, `hud-layout.js`, `shortcuts-catalog.js`)**: uniformata la grafica di `#undoRedoContainer` allo stile `.ui-dock` in tema chiaro e scuro (senza grip laterale) con trascinamento immediato da qualsiasi punto del pannello, anche sopra i pulsanti disabilitati, oltre al fallback a pressione breve.",
+    "**Posizionamento adattivo HUD & Controlli Zoom (`hud-layout.js`, `ui-bindings.js`, `pages-sidebar.js`, `pages.js`, `keyboard.js`, `style.css`)**: spostati dinamicamente `#undoRedoContainer` e `#zoomBadge` quando la sidebar pagine sinistra o destra è aperta (e sotto il dock su smartphone) per evitare ogni sovrapposizione; esteso il badge zoom a controlli `− / 100% / +`.",
+    "**Spazio iniziale pagina sotto il dock (`editor.js`, `pages.js`, `hud-layout.js`)**: calcolato il margine superiore utile sotto `#dockWriting` all'apertura del quaderno, al centramento, al reset zoom e all'aggiunta/navigazione pagine per non nascondere il bordo superiore del primo foglio.",
+    "**Icone SVG uniformi (1.75px) & Toast silenziosi (`ui-icons.js`, `utils.js`, `gestures.js`, `library.js`, `library-page.html`, `settings-modal.html`, `backup-import.js`, `index.html`)**: sostituite le emoji OS con icone SVG monocromatiche coerenti in toast, indicatore pull-to-add-page, barra zoom, stati vuoti libreria, intestazioni Impostazioni e dialog conflitti; rimossi i toast superflui su apertura quaderno e reset zoom."
   ],
-  "notesSourceVersion": "0.2.4",
-  "hasExactChangelog": false,
+  "notesSourceVersion": "0.2.6",
+  "hasExactChangelog": true,
   "releases": [
+    {
+      "version": "0.2.6",
+      "date": "2026-11-28",
+      "items": [
+        "**Redesign & Drag Intuitivo Annulla / Ripristina (`notebook-page.html`, `style.css`, `ui-bindings.js`, `hud-layout.js`, `shortcuts-catalog.js`)**: uniformata la grafica di `#undoRedoContainer` allo stile `.ui-dock` in tema chiaro e scuro (senza grip laterale) con trascinamento immediato da qualsiasi punto del pannello, anche sopra i pulsanti disabilitati, oltre al fallback a pressione breve.",
+        "**Posizionamento adattivo HUD & Controlli Zoom (`hud-layout.js`, `ui-bindings.js`, `pages-sidebar.js`, `pages.js`, `keyboard.js`, `style.css`)**: spostati dinamicamente `#undoRedoContainer` e `#zoomBadge` quando la sidebar pagine sinistra o destra è aperta (e sotto il dock su smartphone) per evitare ogni sovrapposizione; esteso il badge zoom a controlli `− / 100% / +`.",
+        "**Spazio iniziale pagina sotto il dock (`editor.js`, `pages.js`, `hud-layout.js`)**: calcolato il margine superiore utile sotto `#dockWriting` all'apertura del quaderno, al centramento, al reset zoom e all'aggiunta/navigazione pagine per non nascondere il bordo superiore del primo foglio.",
+        "**Icone SVG uniformi (1.75px) & Toast silenziosi (`ui-icons.js`, `utils.js`, `gestures.js`, `library.js`, `library-page.html`, `settings-modal.html`, `backup-import.js`, `index.html`)**: sostituite le emoji OS con icone SVG monocromatiche coerenti in toast, indicatore pull-to-add-page, barra zoom, stati vuoti libreria, intestazioni Impostazioni e dialog conflitti; rimossi i toast superflui su apertura quaderno e reset zoom."
+      ]
+    },
+    {
+      "version": "0.2.5",
+      "date": "2026-11-28",
+      "items": [
+        "**Salvataggio affidabile su chiusura e cambio app mobile (`main.js`, `editor.js`, `autosave.js`)**: introdotto `flushActiveEditorBeforeLeave()` su `visibilitychange` (`hidden`), `pagehide` e `beforeunload` per consolidare caselle di testo attive (`commitActiveTextBox`) e forme pendenti (`finalizePendingShape`) prima di eseguire `flushHistory()` e `flushAutoSave()`.",
+        "**Ripristino sync su errori parziali e lock multi-tab (`sync-cloud.js`)**: salvati `nextSyncState` e `recordDailySyncUsage` nel blocco `finally` quando sono state completate operazioni parziali prima di un errore; aggiunto mutex cross-tab tramite `navigator.locks` (`inknote_cloud_sync`).",
+        "**Coerenza `pageOrders` & gestione esplicita errori IndexedDB / Quota (`db.js`, `autosave.js`, `library.js`, `main.js`)**: scritto `pageOrdersStore.put` ogni volta che `needsOrderRebuild` è attivo; trasformati in reject espliciti gli accessi a DB non disponibile (`!db`), gestiti `onblocked` e `onversionchange`, notificato `QuotaExceededError` su badge/toast e aggiunta gestione errore in `renderLibraryView()`.",
+        "**Coordinamento multi-tab (`tab-sync.js`, `session.js`, `backup-import.js`, `main.js`)**: introdotto `BroadcastChannel('inknote_studio_tab_sync_v1')` per aggiornare la libreria, avvisare su modifiche concorrenti di un quaderno aperto e chiudere in sicurezza quaderni eliminati o sovrascritti da un'altra scheda.",
+        "**Disaccoppiamento `library → notebook` & modalità PWA offline (`library.js`, `vite.config.js`, `pwa.js`, `index.html`, `library-page.html`, `public/`)**: invertiti gli import da `library.js` verso `notebook/` tramite `registerLibraryNotebookHandlers()`; configurati manifest, Service Worker (`vite-plugin-pwa`), icone app, installazione in-app (Chromium e guida iOS) e badge di stato offline preservando le build `singlefile`."
+      ]
+    },
     {
       "version": "0.2.4",
       "date": "2026-11-28",
