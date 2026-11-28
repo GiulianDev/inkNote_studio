@@ -64,23 +64,13 @@ import {
   loadUserSyncState,
   saveUserSyncState,
   loadDailySyncUsage,
-  recordDailySyncUsage
+  recordDailySyncUsage,
+  withCrossTabSyncLock,
+  summarizeCloudInventory
 } from '../sync/sync-helpers.js';
 import { broadcastTabEvent } from '../core/tab-sync.js';
 
 let _syncInFlight = null;
-
-async function _withCrossTabSyncLock(fn) {
-  if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
-    return navigator.locks.request('inknote_cloud_sync', { ifAvailable: true }, async (lock) => {
-      if (!lock) {
-        throw new Error('Sincronizzazione già in corso in un’altra scheda');
-      }
-      return fn();
-    });
-  }
-  return fn();
-}
 
 function _requireVerifiedCloudUser() {
   if (!isFirestoreReady()) {
@@ -297,7 +287,7 @@ async function _uploadNotebookToCloud({
         }
       }
 
-      const prevChunkCount = existingPage?.chunkCount || 0;
+      const prevChunkCount = existingPage?.chunked ? (existingPage.chunkCount || 0) : 0;
       for (let cIdx = 0; cIdx < packedRes.chunks.length; cIdx++) {
         onProgress?.({
           stage: 'upload_chunk',
@@ -692,7 +682,9 @@ export async function getManualSyncOverview(uid = auth?.currentUser?.uid) {
     loadAllNotebooksFromDB()
   ]);
   const tombstones = loadLocalTombstones();
-  const syncState = uid ? loadUserSyncState(uid) : { lastSyncAt: null, folders: {}, notebooks: {} };
+  const syncState = uid
+    ? loadUserSyncState(uid)
+    : { lastSyncAt: null, cloudNotebooksCount: null, cloudFoldersCount: null, folders: {}, notebooks: {} };
   const dailyUsage = uid ? loadDailySyncUsage(uid) : loadDailySyncUsage('');
 
   return {
@@ -701,8 +693,40 @@ export async function getManualSyncOverview(uid = auth?.currentUser?.uid) {
     pendingTombstonesCount:
       Object.keys(tombstones.folders).length + Object.keys(tombstones.notebooks).length,
     lastSyncAt: syncState.lastSyncAt,
+    cloudNotebooksCount: syncState.cloudNotebooksCount ?? null,
+    cloudFoldersCount: syncState.cloudFoldersCount ?? null,
     dailyUsage
   };
+}
+
+/**
+ * Controlla rapidamente i soli metadati presenti su Firestore (cartelle e quaderni,
+ * ZERO download di pagine o chunk) per mostrare se esiste già una copia cloud
+ * quando l'utente accede da un nuovo dispositivo.
+ */
+export async function peekCloudSyncInventory() {
+  const user = _requireVerifiedCloudUser();
+  const uid = user.uid;
+  const stats = { readsApprox: 0, writesApprox: 0 };
+
+  const [cloudFolders, cloudNotebooks] = await Promise.all([
+    _listOwnerCollectionDocs(['users', uid, 'sync_folders'], uid, `users/${uid}/sync_folders`, stats),
+    _listOwnerCollectionDocs(['users', uid, 'sync_notebooks'], uid, `users/${uid}/sync_notebooks`, stats)
+  ]);
+
+  const summary = summarizeCloudInventory(cloudFolders, cloudNotebooks);
+  try {
+    const prevState = loadUserSyncState(uid);
+    saveUserSyncState(uid, {
+      ...prevState,
+      cloudNotebooksCount: summary.activeNotebooksCount,
+      cloudFoldersCount: summary.activeFoldersCount
+    });
+  } catch (err) {
+    console.warn('[sync-cloud] unable to persist peeked cloud counts:', err);
+  }
+
+  return summary;
 }
 
 /**
@@ -718,7 +742,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
     throw new Error('Sincronizzazione già in corso');
   }
 
-  const run = _withCrossTabSyncLock(async () => {
+  const run = withCrossTabSyncLock(async () => {
     const user = _requireVerifiedCloudUser();
     const uid = user.uid;
 
@@ -1094,6 +1118,8 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
       if (uid && nextSyncState && !stats.abortedByUser && (syncSucceeded || hasPartialMutations)) {
         if (syncSucceeded) {
           nextSyncState.lastSyncAt = new Date().toISOString();
+          nextSyncState.cloudNotebooksCount = Object.keys(nextSyncState.notebooks || {}).length;
+          nextSyncState.cloudFoldersCount = Object.keys(nextSyncState.folders || {}).length;
         }
         try {
           saveUserSyncState(uid, nextSyncState);
@@ -1128,7 +1154,7 @@ export async function runManualCloudSync({ onProgress, onConflicts } = {}) {
         });
       }
     }
-  })();
+  });
 
   _syncInFlight = run;
   try {

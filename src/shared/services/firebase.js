@@ -28,10 +28,11 @@ import appletConfig from '../../../firebase-applet-config.json';
 import { state } from '../core/state.js';
 import {
   hasOAuthScope,
-  resolveEffectiveFirestoreDatabaseId
+  resolveEffectiveFirestoreDatabaseId,
+  selectActiveFirebaseConfig
 } from '../sharing/sharing-helpers.js';
 
-const envFirebaseConfig = {
+const rawEnvFirebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
@@ -41,16 +42,12 @@ const envFirebaseConfig = {
   firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || ''
 };
 
-const hasEnvConfig = Boolean(
-  envFirebaseConfig.apiKey && envFirebaseConfig.projectId && envFirebaseConfig.appId
-);
-
-const hasAppletConfig = Boolean(
-  appletConfig && appletConfig.apiKey && appletConfig.projectId && appletConfig.appId &&
-  appletConfig.projectId !== 'remixed-project-id'
-);
-
-const activeConfig = hasEnvConfig ? envFirebaseConfig : (hasAppletConfig ? appletConfig : null);
+const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+const { config: activeConfig, source: activeConfigSource } = selectActiveFirebaseConfig({
+  envConfig: rawEnvFirebaseConfig,
+  appletConfig,
+  hostname: currentHostname
+});
 
 export const OperationType = Object.freeze({
   CREATE: 'create',
@@ -91,7 +88,7 @@ if (activeConfig) {
     const dbResolution = resolveEffectiveFirestoreDatabaseId({
       projectId: activeConfig.projectId,
       firestoreDatabaseId: activeConfig.firestoreDatabaseId,
-      fromEnv: hasEnvConfig
+      fromEnv: activeConfigSource === 'env'
     });
     effectiveDatabaseId = dbResolution.databaseId;
     if (dbResolution.fallbackReason === 'ai_studio_db_on_external_project') {

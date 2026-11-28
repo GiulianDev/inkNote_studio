@@ -15,7 +15,12 @@ import {
   getActiveFirebaseDatabaseId,
   signInWithGoogle
 } from '../services/firebase.js';
-import { getManualSyncOverview, runManualCloudSync, isCloudSyncRunning } from '../services/sync-cloud.js';
+import {
+  getManualSyncOverview,
+  runManualCloudSync,
+  peekCloudSyncInventory,
+  isCloudSyncRunning
+} from '../services/sync-cloud.js';
 import { formatFirestoreErrorMessage, formatAuthErrorMessage } from '../sharing/sharing-helpers.js';
 import {
   formatBytesCompact,
@@ -42,7 +47,13 @@ export function registerSyncNotebookHandlers({ openNotebook, closeNotebookIfOpen
 
 function _formatSyncError(err) {
   const authMsg = formatAuthErrorMessage(err);
-  if (authMsg) return authMsg;
+  if (authMsg) {
+    return {
+      text: authMsg,
+      linkUrl: '',
+      linkLabel: ''
+    };
+  }
 
   const rawMsg = typeof err?.message === 'string' ? err.message : String(err || '');
   let innerMsg = rawMsg;
@@ -85,7 +96,12 @@ function _formatSyncError(err) {
 function _buildSyncSubtitle(uid) {
   if (!uid) return 'Manuale';
   const s = loadUserSyncState(uid);
-  if (!s.lastSyncAt) return 'Manuale · Mai eseguito';
+  if (!s.lastSyncAt) {
+    if (Number.isFinite(s.cloudNotebooksCount) && s.cloudNotebooksCount > 0) {
+      return `Manuale · ${s.cloudNotebooksCount} nel cloud`;
+    }
+    return 'Manuale · Nuovo dispositivo';
+  }
   return `Ultimo: ${formatSyncTimestampIt(s.lastSyncAt)}`;
 }
 
@@ -127,9 +143,65 @@ function _buildSummaryLines(res) {
   return parts.join(' · ');
 }
 
+function _formatCloudCountsText(notebooksCount, foldersCount) {
+  const nb = Math.max(0, Number(notebooksCount) || 0);
+  const fl = Math.max(0, Number(foldersCount) || 0);
+  const nbLabel = `${nb} ${nb === 1 ? 'quaderno' : 'quaderni'}`;
+  const flLabel = `${fl} ${fl === 1 ? 'raccolta' : 'raccolte'}`;
+  return fl > 0 ? `${nbLabel} · ${flLabel}` : nbLabel;
+}
+
+async function _checkCloudPresenceForModal(modalCtrl) {
+  if (!_activeState || _activeState.modalCtrl !== modalCtrl) return;
+  const user = _activeState.user;
+  if (!isFirestoreReady() || !user || user.isAnonymous || !user.emailVerified) return;
+  if (_activeState.checkingCloud) return;
+
+  _activeState.checkingCloud = true;
+  _activeState.cloudCheckError = '';
+  _renderModalBody();
+
+  try {
+    const summary = await peekCloudSyncInventory();
+    if (!_activeState || _activeState.modalCtrl !== modalCtrl) return;
+    _activeState.cloudInventory = summary;
+    if (_activeState.overview) {
+      _activeState.overview = {
+        ..._activeState.overview,
+        cloudNotebooksCount: summary.activeNotebooksCount,
+        cloudFoldersCount: summary.activeFoldersCount
+      };
+    }
+    refreshUserMenuSyncBadge(user);
+  } catch (err) {
+    if (!_activeState || _activeState.modalCtrl !== modalCtrl) return;
+    const formatted = _formatSyncError(err);
+    _activeState.cloudCheckError = formatted.text || 'Impossibile verificare lo stato nel cloud.';
+  } finally {
+    if (_activeState && _activeState.modalCtrl === modalCtrl) {
+      _activeState.checkingCloud = false;
+      _renderModalBody();
+    }
+  }
+}
+
 function _renderModalBody() {
   if (!_activeState) return;
-  const { bodyEl, modalCtrl, user, overview, syncing, progressText, result, errorInfo, conflicts, conflictResolve } = _activeState;
+  const {
+    bodyEl,
+    modalCtrl,
+    user,
+    overview,
+    checkingCloud,
+    cloudInventory,
+    cloudCheckError,
+    syncing,
+    progressText,
+    result,
+    errorInfo,
+    conflicts,
+    conflictResolve
+  } = _activeState;
   if (!bodyEl) return;
 
   modalCtrl.updateOptions({
@@ -151,6 +223,72 @@ function _renderModalBody() {
 
   const firestoreAvailable = isFirestoreReady();
   const isSignedIn = !!(user && !user.isAnonymous);
+  const hasDeviceSynced = Boolean(overview?.lastSyncAt);
+  const lastSyncLabel = !overview
+    ? '—'
+    : hasDeviceSynced
+      ? formatSyncTimestampIt(overview.lastSyncAt)
+      : 'Mai su questo dispositivo';
+
+  const knownCloudNb = cloudInventory
+    ? cloudInventory.activeNotebooksCount
+    : overview?.cloudNotebooksCount;
+  const knownCloudFl = cloudInventory
+    ? cloudInventory.activeFoldersCount
+    : overview?.cloudFoldersCount;
+  const hasKnownCloudCounts = Number.isFinite(knownCloudNb);
+
+  let cloudStatusBanner = '';
+  if (firestoreAvailable && isSignedIn) {
+    if (checkingCloud) {
+      cloudStatusBanner = `
+        <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 px-3.5 py-2.5 flex items-center gap-2.5 text-xs text-slate-600 dark:text-slate-300">
+          <span class="w-3.5 h-3.5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin shrink-0" aria-hidden="true"></span>
+          <span>Controllo se esiste già una copia online su questo account...</span>
+        </div>
+      `;
+    } else if (cloudCheckError) {
+      cloudStatusBanner = `
+        <div class="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/80 dark:bg-amber-950/30 px-3.5 py-2.5 text-xs text-amber-800 dark:text-amber-200 flex items-start justify-between gap-2">
+          <span>${escapeHtml(cloudCheckError)}</span>
+          <button type="button" data-sync-recheck class="font-semibold underline shrink-0 cursor-pointer">Riprova</button>
+        </div>
+      `;
+    } else if (hasKnownCloudCounts && (knownCloudNb > 0 || (knownCloudFl || 0) > 0)) {
+      const cloudSummaryText = _formatCloudCountsText(knownCloudNb, knownCloudFl);
+      const latestOnlineText = cloudInventory?.latestCloudUpdatedMs
+        ? ` · agg. ${formatSyncTimestampIt(cloudInventory.latestCloudUpdatedMs)}`
+        : '';
+      cloudStatusBanner = !hasDeviceSynced ? `
+        <div class="rounded-xl border border-sky-200 dark:border-sky-800/70 bg-sky-50/90 dark:bg-sky-950/35 p-3.5 text-xs text-sky-900 dark:text-sky-100 space-y-1">
+          <div class="flex items-center justify-between gap-2">
+            <p class="font-semibold">Copia online trovata su questo account</p>
+            <button type="button" data-sync-recheck class="text-[11px] font-semibold underline text-sky-700 dark:text-sky-300 shrink-0 cursor-pointer">Aggiorna</button>
+          </div>
+          <p class="leading-relaxed text-sky-800 dark:text-sky-200">
+            Nel cloud sono già salvati <strong>${escapeHtml(cloudSummaryText)}</strong>${escapeHtml(latestOnlineText)}. Questo dispositivo non è ancora stato sincronizzato: premi <strong>Avvia sincronizzazione ora</strong> per scaricare e allineare i dati.
+          </p>
+        </div>
+      ` : `
+        <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 px-3.5 py-2.5 text-xs text-slate-700 dark:text-slate-300 flex items-center justify-between gap-2">
+          <span>Copia nel cloud: <strong class="text-slate-900 dark:text-white">${escapeHtml(cloudSummaryText)}</strong>${escapeHtml(latestOnlineText)}</span>
+          <button type="button" data-sync-recheck class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0 cursor-pointer">Verifica cloud</button>
+        </div>
+      `;
+    } else if (cloudInventory && !cloudInventory.hasCloudData) {
+      cloudStatusBanner = `
+        <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 p-3.5 text-xs text-slate-700 dark:text-slate-300 space-y-1">
+          <div class="flex items-center justify-between gap-2">
+            <p class="font-semibold text-slate-900 dark:text-white">Nessuna copia salvata nel cloud</p>
+            <button type="button" data-sync-recheck class="text-[11px] font-semibold underline text-slate-500 dark:text-slate-400 shrink-0 cursor-pointer">Ricontrolla</button>
+          </div>
+          <p class="leading-relaxed">
+            Questo account non ha ancora quaderni online. Premi <strong>Avvia sincronizzazione ora</strong> per caricare sul cloud l’archivio di questo dispositivo.
+          </p>
+        </div>
+      `;
+    }
+  }
 
   bodyEl.innerHTML = `
     <div class="space-y-4">
@@ -175,8 +313,8 @@ function _renderModalBody() {
             </span>
           </div>
           <div class="text-right">
-            <span class="text-slate-500 dark:text-slate-400">Ultimo sync:</span>
-            <span class="font-semibold text-slate-800 dark:text-slate-200">${escapeHtml(formatSyncTimestampIt(overview?.lastSyncAt))}</span>
+            <span class="text-slate-500 dark:text-slate-400">Sync questo device:</span>
+            <span class="font-semibold text-slate-800 dark:text-slate-200">${escapeHtml(lastSyncLabel)}</span>
           </div>
         </div>
         ${overview?.pendingTombstonesCount > 0 ? `
@@ -185,6 +323,8 @@ function _renderModalBody() {
           </p>
         ` : ''}
       </div>
+
+      ${cloudStatusBanner}
 
       <div class="rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
         <div class="flex items-center justify-between gap-2 mb-2.5">
@@ -279,13 +419,21 @@ function _renderModalBody() {
     if (!_activeState?.syncing) modalCtrl.close('button');
   });
 
+  bodyEl.querySelector('[data-sync-recheck]')?.addEventListener('click', () => {
+    void _checkCloudPresenceForModal(modalCtrl);
+  });
+
   bodyEl.querySelector('[data-sync-signin]')?.addEventListener('click', async () => {
     try {
       const signed = await signInWithGoogle();
       if (signed && _activeState) {
         _activeState.user = signed;
+        _activeState.errorInfo = null;
         _activeState.overview = await getManualSyncOverview(signed.uid);
         _renderModalBody();
+        if (!_activeState.overview?.lastSyncAt) {
+          void _checkCloudPresenceForModal(modalCtrl);
+        }
       }
     } catch (err) {
       if (_activeState) {
@@ -477,6 +625,8 @@ async function _executeSyncFromModal() {
 
     if (_activeState) {
       _activeState.overview = updatedOverview;
+      _activeState.cloudInventory = null;
+      _activeState.cloudCheckError = '';
       _activeState.result = res;
     }
 
@@ -571,6 +721,9 @@ export async function openCloudSyncModal() {
     modalCtrl,
     user,
     overview: null,
+    checkingCloud: false,
+    cloudInventory: null,
+    cloudCheckError: '',
     syncing: false,
     progressText: '',
     result: null,
@@ -592,5 +745,8 @@ export async function openCloudSyncModal() {
   if (_activeState && _activeState.modalCtrl === modalCtrl) {
     _activeState.overview = overview;
     _renderModalBody();
+    if (isFirestoreReady() && user && !user.isAnonymous && user.emailVerified && !overview.lastSyncAt) {
+      void _checkCloudPresenceForModal(modalCtrl);
+    }
   }
 }
