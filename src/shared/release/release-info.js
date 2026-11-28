@@ -3,12 +3,12 @@
 
 export const RELEASE_INFO = Object.freeze({
   "version": "0.2.8",
-  "builtAt": "2026-11-28T15:58:38.051Z",
+  "builtAt": "2026-11-28T16:11:56.105Z",
   "date": "2026-11-28",
   "currentNotes": [
     "**Fix Sync Cloud & Chunk Transition (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`)**: rimossa l'invocazione doppia residua su `withCrossTabSyncLock` in `runManualCloudSync` (che causava `TypeError: ... is not a function`), corretto `prevChunkCount` nel passaggio di una pagina da documento singolo a chunked e normalizzato il formato errore Auth in `_formatSyncError`.",
     "**Stato copia cloud su nuovo dispositivo (`sync-cloud.js`, `sync-ui.js`, `sync-helpers.js`)**: introdotto controllo leggero dei soli metadati (`peekCloudSyncInventory`) quando il dispositivo corrente non ha ancora sincronizzato (`Mai su questo dispositivo`), mostrando chiaramente se esistono già quaderni e raccolte salvati nel cloud pronti per il download.",
-    "**Accesso Google in preview AI Studio & sanitizzazione env (`sharing-helpers.js`, `firebase.js`)**: aggiunta sanitizzazione automatica di virgolette/punti e virgola accidentali sulle variabili `VITE_FIREBASE_*` e selezione automatica di `firebase-applet-config.json` sugli host di anteprima AI Studio (`ais-dev`/`ais-pre`/`localhost`), preservando le variabili `VITE_FIREBASE_*` per i build/deploy esterni."
+    "**Configurazione Firebase unificata & sanitizzazione env (`sharing-helpers.js`, `firebase.js`, `.gitignore`)**: aggiunta sanitizzazione automatica di virgolette/punti e virgola accidentali sulle variabili `VITE_FIREBASE_*` e priorità unificata a `VITE_FIREBASE_*` in tutti gli ambienti (preview AI Studio, sviluppo locale PC e build/deploy esterni, con fallback automatico su `firebase-applet-config.json` e su database `(default)` se `VITE_FIREBASE_DATABASE_ID` punta a un vecchio DB AI Studio); aggiunta `dev-dist` a `.gitignore`."
   ],
   "notesSourceVersion": "0.2.8",
   "hasExactChangelog": true,
@@ -19,7 +19,7 @@ export const RELEASE_INFO = Object.freeze({
       "items": [
         "**Fix Sync Cloud & Chunk Transition (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`)**: rimossa l'invocazione doppia residua su `withCrossTabSyncLock` in `runManualCloudSync` (che causava `TypeError: ... is not a function`), corretto `prevChunkCount` nel passaggio di una pagina da documento singolo a chunked e normalizzato il formato errore Auth in `_formatSyncError`.",
         "**Stato copia cloud su nuovo dispositivo (`sync-cloud.js`, `sync-ui.js`, `sync-helpers.js`)**: introdotto controllo leggero dei soli metadati (`peekCloudSyncInventory`) quando il dispositivo corrente non ha ancora sincronizzato (`Mai su questo dispositivo`), mostrando chiaramente se esistono già quaderni e raccolte salvati nel cloud pronti per il download.",
-        "**Accesso Google in preview AI Studio & sanitizzazione env (`sharing-helpers.js`, `firebase.js`)**: aggiunta sanitizzazione automatica di virgolette/punti e virgola accidentali sulle variabili `VITE_FIREBASE_*` e selezione automatica di `firebase-applet-config.json` sugli host di anteprima AI Studio (`ais-dev`/`ais-pre`/`localhost`), preservando le variabili `VITE_FIREBASE_*` per i build/deploy esterni."
+        "**Configurazione Firebase unificata & sanitizzazione env (`sharing-helpers.js`, `firebase.js`, `.gitignore`)**: aggiunta sanitizzazione automatica di virgolette/punti e virgola accidentali sulle variabili `VITE_FIREBASE_*` e priorità unificata a `VITE_FIREBASE_*` in tutti gli ambienti (preview AI Studio, sviluppo locale PC e build/deploy esterni, con fallback automatico su `firebase-applet-config.json` e su database `(default)` se `VITE_FIREBASE_DATABASE_ID` punta a un vecchio DB AI Studio); aggiunta `dev-dist` a `.gitignore`."
       ]
     },
     {

@@ -240,7 +240,6 @@ test('formatAuthErrorMessage converts Firebase Auth popup/account codes cleanly'
 import {
   sanitizeFirebaseConfigValue,
   sanitizeFirebaseConfigObject,
-  isAiStudioPreviewHost,
   selectActiveFirebaseConfig
 } from './sharing-helpers.js';
 
@@ -250,12 +249,7 @@ test('sanitizeFirebaseConfigValue strips accidental quotes, semicolons, and whit
   assert.equal(sanitizeFirebaseConfigValue(null), '');
 });
 
-test('selectActiveFirebaseConfig uses appletConfig in AI Studio preview hosts (Option A) and sanitized envConfig externally', () => {
-  assert.equal(isAiStudioPreviewHost('ais-dev-abc-123.europe-west3.run.app'), true);
-  assert.equal(isAiStudioPreviewHost('ais-pre-abc-123.europe-west3.run.app'), true);
-  assert.equal(isAiStudioPreviewHost('localhost'), true);
-  assert.equal(isAiStudioPreviewHost('inknote-studio.web.app'), false);
-
+test('selectActiveFirebaseConfig prioritizes sanitized envConfig across all environments and falls back to appletConfig', () => {
   const envConfig = {
     apiKey: '"AIzaSyEnvKey";',
     authDomain: 'inknote-studio.firebaseapp.com',
@@ -270,23 +264,25 @@ test('selectActiveFirebaseConfig uses appletConfig in AI Studio preview hosts (O
     firestoreDatabaseId: 'ai-studio-db-uuid'
   };
 
-  const previewChoice = selectActiveFirebaseConfig({
-    envConfig,
-    appletConfig,
-    hostname: 'ais-dev-undviet7liqs4oq45mbe62-676366603759.europe-west3.run.app'
-  });
-  assert.equal(previewChoice.source, 'applet');
-  assert.equal(previewChoice.config.projectId, 'gen-lang-client-123');
-  assert.equal(previewChoice.config.apiKey, 'AIzaSyAppletKey');
+  const envChoice = selectActiveFirebaseConfig({ envConfig, appletConfig });
+  assert.equal(envChoice.source, 'env');
+  assert.equal(envChoice.config.projectId, 'inknote-studio');
+  assert.equal(envChoice.config.apiKey, 'AIzaSyEnvKey');
 
-  const prodChoice = selectActiveFirebaseConfig({
-    envConfig,
-    appletConfig,
-    hostname: 'inknote-studio.web.app'
+  const sanitizedObj = sanitizeFirebaseConfigObject(envConfig);
+  assert.equal(sanitizedObj.apiKey, 'AIzaSyEnvKey');
+
+  const fallbackChoice = selectActiveFirebaseConfig({ envConfig: {}, appletConfig });
+  assert.equal(fallbackChoice.source, 'applet');
+  assert.equal(fallbackChoice.config.projectId, 'gen-lang-client-123');
+  assert.equal(fallbackChoice.config.apiKey, 'AIzaSyAppletKey');
+
+  const remixedFallback = selectActiveFirebaseConfig({
+    envConfig: {},
+    appletConfig: { ...appletConfig, projectId: 'remixed-project-id' }
   });
-  assert.equal(prodChoice.source, 'env');
-  assert.equal(prodChoice.config.projectId, 'inknote-studio');
-  assert.equal(prodChoice.config.apiKey, 'AIzaSyEnvKey');
+  assert.equal(remixedFallback.source, 'none');
+  assert.equal(remixedFallback.config, null);
 });
 
 test('hasOAuthScope matches exact space-delimited OAuth scopes', () => {

@@ -445,19 +445,9 @@ export function sanitizeFirebaseConfigObject(rawConfig) {
   };
 }
 
-export function isAiStudioPreviewHost(hostname = '') {
-  const host = typeof hostname === 'string' ? hostname.trim().toLowerCase() : '';
-  if (!host) return false;
-  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
-    return true;
-  }
-  return /^ais-(?:dev|pre)-[^.]+\.[^.]+\.run\.app$/i.test(host) || /^ais-(?:dev|pre)-.*\.run\.app$/i.test(host);
-}
-
 export function selectActiveFirebaseConfig({
   envConfig = null,
-  appletConfig = null,
-  hostname = ''
+  appletConfig = null
 } = {}) {
   const cleanEnv = sanitizeFirebaseConfigObject(envConfig);
   const cleanApplet = sanitizeFirebaseConfigObject(appletConfig);
@@ -470,11 +460,8 @@ export function selectActiveFirebaseConfig({
     cleanApplet.projectId !== 'remixed-project-id'
   );
 
-  // Opzione A: in anteprima AI Studio (ais-dev/ais-pre/localhost) usa sempre firebase-applet-config.json se valido,
-  // lasciando VITE_FIREBASE_* prioritario nei build/deploy esterni.
-  if (isAiStudioPreviewHost(hostname) && hasAppletConfig) {
-    return { config: cleanApplet, source: 'applet' };
-  }
+  // Usa sempre VITE_FIREBASE_* (sanitizzate) se configurate in tutti gli ambienti
+  // (preview AI Studio, localhost/.env.local, build/deploy esterni), con fallback su firebase-applet-config.json.
   if (hasEnvConfig) {
     return { config: cleanEnv, source: 'env' };
   }

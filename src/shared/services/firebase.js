@@ -42,11 +42,9 @@ const rawEnvFirebaseConfig = {
   firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || ''
 };
 
-const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
 const { config: activeConfig, source: activeConfigSource } = selectActiveFirebaseConfig({
   envConfig: rawEnvFirebaseConfig,
-  appletConfig,
-  hostname: currentHostname
+  appletConfig
 });
 
 export const OperationType = Object.freeze({
