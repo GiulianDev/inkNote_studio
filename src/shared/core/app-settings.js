@@ -60,7 +60,7 @@ export const DEFAULT_SETTINGS = {
   librarySortDir: 'desc',     // 'asc' | 'desc'
   libraryOnlyFavorites: false,
   libraryViewMode: 'grid',    // 'grid' | 'list'
-  libraryShowTextBelow: false
+  libraryShowTextBelow: true
 };
 
 /** @type {typeof DEFAULT_SETTINGS|null} */

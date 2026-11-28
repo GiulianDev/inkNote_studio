@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyInstallPlatform } from './pwa.js';
+import { classifyInstallPlatform, resolveSettingsInstallPresentation } from './pwa.js';
 
 test('classifyInstallPlatform hides button when already standalone', () => {
   assert.deepEqual(
@@ -55,4 +55,23 @@ test('classifyInstallPlatform returns none on unsupported desktop without prompt
     }),
     { isInstalled: false, isIOS: false, mode: 'none' }
   );
+});
+
+test('resolveSettingsInstallPresentation maps installed, prompt, ios-guide and fallback states cleanly', () => {
+  assert.equal(resolveSettingsInstallPresentation({ mode: 'installed' }).disabled, true);
+  assert.equal(resolveSettingsInstallPresentation({ mode: 'installed' }).tone, 'installed');
+
+  const promptUI = resolveSettingsInstallPresentation({ mode: 'prompt' });
+  assert.equal(promptUI.disabled, false);
+  assert.equal(promptUI.tone, 'primary');
+  assert.equal(promptUI.label, 'Installa app');
+
+  const iosUI = resolveSettingsInstallPresentation({ mode: 'ios-guide', isIOS: true });
+  assert.equal(iosUI.disabled, false);
+  assert.equal(iosUI.tone, 'secondary');
+  assert.match(iosUI.label, /iPhone \/ iPad/);
+
+  const fallbackUI = resolveSettingsInstallPresentation({ mode: 'none', isIOS: false });
+  assert.equal(fallbackUI.disabled, false);
+  assert.equal(fallbackUI.label, 'Come installare');
 });

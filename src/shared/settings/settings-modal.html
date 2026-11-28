@@ -11,7 +11,7 @@
   <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col"
        style="max-height: 90vh;">
 
-    <div class="px-6 pt-6 pb-3 shrink-0 flex items-center justify-between gap-3">
+    <div class="px-6 pt-5 pb-3 shrink-0 flex items-center justify-between gap-3">
       <h3 id="settingsModalTitle" class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
         <svg class="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
@@ -19,195 +19,263 @@
         </svg>
         <span>Impostazioni</span>
       </h3>
-      <button id="settingsHelpBtn"
-              type="button"
-              class="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-950/60 text-slate-600 dark:text-slate-300 hover:text-indigo-700 dark:hover:text-indigo-300 border border-slate-200 dark:border-slate-700 font-bold text-sm transition-colors shrink-0 cursor-pointer"
-              title="Guida dell'app e scorciatoie da tastiera (?)"
-              aria-label="Guida dell'app e scorciatoie da tastiera">?</button>
-    </div>
-
-    <div class="px-6 overflow-y-auto flex-1 custom-scrollbar"
-         style="touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;">
-      <div class="space-y-4 text-xs">
-
-        <div>
-          <label for="settingTheme" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Visualizzazione</label>
-          <select id="settingTheme"
-                  class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-            <option value="auto">Automatico (segui sistema)</option>
-            <option value="light">Chiaro</option>
-            <option value="dark">Scuro</option>
-          </select>
-        </div>
-
-        <div>
-          <label for="settingPrintTheme" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tema Stampa / PDF</label>
-          <select id="settingPrintTheme"
-                  class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-            <option value="light">Chiaro (risparmia inchiostro)</option>
-            <option value="dark">Scuro</option>
-          </select>
-        </div>
-
-        <div>
-          <label for="settingHandedness" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mano Dominante</label>
-          <select id="settingHandedness"
-                  class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-            <option value="right">Destro</option>
-            <option value="left">Mancino (interfaccia specchiata)</option>
-          </select>
-        </div>
-
-        <div>
-          <label for="settingDockSize" class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Dimensione Dock</label>
-          <select id="settingDockSize"
-                  class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none font-medium">
-            <option value="small">Piccolo</option>
-            <option value="medium">Medio (consigliato)</option>
-            <option value="large">Grande</option>
-          </select>
-        </div>
-
-        <label class="flex items-start gap-2.5 pt-1 cursor-pointer">
-          <input type="checkbox" id="settingAutoHideDock"
-                 class="mt-0.5 w-4 h-4 accent-indigo-600 rounded cursor-pointer shrink-0">
-          <span>
-            <span class="block font-semibold text-slate-700 dark:text-slate-300">Nascondi dock automaticamente mentre scrivi</span>
-            <span class="block text-[10px] text-slate-500 mt-0.5">Il dock flottante sparisce mentre scrivi e riappare dopo una breve pausa.</span>
-          </span>
-        </label>
-
-        <label class="flex items-start gap-2.5 pt-1 cursor-pointer">
-          <input type="checkbox" id="settingLibraryShowTextBelow"
-                 class="mt-0.5 w-4 h-4 accent-indigo-600 rounded cursor-pointer shrink-0">
-          <span>
-            <span class="block font-semibold text-slate-700 dark:text-slate-300">Mostra testo sotto quaderni e raccolte</span>
-            <span class="block text-[10px] text-slate-500 mt-0.5">Visualizza titolo e dettagli anche sotto le icone nella griglia della libreria.</span>
-          </span>
-        </label>
-
-        <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
-          <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
-            <svg class="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
-            </svg>
-            <span>Input &amp; Scrolling</span>
-          </h4>
-          <label class="flex items-start gap-2.5 mb-3 cursor-pointer">
-            <input type="checkbox" id="palmRejectionCheck"
-                   class="mt-0.5 w-4 h-4 accent-indigo-600 rounded cursor-pointer shrink-0">
-            <span>
-              <span class="block font-semibold text-slate-700 dark:text-slate-300">Scrittura con il dito</span>
-              <span class="block text-[10px] text-slate-500 mt-0.5">Attivo: 1 dito scrive, 2 dita muovono e zoomano · Disattivo: 1 dito scorre (solo penna).</span>
-            </span>
-          </label>
-          <div>
-            <label for="scrollSensitivitySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              <span>Sensibilità scroll</span>
-              <span id="scrollSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
-            </label>
-            <input type="range" id="scrollSensitivitySlider" min="0" max="100" value="50"
-                   class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-            <p class="text-[10px] text-slate-500 mt-0.5">Più alto = flick più lunghi. 50 = default.</p>
-          </div>
-        </div>
-
-        <div class="pt-3 mt-3 border-t border-slate-200 dark:border-slate-700">
-          <div class="flex items-center justify-between mb-3">
-            <h4 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <svg class="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/>
-                <path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/>
-                <path d="m2.3 2.3 7.286 7.286"/><circle cx="11" cy="11" r="2"/>
-              </svg>
-              <span>Inchiostro</span>
-            </h4>
-            <span id="inkPlatformBadge" class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"></span>
-          </div>
-          <div class="space-y-3">
-            <div>
-              <label for="pressureSensitivitySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                <span>Sensibilità pressione</span>
-                <span id="pressureSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
-              </label>
-              <input type="range" id="pressureSensitivitySlider" min="0" max="100" value="50"
-                     class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-              <p class="text-[10px] text-slate-500 mt-0.5">Guadagno forza penna (compensa Apple Pencil / tablet diversi)</p>
-            </div>
-            <div>
-              <label for="pressureLightSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                <span>Tratto leggero</span>
-                <span id="pressureLightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">10</span>
-              </label>
-              <input type="range" id="pressureLightSlider" min="0" max="100" value="10"
-                     class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-              <p class="text-[10px] text-slate-500 mt-0.5">Spessore minimo a pressione minima</p>
-            </div>
-            <div>
-              <label for="pressureHeavySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                <span>Tratto pesante</span>
-                <span id="pressureHeavyValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">340</span>
-              </label>
-              <input type="range" id="pressureHeavySlider" min="100" max="500" value="340"
-                     class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-              <p class="text-[10px] text-slate-500 mt-0.5">Spessore massimo a pressione massima</p>
-            </div>
-            <div>
-              <label for="pressureCurveSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                <span>Curva pressione</span>
-                <span id="pressureCurveValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">60</span>
-              </label>
-              <input type="range" id="pressureCurveSlider" min="0" max="100" value="60"
-                     class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-              <p class="text-[10px] text-slate-500 mt-0.5">0 = morbida (spessore rapido) · 100 = progressiva (solo forte pressione)</p>
-            </div>
-            <div>
-              <label for="pressureSpeedWeightSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                <span>Influenza velocità</span>
-                <span id="pressureSpeedWeightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">20</span>
-              </label>
-              <input type="range" id="pressureSpeedWeightSlider" min="0" max="100" value="20"
-                     class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
-              <p class="text-[10px] text-slate-500 mt-0.5">0 = spessore solo pressione · 100 = stile stilografica (assottiglia in velocità)</p>
-            </div>
-            <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-2">
-              <div class="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1">
-                <span>Risposta spessore / pressione</span>
-                <span>Pressione →</span>
-              </div>
-              <svg id="pressureCurveSvg" viewBox="0 0 220 90" class="w-full h-20 block pointer-events-none select-none" aria-hidden="true">
-                <line x1="12" y1="78" x2="208" y2="78" stroke="currentColor" class="text-slate-300 dark:text-slate-700" stroke-width="1" />
-                <line x1="12" y1="45" x2="208" y2="45" stroke="currentColor" class="text-slate-200 dark:text-slate-700/60" stroke-width="1" stroke-dasharray="3 3" />
-                <line x1="12" y1="12" x2="208" y2="12" stroke="currentColor" class="text-slate-200 dark:text-slate-700/60" stroke-width="1" stroke-dasharray="3 3" />
-                <line x1="12" y1="78" x2="208" y2="12" stroke="currentColor" class="text-slate-300 dark:text-slate-600" stroke-width="1" stroke-dasharray="4 4" />
-                <path id="pressureCurveArea" d="" fill="rgba(99, 102, 241, 0.16)" />
-                <path id="pressureCurvePath" d="" fill="none" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-            </div>
-            <div>
-              <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui (applica solo ai nuovi tratti)</span>
-              <canvas id="pressureTestCanvas"
-                      class="w-full h-28 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                      style="touch-action:none;cursor:crosshair;"></canvas>
-              <p class="text-[10px] text-slate-500 mt-1">Disegna con la penna per calibrare. I tratti già scritti sul quaderno restano invariati.</p>
-            </div>
-            <div class="flex items-center justify-between pb-3">
-              <button id="resetPressureBtn"
-                      class="text-xs text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold">Ripristina default</button>
-              <button id="clearPressureBtn"
-                      class="text-xs text-slate-600 dark:text-slate-400 hover:text-rose-600 font-semibold">Pulisci area</button>
-            </div>
-          </div>
-        </div>
-
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button id="settingsHelpBtn"
+                type="button"
+                class="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-950/60 text-slate-600 dark:text-slate-300 hover:text-indigo-700 dark:hover:text-indigo-300 border border-slate-200 dark:border-slate-700 font-bold text-sm transition-colors cursor-pointer"
+                title="Guida dell'app e scorciatoie da tastiera (?)"
+                aria-label="Guida dell'app e scorciatoie da tastiera">?</button>
+        <button id="closeSettingsBtn"
+                type="button"
+                class="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
+                title="Chiudi impostazioni"
+                aria-label="Chiudi impostazioni">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+          </svg>
+        </button>
       </div>
     </div>
 
+    <!-- Tab Bar -->
+    <div class="px-6 pb-3 shrink-0 border-b border-slate-200 dark:border-slate-800">
+      <div class="settings-tablist" role="tablist" aria-label="Sezioni impostazioni">
+        <button type="button" class="settings-tab is-active" role="tab" aria-selected="true" data-settings-tab="appearance">
+          Aspetto
+        </button>
+        <button type="button" class="settings-tab" role="tab" aria-selected="false" data-settings-tab="input">
+          Input &amp; Penna
+        </button>
+        <button type="button" class="settings-tab" role="tab" aria-selected="false" data-settings-tab="ink">
+          Inchiostro
+        </button>
+      </div>
+    </div>
+
+    <div class="px-6 py-4 overflow-y-auto flex-1 custom-scrollbar"
+         style="touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;">
+
+      <!-- TAB 1: ASPETTO -->
+      <div class="space-y-4 text-xs" data-settings-panel="appearance" role="tabpanel">
+        <div>
+          <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Tema Visualizzazione</span>
+          <input type="hidden" id="settingTheme" value="auto">
+          <div class="settings-segmented" data-seg-group="settingTheme" role="radiogroup" aria-label="Tema Visualizzazione">
+            <button type="button" class="settings-seg-btn" data-seg-value="auto" role="radio" aria-checked="false">Auto</button>
+            <button type="button" class="settings-seg-btn" data-seg-value="light" role="radio" aria-checked="false">Chiaro</button>
+            <button type="button" class="settings-seg-btn" data-seg-value="dark" role="radio" aria-checked="false">Scuro</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Tema Stampa / PDF</span>
+            <input type="hidden" id="settingPrintTheme" value="light">
+            <div class="settings-segmented" data-seg-group="settingPrintTheme" role="radiogroup" aria-label="Tema Stampa e PDF">
+              <button type="button" class="settings-seg-btn" data-seg-value="light" role="radio" aria-checked="false">Chiaro</button>
+              <button type="button" class="settings-seg-btn" data-seg-value="dark" role="radio" aria-checked="false">Scuro</button>
+            </div>
+          </div>
+
+          <div>
+            <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Mano Dominante</span>
+            <input type="hidden" id="settingHandedness" value="right">
+            <div class="settings-segmented" data-seg-group="settingHandedness" role="radiogroup" aria-label="Mano Dominante">
+              <button type="button" class="settings-seg-btn" data-seg-value="right" role="radio" aria-checked="false">Destro</button>
+              <button type="button" class="settings-seg-btn" data-seg-value="left" role="radio" aria-checked="false">Mancino</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Dimensione Dock</span>
+            <input type="hidden" id="settingDockSize" value="medium">
+            <div class="settings-segmented" data-seg-group="settingDockSize" role="radiogroup" aria-label="Dimensione Dock">
+              <button type="button" class="settings-seg-btn" data-seg-value="small" role="radio" aria-checked="false">Piccolo</button>
+              <button type="button" class="settings-seg-btn" data-seg-value="medium" role="radio" aria-checked="false">Medio</button>
+              <button type="button" class="settings-seg-btn" data-seg-value="large" role="radio" aria-checked="false">Grande</button>
+            </div>
+          </div>
+
+          <div>
+            <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Sidebar Pagine</span>
+            <input type="hidden" id="settingPagesSidebarPosition" value="left">
+            <div class="settings-segmented" data-seg-group="settingPagesSidebarPosition" role="radiogroup" aria-label="Posizione Sidebar Pagine">
+              <button type="button" class="settings-seg-btn" data-seg-value="left" role="radio" aria-checked="false">Sinistra</button>
+              <button type="button" class="settings-seg-btn" data-seg-value="right" role="radio" aria-checked="false">Destra</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-2.5 pt-1">
+          <label class="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" id="settingAutoHideDock"
+                   class="mt-0.5 w-4 h-4 accent-indigo-600 rounded cursor-pointer shrink-0">
+            <span>
+              <span class="block font-semibold text-slate-700 dark:text-slate-300">Nascondi dock automaticamente mentre scrivi</span>
+              <span class="block text-[10px] text-slate-500 mt-0.5">Il dock flottante sparisce mentre scrivi e riappare dopo una breve pausa.</span>
+            </span>
+          </label>
+
+          <label class="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" id="settingLibraryShowTextBelow"
+                   class="mt-0.5 w-4 h-4 accent-indigo-600 rounded cursor-pointer shrink-0">
+            <span>
+              <span class="block font-semibold text-slate-700 dark:text-slate-300">Mostra titoli e metadati sotto le copertine</span>
+              <span class="block text-[10px] text-slate-500 mt-0.5">Visualizza titolo, pagine e data in modo pulito sotto quaderni e raccolte.</span>
+            </span>
+          </label>
+        </div>
+
+        <!-- Card App & Installazione PWA -->
+        <div id="settingsPwaInstallCard"
+             class="mt-2 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/90 dark:bg-slate-800/60 p-3 flex items-center justify-between gap-3">
+          <div class="flex items-start gap-2.5 min-w-0">
+            <span class="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="12" rx="2"/>
+                <path d="M12 7v6"/><path d="m9.5 10.5 2.5 2.5 2.5-2.5"/>
+                <path d="M8 20h8"/>
+              </svg>
+            </span>
+            <div class="min-w-0">
+              <div class="font-semibold text-slate-800 dark:text-slate-100">Installa come App</div>
+              <p id="settingsPwaStatusDesc" class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                Aggiungi InkNote Studio alla schermata Home per usarla offline a schermo intero.
+              </p>
+            </div>
+          </div>
+          <button id="settingsPwaInstallBtn"
+                  type="button"
+                  class="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-60 disabled:cursor-default">
+            Installa app
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 2: INPUT & PENNA -->
+      <div class="space-y-4 text-xs hidden" data-settings-panel="input" role="tabpanel">
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/70 dark:bg-slate-800/40 p-3">
+          <label class="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" id="palmRejectionCheck"
+                   class="mt-0.5 w-4 h-4 accent-indigo-600 rounded cursor-pointer shrink-0">
+            <span>
+              <span class="block font-semibold text-slate-800 dark:text-slate-200">Scrittura con il dito</span>
+              <span class="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                Attivo: 1 dito scrive, 2 dita muovono e zoomano.<br>
+                Disattivo: 1 dito scorre e naviga (solo penna per scrivere).
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div>
+          <label for="scrollSensitivitySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <span>Sensibilità scroll</span>
+            <span id="scrollSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
+          </label>
+          <input type="range" id="scrollSensitivitySlider" min="0" max="100" value="50"
+                 class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+          <p class="text-[10px] text-slate-500 mt-0.5">Più alto = scorrimento inerziale più lungo. 50 = valore predefinito.</p>
+        </div>
+      </div>
+
+      <!-- TAB 3: INCHIOSTRO -->
+      <div class="space-y-3 text-xs hidden" data-settings-panel="ink" role="tabpanel">
+        <div class="flex items-center justify-between">
+          <span class="font-semibold text-slate-700 dark:text-slate-300">Calibrazione Pressione &amp; Tratto</span>
+          <span id="inkPlatformBadge" class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"></span>
+        </div>
+
+        <div>
+          <label for="pressureSensitivitySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <span>Sensibilità pressione</span>
+            <span id="pressureSensitivityValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">50</span>
+          </label>
+          <input type="range" id="pressureSensitivitySlider" min="0" max="100" value="50"
+                 class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+          <p class="text-[10px] text-slate-500 mt-0.5">Guadagno forza penna (compensa Apple Pencil / tablet diversi)</p>
+        </div>
+
+        <div>
+          <label for="pressureLightSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <span>Tratto leggero</span>
+            <span id="pressureLightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">10</span>
+          </label>
+          <input type="range" id="pressureLightSlider" min="0" max="100" value="10"
+                 class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+          <p class="text-[10px] text-slate-500 mt-0.5">Spessore minimo a pressione minima</p>
+        </div>
+
+        <div>
+          <label for="pressureHeavySlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <span>Tratto pesante</span>
+            <span id="pressureHeavyValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">340</span>
+          </label>
+          <input type="range" id="pressureHeavySlider" min="100" max="500" value="340"
+                 class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+          <p class="text-[10px] text-slate-500 mt-0.5">Spessore massimo a pressione massima</p>
+        </div>
+
+        <div>
+          <label for="pressureCurveSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <span>Curva pressione</span>
+            <span id="pressureCurveValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">60</span>
+          </label>
+          <input type="range" id="pressureCurveSlider" min="0" max="100" value="60"
+                 class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+          <p class="text-[10px] text-slate-500 mt-0.5">0 = morbida (spessore rapido) · 100 = progressiva (solo forte pressione)</p>
+        </div>
+
+        <div>
+          <label for="pressureSpeedWeightSlider" class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <span>Influenza velocità</span>
+            <span id="pressureSpeedWeightValue" class="text-indigo-600 dark:text-indigo-400 tabular-nums">20</span>
+          </label>
+          <input type="range" id="pressureSpeedWeightSlider" min="0" max="100" value="20"
+                 class="w-full accent-indigo-600 cursor-pointer" style="touch-action: pan-y;">
+          <p class="text-[10px] text-slate-500 mt-0.5">0 = spessore solo pressione · 100 = stile stilografica (assottiglia in velocità)</p>
+        </div>
+
+        <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-2">
+          <div class="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1">
+            <span>Risposta spessore / pressione</span>
+            <span>Pressione →</span>
+          </div>
+          <svg id="pressureCurveSvg" viewBox="0 0 220 90" class="w-full h-20 block pointer-events-none select-none" aria-hidden="true">
+            <line x1="12" y1="78" x2="208" y2="78" stroke="currentColor" class="text-slate-300 dark:text-slate-700" stroke-width="1" />
+            <line x1="12" y1="45" x2="208" y2="45" stroke="currentColor" class="text-slate-200 dark:text-slate-700/60" stroke-width="1" stroke-dasharray="3 3" />
+            <line x1="12" y1="12" x2="208" y2="12" stroke="currentColor" class="text-slate-200 dark:text-slate-700/60" stroke-width="1" stroke-dasharray="3 3" />
+            <line x1="12" y1="78" x2="208" y2="12" stroke="currentColor" class="text-slate-300 dark:text-slate-600" stroke-width="1" stroke-dasharray="4 4" />
+            <path id="pressureCurveArea" d="" fill="rgba(99, 102, 241, 0.16)" />
+            <path id="pressureCurvePath" d="" fill="none" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </div>
+
+        <div>
+          <span class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Prova qui (applica solo ai nuovi tratti)</span>
+          <canvas id="pressureTestCanvas"
+                  class="w-full h-28 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  style="touch-action:none;cursor:crosshair;"></canvas>
+          <p class="text-[10px] text-slate-500 mt-1">Disegna con la penna per calibrare. I tratti già scritti sul quaderno restano invariati.</p>
+        </div>
+
+        <div class="flex items-center justify-between pb-1">
+          <button id="resetPressureBtn" type="button"
+                  class="text-xs text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold cursor-pointer">Ripristina default</button>
+          <button id="clearPressureBtn" type="button"
+                  class="text-xs text-slate-600 dark:text-slate-400 hover:text-rose-600 font-semibold cursor-pointer">Pulisci area</button>
+        </div>
+      </div>
+
+    </div>
+
     <div class="flex items-center justify-end space-x-2 px-6 py-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
-      <button id="cancelSettingsBtn"
-              class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs">Annulla</button>
-      <button id="confirmSettingsBtn"
-              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md">Salva</button>
+      <button id="cancelSettingsBtn" type="button"
+              class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs cursor-pointer">Annulla</button>
+      <button id="confirmSettingsBtn" type="button"
+              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-md cursor-pointer">Salva</button>
     </div>
 
   </div>

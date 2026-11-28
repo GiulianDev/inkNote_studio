@@ -37,7 +37,11 @@ import { invalidateClampCache } from '../viewport/transform.js';
 import {
   deletePage, movePage, addNewPage, scrollToPage
 } from '../editor/pages.js';
-import { resolveSidebarHeaderTop } from './sidebar-layout.js';
+import {
+  resolveSidebarViewportTop,
+  evaluateSidebarSwipeStart,
+  resolveSidebarSwipeDecision
+} from './sidebar-layout.js';
 
 const THUMB_DPR = 2;
 const THUMB_CSS_W = 120;
@@ -72,10 +76,12 @@ let _drawQueue = [];
 let _drawBatchRaf = null;
 let _drawBatchToken = 0;
 
-// Sync altezza header → top sidebar
+// Sync altezza header / dock mobile → top sidebar
 let _lastHeaderTopPx = null;
 let _syncTopRaf = null;
 let _headerResizeObserver = null;
+let _dockMutationObserver = null;
+let _suppressTabClickUntil = 0;
 
 // ============================================================
 // MOUNT + BOOTSTRAP
@@ -334,9 +340,24 @@ function _syncSidebarTop() {
   const header = document.getElementById('mainHeader');
   const sidebar = document.getElementById('pagesSidebar');
   if (!header || !sidebar) return;
-  const nextTop = resolveSidebarHeaderTop({
-    rect: header.getBoundingClientRect(),
+
+  const activeDock = document.querySelector('.ui-dock:not(.hidden)');
+  const dockHidden = document.body.classList.contains('dock-auto-hidden') || !activeDock;
+  const dockRect = !dockHidden ? activeDock.getBoundingClientRect() : null;
+  const dockVisible = Boolean(dockRect && dockRect.width > 0 && dockRect.height > 0);
+  const sidebarPosition = sidebar.dataset.position === 'right' ? 'right' : 'left';
+  const sidebarWidth = sidebar.getBoundingClientRect().width ||
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pages-sidebar-width')) ||
+    180;
+
+  const nextTop = resolveSidebarViewportTop({
+    headerRect: header.getBoundingClientRect(),
+    dockRect,
+    dockVisible,
     isCompactMode: document.body.classList.contains('compact-mode'),
+    sidebarPosition,
+    sidebarWidth,
+    viewportWidth: window.innerWidth || document.documentElement.clientWidth || 1024,
     lastTop: _lastHeaderTopPx
   });
   if (nextTop === null) return;
@@ -362,6 +383,24 @@ function _observeHeaderHeight() {
       _scheduleSyncSidebarTop();
     });
     _headerResizeObserver.observe(header);
+    document.querySelectorAll('.ui-dock').forEach((dockEl) => {
+      _headerResizeObserver.observe(dockEl);
+    });
+  }
+  if (typeof MutationObserver !== 'undefined' && !_dockMutationObserver) {
+    _dockMutationObserver = new MutationObserver(() => {
+      _scheduleSyncSidebarTop();
+    });
+    _dockMutationObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+    document.querySelectorAll('.ui-dock').forEach((dockEl) => {
+      _dockMutationObserver.observe(dockEl, {
+        attributes: true,
+        attributeFilter: ['class']
+      });
+    });
   }
   header.addEventListener('transitionend', (e) => {
     if (e.target !== header) return;
@@ -370,12 +409,120 @@ function _observeHeaderHeight() {
 }
 
 // ============================================================
-// BIND UI + SCROLL CON PENNA (STYLUS)
+// BIND UI + SWIPE DA BORDO / LINGUETTA + SCROLL CON PENNA (STYLUS)
 // ============================================================
+
+function _setupEdgeSwipe() {
+  let swipe = null;
+
+  const clearSwipe = () => {
+    swipe = null;
+  };
+
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    // Non interferire se libreria aperta o se si sta riordinando una miniatura
+    const libView = document.getElementById('libraryView');
+    if (libView && !libView.classList.contains('hidden')) return;
+    if (e.target?.closest?.('.page-thumb-drag-handle')) return;
+
+    const sidebar = document.getElementById('pagesSidebar');
+    const tab = document.getElementById('pagesSidebarTab');
+    if (!sidebar || !tab) return;
+
+    const startedOnTab = Boolean(e.target?.closest?.('#pagesSidebarTab'));
+    const startedInSidebar = Boolean(e.target?.closest?.('#pagesSidebar'));
+    const sidebarPosition = sidebar.dataset.position === 'right' ? 'right' : 'left';
+    const tabRect = tab.getBoundingClientRect();
+
+    const evalRes = evaluateSidebarSwipeStart({
+      clientX: e.clientX,
+      clientY: e.clientY,
+      viewportWidth: window.innerWidth || document.documentElement.clientWidth || 1024,
+      sidebarPosition,
+      sidebarOpen: _isOpen,
+      pointerType: e.pointerType || 'touch',
+      tabRect,
+      startedOnTab,
+      startedInSidebar
+    });
+
+    if (!evalRes.accept) {
+      swipe = null;
+      return;
+    }
+
+    swipe = {
+      pointerId: e.pointerId,
+      mode: evalRes.mode,
+      sidebarPosition,
+      startX: e.clientX,
+      startY: e.clientY,
+      startedOnTab
+    };
+  }, { capture: true, passive: true });
+
+  window.addEventListener('pointermove', (e) => {
+    if (!swipe) return;
+    if (e.pointerId !== swipe.pointerId) {
+      // Secondo dito (es. pinch) → annulla subito lo swipe sidebar
+      clearSwipe();
+      return;
+    }
+
+    const dx = e.clientX - swipe.startX;
+    const dy = e.clientY - swipe.startY;
+    const decision = resolveSidebarSwipeDecision({
+      mode: swipe.mode,
+      dx,
+      dy,
+      sidebarPosition: swipe.sidebarPosition
+    });
+
+    if (!decision) {
+      // Se l'utente sta chiaramente scorrendo in verticale, abbandona lo swipe
+      if (Math.abs(dy) > 22 && Math.abs(dy) > Math.abs(dx) * 1.4) {
+        clearSwipe();
+      }
+      return;
+    }
+
+    const wasOnTab = swipe.startedOnTab;
+    clearSwipe();
+    if (wasOnTab) _suppressTabClickUntil = performance.now() + 300;
+    _suppressClickUntil = performance.now() + 260;
+
+    if (decision === 'open') {
+      openPagesSidebar();
+    } else {
+      closePagesSidebar();
+    }
+
+    window.dispatchEvent(new CustomEvent('inknote:sidebar-swipe-committed', {
+      detail: { action: decision }
+    }));
+  }, { capture: true, passive: true });
+
+  window.addEventListener('pointerup', (e) => {
+    if (swipe && e.pointerId === swipe.pointerId) clearSwipe();
+  }, { capture: true, passive: true });
+
+  window.addEventListener('pointercancel', (e) => {
+    if (swipe && e.pointerId === swipe.pointerId) clearSwipe();
+  }, { capture: true, passive: true });
+}
 
 function _bindUI() {
   document.getElementById('pagesSidebarTab')
-    ?.addEventListener('click', togglePagesSidebar);
+    ?.addEventListener('click', (e) => {
+      if (performance.now() < _suppressTabClickUntil) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      togglePagesSidebar();
+    });
 
   document.getElementById('pagesSidebarCloseBtn')
     ?.addEventListener('click', () => closePagesSidebar());
@@ -388,6 +535,7 @@ function _bindUI() {
 
   _setupThumbDelegation();
   _setupPenScroll();
+  _setupEdgeSwipe();
 }
 
 function _resolveThumbIndex(thumb) {

@@ -3,7 +3,7 @@
 // ============================================================
 
 import { escapeHtml } from '../shared/core/utils.js';
-import { formatFolderCountLabel, formatFolderPathLabel } from './library-helpers.js';
+import { formatFolderCountLabel, formatFolderPathLabel, formatNotebookCardMeta } from './library-helpers.js';
 
 const LP_PRESS_MS = 680;
 const LP_MOVE_CANCEL_PX = 8;
@@ -209,11 +209,11 @@ export function createFolderCardElement({
             <span class="folder-cover-title">${escapeHtml(folder.name || 'Raccolta')}</span>
           </div>
 
-          ${parentLabel && !showTextBelow ? `<div class="folder-cover-path-pill">${escapeHtml(parentLabel)}</div>` : ''}
-
-          <div class="folder-badge">
-            <span>${escapeHtml(metaText)}</span>
-          </div>
+          ${!showTextBelow ? `
+          <div class="folder-cover-footer">
+            ${parentLabel ? `<span class="folder-cover-path-line">${escapeHtml(parentLabel)}</span>` : ''}
+            <span class="folder-cover-meta-line tabular-nums">${escapeHtml(metaText)}</span>
+          </div>` : ''}
         </div>
       </div>
 
@@ -221,7 +221,7 @@ export function createFolderCardElement({
       <div class="card-meta-below">
         ${parentLabel ? `<span class="card-path-tag truncate">${escapeHtml(parentLabel)}</span>` : ''}
         <h4 class="folder-name">${escapeHtml(folder.name)}</h4>
-        <span class="folder-meta">${escapeHtml(metaText)}</span>
+        <span class="folder-meta tabular-nums">${escapeHtml(metaText)}</span>
       </div>` : ''}
     `;
   }
@@ -357,6 +357,10 @@ export function createNotebookCardElement({
   card.dataset.nbTitle = nb.title || 'Quaderno';
   card.dataset.nbColor = coverColor;
 
+  const metaStr = formatNotebookCardMeta({ pageCount, formattedDate: coverDateStr });
+  const listMetaStr = formatNotebookCardMeta({ pageCount, formattedDate: dateStr });
+  const pattern = ['ruled', 'grid', 'dots', 'blank'].includes(nb.pattern) ? nb.pattern : 'ruled';
+
   if (viewMode === 'list') {
     card.innerHTML = `
       <button type="button" class="dnd-drag-handle is-list" title="Trascina quaderno" aria-label="Trascina quaderno">
@@ -371,7 +375,7 @@ export function createNotebookCardElement({
           <h4 class="notebook-title truncate">${escapeHtml(nb.title)}</h4>
           ${folderLabel ? `<span class="list-path-pill truncate">${escapeHtml(folderLabel)}</span>` : ''}
         </div>
-        <span class="notebook-date">${escapeHtml(String(pageCount))} pag. · ${escapeHtml(dateStr)}</span>
+        <span class="notebook-date tabular-nums">${escapeHtml(listMetaStr)}</span>
       </div>
       <div class="list-row-actions">
         <button type="button" class="favorite-nb-btn is-list ${isFav ? 'is-favorite' : ''}" data-fav-id="${safeId}"
@@ -385,9 +389,10 @@ export function createNotebookCardElement({
     `;
   } else {
     card.innerHTML = `
-      <div class="notebook-cover" style="background-color: ${safeCoverColor};">
-        <div class="notebook-spine"></div>
-        <div class="notebook-paper-edge"></div>
+      <div class="notebook-cover" data-pattern="${escapeHtml(pattern)}" style="background-color: ${safeCoverColor};">
+        <div class="notebook-spine" aria-hidden="true"></div>
+        <div class="notebook-paper-edge" aria-hidden="true"></div>
+        <div class="notebook-pattern-peek" aria-hidden="true"></div>
 
         <div class="selection-dot" aria-hidden="true">${CHECK_SVG}</div>
 
@@ -408,22 +413,18 @@ export function createNotebookCardElement({
           <span class="notebook-cover-title">${escapeHtml(nb.title || 'Quaderno')}</span>
         </div>
 
-        ${folderLabel && !showTextBelow ? `<div class="notebook-cover-path-pill">${escapeHtml(folderLabel)}</div>` : ''}
-
-        <div class="notebook-cover-date">
-          <span>${escapeHtml(coverDateStr)}</span>
-        </div>
-
-        <div class="notebook-badge">
-          <span>${escapeHtml(String(pageCount))} pag.</span>
-        </div>
+        ${!showTextBelow ? `
+        <div class="notebook-cover-footer">
+          ${folderLabel ? `<span class="notebook-cover-path-line">${escapeHtml(folderLabel)}</span>` : ''}
+          <span class="notebook-cover-meta-line tabular-nums">${escapeHtml(metaStr)}</span>
+        </div>` : ''}
       </div>
 
       ${showTextBelow ? `
       <div class="card-meta-below">
         ${folderLabel ? `<span class="card-path-tag truncate">${escapeHtml(folderLabel)}</span>` : ''}
         <h4 class="notebook-title">${escapeHtml(nb.title)}</h4>
-        <span class="notebook-date">${escapeHtml(dateStr)}</span>
+        <span class="notebook-date tabular-nums">${escapeHtml(metaStr)}</span>
       </div>` : ''}
     `;
   }

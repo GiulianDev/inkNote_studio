@@ -572,6 +572,116 @@ body.dark .hud-zoom-pct:hover {
   transform: translateZ(0);
 }
 
+.settings-tablist {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 12px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+
+body.dark .settings-tablist {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.settings-tab {
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 9px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.settings-tab:hover:not(.is-active) {
+  color: #0f172a;
+}
+
+.settings-tab.is-active {
+  background: #ffffff;
+  color: #4338ca;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+}
+
+body.dark .settings-tab {
+  color: #94a3b8;
+}
+
+body.dark .settings-tab:hover:not(.is-active) {
+  color: #f8fafc;
+}
+
+body.dark .settings-tab.is-active {
+  background: #0f172a;
+  color: #a5b4fc;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.settings-segmented {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 11px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+
+body.dark .settings-segmented {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.settings-seg-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.settings-seg-btn:hover:not(.is-active) {
+  color: #0f172a;
+}
+
+.settings-seg-btn.is-active {
+  background: #ffffff;
+  color: #4338ca;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(99, 102, 241, 0.22);
+}
+
+body.dark .settings-seg-btn {
+  color: #94a3b8;
+}
+
+body.dark .settings-seg-btn:hover:not(.is-active) {
+  color: #f8fafc;
+}
+
+body.dark .settings-seg-btn.is-active {
+  background: #0f172a;
+  color: #a5b4fc;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(129, 140, 248, 0.3);
+}
+
 /* ============================================================
    COMPONENTE MENU GLOBALE (.ui-menu / <ink-menu>)
    Stili unificati per tutti i dropdown/menu (Libreria + Editor)
@@ -1529,44 +1639,92 @@ body.dark .notebook-card:hover .notebook-cover {
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-/* Dorso (spine) */
+/* Dorso (spine) con solco di rilegatura */
 .notebook-spine {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 9px;
+  width: 12px;
+  z-index: 2;
   background: linear-gradient(
     to right,
-    rgba(0, 0, 0, 0.30) 0%,
-    rgba(0, 0, 0, 0.12) 55%,
-    rgba(255, 255, 255, 0.14) 100%
+    rgba(0, 0, 0, 0.34) 0%,
+    rgba(0, 0, 0, 0.14) 68%,
+    rgba(255, 255, 255, 0.18) 86%,
+    rgba(0, 0, 0, 0.10) 100%
   );
   pointer-events: none;
 }
 
-/* Sottile bordo fogli a destra */
+/* Sottile bordo fogli stratificati a destra */
 .notebook-paper-edge {
   position: absolute;
   right: 0;
-  top: 5px;
-  bottom: 5px;
-  width: 3px;
-  background: linear-gradient(
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  z-index: 2;
+  border-radius: 0 2px 2px 0;
+  background: repeating-linear-gradient(
     to left,
-    rgba(255, 255, 255, 0.34),
-    rgba(255, 255, 255, 0.08)
+    rgba(255, 255, 255, 0.48) 0,
+    rgba(255, 255, 255, 0.48) 1px,
+    rgba(15, 23, 42, 0.14) 1px,
+    rgba(15, 23, 42, 0.14) 2px
   );
   pointer-events: none;
+}
+
+/* Accenno grafico discreto del pattern fogli nell'angolo inferiore destro */
+.notebook-pattern-peek {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  width: 44%;
+  height: 28%;
+  z-index: 1;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0.34;
+  -webkit-mask-image: radial-gradient(circle at 100% 100%, #000 35%, transparent 92%);
+  mask-image: radial-gradient(circle at 100% 100%, #000 35%, transparent 92%);
+}
+
+.notebook-cover[data-pattern="ruled"] .notebook-pattern-peek {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 7px,
+    rgba(255, 255, 255, 0.55) 7px,
+    rgba(255, 255, 255, 0.55) 8px
+  );
+}
+
+.notebook-cover[data-pattern="grid"] .notebook-pattern-peek {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.42) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.42) 1px, transparent 1px);
+  background-size: 9px 9px;
+}
+
+.notebook-cover[data-pattern="dots"] .notebook-pattern-peek {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.62) 1px, transparent 1px);
+  background-size: 8px 8px;
+}
+
+.notebook-cover[data-pattern="blank"] .notebook-pattern-peek {
+  background: linear-gradient(135deg, transparent 52%, rgba(255, 255, 255, 0.22) 100%);
 }
 
 /* Etichetta centrale traslucida con bordo sottile singolo + titolo nitido */
 .notebook-cover-label,
 .folder-cover-label {
   position: absolute;
+  z-index: 2;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.11);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
   display: flex;
   pointer-events: none;
@@ -1574,7 +1732,7 @@ body.dark .notebook-card:hover .notebook-cover {
 }
 
 .notebook-cover-label {
-  left: 16%;
+  left: 17%;
   right: 11%;
   top: 25%;
   min-height: 48px;
@@ -1630,84 +1788,68 @@ body.dark .notebook-card:hover .notebook-cover {
   word-break: break-word;
 }
 
-.notebook-cover-path-pill,
-.folder-cover-path-pill {
+/* Footer integrato discreto (solo quando titoli sotto copertina sono disattivati) */
+.notebook-cover-footer,
+.folder-cover-footer {
   position: absolute;
-  right: 10px;
-  bottom: 30px;
-  font-size: 9px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.40);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  padding: 18px 10px 8px 16px;
+  background: linear-gradient(
+    to top,
+    rgba(15, 23, 42, 0.56) 0%,
+    rgba(15, 23, 42, 0.22) 60%,
+    transparent 100%
+  );
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   pointer-events: none;
 }
 
-.notebook-cover-path-pill {
-  left: 14px;
+.folder-cover-footer {
+  padding-left: 10px;
 }
 
-.folder-cover-path-pill {
-  left: 10px;
-}
-
-/* Badge date & contatori discreti in basso sulla copertina */
-.notebook-cover-date,
-.notebook-badge,
-.folder-badge {
-  position: absolute;
-  bottom: 7px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 9999px;
-  background: rgba(15, 23, 42, 0.44);
-  font-weight: 600;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  pointer-events: none;
-}
-
-.notebook-cover-date {
-  left: 14px;
-  max-width: calc(100% - 70px);
-  padding: 2px 6px;
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.94);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.notebook-badge,
-.folder-badge {
-  right: 7px;
-  padding: 2px 7px;
+.notebook-cover-path-line,
+.folder-cover-path-line {
   font-size: 9.5px;
-  color: rgba(255, 255, 255, 0.95);
-  max-width: calc(100% - 14px);
-}
-
-.folder-badge span {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.35);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.notebook-cover-meta-line,
+.folder-cover-meta-line {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.38);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Metadati puliti sotto la copertina / raccolta */
 .card-meta-below {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 0 2px;
+  gap: 2px;
+  padding: 2px 3px 0;
   min-width: 0;
 }
 
 .notebook-title,
 .folder-name {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.28;
+  letter-spacing: -0.01em;
   color: #0f172a;
   overflow: hidden;
   display: -webkit-box;
@@ -1723,8 +1865,9 @@ body.dark .folder-name {
 
 .notebook-date,
 .folder-meta {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
+  line-height: 1.25;
   color: #64748b;
 }
 
@@ -2055,24 +2198,22 @@ body.dark #libraryHeader.is-selection-mode #libraryLeadingBtn:hover {
   animation: libTitleSwap .24s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.lib-bar-btn {
-  --btn-end-opacity: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  height: 2.25rem;
-  border-radius: 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  flex-shrink: 0;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color .15s ease, color .15s ease, border-color .15s ease, transform .1s ease, opacity .15s ease;
-}
-
-.lib-bar-btn.hidden {
-  display: none;
+@layer components {
+  .lib-bar-btn {
+    --btn-end-opacity: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    height: 2.25rem;
+    border-radius: 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease, border-color .15s ease, transform .1s ease, opacity .15s ease;
+  }
 }
 
 .lib-bar-btn:active:not(:disabled) {
@@ -2149,9 +2290,11 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 }
 
 #libraryActionsSlot {
+  position: relative;
   display: grid;
   align-items: center;
-  width: 100%;
+  width: auto;
+  flex-shrink: 0;
   min-width: 0;
   max-width: 100%;
   overflow-x: clip;
@@ -2161,13 +2304,44 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 .lib-actions-layer {
   grid-area: 1 / 1;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
   gap: 0.375rem;
-  width: 100%;
+  width: auto;
   min-width: 0;
   max-width: 100%;
+}
+
+@media (max-width: 639px) {
+  #libraryLeadingBtn {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.75rem;
+  }
+
+  #libraryHeader.is-selection-mode {
+    flex-wrap: wrap;
+  }
+
+  #libraryHeader.is-selection-mode #libraryActionsSlot {
+    width: 100%;
+    flex-shrink: 1;
+  }
+
+  #libraryHeader.is-selection-mode .lib-actions-layer.is-selection {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  #pwaInstallBtn {
+    display: none;
+  }
+
+  #newNotebookBtn {
+    width: 2.25rem;
+    padding: 0;
+  }
 }
 
 @media (max-width: 419px) {
@@ -2181,7 +2355,8 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 
   .lib-bar-btn--secondary,
   .lib-bar-btn--icon,
-  #authBtn {
+  #authBtn,
+  #newNotebookBtn {
     width: 2.125rem;
     height: 2.125rem;
   }
@@ -2189,6 +2364,10 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
   .lib-bar-btn--primary,
   .lib-bar-btn--danger {
     padding: 0 0.5rem;
+  }
+
+  #newNotebookBtn {
+    padding: 0;
   }
 }
 
@@ -2219,6 +2398,7 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 }
 
 .lib-actions-layer.is-normal {
+  position: relative;
   opacity: 1;
   transform: translateX(0) scale(1);
   filter: blur(0px);
@@ -2228,8 +2408,12 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 }
 
 #libraryHeader.is-selection-mode .lib-actions-layer.is-normal {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: max-content;
   opacity: 0;
-  transform: translateX(-8px) scale(0.96);
+  transform: translateY(-50%) translateX(-8px) scale(0.96);
   filter: blur(2px);
   visibility: hidden;
   pointer-events: none;
@@ -2237,8 +2421,12 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 }
 
 .lib-actions-layer.is-selection {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: max-content;
   opacity: 0;
-  transform: translateX(8px) scale(0.96);
+  transform: translateY(-50%) translateX(8px) scale(0.96);
   filter: blur(2px);
   visibility: hidden;
   pointer-events: none;
@@ -2246,6 +2434,9 @@ body.dark .lib-bar-btn--icon:hover:not(:disabled) {
 }
 
 #libraryHeader.is-selection-mode .lib-actions-layer.is-selection {
+  position: relative;
+  top: auto;
+  right: auto;
   opacity: 1;
   transform: translateX(0) scale(1);
   filter: blur(0px);

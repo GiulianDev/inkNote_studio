@@ -16,7 +16,8 @@ import {
   collectNotebookIdsInSelection,
   collectSubtreeSummary,
   collectFoldersForExport,
-  computeLibraryControlsVisibility
+  computeLibraryControlsVisibility,
+  formatNotebookCardMeta
 } from './library-helpers.js';
 
 test('getFolderPath & formatFolderPathLabel build hierarchy and guard against cycles', () => {
@@ -273,5 +274,11 @@ test('computeLibraryControlsVisibility hides on scroll down, reveals on scroll u
   });
   assert.equal(noLongerOverflowing.hidden, false);
   assert.equal(noLongerOverflowing.changed, true);
+});
+
+test('formatNotebookCardMeta formats page count and date cleanly without pills', () => {
+  assert.equal(formatNotebookCardMeta({ pageCount: 4, formattedDate: '28 nov 26' }), '4 pag. · 28 nov 26');
+  assert.equal(formatNotebookCardMeta({ pageCount: 0, formattedDate: '—' }), '1 pag.');
+  assert.equal(formatNotebookCardMeta({}), '1 pag.');
 });
 

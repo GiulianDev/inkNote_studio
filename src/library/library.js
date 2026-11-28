@@ -46,7 +46,12 @@ import {
   toggleAppFullscreen
 } from '../shared/core/fullscreen.js';
 import { registerModal, isAnyModalOpen } from '../shared/components/modal.js';
-import { RELEASE_INFO } from '../shared/release/release-info.js';
+import { createFloatingMenu } from '../shared/components/floating-menu.js';
+import {
+  getPWAInstallState,
+  onPWAStatusChanged,
+  triggerPWAInstall
+} from '../shared/pwa/pwa.js';
 import { openReleaseModal, setReleaseNotebookCountProvider } from '../shared/release/release-modal.js';
 
 const COVER_COLOR_ACTIVE_CLASSES = ['ring-2', 'ring-indigo-500', 'ring-offset-2', 'scale-110'];
@@ -316,16 +321,12 @@ function _syncHeaderModeUI() {
     }
   }
 
-  const versionBadge = document.getElementById('libraryVersionBadge');
-  if (versionBadge) {
-    versionBadge.textContent = `v${RELEASE_INFO.version}`;
-  }
-
   if (!_selectionMode) {
     if (titleEl) titleEl.textContent = 'InkNote Library';
-    if (subtitleEl) subtitleEl.textContent = 'I tuoi blocchetti salvati in locale';
+    if (subtitleEl) subtitleEl.classList.add('hidden');
   } else if (subtitleEl) {
     subtitleEl.textContent = 'Tocca quaderni o raccolte';
+    subtitleEl.classList.remove('hidden');
   }
 }
 
@@ -1485,8 +1486,54 @@ export function bindLibraryUI() {
   document.getElementById('cancelNewNbBtn')?.addEventListener('click', closeNewNotebookModal);
 
   setReleaseNotebookCountProvider(() => _cachedNotebooks.length);
-  const versionBadge = document.getElementById('libraryVersionBadge');
-  if (versionBadge) versionBadge.textContent = `v${RELEASE_INFO.version}`;
+
+  // Menu mobile compatto ("Altro") per azioni secondarie
+  const mobileMoreBtn = document.getElementById('libraryMobileMoreBtn');
+  const mobileMenuPanel = document.getElementById('libraryMobileMenu');
+  if (mobileMoreBtn && mobileMenuPanel) {
+    const syncMobileInstallItem = () => {
+      const installItem = document.getElementById('libraryMobileInstallItem');
+      if (!installItem) return;
+      const st = getPWAInstallState();
+      const canShow = st.mode === 'prompt' || st.mode === 'ios-guide';
+      installItem.classList.toggle('hidden', !canShow);
+    };
+    const mobileMenuCtrl = createFloatingMenu({
+      id: 'libraryMobileMenu',
+      panel: mobileMenuPanel,
+      trigger: mobileMoreBtn,
+      align: 'end',
+      bindTriggerClick: true,
+      onOpen: () => {
+        syncMobileInstallItem();
+        const selectItem = mobileMenuPanel.querySelector('[data-lib-menu-action="select"]');
+        if (selectItem) {
+          const disabled = _cachedFolders.length === 0 && _cachedNotebooks.length === 0;
+          selectItem.disabled = disabled;
+          selectItem.classList.toggle('opacity-40', disabled);
+        }
+      }
+    });
+    onPWAStatusChanged(syncMobileInstallItem);
+    syncMobileInstallItem();
+
+    mobileMenuPanel.querySelectorAll('[data-lib-menu-action]').forEach((itemBtn) => {
+      itemBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = itemBtn.dataset.libMenuAction;
+        mobileMenuCtrl.close();
+        if (action === 'new-folder') _handleCreateFolder();
+        else if (action === 'select') _enterSelectionMode(null);
+        else if (action === 'import') document.getElementById('importFileInput')?.click();
+        else if (action === 'fullscreen') {
+          const next = toggleAppFullscreen();
+          showToast(next ? 'Schermo intero attivo' : 'Schermo intero disattivato', next ? '⛶' : '↩️');
+        } else if (action === 'install') {
+          triggerPWAInstall({ allowBrowserGuide: true });
+        }
+      });
+    });
+  }
 
   document.getElementById('libraryLeadingBtn')?.addEventListener('click', () => {
     if (_selectionMode) _exitSelectionMode();
@@ -1758,7 +1805,7 @@ export function bindLibraryUI() {
   document.addEventListener('click', (e) => {
     if (!_selectionMode) return;
     if (isAnyModalOpen()) return;
-    if (e.target.closest('.notebook-card, .folder-card, #libraryHeader, #libraryControlsWrap, #librarySelectionBar')) return;
+    if (e.target.closest('.notebook-card, .folder-card, #libraryHeader, #libraryControlsWrap, #librarySelectionBar, #libraryMobileMenu')) return;
     _exitSelectionMode();
   });
 

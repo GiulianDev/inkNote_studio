@@ -266,6 +266,11 @@ export function setupViewportGestures() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) onAppBackgrounded();
   });
+  window.addEventListener('inknote:sidebar-swipe-committed', () => {
+    _cancelCurrentGesture(true);
+    _clearTouchPointers(viewportEl);
+    abortCurrentDrawing();
+  });
 
   // Safety net globale se la penna viene sollevata fuori da #viewport
   const onGlobalPenEnd = (e) => {

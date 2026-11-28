@@ -14,8 +14,8 @@
   top: 50%;
   transform: translateY(-50%);
   z-index: 21;
-  width: 18px;
-  height: 64px;
+  width: 22px;
+  height: 68px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -23,10 +23,20 @@
   background: #f8fafc;
   color: #475569;
   border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
   padding: 0;
-  touch-action: manipulation;
+  touch-action: none;
   transition: left 0.18s ease, right 0.18s ease,
               background-color 0.12s, color 0.12s;
+}
+
+.pages-sidebar-tab::after {
+  content: '';
+  position: absolute;
+  top: -16px;
+  bottom: -16px;
+  left: -4px;
+  right: -12px;
 }
 
 .pages-sidebar-tab:hover {
@@ -38,6 +48,7 @@ body.dark .pages-sidebar-tab {
   background: #1e293b;
   color: #cbd5e1;
   border-color: #334155;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 body.dark .pages-sidebar-tab:hover {
@@ -46,8 +57,8 @@ body.dark .pages-sidebar-tab:hover {
 }
 
 .pages-sidebar-tab svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   pointer-events: none;
 }
 
@@ -57,7 +68,7 @@ body.dark .pages-sidebar-tab:hover {
 body.pages-sidebar-left .pages-sidebar-tab {
   left: 0; right: auto;
   border-left: none;
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 11px 11px 0;
 }
 body.pages-sidebar-left.pages-sidebar-open .pages-sidebar-tab {
   left: var(--pages-sidebar-width);
@@ -65,7 +76,11 @@ body.pages-sidebar-left.pages-sidebar-open .pages-sidebar-tab {
 body.pages-sidebar-right .pages-sidebar-tab {
   right: 0; left: auto;
   border-right: none;
-  border-radius: 8px 0 0 8px;
+  border-radius: 11px 0 0 11px;
+}
+body.pages-sidebar-right .pages-sidebar-tab::after {
+  left: -12px;
+  right: -4px;
 }
 body.pages-sidebar-right.pages-sidebar-open .pages-sidebar-tab {
   right: var(--pages-sidebar-width);
@@ -338,10 +353,7 @@ body.pages-sidebar-open.pages-sidebar-right #viewport {
   width: calc(100vw - var(--pages-sidebar-width));
 }
 
-/* Compact mode (schermo intero): la sidebar resta disponibile a tutta altezza */
-body.compact-mode .pages-sidebar {
-  top: 0;
-}
+/* Compact mode (schermo intero): la sidebar resta disponibile usando --pages-sidebar-header-height */
 body.compact-mode.pages-sidebar-open.pages-sidebar-left #viewport {
   margin-left: var(--pages-sidebar-width);
   width: calc(100vw - var(--pages-sidebar-width));
@@ -351,10 +363,15 @@ body.compact-mode.pages-sidebar-open.pages-sidebar-right #viewport {
   width: calc(100vw - var(--pages-sidebar-width));
 }
 
-/* Mobile */
+/* Mobile & Touch */
+@media (hover: none), (pointer: coarse) {
+  .pages-sidebar-tab { width: 24px; height: 74px; }
+}
+
 @media (max-width: 640px) {
-  :root { --pages-sidebar-width: 140px; }
-  .pages-sidebar-tab { width: 16px; height: 56px; }
+  :root { --pages-sidebar-width: 148px; }
+  .pages-sidebar-tab { width: 24px; height: 74px; }
+  .pages-sidebar-icon-btn { width: 28px; height: 28px; }
 }
 
 /* Print */

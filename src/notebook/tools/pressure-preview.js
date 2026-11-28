@@ -326,6 +326,13 @@ export function initSettingsPressurePreview() {
     requestAnimationFrame(_refreshPreview);
   });
 
+  on('settings:tab-changed', ({ tab } = {}) => {
+    if (tab !== 'ink') return;
+    _bindPreviewDom();
+    _refreshPreview();
+    requestAnimationFrame(_refreshPreview);
+  });
+
   onSettingsChanged(({ changed }) => {
     if (!_isSettingsModalVisible()) return;
     if (Array.isArray(changed) && changed.some((k) => PRESSURE_KEYS.has(k))) {

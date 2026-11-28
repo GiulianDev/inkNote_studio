@@ -20,12 +20,19 @@ import {
 } from '../core/app-settings.js';
 import { closeAllFloatingMenus } from '../components/floating-menu.js';
 import { registerModal } from '../components/modal.js';
+import {
+  getPWAInstallState,
+  onPWAStatusChanged,
+  resolveSettingsInstallPresentation,
+  triggerPWAInstall
+} from '../pwa/pwa.js';
 
 import settingsHtml from './settings-modal.html?raw';
 
 let _mounted = false;
 let _isOpen  = false;
 let _settingsModalCtrl = null;
+let _activeTab = 'appearance';
 /** @type {typeof DEFAULT_SETTINGS|null} */
 let _draftSnapshot = null;
 
@@ -58,6 +65,68 @@ export function mountSettingsModal() {
   _mounted = true;
 }
 
+function _setActiveSettingsTab(tabId = 'appearance') {
+  const validTabs = new Set(['appearance', 'input', 'ink']);
+  const nextTab = validTabs.has(tabId) ? tabId : 'appearance';
+  _activeTab = nextTab;
+
+  document.querySelectorAll('#settingsModal [data-settings-tab]').forEach((btn) => {
+    const isActive = btn.dataset.settingsTab === nextTab;
+    btn.classList.toggle('is-active', isActive);
+    btn.setAttribute('aria-selected', String(isActive));
+  });
+
+  document.querySelectorAll('#settingsModal [data-settings-panel]').forEach((panel) => {
+    const isVisible = panel.dataset.settingsPanel === nextTab;
+    panel.classList.toggle('hidden', !isVisible);
+  });
+
+  const body = document.querySelector('#settingsModal .overflow-y-auto');
+  if (body) body.scrollTop = 0;
+  emit('settings:tab-changed', { tab: nextTab });
+}
+
+function _syncSegmentedGroup(groupId, value) {
+  const input = document.getElementById(groupId);
+  if (input && value != null) input.value = String(value);
+  const group = document.querySelector(`#settingsModal [data-seg-group="${groupId}"]`);
+  if (!group) return;
+  group.querySelectorAll('[data-seg-value]').forEach((btn) => {
+    const active = btn.dataset.segValue === String(value);
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-checked', String(active));
+  });
+}
+
+function _syncSettingsPwaCard() {
+  const btn = document.getElementById('settingsPwaInstallBtn');
+  const desc = document.getElementById('settingsPwaStatusDesc');
+  if (!btn || !desc) return;
+
+  const ui = resolveSettingsInstallPresentation(getPWAInstallState());
+  btn.textContent = ui.label;
+  btn.disabled = ui.disabled;
+  desc.textContent = ui.description;
+
+  btn.classList.remove(
+    'bg-indigo-600', 'hover:bg-indigo-700', 'text-white', 'shadow-sm',
+    'bg-white', 'dark:bg-slate-800', 'text-slate-700', 'dark:text-slate-200',
+    'border', 'border-slate-300', 'dark:border-slate-600', 'hover:bg-slate-100', 'dark:hover:bg-slate-700',
+    'bg-emerald-100', 'dark:bg-emerald-900/40', 'text-emerald-700', 'dark:text-emerald-300'
+  );
+
+  if (ui.tone === 'installed') {
+    btn.classList.add('bg-emerald-100', 'dark:bg-emerald-900/40', 'text-emerald-700', 'dark:text-emerald-300');
+  } else if (ui.tone === 'primary') {
+    btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700', 'text-white', 'shadow-sm');
+  } else {
+    btn.classList.add(
+      'bg-white', 'dark:bg-slate-800', 'text-slate-700', 'dark:text-slate-200',
+      'border', 'border-slate-300', 'dark:border-slate-600', 'hover:bg-slate-100', 'dark:hover:bg-slate-700'
+    );
+  }
+}
+
 export function openSettingsModal() {
   closeAllFloatingMenus();
   mountSettingsModal();
@@ -68,11 +137,12 @@ export function openSettingsModal() {
   }
 
   const s = getSettings();
-  _setValue('settingTheme',            s.theme);
-  _setValue('settingPrintTheme',       s.printTheme);
-  _setValue('settingHandedness',       s.handedness);
-  _setValue('settingDockSize',         s.dockSize);
-  _setValue('settingPagesSidebarPosition', s.pagesSidebar?.position || 'left');
+  _syncSegmentedGroup('settingTheme', s.theme);
+  _syncSegmentedGroup('settingPrintTheme', s.printTheme);
+  _syncSegmentedGroup('settingHandedness', s.handedness);
+  _syncSegmentedGroup('settingDockSize', s.dockSize);
+  _syncSegmentedGroup('settingPagesSidebarPosition', s.pagesSidebar?.position || 'left');
+
   const autoHideEl = document.getElementById('settingAutoHideDock');
   if (autoHideEl) autoHideEl.checked = !!s.autoHideDock;
   const libTextEl = document.getElementById('settingLibraryShowTextBelow');
@@ -96,6 +166,8 @@ export function openSettingsModal() {
   }
 
   _refreshLabels();
+  _syncSettingsPwaCard();
+  _setActiveSettingsTab(_activeTab);
 
   const ctrl = _ensureModalController();
   const modal = document.getElementById('settingsModal');
@@ -124,9 +196,11 @@ export function closeSettingsModal({ cancel = true } = {}) {
 
 export function confirmSettings() {
   const s = getSettings();
+  const theme        = _getValue('settingTheme')      ?? s.theme;
   const printTheme   = _getValue('settingPrintTheme') ?? s.printTheme;
   const handedness   = _getValue('settingHandedness') ?? s.handedness;
   const dockSize     = _getValue('settingDockSize')   ?? s.dockSize;
+  const sidebarPos   = _getValue('settingPagesSidebarPosition') === 'right' ? 'right' : 'left';
   const autoHideEl   = document.getElementById('settingAutoHideDock');
   const autoHideDock = autoHideEl ? !!autoHideEl.checked : !!s.autoHideDock;
   const libTextEl    = document.getElementById('settingLibraryShowTextBelow');
@@ -141,9 +215,11 @@ export function confirmSettings() {
   const pressureSpeedWeight = _getIntValue('pressureSpeedWeightSlider', s.pressureSpeedWeight);
 
   updateSettings({
+    theme,
     printTheme,
     handedness,
     dockSize,
+    pagesSidebar: { ...s.pagesSidebar, position: sidebarPos },
     autoHideDock,
     libraryShowTextBelow,
     palmRejection,
@@ -189,21 +265,29 @@ function _bindAll() {
   if (_bound) return;
   _bound = true;
 
-  document.getElementById('settingTheme')
-    ?.addEventListener('change', (e) =>
-      updateSettings({ theme: e.target.value }, { persist: false }));
-
-  // Sidebar pagine: la posizione è global e persistita subito.
-  // La sidebar (feature/pages-sidebar) sottoscrive `settings:changed`
-  // e si riposiziona senza rebuild.
-  document.getElementById('settingPagesSidebarPosition')
-    ?.addEventListener('change', (e) => {
-      const pos = e.target.value === 'right' ? 'right' : 'left';
-      updateSettings(
-        { pagesSidebar: { ...getSettings().pagesSidebar, position: pos } },
-        { persist: true }
-      );
+  document.querySelectorAll('#settingsModal [data-settings-tab]').forEach((tabBtn) => {
+    tabBtn.addEventListener('click', () => {
+      _setActiveSettingsTab(tabBtn.dataset.settingsTab);
     });
+  });
+
+  document.querySelectorAll('#settingsModal [data-seg-group]').forEach((groupEl) => {
+    const groupId = groupEl.dataset.segGroup;
+    groupEl.querySelectorAll('[data-seg-value]').forEach((segBtn) => {
+      segBtn.addEventListener('click', () => {
+        const val = segBtn.dataset.segValue;
+        _syncSegmentedGroup(groupId, val);
+        if (groupId === 'settingTheme') {
+          updateSettings({ theme: val }, { persist: false });
+        } else if (groupId === 'settingPagesSidebarPosition') {
+          updateSettings(
+            { pagesSidebar: { ...getSettings().pagesSidebar, position: val === 'right' ? 'right' : 'left' } },
+            { persist: true }
+          );
+        }
+      });
+    });
+  });
 
   document.getElementById('settingAutoHideDock')
     ?.addEventListener('change', (e) => {
@@ -245,8 +329,18 @@ function _bindAll() {
     _setText('scrollSensitivityValue', e.target.value);
   });
 
+  document.getElementById('settingsPwaInstallBtn')?.addEventListener('click', async () => {
+    await triggerPWAInstall({ allowBrowserGuide: true });
+    _syncSettingsPwaCard();
+  });
+
+  onPWAStatusChanged(() => {
+    if (_isOpen) _syncSettingsPwaCard();
+  });
+
   document.getElementById('confirmSettingsBtn')?.addEventListener('click', confirmSettings);
   document.getElementById('cancelSettingsBtn') ?.addEventListener('click', () => closeSettingsModal());
+  document.getElementById('closeSettingsBtn')  ?.addEventListener('click', () => closeSettingsModal());
   document.getElementById('resetPressureBtn')  ?.addEventListener('click', _resetPressureDefaults);
   document.getElementById('settingsHelpBtn')   ?.addEventListener('click', () => {
     emit('help:open', { tab: 'guide' });

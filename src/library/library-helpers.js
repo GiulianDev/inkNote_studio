@@ -71,6 +71,16 @@ export function formatFolderCountLabel(stat) {
   return parts.length > 0 ? parts.join(' · ') : 'Vuota';
 }
 
+/**
+ * Formatta la riga di metadati compatta per un quaderno (es. "3 pag. · 28 nov 26").
+ */
+export function formatNotebookCardMeta({ pageCount = 1, formattedDate = '' } = {}) {
+  const safeCount = Math.max(1, Number.isFinite(Number(pageCount)) ? Math.floor(Number(pageCount)) : 1);
+  const countLabel = `${safeCount} pag.`;
+  const datePart = String(formattedDate || '').trim();
+  return datePart && datePart !== '—' ? `${countLabel} · ${datePart}` : countLabel;
+}
+
 export function compareNotebooks(a, b, sortBy, sortDir) {
   const dir = sortDir === 'asc' ? 1 : -1;
   let cmp = 0;
