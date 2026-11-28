@@ -2,22 +2,33 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.2.6",
-  "builtAt": "2026-11-28T13:32:35.555Z",
+  "version": "0.2.7",
+  "builtAt": "2026-11-28T14:09:32.566Z",
   "date": "2026-11-28",
   "currentNotes": [
-    "**Redesign & Drag Intuitivo Annulla / Ripristina (`notebook-page.html`, `style.css`, `ui-bindings.js`, `hud-layout.js`, `shortcuts-catalog.js`)**: uniformata la grafica di `#undoRedoContainer` allo stile `.ui-dock` in tema chiaro e scuro (senza grip laterale) con trascinamento immediato da qualsiasi punto del pannello, anche sopra i pulsanti disabilitati, oltre al fallback a pressione breve.",
-    "**Posizionamento adattivo HUD & Controlli Zoom (`hud-layout.js`, `ui-bindings.js`, `pages-sidebar.js`, `pages.js`, `keyboard.js`, `style.css`)**: spostati dinamicamente `#undoRedoContainer` e `#zoomBadge` quando la sidebar pagine sinistra o destra è aperta (e sotto il dock su smartphone) per evitare ogni sovrapposizione; esteso il badge zoom a controlli `− / 100% / +`.",
-    "**Spazio iniziale pagina sotto il dock (`editor.js`, `pages.js`, `hud-layout.js`)**: calcolato il margine superiore utile sotto `#dockWriting` all'apertura del quaderno, al centramento, al reset zoom e all'aggiunta/navigazione pagine per non nascondere il bordo superiore del primo foglio.",
-    "**Icone SVG uniformi (1.75px) & Toast silenziosi (`ui-icons.js`, `utils.js`, `gestures.js`, `library.js`, `library-page.html`, `settings-modal.html`, `backup-import.js`, `index.html`)**: sostituite le emoji OS con icone SVG monocromatiche coerenti in toast, indicatore pull-to-add-page, barra zoom, stati vuoti libreria, intestazioni Impostazioni e dialog conflitti; rimossi i toast superflui su apertura quaderno e reset zoom."
+    "**Pulsante \"Installa come App\" nelle Impostazioni (`pwa.js`, `settings-modal.html`, `settings-modal.js`)**: aggiunta una card dedicata nel pannello Impostazioni con rilevamento automatico dello stato (prompt nativo su Chromium/Edge/Android, guida rapida iOS/iPadOS Safari, stato già installato in modalità app o istruzioni browser).",
+    "**Modale Impostazioni a tab e segmented control (`settings-modal.html`, `settings-modal.js`, `pressure-preview.js`, `style.css`)**: aggiunto pulsante di chiusura `×`, suddivisione in tre tab (`Aspetto`, `Input & Penna`, `Inchiostro`) e sostituzione dei `<select>` con segmented control visivi (`Tema`, `Tema Stampa / PDF`, `Mano Dominante`, `Dimensione Dock`, `Sidebar Pagine`), mantenendo sincronizzata l'anteprima curva pressione al cambio tab.",
+    "**Copertine editoriali e metadati puliti (`app-settings.js`, `library-cards.js`, `library-helpers.js`, `style.css`)**: attivati di default titoli e metadati sotto copertina con `tabular-nums`, eliminate le capsule scure sovrapposte alle copertine, migliorato dorso e bordo fogli con accenno discreto del pattern fogli (`ruled`, `grid`, `dots`, `blank`) e footer sfumato opzionale.",
+    "**Header Libreria pulito & layout mobile compatto (`library-page.html`, `library.js`, `style.css`)**: rimossi badge versione statico e sottotitolo ridondante dall'intestazione principale (info release accessibili da logo/titolo); compattata l'intestazione su smartphone (`< 640px`) in una singola riga con menu contestuale `<ink-menu id=\"libraryMobileMenu\">` per azioni secondarie (*Nuova Raccolta*, *Seleziona*, *Importa*, *Schermo intero*, *Installa come app*)."
   ],
-  "notesSourceVersion": "0.2.6",
-  "hasExactChangelog": true,
+  "notesSourceVersion": "0.2.11",
+  "hasExactChangelog": false,
   "releases": [
+    {
+      "version": "0.2.11",
+      "date": "2026-11-28",
+      "items": [
+        "**Pulsante \"Installa come App\" nelle Impostazioni (`pwa.js`, `settings-modal.html`, `settings-modal.js`)**: aggiunta una card dedicata nel pannello Impostazioni con rilevamento automatico dello stato (prompt nativo su Chromium/Edge/Android, guida rapida iOS/iPadOS Safari, stato già installato in modalità app o istruzioni browser).",
+        "**Modale Impostazioni a tab e segmented control (`settings-modal.html`, `settings-modal.js`, `pressure-preview.js`, `style.css`)**: aggiunto pulsante di chiusura `×`, suddivisione in tre tab (`Aspetto`, `Input & Penna`, `Inchiostro`) e sostituzione dei `<select>` con segmented control visivi (`Tema`, `Tema Stampa / PDF`, `Mano Dominante`, `Dimensione Dock`, `Sidebar Pagine`), mantenendo sincronizzata l'anteprima curva pressione al cambio tab.",
+        "**Copertine editoriali e metadati puliti (`app-settings.js`, `library-cards.js`, `library-helpers.js`, `style.css`)**: attivati di default titoli e metadati sotto copertina con `tabular-nums`, eliminate le capsule scure sovrapposte alle copertine, migliorato dorso e bordo fogli con accenno discreto del pattern fogli (`ruled`, `grid`, `dots`, `blank`) e footer sfumato opzionale.",
+        "**Header Libreria pulito & layout mobile compatto (`library-page.html`, `library.js`, `style.css`)**: rimossi badge versione statico e sottotitolo ridondante dall'intestazione principale (info release accessibili da logo/titolo); compattata l'intestazione su smartphone (`< 640px`) in una singola riga con menu contestuale `<ink-menu id=\"libraryMobileMenu\">` per azioni secondarie (*Nuova Raccolta*, *Seleziona*, *Importa*, *Schermo intero*, *Installa come app*)."
+      ]
+    },
     {
       "version": "0.2.6",
       "date": "2026-11-28",
       "items": [
+        "**Sidebar Pagine mobile senza collisioni e apertura con swipe (`pages-sidebar.js`, `pages-sidebar.css`, `sidebar-layout.js`, `gestures.js`)**: posizionato dinamicamente il bordo superiore della sidebar sotto alla toolbar contestuale su schermi stretti per mantenere sempre accessibile il tasto `+` (Nuova pagina), ampliata l'area touch della linguetta laterale (`24×74px` + hit-area estesa) e introdotto lo swipe da bordo/linguetta verso l'interno per aprire (e verso l'esterno per chiudere) la sidebar.",
         "**Redesign & Drag Intuitivo Annulla / Ripristina (`notebook-page.html`, `style.css`, `ui-bindings.js`, `hud-layout.js`, `shortcuts-catalog.js`)**: uniformata la grafica di `#undoRedoContainer` allo stile `.ui-dock` in tema chiaro e scuro (senza grip laterale) con trascinamento immediato da qualsiasi punto del pannello, anche sopra i pulsanti disabilitati, oltre al fallback a pressione breve.",
         "**Posizionamento adattivo HUD & Controlli Zoom (`hud-layout.js`, `ui-bindings.js`, `pages-sidebar.js`, `pages.js`, `keyboard.js`, `style.css`)**: spostati dinamicamente `#undoRedoContainer` e `#zoomBadge` quando la sidebar pagine sinistra o destra è aperta (e sotto il dock su smartphone) per evitare ogni sovrapposizione; esteso il badge zoom a controlli `− / 100% / +`.",
         "**Spazio iniziale pagina sotto il dock (`editor.js`, `pages.js`, `hud-layout.js`)**: calcolato il margine superiore utile sotto `#dockWriting` all'apertura del quaderno, al centramento, al reset zoom e all'aggiunta/navigazione pagine per non nascondere il bordo superiore del primo foglio.",
