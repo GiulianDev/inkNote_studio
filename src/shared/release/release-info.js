@@ -2,8 +2,8 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.2.8",
-  "builtAt": "2026-11-28T16:11:56.105Z",
+  "version": "0.2.9",
+  "builtAt": "2026-11-28T16:13:49.247Z",
   "date": "2026-11-28",
   "currentNotes": [
     "**Fix Sync Cloud & Chunk Transition (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`)**: rimossa l'invocazione doppia residua su `withCrossTabSyncLock` in `runManualCloudSync` (che causava `TypeError: ... is not a function`), corretto `prevChunkCount` nel passaggio di una pagina da documento singolo a chunked e normalizzato il formato errore Auth in `_formatSyncError`.",
@@ -11,7 +11,7 @@ export const RELEASE_INFO = Object.freeze({
     "**Configurazione Firebase unificata & sanitizzazione env (`sharing-helpers.js`, `firebase.js`, `.gitignore`)**: aggiunta sanitizzazione automatica di virgolette/punti e virgola accidentali sulle variabili `VITE_FIREBASE_*` e priorità unificata a `VITE_FIREBASE_*` in tutti gli ambienti (preview AI Studio, sviluppo locale PC e build/deploy esterni, con fallback automatico su `firebase-applet-config.json` e su database `(default)` se `VITE_FIREBASE_DATABASE_ID` punta a un vecchio DB AI Studio); aggiunta `dev-dist` a `.gitignore`."
   ],
   "notesSourceVersion": "0.2.8",
-  "hasExactChangelog": true,
+  "hasExactChangelog": false,
   "releases": [
     {
       "version": "0.2.8",
