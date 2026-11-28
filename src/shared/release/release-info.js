@@ -2,18 +2,26 @@
 // NON modificare manualmente: viene rigenerato ad ogni `npm run build`.
 
 export const RELEASE_INFO = Object.freeze({
-  "version": "0.2.7",
-  "builtAt": "2026-11-28T14:09:32.566Z",
+  "version": "0.2.8",
+  "builtAt": "2026-11-28T15:58:38.051Z",
   "date": "2026-11-28",
   "currentNotes": [
-    "**Pulsante \"Installa come App\" nelle Impostazioni (`pwa.js`, `settings-modal.html`, `settings-modal.js`)**: aggiunta una card dedicata nel pannello Impostazioni con rilevamento automatico dello stato (prompt nativo su Chromium/Edge/Android, guida rapida iOS/iPadOS Safari, stato già installato in modalità app o istruzioni browser).",
-    "**Modale Impostazioni a tab e segmented control (`settings-modal.html`, `settings-modal.js`, `pressure-preview.js`, `style.css`)**: aggiunto pulsante di chiusura `×`, suddivisione in tre tab (`Aspetto`, `Input & Penna`, `Inchiostro`) e sostituzione dei `<select>` con segmented control visivi (`Tema`, `Tema Stampa / PDF`, `Mano Dominante`, `Dimensione Dock`, `Sidebar Pagine`), mantenendo sincronizzata l'anteprima curva pressione al cambio tab.",
-    "**Copertine editoriali e metadati puliti (`app-settings.js`, `library-cards.js`, `library-helpers.js`, `style.css`)**: attivati di default titoli e metadati sotto copertina con `tabular-nums`, eliminate le capsule scure sovrapposte alle copertine, migliorato dorso e bordo fogli con accenno discreto del pattern fogli (`ruled`, `grid`, `dots`, `blank`) e footer sfumato opzionale.",
-    "**Header Libreria pulito & layout mobile compatto (`library-page.html`, `library.js`, `style.css`)**: rimossi badge versione statico e sottotitolo ridondante dall'intestazione principale (info release accessibili da logo/titolo); compattata l'intestazione su smartphone (`< 640px`) in una singola riga con menu contestuale `<ink-menu id=\"libraryMobileMenu\">` per azioni secondarie (*Nuova Raccolta*, *Seleziona*, *Importa*, *Schermo intero*, *Installa come app*)."
+    "**Fix Sync Cloud & Chunk Transition (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`)**: rimossa l'invocazione doppia residua su `withCrossTabSyncLock` in `runManualCloudSync` (che causava `TypeError: ... is not a function`), corretto `prevChunkCount` nel passaggio di una pagina da documento singolo a chunked e normalizzato il formato errore Auth in `_formatSyncError`.",
+    "**Stato copia cloud su nuovo dispositivo (`sync-cloud.js`, `sync-ui.js`, `sync-helpers.js`)**: introdotto controllo leggero dei soli metadati (`peekCloudSyncInventory`) quando il dispositivo corrente non ha ancora sincronizzato (`Mai su questo dispositivo`), mostrando chiaramente se esistono già quaderni e raccolte salvati nel cloud pronti per il download.",
+    "**Accesso Google in preview AI Studio & sanitizzazione env (`sharing-helpers.js`, `firebase.js`)**: aggiunta sanitizzazione automatica di virgolette/punti e virgola accidentali sulle variabili `VITE_FIREBASE_*` e selezione automatica di `firebase-applet-config.json` sugli host di anteprima AI Studio (`ais-dev`/`ais-pre`/`localhost`), preservando le variabili `VITE_FIREBASE_*` per i build/deploy esterni."
   ],
-  "notesSourceVersion": "0.2.11",
-  "hasExactChangelog": false,
+  "notesSourceVersion": "0.2.8",
+  "hasExactChangelog": true,
   "releases": [
+    {
+      "version": "0.2.8",
+      "date": "2026-11-28",
+      "items": [
+        "**Fix Sync Cloud & Chunk Transition (`sync-cloud.js`, `sync-helpers.js`, `sync-ui.js`)**: rimossa l'invocazione doppia residua su `withCrossTabSyncLock` in `runManualCloudSync` (che causava `TypeError: ... is not a function`), corretto `prevChunkCount` nel passaggio di una pagina da documento singolo a chunked e normalizzato il formato errore Auth in `_formatSyncError`.",
+        "**Stato copia cloud su nuovo dispositivo (`sync-cloud.js`, `sync-ui.js`, `sync-helpers.js`)**: introdotto controllo leggero dei soli metadati (`peekCloudSyncInventory`) quando il dispositivo corrente non ha ancora sincronizzato (`Mai su questo dispositivo`), mostrando chiaramente se esistono già quaderni e raccolte salvati nel cloud pronti per il download.",
+        "**Accesso Google in preview AI Studio & sanitizzazione env (`sharing-helpers.js`, `firebase.js`)**: aggiunta sanitizzazione automatica di virgolette/punti e virgola accidentali sulle variabili `VITE_FIREBASE_*` e selezione automatica di `firebase-applet-config.json` sugli host di anteprima AI Studio (`ais-dev`/`ais-pre`/`localhost`), preservando le variabili `VITE_FIREBASE_*` per i build/deploy esterni."
+      ]
+    },
     {
       "version": "0.2.11",
       "date": "2026-11-28",
